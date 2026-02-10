@@ -1,579 +1,435 @@
 ================================================================================
          PLANO DE ETAPAS DE DESENVOLVIMENTO - SISTEMA DE RESTAURAÇÃO
               Operador Digital de Atendimento Multi-Unidade
-                        Data: 09 de Fevereiro de 2026
+                        Data: 10 de Fevereiro de 2026
+                          🔄 REORGANIZADO - BACKEND FIRST
 ================================================================================
 
-METODOLOGIA:
-Cada etapa DEVE ser completada, testada e aprovada antes de avançar.
-Cada etapa gera um relatório técnico (.txt) com decisões e resultados.
+⚠️  MUDANÇA DE ESTRATÉGIA - LEIA COM ATENÇÃO ⚠️
+===============================================
+
+Este projeto está em FASE DE BACKEND PURO.
+Nenhuma interface gráfica (UI), mobile ou web deve ser considerada agora.
+
+O sistema é um MOTOR OPERACIONAL para ambientes de consumo humano
+(restaurantes, bares, hotéis, discotecas), onde o principal problema
+não é visual, mas sim CAOS OPERACIONAL, concorrência e falta de
+rastreabilidade.
+
+PRINCÍPIOS FUNDAMENTAIS:
+→ Backend é a ÚNICA fonte de verdade
+→ Organiza pessoas e processos
+→ Funciona corretamente mesmo em ambientes caóticos
+→ Independente de qualquer UI futura
+→ Domínio > Controller > Infraestrutura
+→ Services pequenos, testáveis e previsíveis
+→ Regras explícitas, nunca implícitas
 
 
 ════════════════════════════════════════════════════════════════════════════════
-ETAPA 01 - ANÁLISE ARQUITETURAL COMPLETA
+ESTADO ATUAL - JÁ IMPLEMENTADO
 ════════════════════════════════════════════════════════════════════════════════
-STATUS: ✅ CONCLUÍDA
 
-OBJETIVO:
-Avaliar estrutura existente, identificar gaps críticos e definir roadmap.
+✅ ETAPA 01 - ANÁLISE ARQUITETURAL COMPLETA
+   • Avaliação de estrutura existente
+   • Identificação de gaps críticos
+   • Definição de roadmap
+   • Aderência: 41% aos princípios arquiteturais
 
-ATIVIDADES:
-• Análise de aderência à Clean Architecture
-• Avaliação de preparação para concorrência
-• Identificação de lacunas no modelo de domínio
-• Mapeamento de vulnerabilidades de segurança
-• Definição de estratégia de evolução
+✅ ETAPA 02 - FUNDAÇÕES DE CONCORRÊNCIA E AUDITORIA
+   • @Version em todas entities críticas
+   • BaseEntity com createdBy/updatedBy
+   • AuditorAware com SecurityContext
+   • GlobalExceptionHandler para OptimisticLockException
+   • Testes de concorrência automatizados
 
-ARTEFATOS GERADOS:
-✓ ANALISE_ARQUITETURA_ETAPA_01.txt
+✅ ETAPA 03 - MODELO DE DOMÍNIO OPERACIONAL
+   • UnidadeDeConsumo (refatorado de Mesa)
+   • SubPedido com status independente
+   • ItemSubPedido
+   • Cozinha e UnidadeAtendimento
+   • TipoCozinha e TipoUnidadeAtendimento (enums)
+   • Roteamento automático de SubPedidos
+   • Load balancing entre cozinhas
+
+✅ ETAPA 04 - EVENT LOG E MÁQUINA DE ESTADOS
+   • PedidoEventLog (imutável)
+   • SubPedidoEventLog (com métricas de tempo)
+   • EventLogService (16 métodos)
+   • 17 queries especializadas
+   • 15 endpoints REST para análise
+   • Rastreabilidade total
+
+✅ ETAPA 05 - SEGURANÇA JWT + RBAC
+   • Spring Security configurado
+   • JWT tokens (access 24h + refresh 7d)
+   • 5 roles hierárquicos: CLIENTE → ATENDENTE → GERENTE → COZINHA → ADMIN
+   • @PreAuthorize em endpoints críticos
+   • User entity com UserDetails
+   • AuditorAware integrado
+
+✅ ETAPA 06 - QR CODE SEGURO COM ZXING
+   • QrCodeToken entity com UUID único
+   • 3 tipos: MESA (24h), ENTREGA (30min), PAGAMENTO (1h)
+   • 4 status: ATIVO, USADO, EXPIRADO, CANCELADO
+   • ZXing 3.5.3 para geração de imagens PNG
+   • 3 jobs agendados (expiração, renovação, limpeza)
+   • 8 endpoints REST
+   • Validação automática de expiração
 
 RESULTADO:
-Sistema possui fundações sólidas (41%) mas com gaps críticos em:
-- Concorrência (sem @Version)
-- Modelo de domínio (falta SubPedido)
-- Segurança (JWT/RBAC não implementados)
-- Auditoria (sem event log)
+• 107 arquivos Java compilados
+• ~15.000 linhas de código
+• BUILD SUCCESS
+• Sistema operacional com fundações sólidas
 
 
 ════════════════════════════════════════════════════════════════════════════════
-ETAPA 02 - FUNDAÇÕES DE CONCORRÊNCIA E AUDITORIA
+NOVA ORDEM DE DESENVOLVIMENTO
 ════════════════════════════════════════════════════════════════════════════════
-STATUS: ✅ CONCLU
 
-ÍDA
+A ordem foi REORGANIZADA para focar no MOTOR OPERACIONAL do backend
+antes de qualquer camada de apresentação.
+
+
+════════════════════════════════════════════════════════════════════════════════
+ETAPA PRIORITÁRIA 1 — MOTOR OPERACIONAL DE PEDIDOS
+════════════════════════════════════════════════════════════════════════════════
+STATUS: 🔵 PRÓXIMA ETAPA
 
 OBJETIVO:
-Proteger sistema contra race conditions e implementar auditoria completa.
+Definir, validar e implementar o ciclo de vida completo do pedido
+exclusivamente no BACKEND. Criar máquina de estados robusta que
+organiza o caos operacional sem depender de UI.
+
+CONTEXTO:
+Pedidos em ambientes reais enfrentam:
+• Múltiplos atores (cliente, garçom, cozinha, balcão)
+• Concorrência (vários garçons, várias cozinhas)
+• Interrupções (cancelamentos, mudanças de prioridade)
+• Caos operacional (falta de comunicação, atrasos)
+
+O backend DEVE organizar este caos através de regras explícitas.
 
 ATIVIDADES:
-• Adicionar @Version em todas entities críticas (Pedido, Mesa, SubPedido)
-• Adicionar campos createdBy e modifiedBy em BaseEntity
-• Configurar AuditorAware para capturar usuário logado
-• Implementar tratamento de OptimisticLockException
-• Criar testes de concorrência automatizados
-• Documentar estratégias de retry
+□ Revisar estados atuais de SubPedido e Pedido
+□ Definir estados oficiais da máquina de estados:
+  • CRIADO - Pedido registrado, aguardando confirmação
+  • PENDENTE - Confirmado, aguardando início de preparação
+  • EM_PREPARACAO - Sendo preparado pela cozinha
+  • PRONTO - Preparado, aguardando retirada/entrega
+  • EM_ENTREGA - Sendo entregue ao cliente (garçom pegou)
+  • ENTREGUE - Entregue ao cliente (confirmado)
+  • CANCELADO - Cancelado (com motivo obrigatório)
 
-ARTEFATOS GERADOS:
-✓ BaseEntity.java (refatorado)
-✓ AuditorConfig.java (novo)
-✓ GlobalExceptionHandler.java (handler OptimisticLockException)
-✓ ConcurrencyTest.java (novo)
-✓ SistemaRestauracaoApplication.java (refatorado)
+□ Definir transições válidas e BLOQUEAR transições inválidas:
+  • CRIADO → PENDENTE (automático ou manual)
+  • CRIADO → CANCELADO (apenas GERENTE/ADMIN)
+  • PENDENTE → EM_PREPARACAO (cozinha assume)
+  • PENDENTE → CANCELADO (apenas GERENTE/ADMIN)
+  • EM_PREPARACAO → PRONTO (cozinha finaliza)
+  • EM_PREPARACAO → CANCELADO (apenas GERENTE/ADMIN com justificativa)
+  • PRONTO → EM_ENTREGA (garçom assume)
+  • EM_ENTREGA → ENTREGUE (garçom confirma)
+  • EM_ENTREGA → PRONTO (devolução - item rejeitado pelo cliente)
+  • PROIBIDO: ENTREGUE → qualquer estado (terminal)
+  • PROIBIDO: CANCELADO → qualquer estado (terminal)
 
-RESULTADO:
-Sistema agora protegido contra race conditions com @Version
-Auditoria completa implementada (createdBy/modifiedBy)
-4 testes automatizados validam concorrência
+□ Criar StateMachine ou validator no Service layer
+□ Implementar validações de permissão por role:
+  • CLIENTE: pode criar, não pode alterar estados
+  • COZINHA: PENDENTE → EM_PREPARACAO → PRONTO
+  • ATENDENTE (garçom): PRONTO → EM_ENTREGA → ENTREGUE
+  • GERENTE/ADMIN: pode cancelar em qualquer estado (exceto terminais)
 
-TEMPO ESTIMADO: 2-3 dias
-COMPLEXIDADE: MÉDIA
-RISCO: BAIXO
+□ Implementar regras de negócio:
+  • Cancelamento EXIGE motivo (campo obrigatório)
+  • SubPedido só pode ser cancelado se não estiver PRONTO ou além
+  • Pedido completo só é ENTREGUE se TODOS SubPedidos estão ENTREGUE
+  • Mudança de estado SEMPRE gera EventLog
+  • Mudança de estado SEMPRE atualiza @Version (concorrência)
+  • Tentativa de transição inválida lança BusinessException clara
 
+□ Implementar método de validação central:
+  • SubPedidoService.validarTransicao(estadoAtual, estadoNovo, role)
+  • Retorna: sucesso ou exceção explicativa
+  • Centraliza TODA lógica de transição
 
-════════════════════════════════════════════════════════════════════════════════
-ETAPA 03 - MODELO DE DOMÍNIO: SUBPEDIDO, COZINHA E UNIDADE DE ATENDIMENTO
-════════════════════════════════════════════════════════════════════════════════
-STATUS: ✅ CONCLUÍDA
+□ Criar testes automatizados de transições:
+  • Transições válidas DEVEM funcionar
+  • Transições inválidas DEVEM ser bloqueadas
+  • Permissões DEVEM ser respeitadas
+  • Concorrência DEVE ser tratada
 
-OBJETIVO:
-Implementar conceito de SubPedido permitindo gestão independente por 
-unidade de preparação (cozinha, bar, confeitaria).
+□ Garantir idempotência:
+  • Marcar como PRONTO quando já está PRONTO: não faz nada, retorna sucesso
+  • Marcar como ENTREGUE quando já está ENTREGUE: não faz nada
+  • Evita erros em retries e duplicações de rede
 
-ATIVIDADES:
-✓ Criar entity SubPedido com status independente
-✓ Criar entity Cozinha e UnidadeAtendimento
-✓ Refatorar relacionamento: Pedido → SubPedido → ItemPedido
-✓ Implementar lógica de agrupamento automático por categoria
-✓ Criar service SubPedidoService
-✓ Atualizar PedidoService para trabalhar com SubPedidos
-✓ Criação automática de SubPedidos com roteamento inteligente
-✓ Atualizar DTOs e Controllers
-✓ Renomear Mesa para UnidadeDeConsumo (conceito melhor)
+ARTEFATOS A GERAR/REFATORAR:
+□ StatusSubPedido.java (refatorado - estados oficiais)
+□ StatusPedido.java (refatorado - estados oficiais)
+□ SubPedidoService.java (refatorado - máquina de estados)
+□ PedidoService.java (refatorado - agregação de SubPedidos)
+□ TransicaoEstadoValidator.java (novo - validação centralizada)
+□ SubPedidoStateMachineTest.java (novo - testes automatizados)
+□ CancelarSubPedidoRequest.java (novo DTO - com motivo obrigatório)
+□ TransicaoInvalidaException.java (nova exceção específica)
+□ MOTOR_OPERACIONAL_PEDIDOS.txt (relatório técnico)
 
-ARTEFATOS GERADOS:
-✓ SubPedido.java (novo)
-✓ StatusSubPedido.java (novo enum)
-✓ TipoCozinha.java (novo enum)
-✓ Cozinha.java (novo entity)
-✓ UnidadeAtendimento.java (novo entity)
-✓ TipoUnidadeAtendimento.java (novo enum)
-✓ UnidadeDeConsumo.java (refatorado de Mesa)
-✓ SubPedidoService.java (novo)
-✓ SubPedidoRepository.java (novo)
-✓ SubPedidoController.java (novo)
-✓ CozinhaService.java (novo)
-✓ UnidadeAtendimentoService.java (novo)
-✓ UnidadeDeConsumoService.java (refatorado)
-✓ PedidoService.java (refatorado com criação automática)
+REGRAS EXPLÍCITAS IMPLEMENTADAS:
+✓ Estados terminais não permitem transições
+✓ Cancelamento exige motivo e role adequada
+✓ Transições inválidas lançam exceção clara
+✓ Cada transição gera evento de auditoria
+✓ Concorrência tratada com @Version
+✓ Services são idempotentes
+✓ Regras centralizadas (não espalhadas)
 
 CRITÉRIOS DE ACEITAÇÃO:
-✓ Pedido se divide em SubPedidos automaticamente
-✓ Cada SubPedido tem status independente
-✓ Cozinha e bar trabalham em paralelo
-✓ Garçom pode entregar itens parcialmente
-✓ Roteamento automático por tipo de cozinha
-✓ Load balancing entre cozinhas do mesmo tipo
-✓ 30 REST endpoints operacionais
-
-RESULTADO:
-Modelo de domínio operacional completo implementado
-Criação automática de SubPedidos com roteamento inteligente
-Sistema preparado para operação paralela de múltiplas cozinhas
-BUILD SUCCESS com 97 arquivos Java
+✓ Máquina de estados clara e documentada
+✓ Transições válidas funcionam
+✓ Transições inválidas são bloqueadas
+✓ Permissões por role respeitadas
+✓ EventLog registra todas transições
+✓ Testes automatizados passam 100%
+✓ Nenhuma lógica de estado fora do Service
+✓ Sistema funciona sem UI (testável via API REST)
 
 TEMPO ESTIMADO: 4-5 dias
 COMPLEXIDADE: ALTA
-RISCO: MÉDIO (migração de dados)
+RISCO: MÉDIO (mudança de comportamento existente)
+
+COMO VALIDAR:
+Cenário 1: Cozinha marca SubPedido como PRONTO
+  → POST /api/sub-pedidos/{id}/status (body: {"novoStatus": "PRONTO"})
+  → Deve funcionar se estado atual for EM_PREPARACAO
+  → Deve falhar se estado atual for CRIADO ou ENTREGUE
+
+Cenário 2: Cliente tenta cancelar SubPedido
+  → POST /api/sub-pedidos/{id}/cancelar (role: CLIENTE)
+  → Deve falhar com 403 Forbidden
+
+Cenário 3: Gerente cancela SubPedido EM_PREPARACAO
+  → POST /api/sub-pedidos/{id}/cancelar (role: GERENTE, body: {"motivo": "Cliente desistiu"})
+  → Deve funcionar e gerar EventLog
+
+Cenário 4: Concorrência - dois garçons assumem mesmo pedido
+  → Thread 1: PRONTO → EM_ENTREGA
+  → Thread 2: PRONTO → EM_ENTREGA (simultâneo)
+  → Um deve funcionar, outro deve receber OptimisticLockException
 
 
 ════════════════════════════════════════════════════════════════════════════════
-ETAPA 04 - EVENT LOG E MÁQUINA DE ESTADOS
+ETAPA PRIORITÁRIA 2 — FILA OPERACIONAL INTELIGENTE
 ════════════════════════════════════════════════════════════════════════════════
-STATUS: ✅ CONCLUÍDA
+STATUS: ⏸️ AGUARDANDO ETAPA PRIORITÁRIA 1
 
 OBJETIVO:
-Implementar Event Sourcing light para rastreabilidade total e máquina 
-de estados explícita para transições controladas.
+Implementar uma fila lógica de atendimento no BACKEND que organiza
+automaticamente o trabalho, elimina decisões manuais e roteia
+responsabilidades sem depender de chamadas verbais ou UI.
+
+CONTEXTO:
+Em ambientes reais:
+• Múltiplos garçons disputam os mesmos pedidos
+• Cozinhas ficam sobrecarregadas enquanto outras ficam ociosas
+• Ninguém sabe "quem pega o quê"
+• Pedidos ficam prontos mas não são entregues
+• Caos organizacional total
+
+O backend DEVE organizar este caos através de roteamento automático.
 
 ATIVIDADES:
-✓ Criar entity PedidoEventLog (imutável)
-✓ Criar entity SubPedidoEventLog (com métricas de tempo)
-✓ Implementar registro automático de eventos em transições
-✓ Criar service EventLogService com 16 métodos
-✓ Implementar máquina de estados no Service layer
-✓ Validar transições permitidas por estado
-✓ Criar endpoints de consulta de histórico (15 endpoints)
-✓ Integrar com PedidoService e SubPedidoService
-✓ Adicionar métricas de performance (tempo de transação)
+□ Criar entity FilaOperacional
+  • id, tipo (COZINHA, ENTREGA, ATENDIMENTO)
+  • SubPedido associado
+  • Responsável atual (User)
+  • Status (AGUARDANDO, ASSUMIDO, CONCLUIDO)
+  • Prioridade (calculada automaticamente)
+  • Timestamp de entrada na fila
+  • Tempo de espera (calculado)
 
-ARTEFATOS GERADOS:
-✓ PedidoEventLog.java (novo - imutável)
-✓ SubPedidoEventLog.java (novo - com tempoTransacaoMs)
-✓ EventLogService.java (novo - 16 métodos)
-✓ PedidoEventLogRepository.java (novo - 7 queries)
-✓ SubPedidoEventLogRepository.java (novo - 10 queries)
-✓ EventLogController.java (novo - 15 endpoints REST)
-✓ PedidoEventLogResponse.java (DTO)
-✓ SubPedidoEventLogResponse.java (DTO)
-✓ PedidoService.java (integrado com event log)
-✓ SubPedidoService.java (integrado com event log + métricas)
+□ Criar FilaOperacionalService com lógicas:
+  • adicionarNaFila(SubPedido, TipoFila)
+  • assumirProximoDaFila(User user, TipoFila tipo) → retorna SubPedido ou null
+  • calcularPrioridade(SubPedido) → considera tempo de espera, tipo de cliente, urgência
+  • buscarMeuItens(User user) → itens assumidos pelo usuário
+  • liberarItem(SubPedido) → remove da fila (conclusão ou cancelamento)
+  • reatribuir(SubPedido, User novoResponsavel) → intervenção gerencial
 
-CRITÉRIOS DE ACEITAÇÃO:
-✓ Toda mudança de estado gera evento imutável
-✓ Eventos registram: quem, quando, de qual estado para qual
-✓ Transições inválidas são rejeitadas
-✓ Histórico completo consultável via API
-✓ Possível rastrear responsável por cada ação
-✓ Métricas de performance capturadas (tempo de transação)
-✓ Timeline completa combinando Pedido + SubPedidos
+□ Integrar com SubPedidoService:
+  • Ao criar SubPedido (CRIADO → PENDENTE): adicionar em FilaCozinha
+  • Ao marcar como PRONTO: adicionar em FilaEntrega
+  • Ao assumir (garçom): marcar item como ASSUMIDO na fila
+  • Ao entregar: remover da fila (CONCLUIDO)
+  • Ao cancelar: remover da fila
 
-RESULTADO:
-Sistema de auditoria completo implementado
-2 entities de event log (Pedido e SubPedido)
-2 repositories com 17 queries especializadas
-EventLogService com 16 métodos de consulta
-15 endpoints REST para análise de eventos
-Integração completa com services operacionais
-BUILD SUCCESS - Auditoria total funcional
+□ Implementar roteamento automático:
+  • POST /api/fila/cozinha/assumir-proximo
+    → Backend decide qual SubPedido o usuário deve pegar
+    → Critérios: prioridade, tempo de espera, cozinha do usuário
+    → Retorna SubPedido ou "fila vazia"
+  
+  • POST /api/fila/entrega/assumir-proximo
+    → Backend decide qual SubPedido o garçom deve entregar
+    → Critérios: prioridade, proximidade, carga atual do garçom
+    → Retorna SubPedido ou "fila vazia"
 
-TEMPO ESTIMADO: 3-4 dias
-COMPLEXIDADE: MÉDIA-ALTA
-RISCO: BAIXO
+□ Implementar regras de negócio:
+  • Item na fila NÃO pode ser assumido por dois usuários simultaneamente
+  • Item assumido há mais de X minutos sem progresso volta para fila (timeout)
+  • Prioridade aumenta automaticamente com tempo de espera
+  • Gerente pode reatribuir item forçadamente
+  • Backend registra QUEM assumiu e QUANDO (auditoria)
 
+□ Implementar métricas operacionais:
+  • Tamanho atual da fila por tipo
+  • Tempo médio de espera por tipo
+  • Taxa de conclusão por responsável
+  • Itens em timeout (assumidos mas não concluídos)
+  • Distribuição de carga por responsável
 
-════════════════════════════════════════════════════════════════════════════════
-ETAPA 05 - SEGURANÇA: JWT + RBAC
-════════════════════════════════════════════════════════════════════════════════
-STATUS: ✅ CONCLUÍDA
+□ Criar endpoints de monitoramento:
+  • GET /api/fila/cozinha/tamanho
+  • GET /api/fila/entrega/tamanho
+  • GET /api/fila/cozinha/itens (lista completa - GERENTE)
+  • GET /api/fila/meus-itens (itens assumidos pelo usuário logado)
+  • GET /api/fila/metricas (dashboard operacional - GERENTE)
 
-OBJETIVO:
-Implementar autenticação JWT e controle de acesso baseado em roles (RBAC),
-garantindo que cada ator só possa executar ações permitidas.
+□ Garantir concorrência segura:
+  • Usar lock otimista (@Version) ao assumir item
+  • Transaction isolation adequado
+  • Testes de concorrência (múltiplos usuários assumindo simultaneamente)
 
-ATIVIDADES:
-✓ Configurar Spring Security com stateless session
-✓ Implementar geração de JWT (access 24h + refresh 7d)
-✓ Implementar validação de JWT em requests
-✓ Criar filtro de autenticação (JwtAuthenticationFilter)
-✓ Definir 5 roles hierárquicos (CLIENTE, ATENDENTE, GERENTE, COZINHA, ADMIN)
-✓ Criar User entity implementando UserDetails
-✓ Proteger endpoints com @PreAuthorize
-✓ Implementar renovação de token (refresh endpoint)
-✓ Integrar AuditorAware com SecurityContext
-✓ Configurar dependências Spring Security + JJWT 0.12.3
+ARTEFATOS A GERAR:
+□ FilaOperacional.java (entity nova)
+□ TipoFila.java (enum: COZINHA, ENTREGA, ATENDIMENTO)
+□ StatusFilaItem.java (enum: AGUARDANDO, ASSUMIDO, CONCLUIDO, TIMEOUT)
+□ FilaOperacionalRepository.java (queries especializadas)
+□ FilaOperacionalService.java (lógica de fila)
+□ FilaController.java (endpoints REST)
+□ FilaMetricsDTO.java (métricas operacionais)
+□ SubPedidoService.java (refatorado - integração com fila)
+□ FilaConcurrencyTest.java (testes de concorrência)
+□ FILA_OPERACIONAL_INTELIGENTE.txt (relatório técnico)
 
-ARTEFATOS GERADOS:
-✓ SecurityConfig.java (novo - SecurityFilterChain completo)
-✓ JwtTokenProvider.java (novo - HS256, 24h/7d tokens)
-✓ JwtAuthenticationFilter.java (novo - OncePerRequestFilter)
-✓ AuthService.java (novo - login, register, refresh)
-✓ JwtAuthController.java (novo - 3 endpoints)
-✓ Role.java (novo enum - 5 roles)
-✓ User.java (novo entity - UserDetails implementation)
-✓ UserRepository.java (novo - queries por username/email/role)
-✓ CustomUserDetailsService.java (novo - load from DB)
-✓ LoginRequest.java, RegisterRequest.java, RefreshTokenRequest.java (DTOs)
-✓ AuthResponse.java (DTO resposta com tokens)
-✓ AuditorConfig.java (atualizado - SecurityContext integration)
-✓ ProdutoController.java (atualizado - @PreAuthorize)
-✓ pom.xml (atualizado - Spring Security + JJWT)
-✓ application.properties (atualizado - JWT config)
-
-REGRAS IMPLEMENTADAS:
-✓ Cliente: NUNCA altera estado de pedido
-✓ Cozinha: altera até PRONTO (não pode marcar ENTREGUE)
-✓ Garçom: pode marcar ENTREGUE (confirma entrega)
-✓ Balcão: pode cancelar pedidos
-✓ Admin: acesso total
+REGRAS EXPLÍCITAS IMPLEMENTADAS:
+✓ Backend decide quem deve fazer o quê
+✓ Nenhuma decisão de roteamento na UI
+✓ Item assumido é bloqueado para outros
+✓ Timeout automático libera itens abandonados
+✓ Prioridade calculada automaticamente
+✓ Métricas operacionais em tempo real
+✓ Concorrência tratada com locks
 
 CRITÉRIOS DE ACEITAÇÃO:
-✓ Endpoints protegidos com JWT Bearer token
-✓ Roles validados em cada operação
-✓ Sistema de roles hierárquico implementado
-✓ Tokens com expiração configurável (24h access, 7d refresh)
-✓ Refresh token permite renovação sem re-autenticação
-✓ AuditorAware captura username real do SecurityContext
-✓ @PreAuthorize protege operações críticas
-✓ User entity integrado com Cliente/Atendente
-
-RESULTADO:
-Sistema completamente seguro com JWT + RBAC
-13 arquivos criados (security, entities, DTOs, controllers)
-Autenticação stateless com tokens JWT HS256
-5 roles implementados (CLIENTE → ATENDENTE → GERENTE → COZINHA → ADMIN)
-Integração completa com Spring Security
-Auditoria agora registra username real ao invés de "system"
-BUILD SUCCESS - Sistema pronto para operação segura
-97 arquivos Java compilados com sucesso
+✓ SubPedido entra automaticamente na fila ao ser criado
+✓ Usuário pode "assumir próximo" via API
+✓ Backend decide qual item retornar (prioridade)
+✓ Item assumido não é retornado para outro usuário
+✓ Item timeout volta automaticamente para fila
+✓ Gerente pode reatribuir forçadamente
+✓ Métricas operacionais funcionam
+✓ Testes de concorrência passam
+✓ Sistema funciona sem UI (testável via API)
 
 TEMPO ESTIMADO: 5-6 dias
 COMPLEXIDADE: ALTA
-RISCO: MÉDIO
+RISCO: MÉDIO (concorrência complexa)
+
+COMO VALIDAR:
+Cenário 1: Cozinheiro assume próximo da fila
+  → POST /api/fila/cozinha/assumir-proximo (role: COZINHA)
+  → Backend retorna SubPedido com maior prioridade
+  → Próxima chamada retorna SubPedido diferente
+
+Cenário 2: Dois cozinheiros assumem simultaneamente
+  → Thread 1: POST /api/fila/cozinha/assumir-proximo
+  → Thread 2: POST /api/fila/cozinha/assumir-proximo (simultâneo)
+  → DEVE retornar SubPedidos diferentes (não duplicar)
+
+Cenário 3: Item abandonado volta para fila
+  → Cozinheiro assume item às 10:00
+  → Não conclui em 15 minutos
+  → Às 10:16, item volta para fila automaticamente (job agendado)
+
+Cenário 4: Gerente reatribui item
+  → POST /api/fila/reatribuir/{itemId} (role: GERENTE, body: {"novoResponsavelId": 123})
+  → Item é reatribuído
+  → EventLog registra intervenção gerencial
 
 
 ════════════════════════════════════════════════════════════════════════════════
-ETAPA 06 - QR CODE SEGURO E UNIDADE DE ATENDIMENTO
+ETAPAS ADIADAS - NÃO IMPLEMENTAR AGORA
 ════════════════════════════════════════════════════════════════════════════════
-STATUS: ⏸️ AGUARDANDO ETAPA 05
 
-OBJETIVO:
-Implementar gestão segura de QR Codes com expiração e uso único, e criar
-conceito de Unidade de Atendimento (bar, restaurante, quarto).
+As seguintes etapas foram REMOVIDAS da ordem prioritária e só devem
+ser implementadas APÓS consolidação do motor operacional e fila:
 
-ATIVIDADES:
-• Criar entity UnidadeAtendimento
-• Criar entity QrCodeToken
-• Vincular Mesa a UnidadeAtendimento
-• Implementar geração de QR Code único por mesa
-• Implementar validação de expiração de QR Code
-• Implementar controle de uso único
-• Criar QR Code para confirmação de entrega
-• Implementar renovação automática diária de QR Codes
-• Criar endpoint de validação de QR Code
-• Implementar geração de imagem QR Code
+🔄 ETAPA 07 - Sistema de Impressão e Bridge Local
+   → ADIADO até motor operacional estável
+   → Depende de WebSocket e UI
+   → Não é crítico para funcionamento do backend
 
-ARTEFATOS A GERAR:
-□ UnidadeAtendimento.java (novo)
-□ QrCodeToken.java (novo)
-□ QrCodeService.java (novo)
-□ QrCodeGenerator.java (novo)
-□ QrCodeValidator.java (novo)
-□ UnidadeAtendimentoService.java (novo)
-□ Mesa.java (refatorado - adicionar unidadeAtendimento)
-□ IMPLEMENTACAO_ETAPA_06.txt (relatório)
+🔄 ETAPA 08 - Notificações em Tempo Real (WebSocket)
+   → ADIADO até fila operacional validada
+   → É camada de apresentação
+   → Backend funciona sem notificações push
 
-REGRAS IMPLEMENTADAS:
-✓ 1 QR Code pertence a 1 Unidade de Atendimento
-✓ QR Code de mesa: validade 24h
-✓ QR Code de entrega: validade 30min, uso único
-✓ Token inválido rejeita acesso
-✓ Token usado não pode ser reutilizado
+🔄 ETAPA 09 - Painel Operacional Mobile (Garçons)
+   → ADIADO até backend sólido
+   → É camada de UI
+   → Backend provê APIs, UI consome
 
-CRITÉRIOS DE ACEITAÇÃO:
-✓ QR Code gerado tem UUID único
-✓ QR Code expira conforme configurado
-✓ QR Code usado é marcado como inválido
-✓ Validação rejeita tokens expirados/usados
-✓ Mesa vinculada à Unidade de Atendimento
+🔄 ETAPA 10 - Painel Cozinha Especializado
+   → ADIADO até backend sólido
+   → É camada de UI
+   → Backend provê APIs, UI consome
 
-TEMPO ESTIMADO: 3-4 dias
-COMPLEXIDADE: MÉDIA
-RISCO: BAIXO
+🔄 ETAPA 11 - Painel Gerencial com Intervenções
+   → ADIADO até backend sólido
+   → É camada de UI
+   → Backend provê APIs, UI consome
 
+MOTIVO DO ADIAMENTO:
+Essas etapas são camadas de APRESENTAÇÃO que CONSOMEM o backend.
+Primeiro precisamos de um backend SÓLIDO, TESTÁVEL e FUNCIONAL.
+Depois construímos UIs que consomem as APIs.
 
-════════════════════════════════════════════════════════════════════════════════
-ETAPA 07 - SISTEMA DE IMPRESSÃO E BRIDGE LOCAL
-════════════════════════════════════════════════════════════════════════════════
-STATUS: ⏸️ AGUARDANDO ETAPA 06
-
-OBJETIVO:
-Implementar sistema de eventos de impressão com WebSocket para comunicação
-com bridge local que controla impressoras térmicas.
-
-ATIVIDADES:
-• Criar entity EventoImpressao
-• Criar service EventoImpressaoService
-• Implementar emissão de evento ao marcar SubPedido como PRONTO
-• Criar templates de impressão (comanda, ticket cozinha, conta)
-• Configurar WebSocket para envio de eventos
-• Criar endpoint para bridge local consultar eventos pendentes
-• Criar endpoint para bridge confirmar impressão
-• Implementar retry automático de impressão falhada
-• Criar painel de monitoramento de impressões
-
-ARTEFATOS A GERAR:
-□ EventoImpressao.java (novo)
-□ TipoImpressao.java (novo enum)
-□ StatusImpressao.java (novo enum)
-□ EventoImpressaoService.java (novo)
-□ ImpressaoTemplate.java (novo)
-□ WebSocketImpressaoConfig.java (novo)
-□ ImpressaoController.java (novo)
-□ IMPLEMENTACAO_ETAPA_07.txt (relatório)
-
-REGRAS IMPLEMENTADAS:
-✓ Backend NÃO fala com impressora diretamente
-✓ Backend emite evento via WebSocket
-✓ Bridge local processa e imprime
-✓ Impressão ocorre apenas ao marcar PRONTO
-✓ Retry automático em caso de falha
-
-CRITÉRIOS DE ACEITAÇÃO:
-✓ Evento criado ao marcar SubPedido como PRONTO
-✓ WebSocket envia evento para bridge
-✓ Bridge pode confirmar impressão
-✓ Falhas de impressão são logadas
-✓ Retry automático funciona
-
-TEMPO ESTIMADO: 4-5 dias
-COMPLEXIDADE: MÉDIA-ALTA
-RISCO: MÉDIO
-
-
-════════════════════════════════════════════════════════════════════════════════
-ETAPA 08 - NOTIFICAÇÕES EM TEMPO REAL (WEBSOCKET)
-════════════════════════════════════════════════════════════════════════════════
-STATUS: ⏸️ AGUARDANDO ETAPA 07
-
-OBJETIVO:
-Implementar sistema completo de notificações em tempo real para todos os
-atores (cliente, garçom, cozinha, balcão).
-
-ATIVIDADES:
-• Configurar canais WebSocket por perfil
-• Implementar notificação de novo pedido para cozinha
-• Implementar notificação de pedido pronto para garçom
-• Implementar notificação de status para cliente
-• Implementar notificação de pedido entregue para balcão
-• Criar service NotificacaoService
-• Implementar gestão de conexões WebSocket
-• Implementar heartbeat para manter conexão
-• Criar painel de monitoramento de conexões
-
-ARTEFATOS A GERAR:
-□ NotificacaoService.java (novo)
-□ WebSocketNotificacaoConfig.java (refatorado)
-□ WebSocketConnectionManager.java (novo)
-□ NotificacaoController.java (novo)
-□ Integração em Services existentes
-□ IMPLEMENTACAO_ETAPA_08.txt (relatório)
-
-CANAIS IMPLEMENTADOS:
-✓ /topic/cozinha/{unidadeId} - novos pedidos
-✓ /topic/garcom/{garcomId} - pedidos prontos
-✓ /topic/cliente/{mesaId} - status do pedido
-✓ /topic/balcao - visão geral
-
-CRITÉRIOS DE ACEITAÇÃO:
-✓ Cozinha recebe notificação de novo pedido
-✓ Garçom recebe notificação quando pronto
-✓ Cliente vê status em tempo real
-✓ Balcão monitora tudo
-✓ Conexões mantidas com heartbeat
-
-TEMPO ESTIMADO: 3-4 dias
-COMPLEXIDADE: MÉDIA
-RISCO: BAIXO
-
-
-════════════════════════════════════════════════════════════════════════════════
-ETAPA 09 - PAINEL DO GARÇOM (POS ANDROID - API)
-════════════════════════════════════════════════════════════════════════════════
-STATUS: ⏸️ AGUARDANDO ETAPA 08
-
-OBJETIVO:
-Criar endpoints específicos para POS Android do garçom com funcionalidades
-otimizadas para operação em campo.
-
-ATIVIDADES:
-• Criar endpoint "Minha Fila" (pedidos atribuídos ao garçom)
-• Criar endpoint de assumir SubPedido
-• Criar endpoint de confirmar entrega
-• Criar endpoint de listar SubPedidos prontos
-• Implementar filtros por status com cores
-• Implementar ordenação por prioridade/tempo
-• Criar endpoint de sincronização offline
-• Otimizar DTOs para mobile (menos payload)
-• Implementar compressão de resposta
-
-ARTEFATOS A GERAR:
-□ GarcomController.java (novo)
-□ GarcomService.java (novo)
-□ GarcomFilaDTO.java (novo)
-□ SubPedidoMobileDTO.java (novo)
-□ IMPLEMENTACAO_ETAPA_09.txt (relatório)
-
-FUNCIONALIDADES:
-✓ Login rápido com token
-✓ "Minha fila" de entregas
-✓ Estados com cores visuais
-✓ Assumir pedido pronto
-✓ Confirmar entrega via scan QR
-✓ Sincronização parcial offline
-
-CRITÉRIOS DE ACEITAÇÃO:
-✓ Garçom vê apenas seus pedidos
-✓ Pode assumir pedido pronto
-✓ Confirma entrega via QR Code
-✓ Interface otimizada para mobile
-✓ Funciona parcialmente offline
-
-TEMPO ESTIMADO: 4-5 dias
-COMPLEXIDADE: MÉDIA
-RISCO: BAIXO
-
-
-════════════════════════════════════════════════════════════════════════════════
-ETAPA 10 - PAINEL DA COZINHA (INTERFACE ESPECIALIZADA)
-════════════════════════════════════════════════════════════════════════════════
-STATUS: ⏸️ AGUARDANDO ETAPA 09
-
-OBJETIVO:
-Criar endpoints específicos para painel da cozinha com foco em fluxo
-rápido e visual limpo.
-
-ATIVIDADES:
-• Criar endpoint de listar SubPedidos por unidade
-• Criar endpoint de assumir SubPedido (iniciar preparação)
-• Criar endpoint de marcar como PRONTO
-• Criar filtro por tempo de espera (alertas)
-• Implementar priorização automática
-• Criar endpoint de estatísticas (tempo médio, fila)
-• Implementar notificações sonoras via WebSocket
-• Otimizar para telas grandes (TV/Monitor)
-
-ARTEFATOS A GERAR:
-□ CozinhaController.java (novo)
-□ CozinhaService.java (novo)
-□ FilaCozinhaDTO.java (novo)
-□ IMPLEMENTACAO_ETAPA_10.txt (relatório)
-
-FUNCIONALIDADES:
-✓ Fila visual de SubPedidos pendentes
-✓ Assumir SubPedido (iniciar preparo)
-✓ Marcar como PRONTO (gera ticket)
-✓ Alertas de tempo excessivo
-✓ Estatísticas em tempo real
-✓ Notificação sonora de novo pedido
-
-CRITÉRIOS DE ACEITAÇÃO:
-✓ Cozinha vê apenas SubPedidos da sua unidade
-✓ Pode assumir e marcar como pronto
-✓ Alertas visuais de atraso
-✓ Ticket impresso ao marcar pronto
-✓ Estatísticas atualizadas em tempo real
-
-TEMPO ESTIMADO: 3-4 dias
-COMPLEXIDADE: MÉDIA
-RISCO: BAIXO
-
-
-════════════════════════════════════════════════════════════════════════════════
-ETAPA 11 - PAINEL DO BALCÃO (ORQUESTRADOR)
-════════════════════════════════════════════════════════════════════════════════
-STATUS: ⏸️ AGUARDANDO ETAPA 10
-
-OBJETIVO:
-Criar painel completo para responsável de turno com visão total do
-sistema e capacidade de intervenção.
-
-ATIVIDADES:
-• Criar dashboard com visão geral (KPIs)
-• Criar endpoint de listar todas mesas ativas
-• Criar endpoint de listar todos pedidos ativos
-• Implementar intervenção: cancelar pedido
-• Implementar intervenção: reatribuir garçom
-• Implementar intervenção: ajustar prioridade
-• Criar relatórios de turno
-• Implementar alertas de anomalias
-• Criar painel de monitoramento de cozinhas
-
-ARTEFATOS A GERAR:
-□ BalcaoController.java (novo)
-□ BalcaoService.java (novo)
-□ DashboardDTO.java (novo)
-□ RelatorioTurnoService.java (novo)
-□ IMPLEMENTACAO_ETAPA_11.txt (relatório)
-
-FUNCIONALIDADES:
-✓ Visão completa de todas mesas
-✓ Visão completa de todos pedidos
-✓ Intervenção em pedidos problemáticos
-✓ Reatribuição de garçons
-✓ Relatórios de turno
-✓ KPIs em tempo real
-✓ Alertas de anomalias
-
-CRITÉRIOS DE ACEITAÇÃO:
-✓ Visão total do sistema
-✓ Pode cancelar pedidos com justificativa
-✓ Pode reatribuir responsáveis
-✓ Relatórios gerados corretamente
-✓ Alertas funcionam
-
-TEMPO ESTIMADO: 5-6 dias
-COMPLEXIDADE: ALTA
-RISCO: MÉDIO
+Ordem correta: DOMÍNIO → API → UI
 
 
 ════════════════════════════════════════════════════════════════════════════════
 ETAPA 12 - OTIMIZAÇÃO E ESCALABILIDADE
 ════════════════════════════════════════════════════════════════════════════════
-STATUS: ⏸️ AGUARDANDO ETAPA 11
+STATUS: ⏸️ AGUARDANDO ETAPAS PRIORITÁRIAS 1-2
 
 OBJETIVO:
 Preparar sistema para alto volume com cache, paginação, otimizações de
-queries e índices estratégicos.
+queries e índices estratégicos. Esta etapa PERMANECE relevante pois
+otimiza o BACKEND, não a UI.
 
 ATIVIDADES:
-• Configurar Redis para cache distribuído
-• Implementar cache de produtos (cardápio)
-• Implementar cache de sessões
-• Adicionar paginação em todas listagens
-• Otimizar queries com DTO projetado
-• Configurar connection pool do PostgreSQL
-• Adicionar índices estratégicos adicionais
-• Implementar batch processing onde aplicável
-• Otimizar lazy loading
-• Configurar query hints
+□ Configurar Redis para cache distribuído
+□ Implementar cache de produtos (cardápio)
+□ Implementar cache de configurações do sistema
+□ Adicionar paginação em todas listagens
+□ Otimizar queries com DTO projetado
+□ Configurar connection pool do PostgreSQL
+□ Adicionar índices estratégicos adicionais
+□ Implementar batch processing onde aplicável
+□ Otimizar lazy loading
+□ Configurar query hints
 
 ARTEFATOS A GERAR:
-□ RedisConfig.java (novo)
-□ CacheConfig.java (novo)
+□ RedisConfig.java
+□ CacheConfig.java
 □ Refatoração de Repositories (paginação)
 □ Refatoração de DTOs (projeção)
 □ Migration SQL (novos índices)
-□ PerformanceTest.java (testes de carga)
-□ IMPLEMENTACAO_ETAPA_12.txt (relatório)
-
-OTIMIZAÇÕES:
-✓ Cache de produtos (cardápio)
-✓ Cache de sessões JWT
-✓ Paginação em todas listagens
-✓ Queries otimizadas com projeção
-✓ Connection pool configurado
-✓ Índices estratégicos
-✓ Batch processing
+□ PerformanceTest.java
+□ OTIMIZACAO_ESCALABILIDADE.txt
 
 CRITÉRIOS DE ACEITAÇÃO:
 ✓ Redis configurado e funcional
@@ -594,35 +450,26 @@ STATUS: ⏸️ AGUARDANDO ETAPA 12
 
 OBJETIVO:
 Implementar stack completo de observabilidade com métricas, logs e traces.
+Esta etapa PERMANECE relevante pois monitora o BACKEND.
 
 ATIVIDADES:
-• Configurar Micrometer + Prometheus
-• Criar métricas de negócio (pedidos/min, tempo médio preparo)
-• Configurar exportação de métricas
-• Configurar health checks customizados
-• Implementar distributed tracing (opcional)
-• Configurar alertas críticos
-• Criar dashboard Grafana
-• Implementar métricas de performance de queries
-• Configurar logging estruturado (JSON)
+□ Configurar Micrometer + Prometheus
+□ Criar métricas de negócio (pedidos/min, tempo médio preparo)
+□ Configurar exportação de métricas
+□ Configurar health checks customizados
+□ Implementar distributed tracing (opcional)
+□ Configurar alertas críticos
+□ Criar dashboard Grafana
+□ Implementar métricas de performance de queries
+□ Configurar logging estruturado (JSON)
 
 ARTEFATOS A GERAR:
-□ MetricsConfig.java (novo)
-□ BusinessMetricsService.java (novo)
-□ HealthCheckConfig.java (novo)
-□ prometheus.yml (configuração)
-□ grafana-dashboard.json (dashboard)
-□ IMPLEMENTACAO_ETAPA_13.txt (relatório)
-
-MÉTRICAS IMPLEMENTADAS:
-✓ Pedidos criados por minuto
-✓ Tempo médio de preparação
-✓ Taxa de cancelamento
-✓ Tempo de espera médio
-✓ Utilização de cozinhas
-✓ Performance de queries
-✓ Taxa de erro
-✓ Latência de API
+□ MetricsConfig.java
+□ BusinessMetricsService.java
+□ HealthCheckConfig.java
+□ prometheus.yml
+□ grafana-dashboard.json
+□ MONITORAMENTO_OBSERVABILIDADE.txt
 
 CRITÉRIOS DE ACEITAÇÃO:
 ✓ Prometheus coletando métricas
@@ -643,36 +490,27 @@ STATUS: ⏸️ AGUARDANDO ETAPA 13
 
 OBJETIVO:
 Implementar sistema de saldo pré-carregado para consumo rápido em eventos
-e hotéis, reduzindo fricção no pagamento.
+e hotéis. Esta etapa PERMANECE relevante pois é lógica de DOMÍNIO.
 
 ATIVIDADES:
-• Criar entity FundoConsumo
-• Criar entity TransacaoFundo
-• Implementar carregamento de saldo
-• Implementar débito automático ao criar pedido
-• Implementar validação de saldo suficiente
-• Implementar estorno em caso de cancelamento
-• Criar endpoint de consulta de saldo
-• Criar endpoint de histórico de transações
-• Implementar recarga de saldo
-• Implementar fechamento de fundo (devolução de troco)
+□ Criar entity FundoConsumo
+□ Criar entity TransacaoFundo
+□ Implementar carregamento de saldo
+□ Implementar débito automático ao criar pedido
+□ Implementar validação de saldo suficiente
+□ Implementar estorno em caso de cancelamento
+□ Criar endpoint de consulta de saldo
+□ Criar endpoint de histórico de transações
+□ Implementar recarga de saldo
+□ Implementar fechamento de fundo (devolução de troco)
 
 ARTEFATOS A GERAR:
-□ FundoConsumo.java (novo)
-□ TransacaoFundo.java (novo)
-□ TipoTransacao.java (novo enum)
-□ FundoConsumoService.java (novo)
-□ FundoConsumoController.java (novo)
-□ IMPLEMENTACAO_ETAPA_14.txt (relatório)
-
-FUNCIONALIDADES:
-✓ Cliente carrega saldo antecipado
-✓ Pedidos debitam automaticamente
-✓ Validação de saldo antes de criar pedido
-✓ Estorno em cancelamentos
-✓ Consulta de saldo em tempo real
-✓ Histórico de transações
-✓ Fechamento com devolução de troco
+□ FundoConsumo.java
+□ TransacaoFundo.java
+□ TipoTransacao.java (enum)
+□ FundoConsumoService.java
+□ FundoConsumoController.java
+□ FUNDO_CONSUMO.txt
 
 CRITÉRIOS DE ACEITAÇÃO:
 ✓ Saldo carregado corretamente
@@ -693,46 +531,30 @@ STATUS: ⏸️ AGUARDANDO ETAPA 14
 
 OBJETIVO:
 Criar suite completa de testes end-to-end simulando fluxos reais e
-documentação técnica completa do sistema.
+documentação técnica completa do sistema BACKEND.
 
 ATIVIDADES:
-• Criar testes E2E de fluxo completo (cliente → entrega)
-• Criar testes de concorrência pesada
-• Criar testes de carga (JMeter/Gatling)
-• Documentar arquitetura completa
-• Documentar decisões técnicas
-• Criar guia de deployment
-• Criar guia de troubleshooting
-• Documentar APIs (Swagger aprimorado)
-• Criar manual de operação
-• Criar runbook de incidentes
+□ Criar testes E2E de fluxo completo (criação → entrega via API)
+□ Criar testes de concorrência pesada (múltiplos atores simultâneos)
+□ Criar testes de carga (JMeter/Gatling - APIs REST)
+□ Documentar arquitetura completa
+□ Documentar decisões técnicas
+□ Criar guia de deployment
+□ Criar guia de troubleshooting
+□ Documentar APIs (Swagger aprimorado)
+□ Criar manual de operação
+□ Criar runbook de incidentes
 
 ARTEFATOS A GERAR:
-□ E2EFluxoCompletoTest.java (novo)
-□ ConcurrencyLoadTest.java (novo)
+□ E2EFluxoCompletoTest.java
+□ ConcurrencyLoadTest.java
 □ PerformanceLoadTest.jmx (JMeter)
-□ ARQUITETURA_FINAL.md (documentação)
-□ DEPLOYMENT_GUIDE.md (documentação)
-□ TROUBLESHOOTING.md (documentação)
-□ OPERATIONS_MANUAL.md (documentação)
-□ INCIDENT_RUNBOOK.md (documentação)
-□ IMPLEMENTACAO_ETAPA_15.txt (relatório)
-
-TESTES CRIADOS:
-✓ E2E: Cliente faz pedido até entrega
-✓ E2E: Múltiplos pedidos simultâneos
-✓ E2E: Cancelamento com estorno
-✓ Carga: 1000 pedidos/minuto
-✓ Carga: 10000 usuários simultâneos
-✓ Concorrência: Race conditions
-
-DOCUMENTAÇÃO:
-✓ Arquitetura completa com diagramas
-✓ Decisões técnicas documentadas
-✓ Guia de deployment step-by-step
-✓ Troubleshooting de problemas comuns
-✓ Manual de operação para suporte
-✓ Runbook de incidentes
+□ ARQUITETURA_FINAL.md
+□ DEPLOYMENT_GUIDE.md
+□ TROUBLESHOOTING.md
+□ OPERATIONS_MANUAL.md
+□ INCIDENT_RUNBOOK.md
+□ TESTES_E2E_DOCUMENTACAO.txt
 
 CRITÉRIOS DE ACEITAÇÃO:
 ✓ Testes E2E passam 100%
@@ -747,83 +569,74 @@ RISCO: BAIXO
 
 
 ════════════════════════════════════════════════════════════════════════════════
-RESUMO EXECUTIVO
-════════════════════════════════════════════════════════════════════════════════
-
-TOTAL DE ETAPAS: 15
-ETAPAS CONCLUÍDAS: 5 (33.3%)
-TEMPO TOTAL ESTIMADO: 60-75 dias úteis (3-4 meses)
-TEMPO INVESTIDO: ~15 dias
-
-DISTRIBUIÇÃO POR COMPLEXIDADE:
-• Complexidade BAIXA: 6 etapas (40%)
-• Complexidade MÉDIA: 6 etapas (40%)
-• Complexidade ALTA: 3 etapas (20%)
-
-DISTRIBUIÇÃO POR RISCO:
-• Risco BAIXO: 10 etapas (67%)
-• Risco MÉDIO: 5 etapas (33%)
-• Risco ALTO: 0 etapas (0%)
-
-MARCOS PRINCIPAIS:
-✅ ETAPA 01: Análise arquitetural completa (40% aderência)
-✅ ETAPA 02: Sistema protegido contra race conditions (@Version + Audit)
-✅ ETAPA 03: Modelo de domínio operacional (SubPedido + Cozinha + UnidadeAtendimento)
-✅ ETAPA 04: Event Log completo para auditoria total
-✅ ETAPA 05: Sistema seguro com JWT + RBAC (5 roles hierárquicos)
-⏳ ETAPA 06: QR Code seguro (próxima)
-⏸️ ETAPA 08: Notificações em tempo real funcionais
-⏸️ ETAPA 11: Sistema completo para operação
-⏸️ ETAPA 12: Sistema preparado para alto volume
-⏸️ ETAPA 15: Sistema pronto para produção
-
-PROGRESSO ATUAL:
-✅ Concorrência: @Version + OptimisticLocking implementado
-✅ Auditoria: createdBy/modifiedBy com SecurityContext
-✅ Domínio: SubPedido, Cozinha, UnidadeAtendimento, UnidadeDeConsumo
-✅ Roteamento: Criação automática de SubPedidos com load balancing
-✅ Event Log: Auditoria completa com 17 queries especializadas
-✅ Segurança: JWT (HS256) + RBAC + @PreAuthorize
-✅ Build: 97 arquivos Java compilados com sucesso
-
-PRÓXIMAS ETAPAS PRIORITÁRIAS:
-1. ETAPA 06: QR Code seguro e gestão de Unidades de Atendimento
-2. ETAPA 07: Sistema de impressão com WebSocket bridge
-3. ETAPA 08: Notificações em tempo real completas
-
-DEPENDÊNCIAS CRÍTICAS:
-• Etapas 02-03-04-05 CONCLUÍDAS (base do sistema sólida)
-• Etapa 05 (Segurança) CONCLUÍDA - permite avançar para interfaces
-• Etapa 12 (Otimização) DEVE vir antes de produção
-• Etapa 15 (Testes E2E) fecha o ciclo
-
-
-════════════════════════════════════════════════════════════════════════════════
-PRÓXIMA AÇÃO
+RESUMO EXECUTIVO - REORGANIZADO
 ════════════════════════════════════════════════════════════════════════════════
 
 SITUAÇÃO ATUAL:
-✅ ETAPAS 01-05 CONCLUÍDAS (33.3% do projeto)
-✅ Base sólida: Concorrência + Auditoria + Domínio + EventLog + Segurança
-✅ Sistema operacional com 97 arquivos Java compilados
-✅ BUILD SUCCESS - Pronto para próxima fase
+✅ 6 etapas fundacionais CONCLUÍDAS (40%)
+✅ Base sólida: Concorrência + Auditoria + Domínio + EventLog + Segurança + QR Code
+✅ 107 arquivos Java compilados
+✅ ~15.000 linhas de código
+✅ BUILD SUCCESS
 
-PRÓXIMO PASSO:
-INICIAR ETAPA 06: QR Code Seguro e Unidade de Atendimento
+NOVA ORDEM DE PRIORIDADES:
+
+CRÍTICO (FAZER AGORA):
+1️⃣ ETAPA PRIORITÁRIA 1 - Motor Operacional de Pedidos (4-5 dias)
+2️⃣ ETAPA PRIORITÁRIA 2 - Fila Operacional Inteligente (5-6 dias)
+
+IMPORTANTE (FAZER DEPOIS):
+3️⃣ ETAPA 12 - Otimização e Escalabilidade (5-6 dias)
+4️⃣ ETAPA 13 - Monitoramento e Observabilidade (3-4 dias)
+5️⃣ ETAPA 14 - Fundo de Consumo (4-5 dias)
+6️⃣ ETAPA 15 - Testes E2E e Documentação Final (6-7 dias)
+
+ADIADO (NÃO FAZER AGORA):
+❌ ETAPA 07 - Impressão (depende de UI)
+❌ ETAPA 08 - WebSocket (camada de apresentação)
+❌ ETAPA 09 - Painel Mobile (camada de UI)
+❌ ETAPA 10 - Painel Cozinha (camada de UI)
+❌ ETAPA 11 - Painel Gerencial (camada de UI)
+
+MOTIVO DA REORGANIZAÇÃO:
+Backend DEVE funcionar isoladamente, sem depender de UI.
+Primeiro: Motor sólido que organiza o caos operacional.
+Depois: Camadas de apresentação que CONSOMEM o backend.
+
+PRINCÍPIO FUNDAMENTAL:
+"Esta lógica pertence ao domínio ou está vazando para a UI?"
+Se a resposta não for clara, pertence ao domínio.
+
+
+════════════════════════════════════════════════════════════════════════════════
+PRÓXIMA AÇÃO - CLARA E OBJETIVA
+════════════════════════════════════════════════════════════════════════════════
+
+INICIAR: ETAPA PRIORITÁRIA 1 - MOTOR OPERACIONAL DE PEDIDOS
 
 Implementar:
-• Entity QrCodeToken com UUID único e expiração
-• Geração de QR Code para mesa (validade 24h)
-• Geração de QR Code para entrega (30min, uso único)
-• Validação de tokens com controle de expiração
-• Gestão de UnidadeAtendimento (bar, restaurante, quarto)
-• API REST para geração e validação de QR Codes
+✓ Máquina de estados explícita e robusta
+✓ Validação centralizada de transições
+✓ Bloqueio de transições inválidas
+✓ Permissões por role integradas
+✓ Cancelamento com motivo obrigatório
+✓ Idempotência em todas operações
+✓ Testes automatizados de transições
+✓ EventLog em todas mudanças de estado
 
-Objetivo: Permitir acesso seguro via QR Code com expiração e uso único
-Tempo estimado: 3-4 dias
-Aguardando aprovação para iniciar implementação.
+Objetivo: Backend organiza o ciclo de vida do pedido sem depender de UI
+Tempo estimado: 4-5 dias
+Complexidade: ALTA
+Risco: MÉDIO
+
+RESULTADO ESPERADO:
+Backend capaz de gerenciar pedidos de forma autônoma, testável e robusta,
+servindo de fundação para qualquer camada de apresentação futura.
 
 
 ════════════════════════════════════════════════════════════════════════════════
-FIM DO PLANO DE ETAPAS
+FIM DO PLANO REORGANIZADO
 ════════════════════════════════════════════════════════════════════════════════
+
+Última atualização: 10 de Fevereiro de 2026
+Próxima revisão: Após conclusão da Etapa Prioritária 1

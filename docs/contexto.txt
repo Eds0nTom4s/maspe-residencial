@@ -1,0 +1,72 @@
+CONTEXT — SISTEMA DE GESTÃO DE PEDIDOS E ATENDIMENTO
+
+1. VISÃO GERAL
+Este sistema é uma plataforma de gestão de pedidos para restaurantes,
+bares, discotecas, hotéis e eventos, desenhada para funcionar tanto em
+ambientes calmos quanto caóticos.
+
+O foco não é apenas tecnologia, mas organização operacional,
+eliminação de confusão e rastreabilidade total.
+
+2. PROBLEMA REAL
+Ambientes com:
+- música alta
+- muitos clientes
+- múltiplas unidades de atendimento
+- cozinha centralizada
+- pedidos errados
+- gritos e confusão
+
+O sistema impõe ordem sem atrapalhar o fluxo humano.
+
+3. CONCEITOS FUNDAMENTAIS
+- Unidade de Atendimento: ponto de entrada do pedido (bar, restaurante, quarto)
+- Cozinha: recurso operacional que prepara itens (pode ser centralizada)
+- Pedido: pedido lógico feito pelo cliente
+- SubPedido: divisão do pedido por unidade/cozinha
+- Mesa: física ou virtual
+- Fundo de Consumo: saldo pré-carregado para consumo rápido
+
+4. FLUXO PRINCIPAL
+Cliente faz pedido via QR →
+Sistema cria Pedido →
+Sistema cria SubPedidos →
+Cozinha assume →
+Item é preparado →
+Cozinha marca como PRONTO →
+Ticket é impresso →
+Garçom entrega →
+Entrega é confirmada
+
+5. ATORES
+- Cliente: apenas cria pedidos
+- Garçom: assume pedidos, entrega, confirma entrega
+- Balcão (Responsável de Turno): orquestra tudo
+- Cozinha: muda estados de preparação
+
+6. REGRAS CRÍTICAS (NÃO QUEBRAR)
+- 1 QR Code pertence a 1 Unidade de Atendimento
+- Cliente nunca altera estado de pedido
+- Estados seguem fluxo linear (PENDENTE → EM_PREPARAÇÃO → PRONTO → ENTREGUE)
+- Impressão térmica ocorre apenas ao marcar PRONTO
+- Garçom não deve procurar pedidos manualmente
+- Sistema deve funcionar em cenário caótico
+
+7. DECISÕES ARQUITETURAIS
+- Backend: Java 17 + Spring Boot 3
+- Arquitetura: Clean Architecture / DDD light
+- Banco: PostgreSQL
+- Comunicação em tempo real: WebSocket
+- Autenticação: JWT
+- Perfis: Cliente, Garçom, Balcão, Cozinha, Admin
+
+8. METODOLOGIA DE DESENVOLVIMENTO
+- Desenvolvimento em etapas
+- Cada etapa gera um arquivo .txt de resumo
+- Cada etapa deve ser:
+  1. Implementada
+  2. Testada
+  3. Aprovada
+  4. Só então avançar
+
+Este arquivo deve ser lido antes de qualquer modificação no sistema.

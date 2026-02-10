@@ -1,0 +1,226 @@
+DESIGN MODEL — SISTEMA DE GESTÃO DE PEDIDOS E ATENDIMENTO
+
+
+1. VISÃO DE DESIGN
+
+Este sistema é desenhado como um orquestrador de pedidos para ambientes
+com múltiplas unidades de atendimento e recursos operacionais compartilhados
+(cozinhas).
+
+O design prioriza:
+- clareza de responsabilidades
+- fluxo linear de estados
+- eliminação de decisões implícitas
+- rastreabilidade total das operações
+
+
+2. ENTIDADES PRINCIPAIS (CONCEITUAIS)
+
+
+2.1 UnidadeDeAtendimento
+Representa o ponto de entrada do pedido.
+
+Atributos conceituais:
+- id
+- nome
+- tipo (RESTAURANTE, BAR, CAFETARIA, ROOM_SERVICE, EVENTO)
+- status (ABERTA, FECHADA)
+- cozinhasResponsaveis (1..n)
+
+Responsabilidades:
+- receber pedidos
+- coordenar atendimento
+- manter visão operacional
+
+
+2.2 Cozinha
+Recurso operacional responsável pela preparação.
+
+Atributos:
+- id
+- nome
+- tipo (CENTRAL, BAR_PREP, ESPECIAL)
+- status (ATIVA, INATIVA)
+
+Responsabilidades:
+- assumir subpedidos
+- alterar estados de preparo
+- imprimir tickets ao marcar pedidos como PRONTO
+
+
+2.3 Pedido
+Entidade agregadora lógica do pedido do cliente.
+
+Atributos:
+- id
+- origem (Mesa ou Quarto)
+- unidadeAtendimento
+- statusGeral
+- dataHoraCriacao
+
+Responsabilidades:
+- agrupar subpedidos
+- refletir estado agregado do pedido
+
+
+2.4 SubPedido
+Unidade operacional de execução.
+
+Atributos:
+- id
+- pedidoPai
+- unidadeAtendimento
+- cozinhaResponsavel
+- status
+- timestamps (criado, iniciado, pronto, entregue)
+
+Responsabilidades:
+- controlar o ciclo de vida real do pedido
+- servir como base de auditoria
+
+
+2.5 ItemPedido
+Representa cada item individual de consumo.
+
+Atributos:
+- id
+- nome
+- quantidade
+- categoria
+- rotaPreparacao (define a cozinha)
+
+Responsabilidades:
+- representar o que será preparado e entregue
+
+
+2.6 Mesa
+Pode ser física ou virtual.
+
+Atributos:
+- id
+- tipo (FISICA, VIRTUAL)
+- referencia (número, código temporário)
+- unidadeAtendimento
+- status (ABERTA, FECHADA)
+
+Responsabilidades:
+- vincular pedidos ao espaço físico ou contexto do cliente
+
+
+2.7 FundoConsumo
+Saldo pré-carregado para consumo rápido.
+
+Atributos:
+- id
+- valorAtual
+- status (ATIVO, ESGOTADO, ENCERRADO)
+
+Responsabilidades:
+- permitir consumo sem pagamento item a item
+- controlar saldo disponível
+
+
+2.8 Usuario
+Representa os atores humanos do sistema.
+
+Tipos:
+- CLIENTE
+- GARCOM
+- BALCAO
+- COZINHA
+- ADMIN
+
+Atributos:
+- id
+- nome
+- perfil
+- secaoAtiva
+
+
+3. RELAÇÕES CONCEITUAIS
+
+UnidadeDeAtendimento 1 ---- * Pedido
+Pedido 1 ------------ * SubPedido
+SubPedido 1 --------- * ItemPedido
+UnidadeDeAtendimento * ---- * Cozinha
+Mesa 1 -------------- * Pedido
+Usuario (Garçom) 1 -- * SubPedido
+
+
+4. MODELO DE ESTADOS (SUBPEDIDO)
+
+Estados válidos:
+- PENDENTE
+- EM_PREPARAÇÃO
+- PRONTO
+- ENTREGUE
+- CANCELADO
+
+Regras:
+- Estados são lineares
+- Não é permitido pular estados
+- Cliente nunca altera estados
+- Cozinha altera estados até PRONTO
+- Garçom ou Balcão confirmam ENTREGA
+
+
+5. EVENTOS IMPORTANTES DO SISTEMA
+
+- PedidoCriado
+- SubPedidoAssumido
+- PreparoIniciado
+- SubPedidoPronto
+- TicketImpresso
+- EntregaConfirmada
+- MesaEncerrada
+- FundoConsumido
+
+Todos os eventos devem ser auditáveis.
+
+
+6. IMPRESSÃO TÉRMICA (EVENTO DE SAÍDA)
+
+Evento gatilho:
+- SubPedido.status = PRONTO
+
+Ações executadas:
+- gerar ticket físico
+- incluir QR Code do subpedido
+- associar ticket ao fluxo de entrega
+
+
+7. VISÃO DO GARÇOM (DESIGN)
+
+O garçom vê apenas:
+- pedidos da sua unidade
+- pedidos que assumiu
+- pedidos prontos para entrega
+
+Ações disponíveis:
+- assumir pedido
+- confirmar entrega via QR Code
+
+
+8. RESPONSABILIDADE DO BALCÃO
+
+O balcão atua como orquestrador do sistema:
+- visualiza todos os pedidos
+- resolve conflitos operacionais
+- fecha contas
+- atua como fallback de entrega
+
+
+9. PRINCÍPIOS DE DESIGN (OBRIGATÓRIOS)
+
+- Clareza acima de complexidade
+- Fluxos explícitos
+- Nenhuma ação implícita
+- Sistema impõe ordem
+- Humanos não devem pensar no sistema
+
+
+10. NOTA FINAL
+
+Este documento representa o modelo de design oficial do sistema.
+Qualquer implementação deve respeitar este modelo antes de introduzir
+novas entidades, estados ou fluxos.

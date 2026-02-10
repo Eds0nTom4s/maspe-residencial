@@ -1,0 +1,919 @@
+================================================================================
+           ANÁLISE TÉCNICA ARQUITETURAL - ETAPA 01
+           Sistema de Restauração - Operador Digital
+           Data: 09 de Fevereiro de 2026
+           Analista: Sistema Especialista Sênior
+================================================================================
+
+═══════════════════════════════════════════════════════════════════════════════
+1. CONTEXTO E OBJETIVO DA ANÁLISE
+═══════════════════════════════════════════════════════════════════════════════
+
+OBJETIVO:
+Avaliar rigorosamente a estrutura existente de um sistema Spring Boot que segue
+Clean Architecture prática (DDD light), identificando gaps críticos para um 
+sistema transacional de alto volume em operações de restaurante.
+
+FOCO DA ANÁLISE:
+✓ Aderência à Clean Architecture
+✓ Separação de responsabilidades
+✓ Pontos frágeis para concorrência
+✓ Lacunas de domínio (Pedido, SubPedido, estados, auditoria)
+✓ Preparação para operação em tempo real
+
+STACK ANALISADO:
+- Java 21 (especificação pede Java 17, projeto já usa 21 - ACEITÁVEL)
+- Spring Boot 3.2.2 ✓
+- Spring Data JPA / Hibernate ✓
+- PostgreSQL (configurado, usando H2 em dev) ✓
+- WebSocket (estrutura básica presente) ⚠️
+- Auditoria JPA habilitada ✓
+
+
+═══════════════════════════════════════════════════════════════════════════════
+2. ANÁLISE DA ADERÊNCIA À CLEAN ARCHITECTURE
+═══════════════════════════════════════════════════════════════════════════════
+
+STATUS GERAL: ⚠️ PARCIALMENTE ADERENTE (60%)
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2.1. CAMADA DE APRESENTAÇÃO (Controllers)                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+✅ PONTOS FORTES:
+• Controllers bem definidos e separados por contexto de negócio
+• Uso correto de DTOs (Request/Response) isolando o modelo de domínio
+• Estrutura de pacotes clara e organizada
+• Presença de tratamento global de exceções (GlobalExceptionHandler)
+
+⚠️ PONTOS DE ATENÇÃO:
+• Não há evidência de validação de autorização (RBAC mencionado mas não implementado)
+• Falta implementação de Rate Limiting para proteção contra sobrecarga
+• Ausência de validação de concorrência na camada de entrada
+• DTOs não estão isolados em módulo separado (acoplamento de pacote)
+
+❌ GAPS CRÍTICOS:
+• Sem versionamento de API (crucial para manutenção em produção)
+• Não há segregação de comandos/queries (CQRS light seria adequado)
+• Ausência de API Gateway pattern para orquestração complexa
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2.2. CAMADA DE NEGÓCIO (Services)                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+✅ PONTOS FORTES:
+• Services bem organizados com responsabilidades claras
+• Uso adequado de @Transactional em operações de escrita
+• @Transactional(readOnly=true) em consultas (otimização correta)
+• Logging bem estruturado com níveis apropriados
+• Validações de regras de negócio presentes
+
+⚠️ PONTOS DE ATENÇÃO:
+• Lógica de transição de estados está nas Entities (Pedido.avancarStatus())
+  - PROBLEMA: Dificulta auditoria e rastreamento de quem alterou
+  - SOLUÇÃO: Mover para Service com context de usuário
+
+• Services dependem de outras Services (MesaService, ProdutoService)
+  - ACEITÁVEL para simplicidade, mas pode criar acoplamento
+  - RISCO: Transações aninhadas podem causar deadlocks
+
+• Cálculos de negócio nas Entities (calcularTotal())
+  - ACEITÁVEL para DDD, mas sem validação de concorrência
+  - RISCO: Race conditions em pedidos simultâneos
+
+❌ GAPS CRÍTICOS PARA CONCORRÊNCIA:
+• AUSÊNCIA TOTAL DE LOCKING OTIMISTA (@Version)
+  → Sistema VULNERÁVEL a race conditions em operações concorrentes
+  → Múltiplos garçons podem alterar mesma mesa simultaneamente
+  → Cozinha e balcão podem criar conflitos de estado
+
+• NÃO HÁ VALIDAÇÃO DE QUEM ESTÁ ALTERANDO O ESTADO
+  → Cliente não pode alterar seu próprio pedido para PRONTO
+  → Cozinha não pode alterar para ENTREGUE
+  → SEM SEGREGAÇÃO DE PERMISSÕES NO SERVICE
+
+• AUSÊNCIA DE AUDITORIA DE MUDANÇAS DE ESTADO
+  → Não há registro de quem alterou status
+  → Não há timestamp de transição
+  → Impossível rastrear responsável por alteração incorreta
+
+• AUSÊNCIA DE EVENT LOG (Event Sourcing light)
+  → Não há histórico de eventos de mudança de estado
+  → Impossível reconstruir timeline do pedido
+  → Dificulta debugging de problemas de concorrência
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2.3. CAMADA DE PERSISTÊNCIA (Repositories)                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+✅ PONTOS FORTES:
+• Uso correto de Spring Data JPA
+• Queries customizadas quando necessário
+• Índices estratégicos definidos nas entidades
+• FetchType.LAZY adequadamente usado
+
+⚠️ PONTOS DE ATENÇÃO:
+• Não há evidência de uso de Query Hints para otimização
+• Falta paginação em consultas que podem retornar muitos resultados
+• Ausência de cache de segundo nível (Ehcache/Redis)
+
+❌ GAPS CRÍTICOS:
+• Queries que buscam listas inteiras sem controle de volume
+• Sem mecanismo de lock pessimista para operações críticas
+• Falta de batch processing para operações em lote
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2.4. CAMADA DE DOMÍNIO (Entities e Enums)                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+✅ PONTOS FORTES:
+• Entidades bem modeladas seguindo JPA
+• Uso correto de relacionamentos bidirecionais
+• Validações básicas com Bean Validation
+• Métodos de negócio nas entidades (DDD style)
+• BaseEntity com auditoria temporal (@CreatedDate, @LastModifiedDate)
+• Enums bem definidos com descrições
+
+⚠️ PONTOS DE ATENÇÃO:
+• BaseEntity não tem campos de auditoria de usuário (createdBy, modifiedBy)
+• Métodos avancarStatus() na Entity sem controle de permissões
+• calcularTotal() sem proteção contra concorrência
+
+❌ GAPS CRÍTICOS PARA O MODELO REQUERIDO:
+
+⚠️⚠️⚠️ AUSÊNCIA TOTAL DO CONCEITO DE "SUBPEDIDO" ⚠️⚠️⚠️
+
+O REQUISITO CRÍTICO menciona explicitamente:
+
+    "MODELO DE DOMÍNIO CENTRAL
+    Pedido
+    └── SubPedido (por unidade/cozinha)
+    └── Itens"
+
+PROBLEMA IDENTIFICADO:
+• O modelo atual tem: Pedido → ItemPedido
+• NÃO HÁ a entidade SubPedido intermediária
+• Todos os itens de um pedido compartilham o MESMO status
+• Impossível ter um item PRONTO enquanto outro está EM_PREPARAÇÃO
+
+IMPACTO PARA O NEGÓCIO:
+❌ Pizza pode ficar pronta antes da bebida, mas cliente não é notificado
+❌ Cozinha e bar não podem trabalhar de forma independente
+❌ Garçom não pode entregar itens parcialmente
+❌ Cliente não tem visibilidade granular do que está pronto
+
+ARQUITETURA ESPERADA vs ATUAL:
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ESPERADO (REQUISITO):                ATUAL (IMPLEMENTADO):                   │
+│                                                                               │
+│ Pedido (do cliente)                  Pedido                                  │
+│  ├── SubPedido (Cozinha)              └── ItemPedido (Pizza)                 │
+│  │    ├── Status: PRONTO               └── ItemPedido (Bebida)               │
+│  │    └── Itens: [Pizza, Batata]       └── ItemPedido (Batata)               │
+│  │                                                                            │
+│  └── SubPedido (Bar)                  ❌ Todos compartilham status do Pedido │
+│       ├── Status: EM_PREPARO                                                 │
+│       └── Itens: [Bebida]            PROBLEMA: Granularidade insuficiente!   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+3. ANÁLISE DE SEPARAÇÃO DE RESPONSABILIDADES
+═══════════════════════════════════════════════════════════════════════════════
+
+STATUS GERAL: ✅ BOA (75%)
+
+✅ SEPARAÇÕES CORRETAS:
+• Controllers não acessam Repositories diretamente ✓
+• Services encapsulam lógica de negócio ✓
+• DTOs separam API de modelo de domínio ✓
+• Exceptions customizadas bem organizadas ✓
+• Configurações isoladas em pacote próprio ✓
+
+⚠️ VIOLAÇÕES MENORES:
+• Services chamam outros Services diretamente
+  - Aceitável, mas pode gerar dependências circulares
+  - Considerar uso de Domain Events para desacoplamento
+
+• Entities têm lógica de negócio
+  - Aceitável para DDD, mas sem contexto de segurança
+  - Métodos como avancarStatus() deveriam estar no Service
+
+❌ VIOLAÇÕES CRÍTICAS:
+• Ausência de camada de Application Services
+  - Services atuais misturam orquestração com regras
+  - Dificulta testes e reutilização
+
+• Falta de segregação de comandos/queries
+  - Todos os métodos no mesmo Service
+  - Dificulta otimização e escalabilidade
+
+
+═══════════════════════════════════════════════════════════════════════════════
+4. ANÁLISE DE PONTOS FRÁGEIS PARA CONCORRÊNCIA
+═══════════════════════════════════════════════════════════════════════════════
+
+STATUS GERAL: ❌ CRÍTICO (20%)
+
+⚠️⚠️⚠️ SISTEMA ALTAMENTE VULNERÁVEL A RACE CONDITIONS ⚠️⚠️⚠️
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4.1. AUSÊNCIA DE LOCKING OTIMISTA                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❌ VULNERABILIDADE CRÍTICA:
+• Nenhuma entity possui campo @Version
+• Múltiplas atualizações simultâneas podem sobrescrever dados
+• Last-write-wins sem detecção de conflito
+
+CENÁRIOS DE FALHA:
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Cenário 1: Dois garçons adicionam pedidos à mesma mesa simultaneamente      │
+│                                                                               │
+│ T0: Mesa {id: 1, total: 100.00}                                              │
+│ T1: Garçom A lê mesa (total: 100.00)                                         │
+│ T2: Garçom B lê mesa (total: 100.00)                                         │
+│ T3: Garçom A adiciona pedido (+50.00) → total: 150.00                       │
+│ T4: Garçom B adiciona pedido (+30.00) → total: 130.00 ❌                     │
+│                                                                               │
+│ RESULTADO: Pedido do Garçom A é PERDIDO! Mesa fica com total: 130.00        │
+│ ESPERADO: Mesa deveria ter total: 180.00                                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Cenário 2: Cozinha e Garçom alteram status do pedido simultaneamente        │
+│                                                                               │
+│ T0: Pedido {status: EM_PREPARO}                                              │
+│ T1: Cozinha lê pedido (status: EM_PREPARO)                                   │
+│ T2: Garçom lê pedido (status: EM_PREPARO)                                    │
+│ T3: Cozinha altera → status: PRONTO                                          │
+│ T4: Garçom cancela → status: CANCELADO ❌                                    │
+│                                                                               │
+│ RESULTADO: Pedido PRONTO é CANCELADO sem validação!                          │
+│ ESPERADO: Erro de concorrência - pedido já foi alterado                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4.2. AUSÊNCIA DE CONTROLE DE PERMISSÕES NAS TRANSIÇÕES DE ESTADO           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❌ VULNERABILIDADE CRÍTICA:
+• Qualquer usuário pode alterar qualquer status
+• Cliente pode marcar seu próprio pedido como PRONTO
+• Cozinha pode marcar como ENTREGUE (deveria ser só garçom)
+• Nenhuma validação de role no Service
+
+CÓDIGO VULNERÁVEL (PedidoService.java linha 164):
+```java
+@Transactional
+public PedidoResponse atualizarStatus(Long id, StatusPedido novoStatus) {
+    Pedido pedido = buscarPorId(id);
+    pedido.setStatus(novoStatus); // ❌ SEM VALIDAÇÃO DE PERMISSÃO!
+    pedido = pedidoRepository.save(pedido);
+    return mapToResponse(pedido);
+}
+```
+
+REGRAS AUSENTES:
+• Cliente: NUNCA pode alterar status
+• Cozinha: PENDENTE → EM_PREPARAÇÃO → PRONTO (só até PRONTO)
+• Garçom: PRONTO → ENTREGUE (só confirma entrega)
+• Balcão: Pode cancelar até EM_PREPARAÇÃO
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4.3. AUSÊNCIA DE AUDITORIA DE MUDANÇAS DE ESTADO                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❌ LACUNA CRÍTICA:
+• BaseEntity tem createdAt e updatedAt, mas NÃO TEM quem criou/alterou
+• Sem registro de transições de estado
+• Impossível rastrear responsável por alteração incorreta
+• Debugging de problemas de concorrência extremamente difícil
+
+AUDITORIA ATUAL vs NECESSÁRIA:
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ATUAL (BaseEntity):                  NECESSÁRIO:                             │
+│  - id                                 - id                                   │
+│  - createdAt                          - createdAt                            │
+│  - updatedAt                          - updatedAt                            │
+│                                       - createdBy ⚠️                         │
+│                                       - modifiedBy ⚠️                        │
+│                                       - version (@Version) ⚠️               │
+│                                                                              │
+│ PARA PEDIDOS:                         PARA PEDIDOS:                          │
+│  - status (atual)                     - status (atual)                       │
+│                                       - statusHistory[] ⚠️                   │
+│                                         [                                    │
+│                                           {                                  │
+│                                             from: PENDENTE,                  │
+│                                             to: EM_PREPARAÇÃO,              │
+│                                             changedBy: "garcom@123",        │
+│                                             changedAt: "2026-02-09T10:30",  │
+│                                             reason: "Confirmado"            │
+│                                           }                                  │
+│                                         ]                                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4.4. CÁLCULOS SEM PROTEÇÃO CONTRA CONCORRÊNCIA                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❌ CÓDIGO VULNERÁVEL (Pedido.java):
+```java
+public BigDecimal calcularTotal() {
+    BigDecimal totalCalculado = itens.stream()
+        .map(ItemPedido::getSubtotal)
+        .reduce(BigDecimal.ZERO, BigDecimal::add);
+    
+    this.total = totalCalculado; // ❌ Read-Modify-Write sem lock!
+    return totalCalculado;
+}
+```
+
+PROBLEMA:
+• Múltiplas threads podem calcular total simultaneamente
+• Última escrita vence sem validação
+• Total pode ficar inconsistente com itens
+
+
+═══════════════════════════════════════════════════════════════════════════════
+5. LACUNAS DE DOMÍNIO CRÍTICAS
+═══════════════════════════════════════════════════════════════════════════════
+
+STATUS GERAL: ❌ LACUNAS CRÍTICAS IDENTIFICADAS
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5.1. AUSÊNCIA DA ENTIDADE SUBPEDIDO                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❌ LACUNA CRÍTICA ARQUITETURAL:
+
+REQUISITO EXPLÍCITO:
+"Pedido → SubPedido (por unidade/cozinha) → Itens"
+
+IMPLEMENTAÇÃO ATUAL:
+"Pedido → ItemPedido" (SEM intermediário SubPedido)
+
+IMPACTOS OPERACIONAIS:
+✗ Cozinha e bar não podem trabalhar independentemente
+✗ Garçom não pode entregar pedidos parcialmente
+✗ Cliente não tem visibilidade do que já está pronto
+✗ Sistema não suporta múltiplas unidades de preparação
+✗ KPI por unidade (tempo médio da cozinha vs bar) impossível
+
+MODELO NECESSÁRIO:
+```
+Entity SubPedido {
+    id: Long
+    pedido: Pedido                    // Relacionamento com pedido pai
+    unidadePreparacao: String         // "COZINHA", "BAR", "CONFEITARIA"
+    status: StatusSubPedido           // Status independente!
+    itens: List<ItemPedido>           // Itens agrupados por unidade
+    responsavel: Atendente            // Quem está preparando
+    iniciadoEm: LocalDateTime
+    prontoEm: LocalDateTime
+    entregueEm: LocalDateTime
+    version: Long                     // Locking otimista
+}
+```
+
+REFATORAÇÃO NECESSÁRIA:
+• Criar entidade SubPedido
+• Mover relacionamento Pedido→ItemPedido para SubPedido→ItemPedido
+• Lógica de agrupamento automático por categoria de produto
+• Máquina de estados independente para cada SubPedido
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5.2. AUSÊNCIA DE EVENT LOG (Event Sourcing Light)                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❌ LACUNA CRÍTICA PARA AUDITORIA:
+
+REQUISITO:
+"Versionamento de estado (event log, estilo Event Sourcing light)"
+
+IMPLEMENTAÇÃO ATUAL:
+• Nenhuma tabela de eventos
+• Nenhum registro de transições de estado
+• Apenas updatedAt sem contexto
+
+MODELO NECESSÁRIO:
+```
+Entity PedidoEventLog {
+    id: Long
+    pedidoId: Long
+    eventType: String                 // "STATUS_CHANGED", "ITEM_ADDED", etc
+    previousStatus: StatusPedido
+    newStatus: StatusPedido
+    triggeredBy: String               // ID do usuário
+    triggeredByRole: TipoUsuario      // GARCOM, COZINHA, etc
+    triggeredAt: LocalDateTime
+    metadata: JSON                    // Dados adicionais do evento
+    ipAddress: String
+    userAgent: String
+}
+```
+
+BENEFÍCIOS:
+✓ Rastreamento completo de quem fez o quê
+✓ Possibilidade de replay de eventos
+✓ Debugging de problemas de concorrência
+✓ Conformidade com auditoria fiscal
+✓ Analytics de performance por usuário
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5.3. AUSÊNCIA DE MÁQUINA DE ESTADOS EXPLÍCITA                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+⚠️ LACUNA MODERADA:
+
+IMPLEMENTAÇÃO ATUAL:
+• Método avancarStatus() usa switch-case na Entity
+• Transições validadas apenas implicitamente
+• Sem validação de transições inválidas
+
+PROBLEMA:
+```java
+// Entity Pedido - PROBLEMÁTICO
+public void avancarStatus() {
+    switch (status) {
+        case PENDENTE -> status = StatusPedido.RECEBIDO;
+        case RECEBIDO -> status = StatusPedido.EM_PREPARO;
+        // ...
+    }
+    // ❌ Não valida transições inválidas
+    // ❌ Não registra quem fez a transição
+    // ❌ Não valida permissões
+}
+```
+
+SOLUÇÃO NECESSÁRIA:
+• Service-level State Machine
+• Validação explícita de transições permitidas
+• Registro de audit trail em cada transição
+• Validação de permissões por role
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5.4. AUSÊNCIA DE GESTÃO DE QR CODE SEGURO                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+⚠️ LACUNA FUNCIONAL:
+
+REQUISITO:
+"QR Code: UUID, Uso único, Expiração configurável, Confirma ENTREGA via scan"
+
+IMPLEMENTAÇÃO ATUAL:
+• Mesa tem campo qrCode (String)
+• Sem validação de uso único
+• Sem expiração
+• Sem uso para confirmação de entrega
+
+MODELO NECESSÁRIO:
+```
+Entity QrCodeToken {
+    id: Long
+    token: String (UUID)              // Token único
+    tipo: TipoQrCode                  // ACESSO_MESA, CONFIRMAR_ENTREGA
+    entidadeId: Long                  // ID da mesa ou pedido
+    criadoEm: LocalDateTime
+    expiraEm: LocalDateTime           // ⚠️ Expiração configurável
+    usadoEm: LocalDateTime            // ⚠️ Controle de uso único
+    usado: Boolean
+    usuarioId: Long                   // Quem usou
+}
+```
+
+REGRAS NECESSÁRIAS:
+• QR Code de mesa: validade de 24h, renovado diariamente
+• QR Code de confirmação de entrega: validade de 30min, uso único
+• Validação de token antes de aceitar requisição
+• Invalidação automática após uso
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5.5. IMPRESSÃO E BRIDGE LOCAL AUSENTES                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+⚠️ LACUNA FUNCIONAL:
+
+REQUISITO:
+"Backend NÃO conversa direto com impressora, Backend emite eventos, 
+App local (bridge) imprime ticket"
+
+IMPLEMENTAÇÃO ATUAL:
+• Nenhuma estrutura para emissão de eventos
+• WebSocket configurado mas não usado
+
+ARQUITETURA NECESSÁRIA:
+```
+Backend → WebSocket → Bridge Local → Impressora
+
+Entity EventoImpressao {
+    id: Long
+    tipo: TipoImpressao              // PEDIDO, COMANDA, CONTA
+    conteudo: String                 // Template renderizado
+    prioridadeImpressao: Integer
+    impressoraDestino: String        // "COZINHA_1", "BAR_1"
+    emitidoEm: LocalDateTime
+    processadoEm: LocalDateTime
+    status: StatusImpressao          // PENDENTE, IMPRESSO, ERRO
+}
+```
+
+
+═══════════════════════════════════════════════════════════════════════════════
+6. AVALIAÇÃO DE PREPARAÇÃO PARA ALTO VOLUME
+═══════════════════════════════════════════════════════════════════════════════
+
+STATUS GERAL: ❌ NÃO PREPARADO (30%)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 6.1. AUSÊNCIA DE MECANISMOS DE ESCALABILIDADE                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❌ LACUNAS IDENTIFICADAS:
+• Sem cache distribuído (Redis)
+• Sem connection pooling configurado
+• Sem rate limiting
+• Sem circuit breaker para dependências externas
+• Sem pool de threads configurado
+• Sem métricas de performance (Micrometer/Prometheus)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 6.2. QUERIES NÃO OTIMIZADAS PARA VOLUME                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+⚠️ PROBLEMAS IDENTIFICADOS:
+• findAll() sem paginação
+• Queries sem LIMIT
+• N+1 problem potencial com FetchType.LAZY
+• Sem uso de DTOs projetados direto do banco
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 6.3. AUSÊNCIA DE MONITORAMENTO E OBSERVABILIDADE                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❌ LACUNAS CRÍTICAS:
+• Sem métricas de negócio (pedidos/min, tempo médio preparo)
+• Sem traces distribuídos
+• Sem health checks customizados
+• Sem alertas de degradação
+
+
+═══════════════════════════════════════════════════════════════════════════════
+7. ANÁLISE DE SEGURANÇA E CONTROLE DE ACESSO
+═══════════════════════════════════════════════════════════════════════════════
+
+STATUS GERAL: ❌ VULNERÁVEL (25%)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 7.1. AUTENTICAÇÃO E AUTORIZAÇÃO                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+⚠️ IMPLEMENTAÇÃO PARCIAL:
+✓ OTP implementado para clientes
+✓ Validação de telefone presente
+❌ JWT mencionado mas NÃO IMPLEMENTADO
+❌ RBAC mencionado mas NÃO IMPLEMENTADO
+❌ Sem Spring Security configurado
+❌ Endpoints sem proteção
+
+VULNERABILIDADES:
+• Cliente pode acessar qualquer endpoint de administração
+• Sem validação de token em requisições
+• Sem renovação de sessão
+• Sem logout/invalidação de token
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 7.2. VALIDAÇÃO DE REGRAS DE NEGÓCIO POR ROLE                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❌ AUSENTE COMPLETAMENTE:
+
+REGRAS MENCIONADAS NO REQUISITO:
+"⚠️ Cliente NUNCA altera estado
+⚠️ Cozinha altera até PRONTO
+⚠️ Garçom/Balcão confirma ENTREGA"
+
+IMPLEMENTAÇÃO ATUAL:
+• Nenhuma dessas regras está implementada
+• Qualquer usuário pode chamar qualquer endpoint
+• Sem validação de role no Service
+
+
+═══════════════════════════════════════════════════════════════════════════════
+8. MATRIZ DE RISCOS IDENTIFICADOS
+═══════════════════════════════════════════════════════════════════════════════
+
+┌────────┬──────────────────────────────────────────┬──────────┬──────────────┐
+│ RISCO  │ DESCRIÇÃO                                │ IMPACTO  │ PROBABILIDADE│
+├────────┼──────────────────────────────────────────┼──────────┼──────────────┤
+│ RC-01  │ Race condition em pedidos simultâneos    │ CRÍTICO  │ ALTA         │
+│        │ (ausência de @Version)                   │          │              │
+├────────┼──────────────────────────────────────────┼──────────┼──────────────┤
+│ RC-02  │ Perda de dados em atualização concorrente│ CRÍTICO  │ ALTA         │
+│        │ de mesa (last-write-wins)                │          │              │
+├────────┼──────────────────────────────────────────┼──────────┼──────────────┤
+│ RC-03  │ Cliente pode alterar status do pedido    │ CRÍTICO  │ MÉDIA        │
+│        │ (ausência de RBAC)                       │          │              │
+├────────┼──────────────────────────────────────────┼──────────┼──────────────┤
+│ DM-01  │ Impossível gerenciar cozinha e bar       │ CRÍTICO  │ CERTA        │
+│        │ independentemente (sem SubPedido)        │          │              │
+├────────┼──────────────────────────────────────────┼──────────┼──────────────┤
+│ AU-01  │ Impossível rastrear quem alterou status  │ ALTO     │ CERTA        │
+│        │ (ausência de auditoria de usuário)       │          │              │
+├────────┼──────────────────────────────────────────┼──────────┼──────────────┤
+│ AU-02  │ Impossível reconstruir histórico         │ ALTO     │ CERTA        │
+│        │ (ausência de event log)                  │          │              │
+├────────┼──────────────────────────────────────────┼──────────┼──────────────┤
+│ SC-01  │ Endpoints sem autenticação               │ CRÍTICO  │ CERTA        │
+│        │ (JWT não implementado)                   │          │              │
+├────────┼──────────────────────────────────────────┼──────────┼──────────────┤
+│ PR-01  │ Sistema não escalável para alto volume   │ ALTO     │ MÉDIA        │
+│        │ (sem cache, sem paginação)               │          │              │
+├────────┼──────────────────────────────────────────┼──────────┼──────────────┤
+│ FN-01  │ QR Code sem expiração/uso único          │ MÉDIO    │ CERTA        │
+│        │ (vulnerabilidade de replay)              │          │              │
+└────────┴──────────────────────────────────────────┴──────────┴──────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+9. PONTOS FORTES DO PROJETO ATUAL
+═══════════════════════════════════════════════════════════════════════════════
+
+Apesar das lacunas identificadas, o projeto tem fundações sólidas:
+
+✅ ESTRUTURA BEM ORGANIZADA:
+• Separação clara de responsabilidades por camadas
+• Código limpo e legível
+• Nomenclatura consistente e expressiva
+• Documentação inline adequada
+
+✅ TECNOLOGIAS ADEQUADAS:
+• Stack moderno (Spring Boot 3.2, Java 21)
+• Dependências relevantes já incluídas
+• Configurações básicas corretas
+
+✅ MODELAGEM INICIAL COERENTE:
+• Relacionamentos JPA bem definidos
+• Enums bem estruturados
+• DTOs separando camadas
+
+✅ PRÁTICAS DE DESENVOLVIMENTO:
+• Uso de @Transactional adequado
+• Logging estruturado
+• Exception handling centralizado
+• Validações básicas presentes
+
+✅ INFRAESTRUTURA PREPARADA:
+• WebSocket configurado (pronto para notificações)
+• Swagger/OpenAPI configurado
+• Auditoria temporal habilitada
+• DevTools para desenvolvimento
+
+
+═══════════════════════════════════════════════════════════════════════════════
+10. RECOMENDAÇÕES PRIORITÁRIAS
+═══════════════════════════════════════════════════════════════════════════════
+
+Para evoluir o sistema de forma segura e escalável, as seguintes etapas devem
+ser seguidas em ordem rigorosa:
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PRIORIDADE 1 - FUNDAÇÕES DE CONCORRÊNCIA (CRÍTICO)                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1.1. Implementar Locking Otimista
+    • Adicionar campo @Version em todas as entities críticas
+      (Pedido, Mesa, SubPedido quando criado)
+    • Tratar OptimisticLockException adequadamente
+    • Testes de concorrência obrigatórios
+
+1.2. Implementar Auditoria Completa
+    • Adicionar createdBy e modifiedBy em BaseEntity
+    • Configurar AuditorAware para capturar usuário logado
+    • Criar entidade AuditLog para mudanças de estado
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PRIORIDADE 2 - MODELO DE DOMÍNIO CORRETO (CRÍTICO)                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+2.1. Criar Entidade SubPedido
+    • Criar entity SubPedido com status independente
+    • Refatorar relacionamento Pedido→ItemPedido→SubPedido→ItemPedido
+    • Lógica de agrupamento automático por unidade
+    • Migração de dados existentes
+
+2.2. Implementar Event Log
+    • Criar entity PedidoEventLog
+    • Registrar todas transições de estado
+    • Service para consulta de histórico
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PRIORIDADE 3 - SEGURANÇA E AUTORIZAÇÃO (CRÍTICO)                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+3.1. Implementar JWT + Spring Security
+    • Configurar Spring Security
+    • Geração e validação de JWT
+    • Renovação de token
+
+3.2. Implementar RBAC
+    • Definir permissões por role
+    • Validação no Service layer
+    • Anotações de segurança nos endpoints
+
+3.3. Validar Regras de Transição de Estado
+    • Cliente NUNCA altera estado
+    • Cozinha altera até PRONTO
+    • Garçom confirma ENTREGA
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PRIORIDADE 4 - QR CODE E IMPRESSÃO                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+4.1. Implementar Gestão de QR Codes
+    • Entity QrCodeToken
+    • Validação de expiração
+    • Controle de uso único
+
+4.2. Implementar Sistema de Eventos de Impressão
+    • Entity EventoImpressao
+    • WebSocket para notificação de bridge
+    • Templates de impressão
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PRIORIDADE 5 - ESCALABILIDADE E PERFORMANCE                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+5.1. Otimização de Queries
+    • Paginação obrigatória
+    • DTO projetado
+    • Fetch strategies otimizadas
+
+5.2. Cache Distribuído
+    • Configurar Redis
+    • Cache de produtos
+    • Cache de sessões
+
+5.3. Monitoramento
+    • Micrometer + Prometheus
+    • Métricas de negócio
+    • Health checks customizados
+
+
+═══════════════════════════════════════════════════════════════════════════════
+11. CONCLUSÕES E PRÓXIMOS PASSOS
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ AVALIAÇÃO GERAL DO PROJETO                                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+SCORE DE ADERÊNCIA ARQUITETURAL:
+┌──────────────────────────────────────────┬─────────┬──────────┐
+│ Aspecto                                  │ Score   │ Status   │
+├──────────────────────────────────────────┼─────────┼──────────┤
+│ Clean Architecture                       │ 60%     │ ⚠️       │
+│ Separação de Responsabilidades           │ 75%     │ ✅       │
+│ Preparação para Concorrência             │ 20%     │ ❌       │
+│ Completude do Modelo de Domínio          │ 40%     │ ❌       │
+│ Segurança e Autorização                  │ 25%     │ ❌       │
+│ Escalabilidade                           │ 30%     │ ❌       │
+│ Observabilidade                          │ 35%     │ ❌       │
+├──────────────────────────────────────────┼─────────┼──────────┤
+│ MÉDIA GERAL                              │ 41%     │ ❌       │
+└──────────────────────────────────────────┴─────────┴──────────┘
+
+VEREDICTO:
+O projeto possui fundações sólidas (arquitetura em camadas, tecnologias adequadas,
+código limpo), mas apresenta LACUNAS CRÍTICAS que impedem operação segura em
+ambiente de alto volume e concorrência real.
+
+A ausência de:
+• Locking otimista (@Version)
+• Entidade SubPedido
+• Auditoria completa
+• RBAC implementado
+• Event log
+
+...torna o sistema VULNERÁVEL a:
+✗ Race conditions e perda de dados
+✗ Fraude por manipulação de estados
+✗ Impossibilidade de operação multi-unidade
+✗ Falta de rastreabilidade
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ DECISÃO TÉCNICA: ESTRATÉGIA DE EVOLUÇÃO                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+ABORDAGEM RECOMENDADA: Evolução Incremental Rigorosa
+
+✓ Manter arquitetura em camadas atual
+✓ Manter stack tecnológico (Spring Boot 3.2, Java 21, PostgreSQL)
+✓ Evoluir por etapas sequenciais e testadas
+✗ NÃO fazer big-bang refactoring
+✗ NÃO alterar fundações já corretas
+
+ETAPAS DEFINIDAS (sequencial):
+
+ETAPA 02: Implementar Locking Otimista e Auditoria Completa
+- Adicionar @Version em entities críticas
+- Adicionar createdBy/modifiedBy em BaseEntity
+- Configurar AuditorAware
+- Criar testes de concorrência
+
+ETAPA 03: Refatorar para Modelo com SubPedido
+- Criar entity SubPedido
+- Refatorar relacionamentos
+- Migrar dados
+- Atualizar Services
+
+ETAPA 04: Implementar Event Log e State Machine
+- Criar PedidoEventLog
+- Implementar State Machine no Service
+- Validar transições
+- Registrar auditoria
+
+ETAPA 05: Implementar JWT + RBAC
+- Configurar Spring Security
+- Implementar geração/validação JWT
+- Validar permissões por role
+- Proteger endpoints
+
+ETAPA 06: QR Code Seguro e Sistema de Impressão
+- Entity QrCodeToken
+- Validação de expiração
+- WebSocket para impressão
+
+ETAPA 07: Otimização e Escalabilidade
+- Cache Redis
+- Paginação
+- Métricas
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PRÓXIMA ETAPA IMEDIATA                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+ETAPA 02: IMPLEMENTAR LOCKING OTIMISTA E AUDITORIA COMPLETA
+
+Artefatos a produzir:
+✓ Alteração em BaseEntity (adicionar @Version, createdBy, modifiedBy)
+✓ Configuração de AuditorAware
+✓ Tratamento de OptimisticLockException
+✓ Testes de concorrência automatizados
+✓ Documentação técnica
+
+Critérios de aceitação:
+✓ Todas entities críticas têm @Version
+✓ Conflitos de concorrência são detectados e tratados
+✓ Auditoria registra quem criou/modificou
+✓ Testes comprovam proteção contra race conditions
+
+Tempo estimado: 2-3 dias
+Complexidade: MÉDIA
+Risco: BAIXO
+
+
+═══════════════════════════════════════════════════════════════════════════════
+12. ASSINATURAS E APROVAÇÕES
+═══════════════════════════════════════════════════════════════════════════════
+
+Análise elaborada por: Sistema Especialista Sênior
+Data: 09 de Fevereiro de 2026
+Versão do documento: 1.0
+
+Este documento representa a análise técnica aprofundada da estrutura existente
+e serve como roadmap para evolução segura do sistema.
+
+Status: ⚠️ AGUARDANDO APROVAÇÃO PARA INICIAR ETAPA 02
+
+Próximo documento: IMPLEMENTACAO_ETAPA_02.txt
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                              FIM DO RELATÓRIO
+═══════════════════════════════════════════════════════════════════════════════

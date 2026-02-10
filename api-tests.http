@@ -1,0 +1,328 @@
+### ========================================
+### Sistema de Restauração - Testes de API
+### Extensão: REST Client
+### ========================================
+
+@baseUrl = http://localhost:8080/api
+@contentType = application/json
+
+### ========================================
+### 1. AUTENTICAÇÃO (OTP)
+### ========================================
+
+### 1.1 Solicitar OTP (Cliente)
+POST {{baseUrl}}/auth/otp/solicitar
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244923456789"
+}
+
+### 1.2 Validar OTP (Cliente)
+POST {{baseUrl}}/auth/otp/validar
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244923456789",
+  "codigo": "123456"
+}
+
+### ========================================
+### 2. PRODUTOS
+### ========================================
+
+### 2.1 Listar todos os produtos
+GET {{baseUrl}}/produtos
+
+### 2.2 Listar produtos disponíveis
+GET {{baseUrl}}/produtos/disponiveis
+
+### 2.3 Buscar produto por ID
+GET {{baseUrl}}/produtos/1
+
+### 2.4 Buscar produto por código
+GET {{baseUrl}}/produtos/codigo/HAMBURGUER001
+
+### 2.5 Listar produtos por categoria
+GET {{baseUrl}}/produtos/categoria/LANCHE
+
+### 2.6 Criar novo produto
+POST {{baseUrl}}/produtos
+Content-Type: {{contentType}}
+
+{
+  "codigo": "TESTE001",
+  "nome": "Produto Teste",
+  "descricao": "Produto criado via REST Client",
+  "preco": 25.90,
+  "categoria": "LANCHE",
+  "tempoPreparoMinutos": 15,
+  "urlImagem": "https://exemplo.com/imagem.jpg"
+}
+
+### 2.7 Atualizar produto
+PUT {{baseUrl}}/produtos/1
+Content-Type: {{contentType}}
+
+{
+  "codigo": "HAMBURGUER001",
+  "nome": "Hambúrguer Clássico Atualizado",
+  "descricao": "Hambúrguer com carne, queijo, alface e tomate - Versão atualizada",
+  "preco": 28.00,
+  "categoria": "LANCHE",
+  "tempoPreparoMinutos": 20,
+  "urlImagem": "https://exemplo.com/hamburguer.jpg"
+}
+
+### 2.8 Alterar disponibilidade do produto
+PATCH {{baseUrl}}/produtos/1/disponibilidade?disponivel=false
+
+### 2.9 Deletar produto (soft delete)
+DELETE {{baseUrl}}/produtos/1
+
+### ========================================
+### 3. MESAS
+### ========================================
+
+### 3.1 Criar mesa (abrir mesa)
+POST {{baseUrl}}/mesas
+Content-Type: {{contentType}}
+
+{
+  "clienteId": 1,
+  "numero": 5,
+  "capacidade": 4,
+  "atendenteId": 1
+}
+
+### 3.2 Buscar mesa por ID
+GET {{baseUrl}}/mesas/1
+
+### 3.3 Buscar mesa por QR Code
+GET {{baseUrl}}/mesas/qrcode/MESA-001-2024
+
+### 3.4 Listar todas as mesas
+GET {{baseUrl}}/mesas
+
+### 3.5 Listar mesas abertas
+GET {{baseUrl}}/mesas/abertas
+
+### 3.6 Listar mesas por status
+GET {{baseUrl}}/mesas/status/OCUPADA
+
+### 3.7 Atualizar status da mesa
+PATCH {{baseUrl}}/mesas/1/status?status=OCUPADA
+
+### 3.8 Atribuir atendente à mesa
+PATCH {{baseUrl}}/mesas/1/atendente?atendenteId=1
+
+### 3.9 Fechar mesa
+POST {{baseUrl}}/mesas/1/fechar
+
+### ========================================
+### 4. PEDIDOS
+### ========================================
+
+### 4.1 Criar pedido
+POST {{baseUrl}}/pedidos
+Content-Type: {{contentType}}
+
+{
+  "mesaId": 1,
+  "itens": [
+    {
+      "produtoId": 1,
+      "quantidade": 2,
+      "observacoes": "Sem cebola"
+    },
+    {
+      "produtoId": 2,
+      "quantidade": 1,
+      "observacoes": "Bem gelada"
+    }
+  ],
+  "observacoes": "Pedido urgente"
+}
+
+### 4.2 Buscar pedido por ID
+GET {{baseUrl}}/pedidos/1
+
+### 4.3 Buscar pedido por número
+GET {{baseUrl}}/pedidos/numero/PED-20260208-001
+
+### 4.4 Listar pedidos da mesa
+GET {{baseUrl}}/pedidos/mesa/1
+
+### 4.5 Listar pedidos por status
+GET {{baseUrl}}/pedidos/status/PENDENTE
+
+### 4.6 Listar pedidos pendentes e recebidos
+GET {{baseUrl}}/pedidos/atendimento
+
+### 4.7 Adicionar item ao pedido
+POST {{baseUrl}}/pedidos/1/itens
+Content-Type: {{contentType}}
+
+{
+  "produtoId": 3,
+  "quantidade": 1,
+  "observacoes": "Extra queijo"
+}
+
+### 4.8 Remover item do pedido
+DELETE {{baseUrl}}/pedidos/1/itens/1
+
+### 4.9 Avançar status do pedido
+PATCH {{baseUrl}}/pedidos/1/status/avancar
+
+### 4.10 Cancelar pedido
+PATCH {{baseUrl}}/pedidos/1/cancelar
+
+### ========================================
+### 5. PAGAMENTOS
+### ========================================
+
+### 5.1 Criar pagamento
+POST {{baseUrl}}/pagamentos
+Content-Type: {{contentType}}
+
+{
+  "mesaId": 1,
+  "metodoPagamento": "PIX"
+}
+
+### 5.2 Buscar pagamento por ID
+GET {{baseUrl}}/pagamentos/1
+
+### 5.3 Buscar pagamento da mesa
+GET {{baseUrl}}/pagamentos/mesa/1
+
+### 5.4 Listar pagamentos por status
+GET {{baseUrl}}/pagamentos/status/PENDENTE
+
+### 5.5 Processar pagamento
+POST {{baseUrl}}/pagamentos/1/processar
+
+### 5.6 Confirmar pagamento (aprovar)
+PATCH {{baseUrl}}/pagamentos/1/confirmar
+
+### 5.7 Cancelar pagamento
+PATCH {{baseUrl}}/pagamentos/1/cancelar
+
+### ========================================
+### 6. CENÁRIO COMPLETO - FLUXO DE ATENDIMENTO
+### ========================================
+
+### 6.1 PASSO 1: Cliente solicita OTP
+POST {{baseUrl}}/auth/otp/solicitar
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244923456789"
+}
+
+### 6.2 PASSO 2: Cliente valida OTP e se autentica
+POST {{baseUrl}}/auth/otp/validar
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244923456789",
+  "codigo": "123456"
+}
+
+### 6.3 PASSO 3: Cliente cria mesa (abre mesa)
+# Usar clienteId retornado no passo 2
+POST {{baseUrl}}/mesas
+Content-Type: {{contentType}}
+
+{
+  "clienteId": 1,
+  "numero": 10,
+  "capacidade": 4
+}
+
+### 6.4 PASSO 4: Cliente faz pedido
+# Usar mesaId retornada no passo 3
+POST {{baseUrl}}/pedidos
+Content-Type: {{contentType}}
+
+{
+  "mesaId": 1,
+  "itens": [
+    {
+      "produtoId": 1,
+      "quantidade": 1
+    },
+    {
+      "produtoId": 5,
+      "quantidade": 2
+    }
+  ]
+}
+
+### 6.5 PASSO 5: Atendente avança status do pedido
+PATCH {{baseUrl}}/pedidos/1/status/avancar
+
+### 6.6 PASSO 6: Cliente solicita pagamento
+POST {{baseUrl}}/pagamentos
+Content-Type: {{contentType}}
+
+{
+  "mesaId": 1,
+  "metodoPagamento": "PIX"
+}
+
+### 6.7 PASSO 7: Sistema processa pagamento
+POST {{baseUrl}}/pagamentos/1/processar
+
+### 6.8 PASSO 8: Sistema confirma pagamento
+PATCH {{baseUrl}}/pagamentos/1/confirmar
+
+### 6.9 PASSO 9: Sistema fecha a mesa
+POST {{baseUrl}}/mesas/1/fechar
+
+### ========================================
+### 7. TESTES DE VALIDAÇÃO E ERROS
+### ========================================
+
+### 7.1 Criar produto sem campos obrigatórios (deve retornar 400)
+POST {{baseUrl}}/produtos
+Content-Type: {{contentType}}
+
+{
+  "nome": "Produto Incompleto"
+}
+
+### 7.2 Buscar produto inexistente (deve retornar 404)
+GET {{baseUrl}}/produtos/999
+
+### 7.3 Criar pedido com mesa inexistente (deve retornar 404)
+POST {{baseUrl}}/pedidos
+Content-Type: {{contentType}}
+
+{
+  "mesaId": 999,
+  "itens": [
+    {
+      "produtoId": 1,
+      "quantidade": 1
+    }
+  ]
+}
+
+### 7.4 Cancelar pedido com status inválido (deve retornar 400)
+# Primeiro avançar o pedido para ENTREGUE, depois tentar cancelar
+PATCH {{baseUrl}}/pedidos/1/cancelar
+
+### 7.5 Criar pagamento para mesa sem pedidos (deve retornar 400)
+POST {{baseUrl}}/pagamentos
+Content-Type: {{contentType}}
+
+{
+  "mesaId": 999,
+  "metodoPagamento": "PIX"
+}
+
+### ========================================
+### FIM DOS TESTES
+### ========================================

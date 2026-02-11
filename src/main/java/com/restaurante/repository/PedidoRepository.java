@@ -23,11 +23,6 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     Optional<Pedido> findByNumero(String numero);
 
     /**
-     * Busca pedidos de uma mesa
-     */
-    List<Pedido> findByMesaIdOrderByCreatedAtDesc(Long mesaId);
-
-    /**
      * Busca pedidos por status
      */
     List<Pedido> findByStatusOrderByCreatedAtAsc(StatusPedido status);
@@ -36,16 +31,6 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
      * Busca pedidos pendentes e recebidos (para atendente)
      */
     List<Pedido> findByStatusInOrderByCreatedAtAsc(List<StatusPedido> status);
-
-    /**
-     * Conta pedidos de uma mesa
-     */
-    long countByMesaId(Long mesaId);
-
-    /**
-     * Busca último pedido de uma mesa
-     */
-    Optional<Pedido> findTopByMesaIdOrderByCreatedAtDesc(Long mesaId);
 
     /**
      * Busca pedidos de hoje por status

@@ -156,34 +156,6 @@ public class SubPedido extends BaseEntity {
     }
 
     /**
-     * @deprecated Usar TransicaoEstadoValidator + SubPedidoService.alterarStatus()
-     * Mantido apenas para compatibilidade temporária
-     */
-    @Deprecated
-    public void avancarStatus(StatusSubPedido novoStatus, String responsavel) {
-        if (!podeTransicionarPara(novoStatus)) {
-            throw new IllegalStateException(
-                String.format("Não é possível transicionar de %s para %s", status, novoStatus)
-            );
-        }
-
-        this.status = novoStatus;
-
-        // Atualiza timestamps
-        switch (novoStatus) {
-            case EM_PREPARACAO -> {
-                this.iniciadoEm = LocalDateTime.now();
-                this.responsavelPreparo = responsavel;
-            }
-            case PRONTO -> this.prontoEm = LocalDateTime.now();
-            case ENTREGUE -> {
-                this.entregueEm = LocalDateTime.now();
-                this.responsavelEntrega = responsavel;
-            }
-        }
-    }
-
-    /**
      * Verifica se o SubPedido está finalizado
      */
     public boolean isFinalizado() {

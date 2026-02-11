@@ -149,14 +149,4 @@ public class Pedido extends BaseEntity {
         }
         this.statusFinanceiro = StatusFinanceiroPedido.ESTORNADO;
     }
-
-    /**
-     * @deprecated Usar PedidoService.recalcularStatusPedido()
-     * Status do Pedido é calculado baseado nos SubPedidos
-     */
-    @Deprecated
-    public void avancarStatus() {
-        // Método mantido para compatibilidade temporária
-        // Status do Pedido é calculado automaticamente baseado nos SubPedidos
-    }
 }

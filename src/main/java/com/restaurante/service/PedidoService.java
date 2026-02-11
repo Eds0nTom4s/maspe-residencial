@@ -203,18 +203,6 @@ public class PedidoService {
     }
 
     /**
-     * Lista pedidos de uma mesa
-     */
-    @Transactional(readOnly = true)
-    public List<PedidoResponse> listarPorMesa(Long mesaId) {
-        log.info("Listando pedidos da mesa ID: {}", mesaId);
-        return pedidoRepository.findByMesaIdOrderByCreatedAtDesc(mesaId)
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
-    }
-
-    /**
      * Lista pedidos por status
      */
     @Transactional(readOnly = true)
@@ -237,53 +225,6 @@ public class PedidoService {
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
-    }
-
-    /**
-     * Atualiza o status de um pedido
-     */
-    @Transactional
-    public PedidoResponse atualizarStatus(Long id, StatusPedido novoStatus) {
-        log.info("Atualizando status do pedido ID: {} para {}", id, novoStatus);
-        
-        Pedido pedido = buscarPorId(id);
-        StatusPedido statusAnterior = pedido.getStatus();
-        pedido.setStatus(novoStatus);
-        pedido = pedidoRepository.save(pedido);
-
-        // Registra evento de auditoria
-        eventLogService.registrarEventoPedido(pedido, statusAnterior, novoStatus, null, null);
-
-        // Atualiza status da mesa
-        unidadeDeConsumoService.atualizarStatus(pedido.getUnidadeConsumo().getId());
-
-        // TODO: Enviar notificação via WebSocket
-        // notificacaoService.notificarAtualizacaoPedido(pedido);
-
-        return mapToResponse(pedido);
-    }
-
-    /**
-     * Avança o status do pedido para o próximo estado
-     */
-    @Transactional
-    public PedidoResponse avancarStatus(Long id) {
-        log.info("Avançando status do pedido ID: {}", id);
-        
-        Pedido pedido = buscarPorId(id);
-        StatusPedido statusAnterior = pedido.getStatus();
-        pedido.avancarStatus();
-        pedido = pedidoRepository.save(pedido);
-
-        // Registra evento de auditoria
-        eventLogService.registrarEventoPedido(pedido, statusAnterior, pedido.getStatus(), null, "Avanço automático");
-
-        // Atualiza status da mesa
-        unidadeDeConsumoService.atualizarStatus(pedido.getUnidadeConsumo().getId());
-
-        log.info("Status do pedido {} atualizado para {}", pedido.getNumero(), pedido.getStatus());
-        
-        return mapToResponse(pedido);
     }
 
     /**

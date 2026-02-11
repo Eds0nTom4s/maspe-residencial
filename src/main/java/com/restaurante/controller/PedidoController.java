@@ -62,17 +62,6 @@ public class PedidoController {
     }
 
     /**
-     * Lista pedidos de uma mesa
-     * GET /api/pedidos/mesa/{mesaId}
-     */
-    @GetMapping("/mesa/{mesaId}")
-    @Operation(summary = "Listar pedidos da mesa", description = "Lista todos os pedidos de uma mesa específica")
-    public ResponseEntity<ApiResponse<List<PedidoResponse>>> listarPorMesa(@PathVariable Long mesaId) {
-        List<PedidoResponse> pedidos = pedidoService.listarPorMesa(mesaId);
-        return ResponseEntity.ok(ApiResponse.success("Pedidos listados com sucesso", pedidos));
-    }
-
-    /**
      * Lista pedidos por status
      * GET /api/pedidos/status/{status}
      */
@@ -92,30 +81,6 @@ public class PedidoController {
     public ResponseEntity<ApiResponse<List<PedidoResponse>>> listarAtivos() {
         List<PedidoResponse> pedidos = pedidoService.listarPedidosAtivos();
         return ResponseEntity.ok(ApiResponse.success("Pedidos ativos listados", pedidos));
-    }
-
-    /**
-     * Atualiza o status de um pedido
-     * PATCH /api/pedidos/{id}/status
-     */
-    @PatchMapping("/{id}/status")
-    @Operation(summary = "Atualizar status do pedido", description = "Altera o status do pedido para um novo estado")
-    public ResponseEntity<ApiResponse<PedidoResponse>> atualizarStatus(
-            @PathVariable Long id,
-            @RequestParam StatusPedido status) {
-        PedidoResponse pedido = pedidoService.atualizarStatus(id, status);
-        return ResponseEntity.ok(ApiResponse.success("Status atualizado com sucesso", pedido));
-    }
-
-    /**
-     * Avança o status do pedido para o próximo estado
-     * PUT /api/pedidos/{id}/avancar
-     */
-    @PutMapping("/{id}/avancar")
-    @Operation(summary = "Avançar status do pedido", description = "Avança o pedido para o próximo estado do fluxo")
-    public ResponseEntity<ApiResponse<PedidoResponse>> avancarStatus(@PathVariable Long id) {
-        PedidoResponse pedido = pedidoService.avancarStatus(id);
-        return ResponseEntity.ok(ApiResponse.success("Status avançado com sucesso", pedido));
     }
 
     /**

@@ -163,6 +163,13 @@ public class SubPedido extends BaseEntity {
     }
 
     /**
+     * Verifica se SubPedido está em estado terminal (não pode mais mudar)
+     */
+    public boolean isTerminal() {
+        return status.isTerminal();
+    }
+
+    /**
      * Calcula tempo total desde criação até conclusão (em minutos)
      */
     public Long calcularTempoTotal() {

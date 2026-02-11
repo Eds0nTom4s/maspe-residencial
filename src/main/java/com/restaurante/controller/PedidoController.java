@@ -86,11 +86,15 @@ public class PedidoController {
     /**
      * Cancela um pedido
      * PUT /api/pedidos/{id}/cancelar
+     * 
+     * @param motivo Motivo obrigatório do cancelamento
      */
     @PutMapping("/{id}/cancelar")
-    @Operation(summary = "Cancelar pedido", description = "Cancela um pedido (apenas se PENDENTE ou RECEBIDO)")
-    public ResponseEntity<ApiResponse<PedidoResponse>> cancelar(@PathVariable Long id) {
-        PedidoResponse pedido = pedidoService.cancelar(id);
+    @Operation(summary = "Cancelar pedido", description = "Cancela um pedido com motivo obrigatório")
+    public ResponseEntity<ApiResponse<PedidoResponse>> cancelar(
+            @PathVariable Long id,
+            @RequestParam String motivo) {
+        PedidoResponse pedido = pedidoService.cancelar(id, motivo);
         return ResponseEntity.ok(ApiResponse.success("Pedido cancelado com sucesso", pedido));
     }
 }

@@ -78,6 +78,11 @@ public class Pedido extends BaseEntity {
     @Builder.Default
     private List<ItemPedido> itens = new ArrayList<>();
 
+    // Relacionamento com SubPedidos
+    @OneToMany(mappedBy = "pedido", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @Builder.Default
+    private List<SubPedido> subPedidos = new ArrayList<>();
+
     @Column(name = "total", precision = 10, scale = 2)
     private BigDecimal total;
 

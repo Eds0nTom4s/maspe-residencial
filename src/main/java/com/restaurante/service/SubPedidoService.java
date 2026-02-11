@@ -12,6 +12,7 @@ import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.validator.TransicaoEstadoValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -38,7 +39,6 @@ import java.util.stream.Collectors;
  * - Registrar eventos de auditoria
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class SubPedidoService {
 
@@ -47,6 +47,23 @@ public class SubPedidoService {
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final EventLogService eventLogService;
     private final TransicaoEstadoValidator transicaoValidator;
+    private final PedidoService pedidoService; // Injeção lazy para evitar circular dependency
+
+    public SubPedidoService(
+        SubPedidoRepository subPedidoRepository,
+        CozinhaRepository cozinhaRepository,
+        UnidadeAtendimentoRepository unidadeAtendimentoRepository,
+        EventLogService eventLogService,
+        TransicaoEstadoValidator transicaoValidator,
+        @Lazy PedidoService pedidoService // LAZY: evita dependência circular
+    ) {
+        this.subPedidoRepository = subPedidoRepository;
+        this.cozinhaRepository = cozinhaRepository;
+        this.unidadeAtendimentoRepository = unidadeAtendimentoRepository;
+        this.eventLogService = eventLogService;
+        this.transicaoValidator = transicaoValidator;
+        this.pedidoService = pedidoService;
+    }
 
     /**
      * LÓGICA DE ROTEAMENTO AUTOMÁTICO
@@ -221,6 +238,9 @@ public class SubPedidoService {
             tempoTransacao);
         
         log.info("SubPedido {} atualizado: {} → {} ({}ms)", id, estadoAtual, novoStatus, tempoTransacao);
+        
+        // ⭐ CRÍTICO: Recalcular status do Pedido após mudança em SubPedido ⭐
+        pedidoService.recalcularStatusPedido(subPedidoSalvo.getPedido().getId());
         
         return subPedidoSalvo;
     }

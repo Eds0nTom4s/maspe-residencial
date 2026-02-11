@@ -139,6 +139,8 @@ public class PedidoFinanceiroService {
     /**
      * Confirma pagamento de pedido POS_PAGO
      * (método para GERENTE/ADMIN confirmar pagamento manual)
+     * 
+     * AUDITORIA: Gera evento CONFIRMACAO_PAGAMENTO_POS_PAGO
      */
     @Transactional
     public void confirmarPagamentoPosPago(Long pedidoId) {
@@ -161,6 +163,9 @@ public class PedidoFinanceiroService {
         pedido.marcarComoPago();
         pedidoRepository.save(pedido);
 
+        // TODO: Registrar evento de auditoria CONFIRMACAO_PAGAMENTO_POS_PAGO
+        // eventLogService.registrarEventoFinanceiro(pedido, TipoEvento.CONFIRMACAO_PAGAMENTO_POS_PAGO, ...)
+
         log.info("Pagamento pós-pago confirmado para pedido {}", pedidoId);
     }
 
@@ -168,10 +173,18 @@ public class PedidoFinanceiroService {
      * Estorna pedido cancelado
      * - Se PRE_PAGO: devolve para Fundo de Consumo
      * - Se POS_PAGO: apenas marca como estornado
+     * 
+     * @param motivo Motivo obrigatório do estorno
+     * AUDITORIA: Gera evento ESTORNO_MANUAL
      */
     @Transactional
     public void estornarPedido(Long pedidoId, String motivo) {
         log.info("Estornando pedido {}: motivo={}", pedidoId, motivo);
+
+        // Validação de motivo obrigatório
+        if (motivo == null || motivo.trim().isEmpty()) {
+            throw new BusinessException("Motivo é obrigatório para estornar pedido");
+        }
 
         Pedido pedido = pedidoRepository.findById(pedidoId)
             .orElseThrow(() -> new ResourceNotFoundException("Pedido não encontrado: " + pedidoId));
@@ -197,6 +210,9 @@ public class PedidoFinanceiroService {
         pedido.estornar();
         pedidoRepository.save(pedido);
 
-        log.info("Estorno concluído para pedido {}", pedidoId);
+        // TODO: Registrar evento de auditoria ESTORNO_MANUAL
+        // eventLogService.registrarEventoFinanceiro(pedido, TipoEvento.ESTORNO_MANUAL, motivo, ...)
+
+        log.info("Estorno concluído para pedido {} - Motivo: {}", pedidoId, motivo);
     }
 }

@@ -228,16 +228,110 @@ public class PedidoService {
     }
 
     /**
+     * ⭐ FONTE ÚNICA DE VERDADE - CÁLCULO DE STATUS DO PEDIDO ⭐
+     * 
+     * REGRAS DE NEGÓCIO CRÍTICAS:
+     * - StatusPedido é DERIVADO dos SubPedidos (NUNCA setado manualmente)
+     * - Este é o ÚNICO método que pode alterar pedido.status
+     * - Deve ser chamado após QUALQUER mudança em SubPedido
+     * 
+     * MAPEAMENTO:
+     * - TODOS SubPedidos = ENTREGUE → FINALIZADO
+     * - QUALQUER SubPedido = EM_PREPARACAO, PRONTO ou PENDENTE → EM_ANDAMENTO
+     * - TODOS SubPedidos = CANCELADO → CANCELADO
+     * - Caso contrário (inicial) → CRIADO
+     * 
+     * AUDITORIA:
+     * - Registra EventLog se status mudou
+     * 
+     * @param pedidoId ID do pedido a recalcular
+     * @return StatusPedido calculado
+     */
+    @Transactional
+    public StatusPedido recalcularStatusPedido(Long pedidoId) {
+        log.debug("Recalculando status do pedido ID: {}", pedidoId);
+        
+        Pedido pedido = buscarPorId(pedidoId);
+        StatusPedido statusAnterior = pedido.getStatus();
+        
+        List<SubPedido> subPedidos = pedido.getSubPedidos();
+        
+        if (subPedidos == null || subPedidos.isEmpty()) {
+            log.warn("Pedido {} sem SubPedidos. Mantendo status: {}", pedido.getNumero(), statusAnterior);
+            return statusAnterior;
+        }
+        
+        StatusPedido novoStatus = calcularStatusBaseadoEmSubPedidos(subPedidos);
+        
+        // Só atualiza se mudou
+        if (novoStatus != statusAnterior) {
+            pedido.setStatus(novoStatus);
+            pedidoRepository.save(pedido);
+            
+            // Auditoria
+            eventLogService.registrarEventoPedido(pedido, statusAnterior, novoStatus, null, 
+                "Status recalculado automaticamente baseado em SubPedidos");
+            
+            log.info("Pedido {} status alterado: {} → {}", pedido.getNumero(), statusAnterior, novoStatus);
+        }
+        
+        return novoStatus;
+    }
+    
+    /**
+     * Calcula status baseado em SubPedidos (lógica pura)
+     */
+    private StatusPedido calcularStatusBaseadoEmSubPedidos(List<SubPedido> subPedidos) {
+        boolean todosEntregues = subPedidos.stream()
+            .allMatch(sub -> sub.getStatus() == StatusSubPedido.ENTREGUE);
+        
+        if (todosEntregues) {
+            return StatusPedido.FINALIZADO;
+        }
+        
+        boolean todosCancelados = subPedidos.stream()
+            .allMatch(sub -> sub.getStatus() == StatusSubPedido.CANCELADO);
+        
+        if (todosCancelados) {
+            return StatusPedido.CANCELADO;
+        }
+        
+        boolean algumEmAndamento = subPedidos.stream()
+            .anyMatch(sub -> 
+                sub.getStatus() == StatusSubPedido.PENDENTE ||
+                sub.getStatus() == StatusSubPedido.EM_PREPARACAO ||
+                sub.getStatus() == StatusSubPedido.PRONTO
+            );
+        
+        if (algumEmAndamento) {
+            return StatusPedido.EM_ANDAMENTO;
+        }
+        
+        // Estado inicial (todos CRIADO)
+        return StatusPedido.CRIADO;
+    }
+
+    /**
      * Cancela um pedido
+     * 
+     * IMPORTANTE: Cancela todos SubPedidos primeiro, depois recalcula status
      * 
      * ESTORNO AUTOMÁTICO:
      * - Se pedido está PAGO, estorna automaticamente
      * - Se PRE_PAGO, devolve para Fundo de Consumo
      * - Se POS_PAGO, apenas marca como ESTORNADO
+     * 
+     * @param id ID do pedido
+     * @param motivo Motivo obrigatório do cancelamento
      */
     @Transactional
-    public PedidoResponse cancelar(Long id) {
-        log.info("Cancelando pedido ID: {}", id);
+    public PedidoResponse cancelar(Long id, String motivo) {
+        log.info("Cancelando pedido ID: {} com motivo: {}", id, motivo);
+        
+        // Validação de motivo obrigatório
+        if (motivo == null || motivo.trim().isEmpty()) {
+            throw new BusinessException("Motivo é obrigatório para cancelar pedido");
+        }
         
         Pedido pedido = buscarPorId(id);
 
@@ -245,21 +339,26 @@ public class PedidoService {
             throw new BusinessException("Pedido não pode ser cancelado. Status atual: " + pedido.getStatus());
         }
 
-        StatusPedido statusAnterior = pedido.getStatus();
-        pedido.setStatus(StatusPedido.CANCELADO);
+        // Cancelar todos SubPedidos primeiro
+        for (SubPedido subPedido : pedido.getSubPedidos()) {
+            if (!subPedido.isTerminal()) {
+                subPedidoService.cancelar(subPedido.getId(), motivo);
+            }
+        }
         
         // ESTORNO FINANCEIRO AUTOMÁTICO
         if (pedido.isPago()) {
             log.info("Pedido {} estava PAGO. Iniciando estorno automático.", pedido.getNumero());
-            pedidoFinanceiroService.estornarPedido(id, "Cancelamento de pedido");
+            pedidoFinanceiroService.estornarPedido(id, motivo);
         }
         
-        pedido = pedidoRepository.save(pedido);
+        // Recalcular status (deve ficar CANCELADO após cancelar SubPedidos)
+        recalcularStatusPedido(id);
+        
+        pedido = buscarPorId(id); // Recarregar após recálculo
 
-        // Registra evento de auditoria
-        eventLogService.registrarEventoPedido(pedido, statusAnterior, StatusPedido.CANCELADO, null, "Pedido cancelado");
-
-        log.info("Pedido {} cancelado com sucesso. Status financeiro: {}", pedido.getNumero(), pedido.getStatusFinanceiro());
+        log.info("Pedido {} cancelado com sucesso. Status: {}, Status financeiro: {}", 
+            pedido.getNumero(), pedido.getStatus(), pedido.getStatusFinanceiro());
         return mapToResponse(pedido);
     }
 

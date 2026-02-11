@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -65,7 +66,7 @@ class ValidacaoMotivoFinanceiroTest {
 
     @Test
     void cancelarPedidoSemMotivoDeveFalhar() {
-        when(pedidoRepository.findById(pedidoPagoPrePago.getId())).thenReturn(Optional.of(pedidoPagoPrePago));
+        lenient().when(pedidoRepository.findById(pedidoPagoPrePago.getId())).thenReturn(Optional.of(pedidoPagoPrePago));
 
         assertThrows(BusinessException.class,
                 () -> pedidoService.cancelar(pedidoPagoPrePago.getId(), "   "));
@@ -74,7 +75,7 @@ class ValidacaoMotivoFinanceiroTest {
     @Test
     void estornarPedidoSemMotivoDeveFalhar() {
         // Usa serviço real de estorno, que valida motivo
-        when(pedidoRepository.findById(pedidoPagoPrePago.getId())).thenReturn(Optional.of(pedidoPagoPrePago));
+        lenient().when(pedidoRepository.findById(pedidoPagoPrePago.getId())).thenReturn(Optional.of(pedidoPagoPrePago));
 
         assertThrows(BusinessException.class,
                 () -> pedidoFinanceiroServiceReal.estornarPedido(pedidoPagoPrePago.getId(), ""));

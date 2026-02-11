@@ -2,7 +2,9 @@ package com.restaurante.repository;
 
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.enums.StatusSubPedido;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -21,6 +23,14 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
      * Busca SubPedido por número
      */
     Optional<SubPedido> findByNumero(String numero);
+
+    /**
+     * Busca SubPedido por ID com lock pessimista (para operações concorrentes)
+     * Força lock de linha no banco para prevenir race conditions
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT sp FROM SubPedido sp WHERE sp.id = :id")
+    Optional<SubPedido> findByIdWithLock(@Param("id") Long id);
 
     /**
      * Busca SubPedidos de um pedido

@@ -159,4 +159,16 @@ public class ConfiguracaoFinanceiraService {
         // TODO: Gerar EventLog ALTERACAO_POLITICA_POS_PAGO
         log.info("Pós-pago DESATIVADO globalmente");
     }
+
+    /**
+     * Altera estado do pós-pago (método genérico para testes)
+     */
+    @Transactional
+    public void alterarPosPagoAtivo(boolean ativo, String userName, String userRole) {
+        if (ativo) {
+            ativarPosPago(userName, userRole);
+        } else {
+            desativarPosPago(userName, userRole);
+        }
+    }
 }

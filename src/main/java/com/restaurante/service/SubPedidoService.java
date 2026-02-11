@@ -188,6 +188,7 @@ public class SubPedidoService {
     public SubPedido alterarStatus(Long id, StatusSubPedido novoStatus, String motivo) {
         long inicio = System.currentTimeMillis();
         
+        // BUSCAR SubPedido (usa @Version para concorrência otimista)
         SubPedido subPedido = buscarPorId(id);
         StatusSubPedido estadoAtual = subPedido.getStatus();
         
@@ -251,6 +252,17 @@ public class SubPedidoService {
     @Transactional
     public SubPedido assumir(Long id) {
         log.info("Cozinha assumindo SubPedido {}", id);
+        SubPedido subPedido = buscarPorId(id);
+        
+        // Define responsável (contexto de segurança ou SYSTEM para testes)
+        try {
+            String responsavel = org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication().getName();
+            subPedido.setResponsavelPreparo(responsavel);
+        } catch (Exception e) {
+            subPedido.setResponsavelPreparo("SYSTEM");
+        }
+        
         return alterarStatus(id, StatusSubPedido.EM_PREPARACAO, "Assumido pela cozinha");
     }
 

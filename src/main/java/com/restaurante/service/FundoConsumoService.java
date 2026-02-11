@@ -169,7 +169,7 @@ public class FundoConsumoService {
             throw new BusinessException("Valor de débito deve ser maior que zero");
         }
 
-        // Busca fundo ativo
+        // Busca fundo ativo (usa @Version para concorrência otimista)
         FundoConsumo fundo = buscarPorCliente(clienteId);
 
         // Valida fundo ativo

@@ -65,14 +65,15 @@ public class User extends BaseEntity implements UserDetails {
     /**
      * Relacionamento opcional com Cliente
      */
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private Cliente cliente;
+    // @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    // private Cliente cliente;
 
     /**
      * Relacionamento opcional com Atendente
+     * TODO: Implementar relacionamento bidirecional se necessário
      */
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private Atendente atendente;
+    // @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    // private Atendente atendente;
 
     // ========== UserDetails Implementation ==========
 

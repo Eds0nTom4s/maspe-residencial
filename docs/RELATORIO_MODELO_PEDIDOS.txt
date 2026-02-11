@@ -1,0 +1,117 @@
+RELATORIO DE ALINHAMENTO - MODELO DE PEDIDOS
+
+1) MODELO DE PEDIDO - CONCEITO FUNDAMENTAL
+- Pedido possui dois eixos distintos: StatusPedido (operacional) e StatusFinanceiroPedido (financeiro).
+- Um Pedido pode estar operacionalmente FINALIZADO e financeiramente NAO_PAGO (padrão em POS_PAGO).
+- Logo, PAGO é um estado financeiro, não operacional.
+- "PAGO = FINALIZADO + pagamento confirmado" NAO é verdadeiro no modelo atual.
+- PAGO significa apenas statusFinanceiro = PAGO (pagamento confirmado), independentemente do ciclo operacional.
+- Para visão gerencial, o conceito de "pedido totalmente concluido" deve ser: StatusPedido = FINALIZADO E StatusFinanceiro = PAGO.
+- O status do Pedido, conceitualmente, deve ser CALCULADO a partir dos SubPedidos.
+- O campo status é persistido por performance, mas deve ser tratado como derivado.
+- O caminho alvo é centralizar o calculo em PedidoService.recalcularStatusPedido, evitando setar status manualmente.
+
+2) SUBPEDIDOS E CICLO DE VIDA
+- Estados atuais de SubPedido (CRIADO, PENDENTE, EM_PREPARACAO, PRONTO, ENTREGUE, CANCELADO) cobrem preparo, entrega e cancelamento.
+- SubPedido nao tem eixo financeiro proprio; pagamento e sempre no nivel do Pedido.
+- Um SubPedido pode estar ENTREGUE enquanto o Pedido ainda esta NAO_PAGO (POS_PAGO ou atraso de caixa).
+- Falar em "SubPedido CANCELADO e PAGO" nao faz sentido financeiro; cancelamento afeta apenas o operacional.
+- Quando o Pedido pago e cancelado, o estorno e feito no agregado (Pedido + Fundo), nao no SubPedido.
+- Se o SubPedido ja estiver ENTREGUE, nova tentativa ENTREGUE e IDEMPOTENTE (no-op).
+- Transicoes a partir de estados terminais (ENTREGUE, CANCELADO) sao bloqueadas pela maquina de estados.
+
+3) FUNDO DE CONSUMO (PRE-PAGO)
+- Fundo de Consumo representa dinheiro ja recebido pelo estabelecimento, associado como saldo de consumo do cliente.
+- Do ponto de vista contabeis, e um passivo (credito do cliente), mas o backend modela apenas o saldo disponivel e o historico de transacoes.
+- Ao adicionar 50.000 Kz ao fundo, o caixa operacional registra uma entrada imediata (TransacaoFundo CREDITO).
+- A receita contabile reconhecida por consumo pode ser derivada dos DEBITOS associados a pedidos.
+- Um pedido de 25.000 Kz com saldo suficiente nasce financeiramente como PAGO: FundoConsumoService.debitar e chamado e Pedido.marcarComoPago e aplicado.
+- O status operacional continua CRIADO/EM_ANDAMENTO independentemente do pagamento ja efetuado.
+- Em pedidos consecutivos, o sistema debita o fundo em cada Pedido criado como PRE_PAGO.
+- Concorrencia no debito e protegida por @Version em FundoConsumo, isolation SERIALIZABLE nas transacoes e idempotencia por pedidoId.
+- Se o mesmo pedido tentar debitar duas vezes, TransacaoFundoRepository.findByPedidoIdAndTipo garante que o segundo debito vira apenas uma leitura da transacao existente.
+- Se um pedido pago via fundo for CANCELADO, o valor volta automaticamente ao Fundo por TransacaoFundo ESTORNO.
+- Este estorno e idempotente: se ja houve estorno para o pedido, a operacao retorna a transacao existente.
+
+4) POS-PAGO (CONTROLE INSTITUCIONAL)
+- Cliente NAO pode simplesmente decidir consumir pos-pago.
+- POS_PAGO exige autorizacao de roles GERENTE ou ADMIN; caso contrario, PosPagoNaoPermitidoException e lancada.
+- ATENDENTE e CLIENTE nao podem autorizar POS_PAGO pelo modelo atual.
+- Um pedido POS_PAGO pode ter SubPedidos ENTREGUES com StatusFinanceiroPedido ainda NAO_PAGO.
+- Este pedido pode permanecer aberto por tempo indefinido ate confirmacao manual do pagamento (confirmarPagamentoPosPago).
+- Nao ha hoje limite maximo de valor pos-pago por unidade ou cliente.
+- Nao ha bloqueio automatico ao atingir um teto de risco; isso deve ser adicionado (ex.: campos de limite por cliente/unidade + validacao na criacao de POS_PAGO).
+
+5) SEPARACAO OPERACIONAL x FINANCEIRA
+- Criacao de Pedido sempre passa por validacao financeira antes: saldo suficiente no Fundo ou autorizacao para POS_PAGO.
+- Depois de criado, o fluxo operacional (SubPedidos) evolui independentemente do estado financeiro.
+- O estado financeiro NAO bloqueia hoje transicoes operacionais de SubPedidos (preparo, pronto, entregue).
+- Isso permite que a cozinha garanta fluidez operacional mesmo com pendencias financeiras para acerto posterior.
+- Um Pedido ENTREGUE e NAO_PAGO deve aparecer:
+  - No relatorio operacional como FINALIZADO (todos SubPedidos ENTREGUE).
+  - No relatorio financeiro como pendente, com StatusFinanceiroPedido = NAO_PAGO.
+- UnidadeDeConsumo usa tanto status dos Pedidos quanto StatusPagamento (da entidade Pagamento) para decidir se esta AGUARDANDO_PAGAMENTO ou FINALIZADA.
+
+6) CONCORRENCIA E CAOS REAL
+- Dois atendentes podem tentar entregar o mesmo SubPedido quase ao mesmo tempo.
+- O sistema bloqueia condutas invalidas com tres camadas:
+  - Maquina de estados: PRONTO -> ENTREGUE so ocorre uma vez; ENTREGUE e terminal.
+  - Idempotencia: se ja estiver ENTREGUE e o chamado repetir ENTREGUE, o service retorna sem alterar.
+  - Optimistic locking: BaseEntity.version + tratamento de OptimisticLockException (409) indicam conflito de gravacao.
+- Dois processos podem tentar debitar o mesmo Fundo simultaneamente.
+- Estrategia usada:
+  - @Version em FundoConsumo (optimistic locking).
+  - @Transactional(isolation = SERIALIZABLE) nas operacoes de CREDITO/DEBITO/ESTORNO.
+  - Idempotencia por pedidoId em DEBITO e ESTORNO, garantindo no maximo uma transacao de cada tipo por pedido.
+- O sistema e idempotente para:
+  - Marcar PRONTO/ENTREGUE em SubPedido (mesmo estado => no-op controlado).
+  - Debitar Fundo para mesmo pedido (segunda chamada devolve mesma TransacaoFundo).
+  - Estornar Fundo para pedido cancelado (segunda chamada devolve estorno existente ou nao faz nada).
+- Confirmar PAGAMENTO POS_PAGO nao e idempotente: segunda tentativa encontra StatusFinanceiro diferente de NAO_PAGO e lanca erro de negocio.
+
+7) AUDITORIA E EVENT LOG
+- Mudancas de estado operacional em SubPedidos sempre geram SubPedidoEventLog via SubPedidoService.alterarStatus.
+- Eventos de Pedido disparados por PedidoService.atualizarStatus, avancarStatus e cancelar geram PedidoEventLog.
+- Toda movimentacao de Fundo (CREDITO, DEBITO, ESTORNO) gera um registro TransacaoFundo imutavel, com tipo, valor, saldo anterior/novo e, quando aplicavel, pedidoId.
+- Nao existe ainda um EventLog financeiro separado; TransacaoFundo funciona como trilha de auditoria para Fundo de Consumo.
+- Hoje NAO esta registrado explicitamente quem autorizou um POS_PAGO (usuario/role) nem quem confirmou pagamento POS_PAGO.
+- Tambem nao ha EventLog especifico para estornos fora do que esta em TransacaoFundo.
+- Cancelamento de SubPedido exige motivo obrigatorio, validado por TransicaoEstadoValidator.
+- Cancelamento de Pagamento recebe motivo, mas nao ha validacao de obrigatoriedade de conteudo.
+- Cancelamento de Pedido nao exige motivo do usuario; o motivo gravado e generico ("Pedido cancelado").
+- Para auditoria forte, e recomendavel padronizar motivo obrigatorio e captura de usuario/IP para todos cancelamentos e autorizacoes financeiras.
+
+8) RELATORIOS E FECHO DE CAIXA
+- Para fecho de dia, o modelo suporta tratar separadamente:
+  - Pedidos FINALIZADOS (consumo realizado, eixo operacional).
+  - Pedidos PAGO/ESTORNADO (movimentacao financeira efetivada ou revertida).
+- O sistema consegue, a partir dos dados, responder conceitualmente:
+  - Quanto foi consumido: soma dos totais de Pedidos com StatusPedido = FINALIZADO por periodo/unidade.
+  - Quanto foi pago: combinacao de StatusFinanceiroPedido = PAGO, Pagamentos aprovados por UnidadeDeConsumo e DEBITOS em TransacaoFundo.
+  - Quanto esta pendente: Pedidos FINALIZADO com StatusFinanceiroPedido = NAO_PAGO, mais unidades em AGUARDANDO_PAGAMENTO.
+- Fundo de Consumo impacta caixa diario:
+  - CREDITO aumenta o saldo de caixa (entrada de dinheiro, ainda que contabilemente passivo).
+  - DEBITO representa realizacao de consumo (conversao de passivo em receita).
+  - ESTORNO devolve saldo ao cliente, ajustando reconciliacao.
+- Repositorios e enums ja permitem consultas por periodo (createdAt, timestamp), mas endpoints de relatorio/fecho de caixa ainda precisam ser estruturados.
+
+9) ESCALABILIDADE E FUTURO
+- O modelo de UnidadeDeConsumo e generico o bastante para representar:
+  - Mesas de restaurante ou bar.
+  - Quartos de hotel.
+  - Posições de evento (pulseiras, setores, consumo em pe sem mesa fisica) usando referencia apropriada.
+- O backend foi desenhado backend-first e exposto totalmente via API REST; funciona sem UI propria.
+- O backend e a unica fonte de verdade para estados operacionais (SubPedidos, Pedidos, UnidadesDeConsumo) e para saldos de Fundo e transacoes.
+
+10) PERGUNTA FINAL - DISCOTECA CHEIA
+- Operacionalmente, o motor de SubPedidos com maquina de estados, idempotencia e optimistic locking e adequado para ambiente de alta concorrencia com varios atendentes.
+- Financeiramente, o fluxo de PRE_PAGO com Fundo e robusto contra debitos duplos e concorrencia (isolation SERIALIZABLE + @Version + idempotencia).
+- POS_PAGO e seguro quanto a autorizacao (apenas GERENTE/ADMIN), mas ainda carece de limites de risco e auditoria detalhada.
+- Pontos que precisam de reforco antes de producao em discoteca cheia:
+  - Implementar de fato PedidoService.recalcularStatusPedido e usar esse calculo como unica fonte de verdade para StatusPedido.
+  - Amarrar Pedido/UnidadeDeConsumo a um Cliente real (hoje obterClienteId usa placeholder 1L), garantindo que FundoConsumo seja sempre o do cliente correto.
+  - Criar logs financeiros/auditoria explicitos para: autorizacao de POS_PAGO, confirmacao de pagamento POS_PAGO, estornos manuais, incluindo usuario responsavel, motivo e IP.
+  - Introduzir limite de valor POS_PAGO por cliente/unidade e bloquear novas criacoes pos-pagas ao ultrapassar o limite.
+  - Padronizar motivo obrigatorio para cancelamentos de Pedido, Pagamento e eventuais reversoes financeiras criticas.
+  - Expor endpoints de relatorio/fecho de caixa que consolidem StatusPedido, StatusFinanceiroPedido, Pagamento e TransacaoFundo por periodo.
+- Com esses ajustes, o backend tende a manter consistencia operacional e financeira mesmo sob alta carga e caos de sexta-feira a noite.

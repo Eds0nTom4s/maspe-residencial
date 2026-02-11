@@ -166,7 +166,7 @@ public class UnidadeDeConsumo extends BaseEntity {
             this.status = StatusUnidadeConsumo.OCUPADA;
         } else {
             boolean todosPedidosEntregues = pedidos.stream()
-                .allMatch(p -> p.getStatus() == com.restaurante.model.enums.StatusPedido.ENTREGUE);
+                .allMatch(p -> p.getStatus() == com.restaurante.model.enums.StatusPedido.FINALIZADO);
             
             if (todosPedidosEntregues && pagamento == null) {
                 this.status = StatusUnidadeConsumo.AGUARDANDO_PAGAMENTO;

@@ -148,20 +148,22 @@ public class SubPedido extends BaseEntity {
     }
 
     /**
-     * Valida se pode avançar para novo status
+     * Valida se pode transicionar para novo status
+     * DELEGADO PARA ENUM (StatusSubPedido)
      */
-    public boolean podeAvancarPara(StatusSubPedido novoStatus) {
-        return status.podeAvancarPara(novoStatus);
+    public boolean podeTransicionarPara(StatusSubPedido novoStatus) {
+        return status.podeTransicionarPara(novoStatus);
     }
 
     /**
-     * Avança status do SubPedido
-     * Atualiza timestamps conforme novo status
+     * @deprecated Usar TransicaoEstadoValidator + SubPedidoService.alterarStatus()
+     * Mantido apenas para compatibilidade temporária
      */
+    @Deprecated
     public void avancarStatus(StatusSubPedido novoStatus, String responsavel) {
-        if (!podeAvancarPara(novoStatus)) {
+        if (!podeTransicionarPara(novoStatus)) {
             throw new IllegalStateException(
-                String.format("Não é possível avançar de %s para %s", status, novoStatus)
+                String.format("Não é possível transicionar de %s para %s", status, novoStatus)
             );
         }
 
@@ -169,11 +171,10 @@ public class SubPedido extends BaseEntity {
 
         // Atualiza timestamps
         switch (novoStatus) {
-            case RECEBIDO -> {
-                this.recebidoEm = LocalDateTime.now();
+            case EM_PREPARACAO -> {
+                this.iniciadoEm = LocalDateTime.now();
                 this.responsavelPreparo = responsavel;
             }
-            case EM_PREPARACAO -> this.iniciadoEm = LocalDateTime.now();
             case PRONTO -> this.prontoEm = LocalDateTime.now();
             case ENTREGUE -> {
                 this.entregueEm = LocalDateTime.now();

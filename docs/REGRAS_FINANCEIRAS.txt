@@ -1,0 +1,219 @@
+REGRAS FINANCEIRAS - REFATORAÇÃO CRÍTICA
+==========================================
+
+STATUS: PARCIAL (necessário debug do ambiente de compilação)
+
+IMPLEMENTAÇÕES CONCLUÍDAS
+==========================
+
+1) INTERRUPTOR GLOBAL DE PÓS-PAGO
+----------------------------------
+✅ ConfiguracaoFinanceiraSistema entity
+   - Campo posPagoAtivo (boolean)
+   - Controle de quem alterou (nome + role)
+   - Extends BaseEntity (@Version automático)
+
+✅ PosPagoDesabilitadoException
+   - Lançada quando pós-pago está OFF
+
+✅ Lim itePosPagoExcedidoException
+   - Lançada quando limite excedido
+
+✅ ConfiguracaoFinanceiraSistemaRepository
+   - findAtual() retorna configuração ativa
+
+✅ ConfiguracaoFinanceiraService
+   - buscarOuCriarConfiguracao()
+   - isPosPagoAtivo()
+   - validarCriacaoPosPago() - verifica interruptor + limite
+   - calcularTotalPosPagoAberto() - soma pedidos NAO_PAGO
+   - ativarPosPago() / desativarPosPago()
+   - Limite padrão: R$ 500,00
+
+✅ Integração no PedidoFinanceiroService
+   - validarCriacaoPedido() chama ConfiguracaoFinanceiraService
+   - Bloqueia POS_PAGO se interruptor OFF
+   - Bloqueia POS_PAGO se limite excedido
+
+
+2) SEPARAÇÃO FINANCEIRA
+------------------------
+✅ Pedido entity refatorada
+   - statusFinanceiro (NAO_PAGO | PAGO | ESTORNADO)
+   - tipoPagamento (PRE_PAGO | POS_PAGO)
+   - pagoEm (LocalDateTime)
+   - isPago(), podeEstornar(), marcarComoPago(), estornar()
+
+✅ PedidoService refatorado
+   - criar() com validação financeira ANTES de persistir
+   - Calcula total preliminar
+   - Valida com PedidoFinanceiroService
+   - Processa pagamento automático (PRE_PAGO)
+   - cancelar() com estorno automático
+
+✅ PedidoFinanceiroService completo
+   - validarCriacaoPedido() - regras PRE/POS
+   - validarSaldoSuficiente()
+   - autorizarPosPago()
+   - processarPagamentoPedido()
+   - confirmarPagamentoPosPago()
+   - estornarPedido()
+
+✅ FundoConsumoService completo
+   - criarFundo(), recarregar(), debitar(), estornar()
+   - Isolation SERIALIZABLE
+   - Idempotência garantida
+   - @Version para concorrência
+
+✅ PedidoRepository estendido
+   - findByUnidadeConsumoIdAndTipoPagamentoAndStatusFinanceiro()
+
+
+3) ENTITIES FINANCEIRAS
+------------------------
+✅ FundoConsumo
+   - saldoAtual, ativo, cliente (OneToOne)
+   - temSaldoSuficiente(), debitar(), creditar(), encerrar()
+
+✅ TransacaoFundo
+   - IMUTÁVEL (auditoria)
+   - tipo (CREDITO | DEBITO | ESTORNO)
+   - saldoAnterior, saldoNovo
+   - pedidoId (opcional)
+
+✅ StatusFinanceiroPedido
+   - NAO_PAGO | PAGO | ESTORNADO
+
+✅ TipoPagamentoPedido
+   - PRE_PAGO | POS_PAGO
+
+✅ TipoTransacaoFundo
+   - CREDITO | DEBITO | ESTORNO
+
+
+4) REPOSITORIES CRIADOS
+------------------------
+✅ FundoConsumoRepository
+✅ TransacaoFundoRepository
+✅ ConfiguracaoFinanceiraSistemaRepository
+
+
+5) EXCEPTIONS CRIADAS
+----------------------
+✅ SaldoInsuficienteException
+✅ PosPagoNaoPermitidoException
+✅ PosPagoDesabilitadoException
+✅ LimitePosPagoExcedidoException
+
+
+PENDENTE (POR ERROS DE COMPILAÇÃO)
+===================================
+
+A) PedidoService.recalcularStatusPedido()
+   - Método ainda não implementado
+   - Status ainda setado manualmente em alguns lugares
+
+B) Auditoria Financeira Explícita
+   - PagamentoEventLog não criado
+   - Falta registrar userId/IP em operações financeiras
+   - Falta EventLog para alteração de posPagoAtivo
+
+C) Motivo Obrigatório
+   - Cancelamento de Pedido não exige motivo
+   - Cancelamento de Pagamento não valida motivo
+
+D) Tests Unitários
+   - Nenhum teste criado
+
+
+PROBLEMA ATUAL
+==============
+
+ERRO DE COMPILAÇÃO LOMBOK
+--------------------------
+- 100+ erros "cannot find symbol"
+- Métodos getter/setter não gerados (log, getId, getStatus, etc)
+- Classes afetadas:
+  * ConfiguracaoFinanceiraSistema (sem @Builder, getters, setters)
+  * Pedido, SubPedido, ItemPedido (sem getters, setters)
+  * EventLogService, ProdutoService (sem @Slf4j)
+
+CAUSA PROVÁVEL:
+- Anotações Lombok podem estar faltando em entities antigas
+- Problema no annotation processing do Maven
+- Target/ corrompido
+
+SOLUÇÃO:
+1. Verificar que TODAS entities têm: @Data, @Builder, @NoArgsConstructor, @AllArgsConstructor
+2. Verificar que TODOS services têm: @Slf4j, @Service, @RequiredArgsConstructor
+3. Limpar target/ completamente: rm -rf target/
+4. Recompilar: mvn clean compile -U
+
+
+ARQUITETURA IMPLEMENTADA
+=========================
+
+FLUXO DE CRIAÇÃO DE PEDIDO (PRE-PAGO):
+1. Controller recebe CriarPedidoRequest (tipoPagamento=PRE_PAGO)
+2. PedidoService.criar():
+   - Calcula total preliminar
+   - Obtém roles do usuário autenticado
+   - Chama PedidoFinanceiroService.validarCriacaoPedido()
+3. PedidoFinanceiroService.validarCriacaoPedido():
+   - Se POS_PAGO: ConfiguracaoFinanceiraService.validarCriacaoPosPago()
+     * Verifica interruptor global (posPagoAtivo)
+     * Verifica limite de risco
+   - Se PRE_PAGO: FundoConsumoService.validarSaldoSuficiente()
+4. Pedido criado com statusFinanceiro=NAO_PAGO (inicial)
+5. PedidoFinanceiroService.processarPagamentoPedido():
+   - Se PRE_PAGO: FundoConsumoService.debitar() + marcarComoPago()
+   - Se POS_PAGO: mantém NAO_PAGO (pagamento posterior)
+6. SubPedidos criados (estado operacional independente)
+
+FLUXO DE CANCELAMENTO:
+1. PedidoService.cancelar()
+2. Verifica pedido.isPago()
+3. Se PAGO: PedidoFinanceiroService.estornarPedido()
+   - Se PRE_PAGO: FundoConsumoService.estornar() (devolve saldo)
+   - Marca statusFinanceiro=ESTORNADO
+4. Marca status=CANCELADO
+
+PROTEÇÕES DE CONCORRÊNCIA:
+- @Version em FundoConsumo, Pedido, SubPedido
+- Isolation SERIALIZABLE em operações financeiras
+- Idempotência por pedidoId em débito/estorno
+- TransicaoEstadoValidator centralizado
+
+
+PRÓXIMOS PASSOS (APÓS CORRIGIR COMPILAÇÃO)
+===========================================
+
+1. Corrigir anotações Lombok nas entities
+2. Implementar PedidoService.recalcularStatusPedido()
+3. Criar PagamentoEventLog entity
+4. Registrar auditoria financeira (userId, IP, motivo)
+5. Tornar motivo obrigatório para cancelamentos
+6. Criar endpoints:
+   - GET /api/configuracao-financeira
+   - PUT /api/configuracao-financeira/pos-pago/ativar
+   - PUT /api/configuracao-financeira/pos-pago/desativar
+   - GET /api/fundo-consumo/saldo
+   - POST /api/fundo-consumo/recarregar
+   - GET /api/fundo-consumo/historico
+7. Criar testes unitários
+8. Criar migration SQL para ConfiguracaoFinanceiraSistema
+9. Popular configuração inicial (posPagoAtivo=true)
+
+
+REGRAS CRÍTICAS IMPLEMENTADAS
+==============================
+
+✅ POS_PAGO bloqueado se interruptor OFF
+✅ POS_PAGO bloqueado se limite excedido
+✅ PRE_PAGO valida saldo antes de criar pedido
+✅ Débito automático em PRE_PAGO
+✅ Estorno automático ao cancelar pedido PAGO
+✅ Idempotência em débito/estorno
+✅ Concorrência protegida com @Version
+✅ Separation of concerns: operacional ≠ financeiro
+

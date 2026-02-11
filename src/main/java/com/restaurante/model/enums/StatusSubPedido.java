@@ -1,26 +1,41 @@
 package com.restaurante.model.enums;
 
 /**
- * Enum que representa os estados de um SubPedido
+ * Estados oficiais do SubPedido
  * 
- * SubPedido é a unidade operacional de execução
- * Estados seguem fluxo linear e são controlados por roles específicas
+ * MÁQUINA DE ESTADOS - BACKEND PURO
  * 
- * FLUXO:
- * PENDENTE → EM_PREPARACAO → PRONTO → ENTREGUE
+ * Estados:
+ * - CRIADO: Registrado, aguardando confirmação
+ * - PENDENTE: Confirmado, aguardando início de preparação
+ * - EM_PREPARACAO: Sendo preparado pela cozinha
+ * - PRONTO: Preparado, aguardando entrega
+ * - ENTREGUE: Entregue ao cliente (TERMINAL)
+ * - CANCELADO: Cancelado com motivo (TERMINAL)
  * 
- * REGRAS:
- * - Cliente NUNCA altera estado
- * - Cozinha altera até PRONTO
- * - Garçom/Balcão confirmam ENTREGA
+ * Transições válidas:
+ * CRIADO → PENDENTE
+ * CRIADO → CANCELADO (apenas GERENTE/ADMIN)
+ * 
+ * PENDENTE → EM_PREPARACAO (COZINHA assume)
+ * PENDENTE → CANCELADO (apenas GERENTE/ADMIN)
+ * 
+ * EM_PREPARACAO → PRONTO (COZINHA finaliza)
+ * EM_PREPARACAO → CANCELADO (apenas GERENTE/ADMIN com motivo)
+ * 
+ * PRONTO → ENTREGUE (ATENDENTE confirma)
+ * 
+ * Estados TERMINAIS (não aceitam transições):
+ * - ENTREGUE
+ * - CANCELADO
  */
 public enum StatusSubPedido {
+    CRIADO("Criado"),
     PENDENTE("Pendente"),
-    RECEBIDO("Recebido"),           // Assumido pela cozinha
-    EM_PREPARACAO("Em Preparação"),  // Iniciado preparo
-    PRONTO("Pronto"),                // Pronto para entrega (gera ticket)
-    ENTREGUE("Entregue"),            // Confirmado por garçom
-    CANCELADO("Cancelado");          // Cancelado pelo balcão
+    EM_PREPARACAO("Em Preparação"),
+    PRONTO("Pronto"),
+    ENTREGUE("Entregue"),
+    CANCELADO("Cancelado");
 
     private final String descricao;
 
@@ -33,15 +48,31 @@ public enum StatusSubPedido {
     }
 
     /**
-     * Valida se é possível avançar para o próximo estado
+     * Verifica se o estado é terminal (não aceita transições)
      */
-    public boolean podeAvancarPara(StatusSubPedido novoStatus) {
+    public boolean isTerminal() {
+        return this == ENTREGUE || this == CANCELADO;
+    }
+
+    /**
+     * Verifica se pode transicionar para novo estado
+     * NÃO valida permissões - apenas transições válidas
+     */
+    public boolean podeTransicionarPara(StatusSubPedido novoStatus) {
+        if (this == novoStatus) {
+            return true; // Idempotência
+        }
+        
+        if (this.isTerminal()) {
+            return false; // Estados terminais não aceitam transições
+        }
+        
         return switch (this) {
-            case PENDENTE -> novoStatus == RECEBIDO || novoStatus == CANCELADO;
-            case RECEBIDO -> novoStatus == EM_PREPARACAO || novoStatus == CANCELADO;
+            case CRIADO -> novoStatus == PENDENTE || novoStatus == CANCELADO;
+            case PENDENTE -> novoStatus == EM_PREPARACAO || novoStatus == CANCELADO;
             case EM_PREPARACAO -> novoStatus == PRONTO || novoStatus == CANCELADO;
             case PRONTO -> novoStatus == ENTREGUE;
-            case ENTREGUE, CANCELADO -> false; // Estados finais
+            default -> false;
         };
     }
 }

@@ -9,8 +9,12 @@ import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.service.validator.TransicaoEstadoValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,12 +22,20 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Service para operações de negócio com SubPedido
  * 
- * SubPedido é a UNIDADE OPERACIONAL de execução
- * Permite trabalho paralelo de múltiplas cozinhas e entrega parcial
+ * MOTOR OPERACIONAL - BACKEND FIRST
+ * 
+ * Responsabilidades:
+ * - Gerenciar ciclo de vida completo do SubPedido
+ * - Aplicar máquina de estados rigorosa
+ * - Validar permissões por role
+ * - Garantir idempotência
+ * - Registrar eventos de auditoria
  */
 @Service
 @RequiredArgsConstructor
@@ -34,6 +46,7 @@ public class SubPedidoService {
     private final CozinhaRepository cozinhaRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final EventLogService eventLogService;
+    private final TransicaoEstadoValidator transicaoValidator;
 
     /**
      * LÓGICA DE ROTEAMENTO AUTOMÁTICO
@@ -96,7 +109,7 @@ public class SubPedidoService {
     }
 
     /**
-     * Cria SubPedido
+     * Cria SubPedido (sempre CRIADO inicialmente)
      */
     @Transactional
     public SubPedido criar(Pedido pedido, Cozinha cozinha, UnidadeAtendimento unidadeAtendimento, 
@@ -107,7 +120,7 @@ public class SubPedidoService {
                 .pedido(pedido)
                 .cozinha(cozinha)
                 .unidadeAtendimento(unidadeAtendimento)
-                .status(StatusSubPedido.PENDENTE)
+                .status(StatusSubPedido.CRIADO)
                 .observacoes(observacoes)
                 .build();
 
@@ -116,7 +129,12 @@ public class SubPedidoService {
         // Vincula itens ao SubPedido
         itens.forEach(item -> item.setSubPedido(subPedidoSalvo));
         
-        log.info("SubPedido criado - ID: {}", subPedidoSalvo.getId());
+        // Registra evento
+        eventLogService.registrarEventoSubPedido(
+            subPedidoSalvo, null, StatusSubPedido.CRIADO, 
+            null, "SubPedido criado", 0L);
+        
+        log.info("SubPedido criado - ID: {} (Status: CRIADO)", subPedidoSalvo.getId());
         return subPedidoSalvo;
     }
 
@@ -130,89 +148,143 @@ public class SubPedidoService {
     }
 
     /**
-     * Avança status do SubPedido
+     * MÁQUINA DE ESTADOS - Altera status do SubPedido
+     * 
+     * VALIDAÇÕES:
+     * 1. Transição é válida?
+     * 2. Usuário tem permissão?
+     * 3. Motivo fornecido (se cancelamento)?
+     * 
+     * IDEMPOTÊNCIA:
+     * - Mesmo estado → retorna sucesso sem alteração
+     * 
+     * AUDITORIA:
+     * - Gera EventLog
+     * - Atualiza @Version (concorrência)
+     * 
+     * @param id ID do SubPedido
+     * @param novoStatus Novo status desejado
+     * @param motivo Motivo (obrigatório para CANCELADO)
+     * @return SubPedido atualizado
      */
     @Transactional
-    public SubPedido avancarStatus(Long id) {
-        log.info("Avançando status do SubPedido ID: {}", id);
-        
+    public SubPedido alterarStatus(Long id, StatusSubPedido novoStatus, String motivo) {
         long inicio = System.currentTimeMillis();
+        
         SubPedido subPedido = buscarPorId(id);
-        StatusSubPedido statusAtual = subPedido.getStatus();
+        StatusSubPedido estadoAtual = subPedido.getStatus();
         
-        // Validar transição
-        StatusSubPedido proximoStatus = switch (statusAtual) {
-            case PENDENTE -> StatusSubPedido.RECEBIDO;
-            case RECEBIDO -> StatusSubPedido.EM_PREPARACAO;
-            case EM_PREPARACAO -> StatusSubPedido.PRONTO;
-            case PRONTO -> StatusSubPedido.ENTREGUE;
-            case ENTREGUE, CANCELADO -> throw new BusinessException(
-                "SubPedido já está em estado final: " + statusAtual
-            );
-        };
+        log.info("Alterando status SubPedido {} de {} para {}", id, estadoAtual, novoStatus);
         
-        if (!subPedido.podeAvancarPara(proximoStatus)) {
-            throw new BusinessException(
-                "Transição inválida de " + statusAtual + " para " + proximoStatus
-            );
+        // IDEMPOTÊNCIA: já está no estado desejado
+        if (estadoAtual == novoStatus) {
+            log.debug("SubPedido {} já está em {}: operação idempotente", id, novoStatus);
+            return subPedido;
         }
         
-        // Atualizar status e timestamps
-        subPedido.setStatus(proximoStatus);
+        // Obter roles do usuário autenticado
+        Set<String> roles = obterRolesUsuarioAutenticado();
+        
+        // VALIDAR: transição + permissão
+        transicaoValidator.validarTransicao(estadoAtual, novoStatus, roles);
+        
+        // VALIDAR: motivo de cancelamento
+        if (novoStatus == StatusSubPedido.CANCELADO) {
+            transicaoValidator.validarMotivoCancelamento(motivo);
+        }
+        
+        // APLICAR TRANSIÇÃO
+        subPedido.setStatus(novoStatus);
         LocalDateTime agora = LocalDateTime.now();
         
-        switch (proximoStatus) {
-            case RECEBIDO -> subPedido.setRecebidoEm(agora);
+        // Atualizar timestamps conforme estado
+        switch (novoStatus) {
+            case PENDENTE -> { /* timestamp já definido no CRIADO */ }
             case EM_PREPARACAO -> subPedido.setIniciadoEm(agora);
             case PRONTO -> subPedido.setProntoEm(agora);
             case ENTREGUE -> subPedido.setEntregueEm(agora);
+            case CANCELADO -> {
+                // Adicionar motivo nas observações
+                String obs = subPedido.getObservacoes() != null ? subPedido.getObservacoes() + " | " : "";
+                subPedido.setObservacoes(obs + "CANCELADO: " + motivo);
+            }
         }
         
+        // PERSISTIR (atualiza @Version automaticamente)
         SubPedido subPedidoSalvo = subPedidoRepository.save(subPedido);
         
-        // Registra evento de auditoria
+        // AUDITORIA: registrar evento
         long tempoTransacao = System.currentTimeMillis() - inicio;
         eventLogService.registrarEventoSubPedido(
-            subPedidoSalvo, statusAtual, proximoStatus, null, 
-            "Avanço automático", tempoTransacao);
+            subPedidoSalvo, estadoAtual, novoStatus, 
+            null, motivo != null ? motivo : "Transição de estado", 
+            tempoTransacao);
         
-        log.info("Status do SubPedido {} atualizado: {} -> {}", id, statusAtual, proximoStatus);
+        log.info("SubPedido {} atualizado: {} → {} ({}ms)", id, estadoAtual, novoStatus, tempoTransacao);
         
         return subPedidoSalvo;
     }
 
     /**
-     * Cancela SubPedido
+     * COZINHA assume SubPedido (PENDENTE → EM_PREPARACAO)
+     */
+    @Transactional
+    public SubPedido assumir(Long id) {
+        log.info("Cozinha assumindo SubPedido {}", id);
+        return alterarStatus(id, StatusSubPedido.EM_PREPARACAO, "Assumido pela cozinha");
+    }
+
+    /**
+     * COZINHA marca SubPedido como PRONTO (EM_PREPARACAO → PRONTO)
+     */
+    @Transactional
+    public SubPedido marcarPronto(Long id) {
+        log.info("Marcando SubPedido {} como PRONTO", id);
+        return alterarStatus(id, StatusSubPedido.PRONTO, "Preparação finalizada");
+    }
+
+    /**
+     * ATENDENTE marca SubPedido como ENTREGUE (PRONTO → ENTREGUE)
+     */
+    @Transactional
+    public SubPedido marcarEntregue(Long id) {
+        log.info("Marcando SubPedido {} como ENTREGUE", id);
+        return alterarStatus(id, StatusSubPedido.ENTREGUE, "Entregue ao cliente");
+    }
+
+    /**
+     * GERENTE/ADMIN cancela SubPedido (qualquer → CANCELADO)
+     * Motivo é OBRIGATÓRIO
      */
     @Transactional
     public SubPedido cancelar(Long id, String motivo) {
-        log.info("Cancelando SubPedido ID: {} - Motivo: {}", id, motivo);
+        log.info("Cancelando SubPedido {} - Motivo: {}", id, motivo);
+        return alterarStatus(id, StatusSubPedido.CANCELADO, motivo);
+    }
+
+    /**
+     * Confirma SubPedido (CRIADO → PENDENTE)
+     * Usado internamente após criação
+     */
+    @Transactional
+    public SubPedido confirmar(Long id) {
+        log.info("Confirmando SubPedido {}", id);
+        return alterarStatus(id, StatusSubPedido.PENDENTE, "SubPedido confirmado");
+    }
+
+    /**
+     * Obtém roles do usuário autenticado via SecurityContext
+     */
+    private Set<String> obterRolesUsuarioAutenticado() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         
-        SubPedido subPedido = buscarPorId(id);
-        
-        if (subPedido.getStatus() == StatusSubPedido.ENTREGUE) {
-            throw new BusinessException("Não é possível cancelar SubPedido já entregue");
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new BusinessException("Usuário não autenticado");
         }
         
-        if (subPedido.getStatus() == StatusSubPedido.CANCELADO) {
-            throw new BusinessException("SubPedido já está cancelado");
-        }
-        
-        StatusSubPedido statusAnterior = subPedido.getStatus();
-        subPedido.setStatus(StatusSubPedido.CANCELADO);
-        subPedido.setObservacoes(
-            (subPedido.getObservacoes() != null ? subPedido.getObservacoes() + " | " : "") +
-            "CANCELADO: " + motivo
-        );
-        
-        SubPedido subPedidoSalvo = subPedidoRepository.save(subPedido);
-        
-        // Registra evento de auditoria
-        eventLogService.registrarEventoSubPedido(
-            subPedidoSalvo, statusAnterior, StatusSubPedido.CANCELADO, 
-            null, motivo, null);
-        
-        return subPedidoSalvo;
+        return authentication.getAuthorities().stream()
+            .map(GrantedAuthority::getAuthority)
+            .collect(Collectors.toSet());
     }
 
     /**

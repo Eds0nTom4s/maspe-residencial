@@ -1,10 +1,13 @@
 package com.restaurante.model.entity;
 
+import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
+import com.restaurante.model.enums.TipoPagamentoPedido;
 import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,6 +20,7 @@ import java.util.List;
 @Table(name = "pedidos", indexes = {
     @Index(name = "idx_pedido_unidade_consumo", columnList = "unidade_consumo_id"),
     @Index(name = "idx_pedido_status", columnList = "status"),
+    @Index(name = "idx_pedido_status_financeiro", columnList = "status_financeiro"),
     @Index(name = "idx_pedido_numero", columnList = "numero")
 })
 @Data
@@ -37,7 +41,34 @@ public class Pedido extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     @Builder.Default
-    private StatusPedido status = StatusPedido.PENDENTE;
+    private StatusPedido status = StatusPedido.CRIADO;
+
+    /**
+     * Status financeiro (separado do status operacional)
+     * - NAO_PAGO: Aguardando pagamento (pós-pago)
+     * - PAGO: Pagamento confirmado (pré-pago ou confirmado)
+     * - ESTORNADO: Pedido cancelado com devolução
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status_financeiro", nullable = false, length = 20)
+    @Builder.Default
+    private StatusFinanceiroPedido statusFinanceiro = StatusFinanceiroPedido.NAO_PAGO;
+
+    /**
+     * Tipo de pagamento do pedido
+     * - PRE_PAGO: Débito automático do Fundo de Consumo
+     * - POS_PAGO: Pagamento posterior (apenas GERENTE/ADMIN)
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tipo_pagamento", nullable = false, length = 20)
+    @Builder.Default
+    private TipoPagamentoPedido tipoPagamento = TipoPagamentoPedido.PRE_PAGO;
+
+    /**
+     * Data/hora do pagamento
+     */
+    @Column(name = "pago_em")
+    private LocalDateTime pagoEm;
 
     @Column(length = 500)
     private String observacoes;
@@ -84,18 +115,48 @@ public class Pedido extends BaseEntity {
      * Verifica se o pedido pode ser cancelado
      */
     public boolean podeCancelar() {
-        return status == StatusPedido.PENDENTE || status == StatusPedido.RECEBIDO;
+        return !status.isTerminal();
     }
 
     /**
-     * Avança o status do pedido
+     * Verifica se pedido está pago
      */
-    public void avancarStatus() {
-        switch (status) {
-            case PENDENTE -> status = StatusPedido.RECEBIDO;
-            case RECEBIDO -> status = StatusPedido.EM_PREPARO;
-            case EM_PREPARO -> status = StatusPedido.PRONTO;
-            case PRONTO -> status = StatusPedido.ENTREGUE;
+    public boolean isPago() {
+        return statusFinanceiro.isPago();
+    }
+
+    /**
+     * Verifica se pode estornar
+     */
+    public boolean podeEstornar() {
+        return statusFinanceiro.podeEstornar();
+    }
+
+    /**
+     * Marca pedido como pago
+     */
+    public void marcarComoPago() {
+        this.statusFinanceiro = StatusFinanceiroPedido.PAGO;
+        this.pagoEm = LocalDateTime.now();
+    }
+
+    /**
+     * Estorna pagamento (cancelamento)
+     */
+    public void estornar() {
+        if (!podeEstornar()) {
+            throw new IllegalStateException("Pedido não pode ser estornado no estado atual: " + statusFinanceiro);
         }
+        this.statusFinanceiro = StatusFinanceiroPedido.ESTORNADO;
+    }
+
+    /**
+     * @deprecated Usar PedidoService.recalcularStatusPedido()
+     * Status do Pedido é calculado baseado nos SubPedidos
+     */
+    @Deprecated
+    public void avancarStatus() {
+        // Método mantido para compatibilidade temporária
+        // Status do Pedido é calculado automaticamente baseado nos SubPedidos
     }
 }

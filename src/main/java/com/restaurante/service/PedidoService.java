@@ -12,11 +12,16 @@ import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.UnidadeDeConsumo;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
+import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
+import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.repository.PedidoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +31,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -41,11 +47,18 @@ public class PedidoService {
     private final ProdutoService produtoService;
     private final SubPedidoService subPedidoService;
     private final EventLogService eventLogService;
+    private final PedidoFinanceiroService pedidoFinanceiroService;
     // TODO: Injetar NotificacaoService para WebSocket
 
     /**
      * Cria um novo pedido para uma unidade de consumo
      * Automaticamente cria SubPedidos agrupando itens por cozinha responsável
+     * 
+     * VALIDAÇÃO FINANCEIRA:
+     * - Extrai tipoPagamento do request (default: PRE_PAGO)
+     * - Valida permissões (PRE_PAGO vs POS_PAGO)
+     * - Valida saldo suficiente (se PRE_PAGO)
+     * - Processa pagamento automático (se PRE_PAGO)
      */
     @Transactional
     public PedidoResponse criar(CriarPedidoRequest request) {
@@ -58,11 +71,33 @@ public class PedidoService {
         UnidadeDeConsumo unidadeConsumo = new UnidadeDeConsumo();
         unidadeConsumo.setId(unidadeConsumoResponse.getId());
 
+        // Determina tipo de pagamento (default: PRE_PAGO)
+        TipoPagamentoPedido tipoPagamento = request.getTipoPagamento() != null 
+            ? request.getTipoPagamento() 
+            : TipoPagamentoPedido.PRE_PAGO;
+
+        // Obtem roles do usuário autenticado
+        Set<String> roles = obterRolesUsuarioAutenticado();
+
+        // Calcula total ANTES de criar o pedido (para validação financeira)
+        var totalPreliminar = request.getItens().stream()
+            .map(item -> {
+                Produto produto = produtoService.buscarPorId(item.getProdutoId());
+                return produto.getPreco().multiply(java.math.BigDecimal.valueOf(item.getQuantidade()));
+            })
+            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+
+        // VALIDAÇÃO FINANCEIRA - antes de criar pedido
+        Long clienteId = obterClienteId(unidadeConsumoResponse);
+        pedidoFinanceiroService.validarCriacaoPedido(clienteId, totalPreliminar, tipoPagamento, roles);
+
         // Cria o pedido
         Pedido pedido = Pedido.builder()
                 .numero(gerarNumeroPedido())
                 .unidadeConsumo(unidadeConsumo)
-                .status(StatusPedido.PENDENTE)
+                .status(StatusPedido.CRIADO)
+                .statusFinanceiro(StatusFinanceiroPedido.NAO_PAGO)  // Default
+                .tipoPagamento(tipoPagamento)
                 .observacoes(request.getObservacoes())
                 .build();
 
@@ -98,6 +133,9 @@ public class PedidoService {
         pedido.calcularTotal();
         pedido = pedidoRepository.save(pedido);
 
+        // PROCESSAMENTO FINANCEIRO - depois de criar pedido
+        pedidoFinanceiroService.processarPagamentoPedido(pedido.getId(), clienteId, pedido.getTotal(), tipoPagamento);
+
         // Criar SubPedidos automaticamente - um para cada cozinha
         for (Map.Entry<Cozinha, List<ItemPedido>> entry : itensPorCozinha.entrySet()) {
             Cozinha cozinha = entry.getKey();
@@ -125,8 +163,8 @@ public class PedidoService {
         // Atualiza status da unidade de consumo
         unidadeDeConsumoService.atualizarStatus(unidadeConsumoResponse.getId());
 
-        log.info("Pedido criado com sucesso - Número: {}, Total: {}, SubPedidos: {}", 
-                pedido.getNumero(), pedido.getTotal(), itensPorCozinha.size());
+        log.info("Pedido criado com sucesso - Número: {}, Total: {}, SubPedidos: {}, Tipo Pagamento: {}, Status Financeiro: {}", 
+                pedido.getNumero(), pedido.getTotal(), itensPorCozinha.size(), pedido.getTipoPagamento(), pedido.getStatusFinanceiro());
 
         // TODO: Enviar notificação via WebSocket para atendentes
         // notificacaoService.notificarNovoPedido(pedido);
@@ -194,7 +232,7 @@ public class PedidoService {
     @Transactional(readOnly = true)
     public List<PedidoResponse> listarPedidosAtivos() {
         log.info("Listando pedidos ativos");
-        List<StatusPedido> statusAtivos = List.of(StatusPedido.PENDENTE, StatusPedido.RECEBIDO, StatusPedido.EM_PREPARO);
+        List<StatusPedido> statusAtivos = List.of(StatusPedido.CRIADO, StatusPedido.EM_ANDAMENTO);
         return pedidoRepository.findByStatusInOrderByCreatedAtAsc(statusAtivos)
                 .stream()
                 .map(this::mapToResponse)
@@ -250,6 +288,11 @@ public class PedidoService {
 
     /**
      * Cancela um pedido
+     * 
+     * ESTORNO AUTOMÁTICO:
+     * - Se pedido está PAGO, estorna automaticamente
+     * - Se PRE_PAGO, devolve para Fundo de Consumo
+     * - Se POS_PAGO, apenas marca como ESTORNADO
      */
     @Transactional
     public PedidoResponse cancelar(Long id) {
@@ -263,13 +306,61 @@ public class PedidoService {
 
         StatusPedido statusAnterior = pedido.getStatus();
         pedido.setStatus(StatusPedido.CANCELADO);
+        
+        // ESTORNO FINANCEIRO AUTOMÁTICO
+        if (pedido.isPago()) {
+            log.info("Pedido {} estava PAGO. Iniciando estorno automático.", pedido.getNumero());
+            pedidoFinanceiroService.estornarPedido(id, "Cancelamento de pedido");
+        }
+        
         pedido = pedidoRepository.save(pedido);
 
         // Registra evento de auditoria
         eventLogService.registrarEventoPedido(pedido, statusAnterior, StatusPedido.CANCELADO, null, "Pedido cancelado");
 
-        log.info("Pedido {} cancelado com sucesso", pedido.getNumero());
+        log.info("Pedido {} cancelado com sucesso. Status financeiro: {}", pedido.getNumero(), pedido.getStatusFinanceiro());
         return mapToResponse(pedido);
+    }
+
+    /**
+     * Confirma pagamento de pedido pós-pago (GERENTE/ADMIN)
+     */
+    @Transactional
+    public PedidoResponse confirmarPagamento(Long id) {
+        log.info("Confirmando pagamento do pedido ID: {}", id);
+        
+        pedidoFinanceiroService.confirmarPagamentoPosPago(id);
+        
+        Pedido pedido = buscarPorId(id);
+        
+        log.info("Pagamento confirmado para pedido {}", pedido.getNumero());
+        return mapToResponse(pedido);
+    }
+
+    /**
+     * Obtém roles do usuário autenticado
+     */
+    private Set<String> obterRolesUsuarioAutenticado() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return Set.of();
+        }
+
+        return authentication.getAuthorities().stream()
+            .map(GrantedAuthority::getAuthority)
+            .map(role -> role.replace("ROLE_", ""))  // Remove prefixo "ROLE_"
+            .collect(Collectors.toSet());
+    }
+
+    /**
+     * Obtém clienteId da unidade de consumo
+     * TODO: Implementar vínculo real com Cliente quando estiver disponível
+     */
+    private Long obterClienteId(com.restaurante.dto.response.UnidadeConsumoResponse unidadeConsumo) {
+        // PLACEHOLDER: retorna 1L temporariamente
+        // Em produção, UnidadeDeConsumo deve ter clienteId ou vincular via sessão/autenticação
+        return 1L;
     }
 
     /**

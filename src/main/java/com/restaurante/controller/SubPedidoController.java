@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -86,17 +87,39 @@ public class SubPedidoController {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", response));
     }
 
-    @PutMapping("/{id}/avancar-status")
-    @Operation(summary = "Avançar status do SubPedido")
-    public ResponseEntity<ApiResponse<SubPedidoResponse>> avancarStatus(@PathVariable Long id) {
-        log.info("Requisição para avançar status do SubPedido ID: {}", id);
+    @PutMapping("/{id}/assumir")
+    @Operation(summary = "Cozinha assume SubPedido (PENDENTE → EM_PREPARACAO)")
+    @PreAuthorize("hasAnyRole('COZINHA', 'GERENTE', 'ADMIN')")
+    public ResponseEntity<ApiResponse<SubPedidoResponse>> assumir(@PathVariable Long id) {
+        log.info("Cozinha assumindo SubPedido ID: {}", id);
         
-        SubPedido subPedido = subPedidoService.avancarStatus(id);
-        return ResponseEntity.ok(ApiResponse.success("Status atualizado com sucesso", converterParaResponse(subPedido)));
+        SubPedido subPedido = subPedidoService.assumir(id);
+        return ResponseEntity.ok(ApiResponse.success("SubPedido assumido", converterParaResponse(subPedido)));
+    }
+
+    @PutMapping("/{id}/marcar-pronto")
+    @Operation(summary = "Cozinha marca SubPedido como PRONTO (EM_PREPARACAO → PRONTO)")
+    @PreAuthorize("hasAnyRole('COZINHA', 'GERENTE', 'ADMIN')")
+    public ResponseEntity<ApiResponse<SubPedidoResponse>> marcarPronto(@PathVariable Long id) {
+        log.info("Marcando SubPedido ID: {} como PRONTO", id);
+        
+        SubPedido subPedido = subPedidoService.marcarPronto(id);
+        return ResponseEntity.ok(ApiResponse.success("SubPedido pronto", converterParaResponse(subPedido)));
+    }
+
+    @PutMapping("/{id}/marcar-entregue")
+    @Operation(summary = "Atendente marca SubPedido como ENTREGUE (PRONTO → ENTREGUE)")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    public ResponseEntity<ApiResponse<SubPedidoResponse>> marcarEntregue(@PathVariable Long id) {
+        log.info("Marcando SubPedido ID: {} como ENTREGUE", id);
+        
+        SubPedido subPedido = subPedidoService.marcarEntregue(id);
+        return ResponseEntity.ok(ApiResponse.success("SubPedido entregue", converterParaResponse(subPedido)));
     }
 
     @PutMapping("/{id}/cancelar")
-    @Operation(summary = "Cancelar SubPedido")
+    @Operation(summary = "Gerente/Admin cancela SubPedido (qualquer → CANCELADO)")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
     public ResponseEntity<ApiResponse<SubPedidoResponse>> cancelar(
             @PathVariable Long id, 
             @RequestParam String motivo) {

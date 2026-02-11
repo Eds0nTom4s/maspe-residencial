@@ -1,21 +1,26 @@
 package com.restaurante.model.enums;
 
 /**
- * Enum que representa os possíveis estados de um pedido
+ * Estados oficiais do Pedido (agregado de SubPedidos)
  * 
- * PENDENTE - Pedido criado mas ainda não recebido pela cozinha/bar
- * RECEBIDO - Pedido confirmado e em preparação
- * EM_PREPARO - Pedido sendo preparado
- * PRONTO - Pedido pronto para ser servido
- * ENTREGUE - Pedido entregue ao cliente
- * CANCELADO - Pedido cancelado
+ * MÁQUINA DE ESTADOS - BACKEND PURO
+ * 
+ * Estados:
+ * - CRIADO: Pedido registrado
+ * - EM_ANDAMENTO: Pelo menos um SubPedido em execução
+ * - FINALIZADO: Todos SubPedidos ENTREGUE (TERMINAL)
+ * - CANCELADO: Pedido cancelado (TERMINAL)
+ * 
+ * Status calculado automaticamente baseado nos SubPedidos:
+ * - Todos SubPedidos CRIADO/PENDENTE → CRIADO
+ * - Qualquer SubPedido EM_PREPARACAO/PRONTO → EM_ANDAMENTO
+ * - Todos SubPedidos ENTREGUE → FINALIZADO
+ * - Todos SubPedidos CANCELADO → CANCELADO
  */
 public enum StatusPedido {
-    PENDENTE("Pendente"),
-    RECEBIDO("Recebido"),
-    EM_PREPARO("Em Preparo"),
-    PRONTO("Pronto"),
-    ENTREGUE("Entregue"),
+    CRIADO("Criado"),
+    EM_ANDAMENTO("Em Andamento"),
+    FINALIZADO("Finalizado"),
     CANCELADO("Cancelado");
 
     private final String descricao;
@@ -26,5 +31,12 @@ public enum StatusPedido {
 
     public String getDescricao() {
         return descricao;
+    }
+
+    /**
+     * Verifica se o estado é terminal
+     */
+    public boolean isTerminal() {
+        return this == FINALIZADO || this == CANCELADO;
     }
 }

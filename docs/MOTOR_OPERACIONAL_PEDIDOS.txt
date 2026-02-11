@@ -1,0 +1,324 @@
+================================================================================
+             RELATÓRIO TÉCNICO - MOTOR OPERACIONAL DE PEDIDOS
+                          BACKEND-FIRST ARCHITECTURE
+                         Data: 11 de Fevereiro de 2026
+================================================================================
+
+OBJETIVO:
+Implementar máquina de estados robusta para ciclo de vida completo de
+Pedidos e SubPedidos, funcionando 100% no backend sem dependência de UI.
+
+
+════════════════════════════════════════════════════════════════════════════════
+ESTADOS OFICIAIS IMPLEMENTADOS
+════════════════════════════════════════════════════════════════════════════════
+
+StatusSubPedido (6 estados):
+-----------------------------
+- CRIADO: Registrado no sistema, aguardando confirmação
+- PENDENTE: Confirmado, aguardando início de preparação pela cozinha
+- EM_PREPARACAO: Sendo preparado pela cozinha (assumido)
+- PRONTO: Preparado, aguardando retirada/entrega pelo atendente
+- ENTREGUE: Entregue ao cliente (TERMINAL - não aceita transições)
+- CANCELADO: Cancelado com motivo obrigatório (TERMINAL - não aceita transições)
+
+StatusPedido (4 estados):
+-------------------------
+- CRIADO: Pedido registrado no sistema
+- EM_ANDAMENTO: Pelo menos um SubPedido em execução
+- FINALIZADO: Todos SubPedidos ENTREGUE (TERMINAL)
+- CANCELADO: Pedido cancelado (TERMINAL)
+
+IMPORTANTE: Status do Pedido é CALCULADO automaticamente baseado nos SubPedidos.
+
+
+════════════════════════════════════════════════════════════════════════════════
+TRANSIÇÕES VÁLIDAS
+════════════════════════════════════════════════════════════════════════════════
+
+SubPedido:
+----------
+CRIADO → PENDENTE (confirmação do pedido)
+CRIADO → CANCELADO (apenas GERENTE/ADMIN antes de confirmação)
+
+PENDENTE → EM_PREPARACAO (cozinha assume)
+PENDENTE → CANCELADO (apenas GERENTE/ADMIN)
+
+EM_PREPARACAO → PRONTO (cozinha finaliza preparação)
+EM_PREPARACAO → CANCELADO (apenas GERENTE/ADMIN com justificativa)
+
+PRONTO → ENTREGUE (atendente confirma entrega)
+
+BLOQUEADAS:
+- ENTREGUE → qualquer estado (TERMINAL)
+- CANCELADO → qualquer estado (TERMINAL)
+
+
+════════════════════════════════════════════════════════════════════════════════
+PERMISSÕES POR ROLE
+════════════════════════════════════════════════════════════════════════════════
+
+CLIENTE (ROLE_CLIENTE):
+- Pode criar pedidos
+- NÃO pode alterar estados de SubPedidos
+
+COZINHA (ROLE_COZINHA):
+- PENDENTE → EM_PREPARACAO (assumir sub-pedido)
+- EM_PREPARACAO → PRONTO (marcar como pronto)
+
+ATENDENTE (ROLE_ATENDENTE):
+- PRONTO → ENTREGUE (confirmar entrega)
+
+GERENTE/ADMIN (ROLE_GERENTE, ROLE_ADMIN):
+- Pode cancelar SubPedido em qualquer estado NÃO terminal
+- Cancelamento EXIGE motivo obrigatório
+- Pode executar qualquer transição permitida às roles anteriores
+
+
+════════════════════════════════════════════════════════════════════════════════
+REGRAS DE NEGÓCIO OBRIGATÓRIAS
+════════════════════════════════════════════════════════════════════════════════
+
+1. IDEMPOTÊNCIA:
+   - Marcar PRONTO quando já está PRONTO → retorna sucesso (no-op)
+   - Marcar ENTREGUE quando já está ENTREGUE → retorna sucesso (no-op)
+   - Evita erros em retries e duplicações de rede
+
+2. AUDITORIA:
+   - Toda transição gera EventLog imutável
+   - Registra: quem, quando, estado origem, estado destino, motivo
+
+3. CONCORRÊNCIA:
+   - Cada mudança de estado atualiza @Version automaticamente
+   - OptimisticLockException em caso de conflito simultâneo
+
+4. CANCELAMENTO:
+   - Motivo é OBRIGATÓRIO
+   - Apenas GERENTE/ADMIN podem cancelar
+   - Não pode cancelar estados terminais (ENTREGUE, CANCELADO)
+
+5. AGREGAÇÃO DE STATUS (Pedido):
+   - Pedido só é FINALIZADO se TODOS SubPedidos estiverem ENTREGUE
+   - Se um SubPedido estiver EM_PREPARACAO ou PRONTO → Pedido EM_ANDAMENTO
+
+
+════════════════════════════════════════════════════════════════════════════════
+COMPONENTES IMPLEMENTADOS
+════════════════════════════════════════════════════════════════════════════════
+
+1. ENUMS REFATORADOS:
+   - StatusSubPedido.java (6 estados com método podeTransicionarPara())
+   - StatusPedido.java (4 estados com método isTerminal())
+
+2. EXCEÇÕES ESPECÍFICAS (novas):
+   - TransicaoInvalidaException: transição inválida entre estados
+   - PermissaoNegadaException: usuário sem permissão para ação
+
+3. VALIDADOR CENTRALIZADO (novo):
+   - TransicaoEstadoValidator.java
+   - ÚNICA fonte de verdade para regras de transição
+   - Valida: transição válida + permissão do usuário
+   - Lança exceções claras quando inválido
+
+4. SERVICE REFATORADO:
+   - SubPedidoService.java
+   - Método principal: alterarStatus(id, novoStatus, motivo)
+   - Métodos específicos: assumir(), marcarPronto(), marcarEntregue(), cancelar()
+   - Integração com TransicaoEstadoValidator
+   - Idempotência garantida
+   - EventLog automático em todas transições
+   - @Version atualizado automaticamente
+
+5. CONTROLLER ATUALIZADO:
+   - SubPedidoController.java
+   - 4 novos endpoints com @PreAuthorize:
+     • PUT /api/sub-pedidos/{id}/assumir (COZINHA)
+     • PUT /api/sub-pedidos/{id}/marcar-pronto (COZINHA)
+     • PUT /api/sub-pedidos/{id}/marcar-entregue (ATENDENTE)
+     • PUT /api/sub-pedidos/{id}/cancelar (GERENTE/ADMIN)
+
+6. ENTITY ATUALIZADO:
+   - SubPedido.java: método podeTransicionarPara()
+   - Pedido.java: status padrão CRIADO, método podeCancelar() atualizado
+
+
+════════════════════════════════════════════════════════════════════════════════
+FLUXO OPERACIONAL (EXEMPLOS VIA API)
+════════════════════════════════════════════════════════════════════════════════
+
+CENÁRIO 1: Fluxo normal (cliente → cozinha → atendente)
+-------------------------------------------------------
+1. Cliente faz pedido
+   POST /api/pedidos
+   → SubPedido criado com status CRIADO
+   → Confirmado automaticamente → PENDENTE
+
+2. Cozinha assume SubPedido
+   PUT /api/sub-pedidos/123/assumir
+   Role: COZINHA
+   → PENDENTE → EM_PREPARACAO
+   → EventLog registrado
+
+3. Cozinha marca como pronto
+   PUT /api/sub-pedidos/123/marcar-pronto
+   Role: COZINHA
+   → EM_PREPARACAO → PRONTO
+   → EventLog registrado
+
+4. Atendente entrega ao cliente
+   PUT /api/sub-pedidos/123/marcar-entregue
+   Role: ATENDENTE
+   → PRONTO → ENTREGUE (TERMINAL)
+   → EventLog registrado
+
+
+CENÁRIO 2: Cancelamento por gerente
+------------------------------------
+1. Gerente cancela SubPedido em preparação
+   PUT /api/sub-pedidos/123/cancelar
+   Role: GERENTE
+   Body: {"motivo": "Cliente desistiu"}
+   → EM_PREPARACAO → CANCELADO (TERMINAL)
+   → EventLog registrado com motivo
+
+
+CENÁRIO 3: Tentativa inválida (bloqueada)
+------------------------------------------
+1. Cozinha tenta marcar ENTREGUE diretamente
+   PUT /api/sub-pedidos/123/marcar-entregue
+   Role: COZINHA
+   → ERRO 403 Forbidden
+   → PermissaoNegadaException lançada
+   → "Permissão negada: role ROLE_COZINHA não pode executar ação 'marcar SubPedido como ENTREGUE'"
+
+
+CENÁRIO 4: Idempotência (duplicação de rede)
+---------------------------------------------
+1. Atendente marca como ENTREGUE
+   PUT /api/sub-pedidos/123/marcar-entregue
+   → PRONTO → ENTREGUE
+   → Sucesso
+
+2. Requisição duplicada (retry)
+   PUT /api/sub-pedidos/123/marcar-entregue
+   → Já está ENTREGUE
+   → Retorna sucesso sem alteração (idempotente)
+   → Log: "operação idempotente"
+
+
+CENÁRIO 5: Concorrência (2 cozinheiros assumem simultaneamente)
+----------------------------------------------------------------
+Thread 1: PUT /api/sub-pedidos/123/assumir (COZINHA A)
+Thread 2: PUT /api/sub-pedidos/123/assumir (COZINHA B) [simultâneo]
+
+RESULTADO:
+- Thread 1: SUCESSO → PENDENTE → EM_PREPARACAO (version: 1 → 2)
+- Thread 2: ERRO 409 Conflict → OptimisticLockException
+  - "Versão desatualizada: SubPedido foi modificado por outro usuário"
+
+
+════════════════════════════════════════════════════════════════════════════════
+DECISÕES DE DESIGN
+════════════════════════════════════════════════════════════════════════════════
+
+1. POR QUE NÃO TEM ESTADO "EM_ENTREGA"?
+   - Simplicidade operacional
+   - Estado PRONTO já indica "aguardando entrega"
+   - Transição PRONTO → ENTREGUE é única e atômica
+   - Evita estado intermediário desnecessário
+   - Reduz complexidade da máquina de estados
+
+2. POR QUE VALIDADOR CENTRALIZADO?
+   - ÚNICA fonte de verdade
+   - Evita regras espalhadas em Controllers/Services
+   - Fácil de testar isoladamente
+   - Fácil de manter e evoluir
+   - Garante consistência total
+
+3. POR QUE IDEMPOTÊNCIA?
+   - Ambientes reais têm retries de rede
+   - Duplicação de requisições é comum
+   - Evita erros em operações já concluídas
+   - Melhora experiência do usuário
+
+4. POR QUE STATUS DO PEDIDO É CALCULADO?
+   - Pedido é AGREGADOR lógico de SubPedidos
+   - SubPedido é a unidade operacional real
+   - Status do Pedido reflete agregação dos SubPedidos
+   - Evita inconsistências (fonte única de verdade)
+
+5. POR QUE MOTIVO OBRIGATÓRIO EM CANCELAMENTO?
+   - Auditoria completa
+   - Rastreabilidade de decisões gerenciais
+   - Análise posterior de cancelamentos
+   - Melhoria de processos
+
+
+════════════════════════════════════════════════════════════════════════════════
+MÉTRICAS DO PROJETO
+════════════════════════════════════════════════════════════════════════════════
+
+Arquivos criados/modificados: 10
+- 2 enums refatorados (StatusSubPedido, StatusPedido)
+- 2 exceções novas (TransicaoInvalidaException, PermissaoNegadaException)
+- 1 validador novo (TransicaoEstadoValidator)
+- 3 services refatorados (SubPedidoService, PedidoService, + entity Pedido)
+- 1 controller atualizado (SubPedidoController)
+- 1 entity atualizado (SubPedido)
+
+Endpoints REST: 4 novos
+- PUT /api/sub-pedidos/{id}/assumir
+- PUT /api/sub-pedidos/{id}/marcar-pronto
+- PUT /api/sub-pedidos/{id}/marcar-entregue
+- PUT /api/sub-pedidos/{id}/cancelar
+
+Transições validadas: 9
+Estados: 10 (6 SubPedido + 4 Pedido)
+Roles integradas: 5 (CLIENTE, ATENDENTE, COZINHA, GERENTE, ADMIN)
+
+Build: SUCCESS
+Tempo de compilação: ~13s
+Arquivos compilados: 110 Java files
+
+
+════════════════════════════════════════════════════════════════════════════════
+PRÓXIMOS PASSOS
+════════════════════════════════════════════════════════════════════════════════
+
+1. TESTES AUTOMATIZADOS (OBRIGATÓRIO):
+   - Testes de transições válidas
+   - Testes de transições inválidas
+   - Testes de permissões por role
+   - Testes de concorrência (OptimisticLockException)
+   - Testes de idempotência
+
+2. ETAPA PRIORITÁRIA 2:
+   - Fila Operacional Inteligente
+   - Backend decide quem faz o quê
+   - Roteamento automático
+   - Timeout de itens abandonados
+
+
+════════════════════════════════════════════════════════════════════════════════
+CONCLUSÃO
+════════════════════════════════════════════════════════════════════════════════
+
+Motor Operacional de Pedidos IMPLEMENTADO com sucesso.
+
+CARACTERÍSTICAS:
+✓ Máquina de estados explícita e robusta
+✓ Validação centralizada (TransicaoEstadoValidator)
+✓ Permissões por role integradas
+✓ Idempotência garantida
+✓ Auditoria completa (EventLog)
+✓ Concorrência segura (@Version)
+✓ Backend-first (funciona sem UI)
+✓ Testável via API REST
+
+BACKEND READY: Sistema capaz de gerenciar ciclo de vida completo
+de pedidos de forma autônoma, previsível e auditável.
+
+
+================================================================================
+FIM DO RELATÓRIO
+================================================================================

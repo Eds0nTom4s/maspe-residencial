@@ -1,7 +1,9 @@
 package com.restaurante.repository;
 
 import com.restaurante.model.entity.Pedido;
+import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
+import com.restaurante.model.enums.TipoPagamentoPedido;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
@@ -50,4 +52,13 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
      */
     @Query("SELECT p FROM Pedido p WHERE CAST(p.createdAt AS date) = CURRENT_DATE AND p.status = :status ORDER BY p.createdAt ASC")
     List<Pedido> findPedidosDeHojePorStatus(StatusPedido status);
+
+    /**
+     * Busca pedidos pós-pago abertos (não pagos) por unidade de consumo
+     */
+    List<Pedido> findByUnidadeConsumoIdAndTipoPagamentoAndStatusFinanceiro(
+        Long unidadeConsumoId, 
+        TipoPagamentoPedido tipoPagamento, 
+        StatusFinanceiroPedido statusFinanceiro
+    );
 }

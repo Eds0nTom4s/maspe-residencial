@@ -1,11 +1,15 @@
 package com.restaurante.service;
 
+import com.restaurante.dto.request.LoginAtendenteRequest;
 import com.restaurante.dto.request.LoginRequest;
 import com.restaurante.dto.request.RefreshTokenRequest;
 import com.restaurante.dto.request.RegisterRequest;
 import com.restaurante.dto.response.AuthResponse;
+import com.restaurante.dto.response.LoginAtendenteResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.model.entity.Atendente;
 import com.restaurante.model.entity.User;
+import com.restaurante.repository.AtendenteRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +32,7 @@ public class AuthService {
 
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
+    private final AtendenteRepository atendenteRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
 
@@ -171,4 +176,41 @@ public class AuthService {
         String username = authentication.getName();
         return userRepository.findByUsername(username).orElse(null);
     }
+    
+    /**
+     * Login para Atendente/Gerente usando telefone + senha
+     */
+    @Transactional(readOnly = true)
+    public LoginAtendenteResponse loginAtendente(LoginAtendenteRequest request) {
+        log.info("Tentativa de login atendente para telefone: {}", request.getTelefone());
+        
+        // Busca atendente por telefone
+        Atendente atendente = atendenteRepository.findByTelefoneAndAtivoTrue(request.getTelefone())
+            .orElseThrow(() -> new BusinessException("Telefone ou senha inválidos"));
+        
+        // Valida senha
+        if (!passwordEncoder.matches(request.getSenha(), atendente.getSenha())) {
+            log.warn("Tentativa de login com senha incorreta para: {}", request.getTelefone());
+            throw new BusinessException("Telefone ou senha inválidos");
+        }
+        
+        // Gera token JWT com role
+        String token = jwtTokenProvider.generateToken(
+            atendente.getTelefone(),
+            "ROLE_" + atendente.getTipoUsuario().name()
+        );
+        
+        log.info("Login atendente bem-sucedido: {} ({})", atendente.getNome(), atendente.getTipoUsuario());
+        
+        return LoginAtendenteResponse.builder()
+            .id(atendente.getId())
+            .nome(atendente.getNome())
+            .telefone(atendente.getTelefone())
+            .email(atendente.getEmail())
+            .tipoUsuario(atendente.getTipoUsuario())
+            .token(token)
+            .expiresIn(86400L) // 24 horas em segundos
+            .build();
+    }
 }
+

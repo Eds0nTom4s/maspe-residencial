@@ -32,4 +32,14 @@ public interface AtendenteRepository extends JpaRepository<Atendente, Long> {
      * Busca atendente ativo por email
      */
     Optional<Atendente> findByEmailAndAtivoTrue(String email);
+    
+    /**
+     * Busca atendente por telefone
+     */
+    Optional<Atendente> findByTelefone(String telefone);
+    
+    /**
+     * Busca atendente ativo por telefone
+     */
+    Optional<Atendente> findByTelefoneAndAtivoTrue(String telefone);
 }

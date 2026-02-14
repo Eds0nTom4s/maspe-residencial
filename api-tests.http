@@ -28,6 +28,72 @@ Content-Type: {{contentType}}
 }
 
 ### ========================================
+### 1.3 AUTENTICAÇÃO ADMIN/ATENDENTES (TELEFONE + SENHA)
+### ========================================
+
+### 1.3.1 Login Admin (Gerente)
+# Telefone: +244999999999
+# Senha: admin123
+POST {{baseUrl}}/auth/admin/login
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244999999999",
+  "senha": "admin123"
+}
+
+### 1.3.2 Login Atendente (António)
+# Telefone: +244923456789
+# Senha: senha123
+POST {{baseUrl}}/auth/admin/login
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244923456789",
+  "senha": "senha123"
+}
+
+### 1.3.3 Login Atendente (Maria)
+# Telefone: +244945678901
+# Senha: senha123
+POST {{baseUrl}}/auth/admin/login
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244945678901",
+  "senha": "senha123"
+}
+
+### 1.3.4 Login Gerente (José Manuel)
+# Telefone: +244912345678
+# Senha: gerente123
+POST {{baseUrl}}/auth/admin/login
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244912345678",
+  "senha": "gerente123"
+}
+
+### 1.3.5 Teste Login com senha incorreta (deve falhar)
+POST {{baseUrl}}/auth/admin/login
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244999999999",
+  "senha": "senhaerrada"
+}
+
+### 1.3.6 Teste Login com telefone inexistente (deve falhar)
+POST {{baseUrl}}/auth/admin/login
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244000000000",
+  "senha": "admin123"
+}
+
+### ========================================
 ### 2. PRODUTOS
 ### ========================================
 

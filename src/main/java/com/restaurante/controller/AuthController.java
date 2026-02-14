@@ -1,9 +1,12 @@
 package com.restaurante.controller;
 
+import com.restaurante.dto.request.LoginAtendenteRequest;
 import com.restaurante.dto.request.SolicitarOtpRequest;
 import com.restaurante.dto.request.ValidarOtpRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.ClienteResponse;
+import com.restaurante.dto.response.LoginAtendenteResponse;
+import com.restaurante.service.AuthService;
 import com.restaurante.service.ClienteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,16 +16,18 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * Controller REST para operações de autenticação de Cliente
- * Endpoints públicos para acesso via QR Code
+ * Controller REST para operações de autenticação
+ * - Clientes: autenticação via OTP
+ * - Atendentes/Gerentes: autenticação via telefone + senha
  */
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
-@Tag(name = "Autenticação", description = "Endpoints para autenticação de clientes via OTP")
+@Tag(name = "Autenticação", description = "Endpoints para autenticação de clientes e atendentes")
 public class AuthController {
 
     private final ClienteService clienteService;
+    private final AuthService authService;
 
     /**
      * Solicita OTP para o telefone informado
@@ -45,4 +50,16 @@ public class AuthController {
         ClienteResponse cliente = clienteService.validarOtp(request);
         return ResponseEntity.ok(ApiResponse.success("Autenticação realizada com sucesso", cliente));
     }
+    
+    /**
+     * Login para Atendente/Gerente com telefone e senha
+     * POST /api/auth/admin/login
+     */
+    @PostMapping("/admin/login")
+    @Operation(summary = "Login Atendente/Gerente", description = "Autentica atendente ou gerente com telefone e senha")
+    public ResponseEntity<ApiResponse<LoginAtendenteResponse>> loginAdmin(@Valid @RequestBody LoginAtendenteRequest request) {
+        LoginAtendenteResponse response = authService.loginAtendente(request);
+        return ResponseEntity.ok(ApiResponse.success("Login realizado com sucesso", response));
+    }
 }
+

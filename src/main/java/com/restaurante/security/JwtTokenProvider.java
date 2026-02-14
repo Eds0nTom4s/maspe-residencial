@@ -49,9 +49,9 @@ public class JwtTokenProvider {
     }
 
     /**
-     * Gera token JWT
+     * Gera token JWT com roles
      */
-    private String generateToken(String username, String roles) {
+    public String generateToken(String username, String roles) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpiration);
 

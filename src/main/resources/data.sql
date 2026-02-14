@@ -57,14 +57,18 @@ VALUES
 -- DADOS INICIAIS - ATENDENTES
 -- ========================================
 
--- NOTA: As senhas devem ser hasheadas na aplicação real
--- Senha exemplo: "senha123" (implementar hash BCrypt na aplicação)
+-- SENHAS DE TESTE (NÃO USAR EM PRODUÇÃO):
+-- António: senha123
+-- Maria: senha123
+-- José (Gerente): gerente123
+-- Admin (Gerente): admin123
 
 INSERT INTO atendentes (nome, email, telefone, senha, tipo_usuario, ativo, created_at, updated_at)
 VALUES 
-('António Domingos', 'antonio.domingos@restaurante.ao', '+244923456789', '$2a$10$examplehash', 'ATENDENTE', true, NOW(), NOW()),
-('Maria da Conceição', 'maria.conceicao@restaurante.ao', '+244945678901', '$2a$10$examplehash', 'ATENDENTE', true, NOW(), NOW()),
-('José Manuel', 'jose.manuel@restaurante.ao', '+244912345678', '$2a$10$examplehash', 'GERENTE', true, NOW(), NOW());
+('António Domingos', 'antonio.domingos@restaurante.ao', '+244923456789', '$2b$12$ymMq0Jx4QCg3Lnv63iiiZuVBX.CR331.dFRDTlXewsNTTY1aZd1j.', 'ATENDENTE', true, NOW(), NOW()),
+('Maria da Conceição', 'maria.conceicao@restaurante.ao', '+244945678901', '$2b$12$ymMq0Jx4QCg3Lnv63iiiZuVBX.CR331.dFRDTlXewsNTTY1aZd1j.', 'ATENDENTE', true, NOW(), NOW()),
+('José Manuel', 'jose.manuel@restaurante.ao', '+244912345678', '$2b$12$ADUm/W1Wr7sba5f0axAh7OXQI1tVU/cXMnfownckl79F8t2UGGXVG', 'GERENTE', true, NOW(), NOW()),
+('Admin Sistema', 'admin@restaurante.ao', '+244999999999', '$2b$12$GjvA5qNqQ.ygizKg3S5IpOI//uxHUhDgt2MnRdlMzStqASYzAWpEq', 'GERENTE', true, NOW(), NOW());
 
 -- ========================================
 -- DADOS INICIAIS - COZINHAS

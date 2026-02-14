@@ -2,10 +2,12 @@ package com.restaurante.service;
 
 import com.restaurante.exception.PermissaoNegadaException;
 import com.restaurante.exception.TransicaoInvalidaException;
+import com.restaurante.model.entity.Cliente;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.UnidadeDeConsumo;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoCozinha;
@@ -19,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -41,6 +45,7 @@ import static org.mockito.Mockito.*;
  * - Registro de EventLog e recalculo de status do Pedido
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class SubPedidoStateMachineTest {
 
     @Mock
@@ -75,6 +80,9 @@ class SubPedidoStateMachineTest {
 
     @BeforeEach
     void setUp() {
+        // Mock environment.getActiveProfiles() para evitar NullPointerException
+        when(environment.getActiveProfiles()).thenReturn(new String[]{"test"});
+        
         transicaoEstadoValidator = new TransicaoEstadoValidator(environment);
         subPedidoService = new SubPedidoService(
                 subPedidoRepository,
@@ -98,9 +106,22 @@ class SubPedidoStateMachineTest {
                 .build();
         unidadeAtendimento.setId(1L);
 
+        // Mock Cliente e UnidadeDeConsumo para evitar NullPointerException nas notificações
+        Cliente cliente = Cliente.builder()
+                .telefone("+244925813939")
+                .telefoneVerificado(true)
+                .build();
+        
+        UnidadeDeConsumo unidadeConsumo = UnidadeDeConsumo.builder()
+                .cliente(cliente)
+                .unidadeAtendimento(unidadeAtendimento)
+                .status(com.restaurante.model.enums.StatusUnidadeConsumo.OCUPADA)
+                .build();
+
         pedido = Pedido.builder()
                 .numero("PED-TEST-001")
                 .status(StatusPedido.CRIADO)
+                .unidadeConsumo(unidadeConsumo)
                 .build();
         pedido.setId(10L);
 

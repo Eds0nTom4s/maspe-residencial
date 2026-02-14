@@ -1,0 +1,218 @@
+package com.restaurante.performance;
+
+import com.restaurante.dto.request.CriarPedidoRequest;
+import com.restaurante.dto.request.ItemPedidoRequest;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.*;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Testes de Carga e Performance
+ * 
+ * Valida:
+ * - 100 req/s durante 60 segundos
+ * - Sem saldo negativo
+ * - Sem pedidos duplicados
+ * - Sem inconsistências de dados
+ * 
+ * @Disabled por padrão (executar manualmente antes de produção)
+ * 
+ * ALTERNATIVA: Usar JMeter (ver load-test-plan.jmx)
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
+@DisplayName("Performance: Teste de Carga")
+@Disabled("Executar manualmente antes de sexta-feira na discoteca")
+public class LoadTest {
+
+    @LocalServerPort
+    private int port;
+
+    @Autowired
+    private TestRestTemplate restTemplate;
+
+    private String baseUrl;
+
+    @Test
+    @DisplayName("100 req/s durante 60 segundos - Criar Pedidos")
+    void testeCarga100ReqPorSegundoDurante60Segundos() throws Exception {
+        baseUrl = "http://localhost:" + port;
+        
+        int totalRequisicoes = 6000; // 100 req/s * 60s
+        int threadsSimultaneas = 50;
+        
+        ExecutorService executor = Executors.newFixedThreadPool(threadsSimultaneas);
+        CountDownLatch latch = new CountDownLatch(totalRequisicoes);
+        
+        AtomicInteger sucessos = new AtomicInteger(0);
+        AtomicInteger erros = new AtomicInteger(0);
+        AtomicInteger timeout = new AtomicInteger(0);
+        
+        Instant inicio = Instant.now();
+        
+        // ACT: Enviar 6000 requisições
+        for (int i = 0; i < totalRequisicoes; i++) {
+            final int requestId = i;
+            
+            executor.submit(() -> {
+                try {
+                    CriarPedidoRequest request = criarRequestPedido(requestId);
+                    
+                    ResponseEntity<String> response = restTemplate.exchange(
+                        baseUrl + "/pedidos",
+                        HttpMethod.POST,
+                        new HttpEntity<>(request, criarHeaders()),
+                        String.class
+                    );
+                    
+                    if (response.getStatusCode().is2xxSuccessful()) {
+                        sucessos.incrementAndGet();
+                    } else {
+                        erros.incrementAndGet();
+                    }
+                    
+                } catch (Exception e) {
+                    if (e.getCause() instanceof TimeoutException) {
+                        timeout.incrementAndGet();
+                    } else {
+                        erros.incrementAndGet();
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            });
+            
+            // Throttle: 100 req/s = 10ms entre requisições
+            if (i % 100 == 0 && i > 0) {
+                Thread.sleep(1000);
+            }
+        }
+        
+        // ASSERT: Aguardar conclusão (timeout 120s)
+        boolean concluido = latch.await(120, TimeUnit.SECONDS);
+        executor.shutdown();
+        
+        Duration duracao = Duration.between(inicio, Instant.now());
+        
+        // Estatísticas
+        System.out.println("========================================");
+        System.out.println("TESTE DE CARGA - RESULTADOS");
+        System.out.println("========================================");
+        System.out.println("Total Requisições: " + totalRequisicoes);
+        System.out.println("Sucessos: " + sucessos.get());
+        System.out.println("Erros: " + erros.get());
+        System.out.println("Timeouts: " + timeout.get());
+        System.out.println("Duração: " + duracao.getSeconds() + "s");
+        System.out.println("Req/s médio: " + (totalRequisicoes / duracao.getSeconds()));
+        System.out.println("========================================");
+        
+        // VALIDAÇÕES
+        assertThat(concluido).isTrue();
+        assertThat(sucessos.get()).isGreaterThan(5800); // 97% sucesso mínimo
+        assertThat(erros.get()).isLessThan(200); // <3% erro aceitável
+        
+        // TODO: Validar no banco:
+        // - Nenhum saldo negativo
+        // - Nenhum pedido duplicado
+        // - Integridade de dados mantida
+    }
+
+    @Test
+    @DisplayName("Stress Test: 500 req/s durante 30 segundos")
+    @Disabled("Stress test - executar apenas em staging")
+    void stressTest500ReqPorSegundo() throws Exception {
+        baseUrl = "http://localhost:" + port;
+        
+        int totalRequisicoes = 15000; // 500 req/s * 30s
+        int threadsSimultaneas = 100;
+        
+        ExecutorService executor = Executors.newFixedThreadPool(threadsSimultaneas);
+        AtomicInteger sucessos = new AtomicInteger(0);
+        AtomicInteger erros = new AtomicInteger(0);
+        
+        Instant inicio = Instant.now();
+        
+        CountDownLatch latch = new CountDownLatch(totalRequisicoes);
+        
+        for (int i = 0; i < totalRequisicoes; i++) {
+            final int requestId = i;
+            
+            executor.submit(() -> {
+                try {
+                    CriarPedidoRequest request = criarRequestPedido(requestId);
+                    
+                    ResponseEntity<String> response = restTemplate.exchange(
+                        baseUrl + "/pedidos",
+                        HttpMethod.POST,
+                        new HttpEntity<>(request, criarHeaders()),
+                        String.class
+                    );
+                    
+                    if (response.getStatusCode().is2xxSuccessful()) {
+                        sucessos.incrementAndGet();
+                    } else {
+                        erros.incrementAndGet();
+                    }
+                    
+                } catch (Exception e) {
+                    erros.incrementAndGet();
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+        
+        latch.await(60, TimeUnit.SECONDS);
+        executor.shutdown();
+        
+        Duration duracao = Duration.between(inicio, Instant.now());
+        
+        System.out.println("========================================");
+        System.out.println("STRESS TEST - RESULTADOS");
+        System.out.println("========================================");
+        System.out.println("Total: " + totalRequisicoes);
+        System.out.println("Sucessos: " + sucessos.get());
+        System.out.println("Erros: " + erros.get());
+        System.out.println("Duração: " + duracao.getSeconds() + "s");
+        System.out.println("Req/s: " + (totalRequisicoes / duracao.getSeconds()));
+        System.out.println("========================================");
+        
+        // VALIDAÇÃO: Sistema deve aguentar carga sem crashes
+        assertThat(sucessos.get()).isGreaterThan(14000); // 93% mínimo
+    }
+
+    // ============ MÉTODOS AUXILIARES ============
+
+    private CriarPedidoRequest criarRequestPedido(int requestId) {
+        return CriarPedidoRequest.builder()
+            .mesaId(1L)
+            .itens(List.of(
+                ItemPedidoRequest.builder()
+                    .produtoId((long) (requestId % 10 + 1)) // Varia produtos
+                    .quantidade(1)
+                    .build()
+            ))
+            .build();
+    }
+
+    private HttpHeaders criarHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-User-Role", "CLIENTE");
+        return headers;
+    }
+}

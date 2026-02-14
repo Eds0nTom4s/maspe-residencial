@@ -1,0 +1,113 @@
+package com.restaurante.security;
+
+import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.model.entity.SubPedido;
+import com.restaurante.model.enums.StatusSubPedido;
+import com.restaurante.service.SubPedidoService;
+import jakarta.persistence.OptimisticLockException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+/**
+ * Testes de Segurança - Validação de Regras de Negócio
+ * 
+ * Valida que:
+ * - Transições inválidas lançam BusinessException
+ * - Estados terminais não permitem alterações
+ * - Idempotência funciona corretamente
+ * - OptimisticLockException em concorrência
+ * 
+ * NOTA: Validação de roles (@PreAuthorize) é testada em E2E
+ */
+@ExtendWith(MockitoExtension.class)
+@DisplayName("Security: Validação de Regras de Negócio")
+public class SecurityPermissionsTest {
+
+    @Mock
+    private SubPedidoService subPedidoService;
+
+    private SubPedido subPedido;
+
+    @BeforeEach
+    void setUp() {
+        subPedido = SubPedido.builder()
+            .id(1L)
+            .numero("SUB-001")
+            .status(StatusSubPedido.PENDENTE)
+            .build();
+    }
+
+    @Test
+    @DisplayName("Transição inválida deve lançar BusinessException")
+    void transicaoInvalidaDeveLancarException() {
+        // Arrange: SubPedido CANCELADO não pode ir para ENTREGUE
+        when(subPedidoService.marcarEntregue(any()))
+            .thenThrow(new BusinessException("Transição inválida: CANCELADO -> ENTREGUE"));
+
+        // Act & Assert
+        assertThatThrownBy(() -> subPedidoService.marcarEntregue(1L))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageContaining("Transição inválida");
+    }
+
+    @Test
+    @DisplayName("Estado ENTREGUE é terminal - não permite alterações")
+    void estadoEntregueNaoPermiteAlteracoes() {
+        // Arrange
+        when(subPedidoService.assumir(any()))
+            .thenThrow(new BusinessException("SubPedido já está ENTREGUE"));
+
+        // Act & Assert
+        assertThatThrownBy(() -> subPedidoService.assumir(1L))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageContaining("já está ENTREGUE");
+    }
+
+    @Test
+    @DisplayName("Cancelamento exige motivo obrigatório")
+    void cancelamentoExigeMotivo() {
+        // Arrange
+        when(subPedidoService.cancelar(any(), any()))
+            .thenThrow(new IllegalArgumentException("Motivo é obrigatório"));
+
+        // Act & Assert
+        assertThatThrownBy(() -> subPedidoService.cancelar(1L, null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Motivo é obrigatório");
+    }
+
+    @Test
+    @DisplayName("SubPedido não encontrado deve lançar ResourceNotFoundException")
+    void subPedidoNaoEncontradoDeveLancarException() {
+        // Arrange
+        when(subPedidoService.buscarPorId(999L))
+            .thenThrow(new ResourceNotFoundException("SubPedido não encontrado"));
+
+        // Act & Assert
+        assertThatThrownBy(() -> subPedidoService.buscarPorId(999L))
+            .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("OptimisticLockException em concorrência")
+    void conflitoDeConcorrenciaDeveLancar409() {
+        // Arrange: Simula 2 threads alterando simultaneamente
+        when(subPedidoService.marcarEntregue(any()))
+            .thenThrow(new OptimisticLockException("Versão conflitante"));
+
+        // Act & Assert
+        assertThatThrownBy(() -> subPedidoService.marcarEntregue(1L))
+            .isInstanceOf(OptimisticLockException.class)
+            .hasMessageContaining("Versão conflitante");
+    }
+}

@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
  * Endpoints públicos para acesso via QR Code
  */
 @RestController
-@RequestMapping("/auth")
+@RequestMapping("/api/auth")
 @RequiredArgsConstructor
 @Tag(name = "Autenticação", description = "Endpoints para autenticação de clientes via OTP")
 public class AuthController {

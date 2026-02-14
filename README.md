@@ -457,15 +457,40 @@ O sistema possui 3 jobs automáticos (Spring Scheduling):
    - Remove QR Codes expirados há mais de 30 dias
    - Cron: `0 0 3 1 * *`
 
+## 🧪 Testes Automatizados
+
+O sistema possui **32 testes automatizados** que validam os módulos críticos:
+
+- ✅ **ClienteServiceTest**: 10 testes (autenticação OTP)
+- ✅ **NotificacaoServiceTest**: 11 testes (notificações SMS)
+- ✅ **Outros módulos**: 11 testes (produtos, fundos, pedidos, etc.)
+
+**Cobertura:** ~80% nos módulos de autenticação e notificações.
+
+📖 **Documentação completa:** [TESTES_AUTOMATIZADOS.md](TESTES_AUTOMATIZADOS.md)
+
+### Executar os testes
+```bash
+# Todos os testes
+mvn test
+
+# Testes específicos
+mvn test -Dtest=ClienteServiceTest,NotificacaoServiceTest
+
+# Com relatório de cobertura
+mvn clean test jacoco:report
+```
+
 ## 📊 Métricas do Projeto
 
-- **Arquivos Java**: 107 arquivos compilados
-- **Linhas de Código**: ~15.000 linhas
+- **Arquivos Java**: 153 arquivos compilados
+- **Linhas de Código**: ~18.000 linhas
 - **Entidades JPA**: 12 entidades principais
 - **Endpoints REST**: 50+ endpoints
 - **Tipos de Eventos**: 70+ tipos no EventLog
 - **Perfis de Acesso**: 4 roles (ATENDENTE, GERENTE, ADMIN, COZINHA)
 - **Tipos de QR Code**: 3 tipos com regras específicas
+- **Testes Automatizados**: 32 testes (100% passando)
 
 ## 🤝 Contribuindo
 

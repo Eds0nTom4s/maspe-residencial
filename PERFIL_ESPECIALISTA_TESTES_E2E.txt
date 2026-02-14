@@ -1,0 +1,439 @@
+================================================================================
+                    PERFIL DE ESPECIALISTA EM TESTES E2E
+              Requisitos para Sistema de Gestão de Restaurante
+                         Data: 12 de Fevereiro de 2026
+================================================================================
+
+1. CONTEXTO DO PROJETO
+================================================================================
+
+Sistema: Gestão de Restaurante (Spring Boot 3.2.2 + PostgreSQL)
+Complexidade: Alta (concorrência, transações financeiras, máquina de estados)
+Status Atual: 49 testes passando, 5 desabilitados por limitações técnicas
+Problema Crítico: Testes de concorrência não funcionam com MockMvc
+
+
+2. PROBLEMAS TÉCNICOS ATUAIS
+================================================================================
+
+2.1 Concorrência e Race Conditions (CRÍTICO)
+---------------------------------------------
+❌ Problema:
+   - Testes com ExecutorService + MockMvc não validam concorrência real
+   - Threads não compartilham contexto de persistência Spring
+   - @Transactional não propaga entre threads
+   - OptimisticLockException não é testado adequadamente
+   - SubPedidos criados em @BeforeEach não visíveis nas threads
+
+✅ Proteção Implementada (não testada):
+   - @Version em SubPedido e FundoConsumo
+   - Isolation.SERIALIZABLE em transações financeiras
+   - Idempotência em operações críticas
+   - Validação de transições de estado
+
+📋 Necessidade:
+   Especialista que consiga criar testes E2E reais que validem:
+   - 2 atendentes tentam entregar mesmo SubPedido → 1 sucesso, 1 conflito 409
+   - 2 cozinheiros tentam assumir mesmo SubPedido → apenas 1 consegue
+   - 10 threads criando pedidos simultaneamente → sem duplicação de dados
+   - 2 processos debitam R$ 60 de fundo com R$ 100 → 1 sucesso, 1 SaldoInsuficiente
+
+2.2 Infraestrutura de Testes E2E
+---------------------------------
+❌ Problema:
+   - MockMvc não cria novas transações para cada thread
+   - Contexto de persistência compartilhado causa falsos positivos
+   - Testes unitários não provam que sistema funciona em produção
+
+✅ Solução Conhecida (não implementada):
+   - TestRestTemplate com SpringBootTest.WebEnvironment.RANDOM_PORT
+   - Servidor HTTP embedded real (cada request = nova transação)
+   - Testcontainers com PostgreSQL real (opcional)
+   - Múltiplos processos JVM (não threads no mesmo processo)
+
+📋 Necessidade:
+   Especialista que domine:
+   - Configuração de TestRestTemplate com porta aleatória
+   - Gestão de ciclo de vida de servidor embedded entre testes
+   - Setup/teardown de dados via HTTP (não @BeforeEach direto no DB)
+   - Sincronização de threads com CountDownLatch, CyclicBarrier
+   - Validação de status HTTP (200, 201, 404, 409, 500)
+
+2.3 Testes de Carga e Performance
+----------------------------------
+❌ Problema:
+   - Zero testes de performance implementados
+   - Não sabemos se sistema aguenta 100 req/s
+   - Deadline de produção ("sexta-feira na discoteca") se aproxima
+   - Precisa validar antes de deploy
+
+📋 Necessidade:
+   Especialista que consiga:
+   - Implementar teste de carga: 100 req/s por 60 segundos (6000 requests)
+   - Stress test: 500 req/s por 30 segundos (15000 requests)
+   - Validar taxa de sucesso >97% (tolerância <3% erro)
+   - Configurar JMeter ou Gatling para testes distribuídos
+   - Analisar métricas: p95 latency, throughput, error rate
+   - Validar integridade de dados após carga (SQL queries de validação)
+
+2.4 Security e Authorization
+-----------------------------
+❌ Problema:
+   - Security desabilitada em testes via @AutoConfigureMockMvc(addFilters=false)
+   - Não testamos se @PreAuthorize funciona corretamente
+   - Roles (CLIENTE, ATENDENTE, COZINHA, GERENTE) não validadas em E2E
+   - OTP authentication não testada
+
+📋 Necessidade:
+   Especialista que implemente:
+   - Testes E2E com security habilitada
+   - Login via OTP + obtenção de token JWT
+   - Validação de permissões por role em cada endpoint
+   - Testes de autorização: ATENDENTE não pode assumir (403 FORBIDDEN)
+   - Testes de autenticação: sem token → 401 UNAUTHORIZED
+   - CORS validation em cenários cross-origin
+
+2.5 Isolamento e Gestão de Estado
+----------------------------------
+❌ Problema:
+   - Testes interferem entre si quando usam mesmo banco H2
+   - @DirtiesContext muito lento (reinicia contexto Spring)
+   - Faltam estratégias de cleanup eficientes
+   - IDs hardcoded quebram em ambientes com dados pré-existentes
+
+📋 Necessidade:
+   Especialista que domine:
+   - Estratégias de isolamento: @Sql, @Transactional rollback, Testcontainers
+   - Cleanup via HTTP DELETE ou SQL truncate
+   - Uso de dados aleatórios (random IDs, random nomes)
+   - Validação de estado via GET antes de cada teste
+   - Paralelização de testes sem conflitos
+
+
+3. PERFIL TÉCNICO REQUERIDO
+================================================================================
+
+3.1 Conhecimentos Obrigatórios
+-------------------------------
+✅ Spring Boot Testing (ESSENCIAL):
+   - @SpringBootTest com WebEnvironment.RANDOM_PORT
+   - TestRestTemplate: headers, body, params, status codes
+   - @Sql para setup/cleanup de dados
+   - @TestConfiguration para beans de teste
+   - Profiles de teste (@ActiveProfiles("test"))
+
+✅ Testes de Concorrência (ESSENCIAL):
+   - ExecutorService, CountDownLatch, CyclicBarrier
+   - CompletableFuture, AtomicInteger, CopyOnWriteArrayList
+   - Race conditions: detecção e validação
+   - OptimisticLockException: como provocar e validar via HTTP 409
+   - Isolation levels: SERIALIZABLE, REPEATABLE_READ
+
+✅ JUnit 5 + AssertJ (ESSENCIAL):
+   - Assertions complexas: extracting(), filteredOn(), anySatisfy()
+   - Testes parametrizados: @ParameterizedTest, @MethodSource
+   - Lifecycle: @BeforeAll, @BeforeEach, @AfterEach
+   - Conditions: @EnabledIf, @DisabledOnOs
+   - Parallel execution: @Execution(CONCURRENT)
+
+✅ HTTP e REST APIs (ESSENCIAL):
+   - Status codes semânticos: 200, 201, 204, 400, 401, 403, 404, 409, 500
+   - Headers: Authorization (Bearer token), Content-Type, Accept
+   - JSON: serialização, deserialização, JsonPath
+   - PATCH vs PUT: diferenças semânticas
+   - Idempotência: GET, PUT, DELETE são idempotentes
+
+3.2 Conhecimentos Desejáveis
+-----------------------------
+⭐ Testcontainers (MUITO DESEJÁVEL):
+   - PostgreSQL container para testes E2E reais
+   - Lifecycle: startup, stop, cleanup
+   - Network: comunicação entre containers
+   - Volumes: persistência de dados entre testes
+   - Performance: reuso de containers com @Container(reuse=true)
+
+⭐ JMeter / Gatling (MUITO DESEJÁVEL):
+   - Scripts de teste de carga
+   - Ramp-up, throughput shaping, duração
+   - Assertions: response time, error rate, status code
+   - Relatórios: HTML dashboard, gráficos, métricas
+   - Distributed testing: master-slave setup
+
+⭐ Spring Security Testing (DESEJÁVEL):
+   - @WithMockUser, @WithUserDetails
+   - SecurityMockMvcRequestPostProcessors
+   - JWT: geração, validação, refresh token
+   - @PreAuthorize, @Secured: validação em testes
+
+⭐ WireMock (DESEJÁVEL):
+   - Mock de APIs externas
+   - Stubbing: request matching, response templating
+   - Verificação: quantas vezes endpoint foi chamado
+
+3.3 Experiências Relevantes
+----------------------------
+✅ Testou sistemas com race conditions reais
+✅ Implementou testes E2E com servidor HTTP real (não MockMvc)
+✅ Configurou testes de carga para validar capacidade (req/s)
+✅ Trabalhou com transações e locks otimistas (@Version)
+✅ Debugou problemas de concorrência em produção
+✅ Implementou CI/CD com quality gates baseados em testes
+
+
+4. HABILIDADES COMPORTAMENTAIS
+================================================================================
+
+✅ Pensamento Crítico:
+   - Questiona se teste realmente valida o que pretende
+   - Identifica falsos positivos: "teste passa mas código está errado"
+   - Identifica falsos negativos: "teste falha mas código está correto"
+
+✅ Atenção a Detalhes:
+   - Percebe diferenças sutis: MockMvc vs TestRestTemplate
+   - Identifica race conditions: "funciona 99% do tempo, falha 1%"
+   - Valida edge cases: saldo exatamente zero, último item em estoque
+
+✅ Documentação:
+   - Explica POR QUE teste está desabilitado (não apenas @Disabled)
+   - Documenta limitações técnicas: "threads não herdam @Transactional"
+   - Cria guias de execução: README de testes, troubleshooting
+
+✅ Pragmatismo:
+   - Sabe quando teste E2E real é necessário vs teste unitário suficiente
+   - Balanceia cobertura vs tempo de execução
+   - Prioriza testes de cenários críticos (pagamentos, concorrência)
+
+
+5. TAREFAS PRIORITÁRIAS
+================================================================================
+
+5.1 SPRINT 1 (Semana 1) - CRÍTICO
+-----------------------------------
+🎯 Objetivo: Validar concorrência antes de produção
+
+Tarefa 1.1: Reabilitar ConcurrencyRealE2ETest (3 testes)
+   - Migrar de MockMvc para TestRestTemplate + RANDOM_PORT
+   - Implementar: doisAtendentesEntregandoMesmoSubPedido()
+   - Implementar: doisCozinheirosAssumindoMesmoSubPedido()
+   - Implementar: dezThreadsCriandoPedidosSimultaneamente()
+   - Validar: OptimisticLockException retorna HTTP 409 CONFLICT
+   - Critério de sucesso: 1 thread sucesso, 1 thread conflito (não 2 sucessos)
+
+Tarefa 1.2: Criar LoadTest funcional (2 testes)
+   - Teste de carga: 100 req/s * 60s = 6000 requests
+   - Stress test: 500 req/s * 30s = 15000 requests
+   - Validar: >97% taxa de sucesso
+   - Validar: zero saldos negativos após teste
+   - Validar: zero pedidos duplicados após teste
+
+Tarefa 1.3: Criar SubPedidoControllerTest (8 testes)
+   - Endpoints: PATCH /subpedidos/{id}/entregar, assumir, pronto, cancelar
+   - Validar: status codes corretos (200, 404, 400, 409)
+   - Validar: JSON response structure
+   - Validar: OptimisticLockException → 409 CONFLICT
+
+5.2 SPRINT 2 (Semana 2) - ALTA PRIORIDADE
+-------------------------------------------
+🎯 Objetivo: Testes de security e controllers restantes
+
+Tarefa 2.1: SecurityPermissionsTest (5 testes)
+   - Testar: ATENDENTE não pode assumir (403 FORBIDDEN)
+   - Testar: COZINHA não pode marcar entregue (403)
+   - Testar: CLIENTE não pode alterar estado (403)
+   - Testar: GERENTE pode cancelar de qualquer estado (200)
+   - Testar: sem token → 401 UNAUTHORIZED
+
+Tarefa 2.2: Controller Tests para APIs restantes
+   - MesaController: 6 testes
+   - PedidoController: 8 testes
+   - PagamentoController: 6 testes
+   - AuthController: 4 testes
+   - Validar: serialização, deserialização, validations
+
+5.3 SPRINT 3 (Semana 3) - MÉDIA PRIORIDADE
+--------------------------------------------
+🎯 Objetivo: Infraestrutura avançada e otimização
+
+Tarefa 3.1: Testcontainers Setup (opcional)
+   - PostgreSQL container para testes E2E
+   - Validar: comportamento idêntico ao H2
+   - Benefício: detecção de incompatibilidades SQL
+
+Tarefa 3.2: JMeter Scripts
+   - Script: criar 1000 pedidos simultâneos
+   - Script: simular 50 usuários por 5 minutos
+   - Relatórios: HTML dashboard com métricas
+
+Tarefa 3.3: CI/CD Integration
+   - GitHub Actions: rodar testes em pull requests
+   - Quality gate: mínimo 80% cobertura
+   - Falha de build se testes E2E falharem
+
+
+6. ENTREGÁVEIS ESPERADOS
+================================================================================
+
+6.1 Código
+----------
+✅ 3 testes E2E de concorrência funcionando (ConcurrencyRealE2ETest)
+✅ 2 testes de carga funcionando (LoadTest)
+✅ 8 testes de controller (SubPedidoControllerTest)
+✅ 5 testes de security (SecurityPermissionsTest)
+✅ Scripts JMeter configurados e documentados
+
+6.2 Documentação
+----------------
+✅ TESTES_EXECUCAO.md atualizado:
+   - Como rodar testes E2E com TestRestTemplate
+   - Como interpretar falhas de concorrência (409 é sucesso!)
+   - Como rodar testes de carga
+   - Como analisar resultados JMeter
+
+✅ RELATORIO_TESTES.txt atualizado:
+   - Adicionar seção "Testes E2E Reais"
+   - Documentar cobertura de concorrência
+   - Listar todos os cenários validados
+
+✅ Troubleshooting Guide:
+   - O que fazer quando teste de concorrência falha?
+   - Como debugar OptimisticLockException?
+   - Como aumentar carga nos testes?
+
+6.3 Validação de Qualidade
+---------------------------
+✅ Todos testes E2E passando consistentemente (não flaky)
+✅ Testes de carga validam capacidade mínima (100 req/s)
+✅ Cobertura de controller aumenta de 40% → 80%
+✅ Zero testes @Disabled sem justificativa técnica
+✅ Tempo de execução <5 minutos para suite completa
+
+
+7. CRITÉRIOS DE SUCESSO
+================================================================================
+
+7.1 Técnicos
+------------
+✅ OptimisticLockException testado e validado via HTTP 409
+✅ 100 req/s sustentados por 60 segundos sem falhas
+✅ Taxa de sucesso >97% em testes de carga
+✅ Todos endpoints retornam status codes corretos
+✅ Security validada: roles, permissions, authentication
+
+7.2 Negócio
+-----------
+✅ Sistema pode ir para produção com confiança
+✅ Concorrência provada: 2 usuários no mesmo recurso → 1 ganha
+✅ Performance validada: aguenta carga esperada
+✅ Risco de bugs em produção reduzido drasticamente
+
+7.3 Processo
+------------
+✅ Testes executam em <5 minutos (feedback rápido)
+✅ Desenvolvedores conseguem rodar localmente
+✅ CI/CD pipeline configurado e funcionando
+✅ Documentação completa e atualizada
+
+
+8. DIFERENCIAL (Nice to Have)
+================================================================================
+
+⭐ Experiência com Gatling (melhor que JMeter para código Scala)
+⭐ Conhecimento de Chaos Engineering (Chaos Monkey)
+⭐ Experiência com Contract Testing (Pact)
+⭐ Conhecimento de Mutation Testing (PIT)
+⭐ Familiaridade com ArchUnit (validar arquitetura via testes)
+⭐ Experiência com Performance Profiling (VisualVM, YourKit)
+
+
+9. FORMATO DE TRABALHO
+================================================================================
+
+Modalidade: Presencial ou Remoto
+Duração: 3 semanas (SPRINT 1 é crítico - 1 semana)
+Regime: Full-time (40h/semana) ou Part-time (20h/semana)
+
+Interação Esperada:
+  - Daily: status de testes implementados vs planejados
+  - Code review: pair programming em testes complexos
+  - Documentação: incremental (não apenas no final)
+  - Handover: transferência de conhecimento para equipe
+
+
+10. PERGUNTAS PARA O CANDIDATO
+================================================================================
+
+10.1 Técnicas
+-------------
+1. "Explique a diferença entre MockMvc e TestRestTemplate. Quando usar cada um?"
+2. "Como você testaria OptimisticLockException em um cenário E2E real?"
+3. "2 threads tentam debitar R$ 60 de uma conta com R$ 100. Como garantir que 
+    apenas 1 sucesso ocorra? Como testar isso?"
+4. "Como você implementaria um teste de carga de 100 req/s por 60 segundos?"
+5. "O que significa HTTP 409 CONFLICT? Quando é um resultado esperado?"
+
+10.2 Experiência
+----------------
+1. "Conte sobre um bug de concorrência que você encontrou via testes E2E."
+2. "Qual foi o teste mais complexo que você já implementou? Por quê?"
+3. "Como você organizaria uma suite de 200 testes E2E para executar em <10 min?"
+4. "Já trabalhou com Testcontainers? Quais foram os desafios?"
+5. "Já configurou JMeter ou Gatling? Qual prefere e por quê?"
+
+10.3 Comportamentais
+--------------------
+1. "Como você convenceria um time a investir tempo em testes E2E?"
+2. "O que você faz quando um teste é flaky (passa às vezes, falha outras)?"
+3. "Como você prioriza quais testes E2E implementar primeiro?"
+4. "Como você documenta testes complexos para facilitar manutenção?"
+
+
+11. RECURSOS E APOIO DISPONÍVEL
+================================================================================
+
+✅ Sistema Funcionando: Todos endpoints operacionais via api-tests.http
+✅ Testes Service: 46 testes passando (service layer sólido)
+✅ Documentação: ARQUITETURA.md, API_EXAMPLES.md, DEPLOYMENT.md
+✅ Infraestrutura Básica: TestSecurityConfig, ConcurrencyE2ETest estrutura pronta
+✅ Team Support: Time de desenvolvimento disponível para dúvidas de negócio
+
+
+12. EXPECTATIVA DE IMPACTO
+================================================================================
+
+Antes (Status Atual):
+  ❌ Testes de concorrência desabilitados (@Disabled)
+  ❌ Zero testes de carga
+  ❌ Proteção contra race conditions não validada
+  ❌ Risco de bugs em produção: ALTO
+  ❌ Confiança para deploy: BAIXA
+
+Depois (Após Contratação):
+  ✅ Testes de concorrência funcionando e validados
+  ✅ Sistema testado sob carga real (100 req/s)
+  ✅ OptimisticLockException provado via E2E
+  ✅ Risco de bugs em produção: BAIXO
+  ✅ Confiança para deploy: ALTA
+  ✅ Sistema pronto para "sexta-feira na discoteca" 🎉
+
+
+================================================================================
+                              CONTATO E PRÓXIMOS PASSOS
+================================================================================
+
+Se você se identifica com este perfil e tem experiência resolvendo os problemas
+descritos, gostaríamos de conversar!
+
+Próximos Passos:
+  1. Review deste documento (PERFIL_ESPECIALISTA_TESTES_E2E.txt)
+  2. Review do RELATORIO_TESTES.txt (status atual)
+  3. Review do TESTES_EXECUCAO.md (tentativa anterior)
+  4. Entrevista técnica: discussão de abordagem para SPRINT 1
+  5. Teste prático (opcional): implementar 1 teste E2E de concorrência
+
+Esperamos encontrar alguém que ame o desafio de testar sistemas complexos e
+que entenda que um teste E2E bem feito vale mais que 100 testes unitários
+que não provam concorrência real! 💪
+
+================================================================================
+                                 FIM DO PERFIL
+================================================================================

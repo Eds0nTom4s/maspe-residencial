@@ -102,9 +102,12 @@ public class GlobalExceptionHandler {
      * 
      * Cliente deve recarregar dados e tentar novamente
      */
-    @ExceptionHandler(jakarta.persistence.OptimisticLockException.class)
+    @ExceptionHandler({
+        jakarta.persistence.OptimisticLockException.class,
+        org.springframework.orm.ObjectOptimisticLockingFailureException.class
+    })
     public ResponseEntity<ErrorResponse> handleOptimisticLockException(
-            jakarta.persistence.OptimisticLockException ex, WebRequest request) {
+            Exception ex, WebRequest request) {
         
         log.warn("Conflito de concorrência detectado: {}", ex.getMessage());
         

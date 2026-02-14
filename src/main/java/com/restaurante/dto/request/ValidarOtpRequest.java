@@ -23,6 +23,7 @@ public class ValidarOtpRequest {
     private String telefone;
 
     @NotBlank(message = "Código OTP é obrigatório")
-    @Size(min = 4, max = 10, message = "Código OTP inválido")
+    @Size(min = 4, max = 4, message = "Código OTP deve ter 4 dígitos")
+    @Pattern(regexp = "^\\d{4}$", message = "Código OTP deve conter apenas números")
     private String codigo;
 }

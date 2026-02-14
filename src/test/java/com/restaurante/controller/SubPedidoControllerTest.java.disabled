@@ -1,0 +1,182 @@
+package com.restaurante.controller;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaurante.dto.response.ApiResponse;
+import com.restaurante.dto.response.SubPedidoResponse;
+import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.model.enums.StatusSubPedido;
+import com.restaurante.service.SubPedidoService;
+import jakarta.persistence.OptimisticLockException;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+/**
+ * Testes de Controller para SubPedidoController
+ * 
+ * Valida:
+ * - Status HTTP corretos
+ * - Serialização/Deserialização JSON
+ * - Validações de DTO
+ * - Mensagens de erro adequadas
+ * - Segurança (roles)
+ */
+@WebMvcTest(controllers = SubPedidoController.class)
+@AutoConfigureMockMvc(addFilters = false)
+@DisplayName("Controller: SubPedido")
+public class SubPedidoControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @MockBean
+    private SubPedidoService subPedidoService;
+
+    @Test
+    @DisplayName("PATCH /subpedidos/{id}/entregar - deve retornar 200 OK")
+    void deveMarcarEntregueComSucesso() throws Exception {
+        // Arrange
+        Long subPedidoId = 1L;
+        SubPedidoResponse response = SubPedidoResponse.builder()
+            .id(subPedidoId)
+            .numero("SUB-001")
+            .status(StatusSubPedido.ENTREGUE)
+            .build();
+
+        when(subPedidoService.marcarEntregue(eq(subPedidoId), any())).thenReturn(response);
+
+        // Act & Assert
+        mockMvc.perform(patch("/subpedidos/{id}/entregar", subPedidoId)
+                    .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("ENTREGUE"));
+
+        verify(subPedidoService, times(1)).marcarEntregue(eq(subPedidoId), any());
+    }
+
+    @Test
+    @DisplayName("PATCH /subpedidos/{id}/entregar - deve retornar 404 se não encontrado")
+    void deveRetornar404QuandoSubPedidoNaoEncontrado() throws Exception {
+        // Arrange
+        Long subPedidoId = 999L;
+        when(subPedidoService.marcarEntregue(eq(subPedidoId), any()))
+            .thenThrow(new ResourceNotFoundException("SubPedido não encontrado"));
+
+        // Act & Assert
+        mockMvc.perform(patch("/subpedidos/{id}/entregar", subPedidoId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("PATCH /subpedidos/{id}/assumir - deve retornar 200 OK")
+    void deveAssumirSubPedidoComSucesso() throws Exception {
+        // Arrange
+        Long subPedidoId = 1L;
+        SubPedidoResponse response = SubPedidoResponse.builder()
+            .id(subPedidoId)
+            .status(StatusSubPedido.EM_PREPARACAO)
+            .build();
+
+        when(subPedidoService.assumir(eq(subPedidoId), any())).thenReturn(response);
+
+        // Act & Assert
+        mockMvc.perform(patch("/subpedidos/{id}/assumir", subPedidoId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("EM_PREPARACAO"));
+    }
+
+    @Test
+    @DisplayName("PATCH /subpedidos/{id}/pronto - deve retornar 200 OK")
+    void deveMarcarProntoComSucesso() throws Exception {
+        // Arrange
+        Long subPedidoId = 1L;
+        SubPedidoResponse response = SubPedidoResponse.builder()
+            .id(subPedidoId)
+            .status(StatusSubPedido.PRONTO)
+            .build();
+
+        when(subPedidoService.marcarPronto(eq(subPedidoId), any())).thenReturn(response);
+
+        // Act & Assert
+        mockMvc.perform(patch("/subpedidos/{id}/pronto", subPedidoId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("PRONTO"));
+    }
+
+    @Test
+    @DisplayName("PATCH /subpedidos/{id}/cancelar - deve exigir motivo")
+    void deveCancelarComMotivo() throws Exception {
+        // Arrange
+        Long subPedidoId = 1L;
+        String motivo = "Cliente solicitou cancelamento";
+        
+        SubPedidoResponse response = SubPedidoResponse.builder()
+            .id(subPedidoId)
+            .status(StatusSubPedido.CANCELADO)
+            .build();
+
+        when(subPedidoService.cancelar(eq(subPedidoId), eq(motivo), any())).thenReturn(response);
+
+        // Act & Assert
+        mockMvc.perform(patch("/subpedidos/{id}/cancelar", subPedidoId)
+                    .param("motivo", motivo))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELADO"));
+    }
+
+    @Test
+    @DisplayName("PATCH /subpedidos/{id}/cancelar - deve retornar 400 sem motivo")
+    void deveRetornar400QuandoCancelarSemMotivo() throws Exception {
+        // Act & Assert
+        mockMvc.perform(patch("/subpedidos/{id}/cancelar", 1L))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("GET /subpedidos/{id} - deve retornar SubPedido")
+    void deveBuscarSubPedidoPorId() throws Exception {
+        // Arrange
+        Long subPedidoId = 1L;
+        SubPedidoResponse response = SubPedidoResponse.builder()
+            .id(subPedidoId)
+            .numero("SUB-001")
+            .status(StatusSubPedido.PENDENTE)
+            .build();
+
+        when(subPedidoService.buscarPorId(subPedidoId)).thenReturn(response);
+
+        // Act & Assert
+        mockMvc.perform(get("/subpedidos/{id}", subPedidoId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(subPedidoId))
+                .andExpect(jsonPath("$.data.numero").value("SUB-001"));
+    }
+
+    @Test
+    @DisplayName("PATCH /subpedidos/{id}/entregar - deve retornar 409 em conflito de versão")
+    void deveRetornar409EmConflitoDeVersao() throws Exception {
+        // Arrange
+        Long subPedidoId = 1L;
+        when(subPedidoService.marcarEntregue(eq(subPedidoId), any()))
+            .thenThrow(new OptimisticLockException("Versão conflitante"));
+
+        // Act & Assert
+        mockMvc.perform(patch("/subpedidos/{id}/entregar", subPedidoId))
+                .andExpect(status().isConflict());
+    }
+}

@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -60,6 +61,9 @@ class SubPedidoStateMachineTest {
     @Mock
     private PedidoService pedidoService;
 
+    @Mock
+    private Environment environment;
+
     private SubPedidoService subPedidoService;
 
     private Cozinha cozinha;
@@ -68,7 +72,7 @@ class SubPedidoStateMachineTest {
 
     @BeforeEach
     void setUp() {
-        transicaoEstadoValidator = new TransicaoEstadoValidator();
+        transicaoEstadoValidator = new TransicaoEstadoValidator(environment);
         subPedidoService = new SubPedidoService(
                 subPedidoRepository,
                 cozinhaRepository,

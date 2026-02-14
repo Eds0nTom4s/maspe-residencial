@@ -1,0 +1,295 @@
+package com.restaurante.e2e;
+
+import com.restaurante.dto.request.ItemPedidoRequest;
+import com.restaurante.dto.request.CriarPedidoRequest;
+import com.restaurante.dto.response.ApiResponse;
+import com.restaurante.dto.response.SubPedidoResponse;
+import com.restaurante.model.enums.StatusSubPedido;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.*;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Testes E2E REAIS de Concorrência
+ * 
+ * ✅ Usa @SpringBootTest com RANDOM_PORT (servidor HTTP real)
+ * ✅ TestRestTemplate faz chamadas HTTP reais
+ * ✅ Cada thread = nova transação HTTP = contexto isolado
+ * ✅ Valida OptimisticLockException, race conditions, isolation
+ * 
+ * DIFERENÇA CRÍTICA vs MockMvc:
+ * - MockMvc: threads compartilham contexto Spring (falha em concorrência)
+ * - TestRestTemplate: cada HTTP request = nova transação (CORRETO)
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
+@DisplayName("E2E: Concorrência Real via HTTP")
+public class ConcurrencyRealE2ETest {
+
+    @LocalServerPort
+    private int port;
+
+    @Autowired
+    private TestRestTemplate restTemplate;
+
+    private String baseUrl;
+
+    @BeforeEach
+    void setUp() {
+        baseUrl = "http://localhost:" + port;
+    }
+
+    @Test
+    @DisplayName("2 Atendentes tentam marcar ENTREGUE no mesmo SubPedido simultaneamente - apenas 1 sucesso")
+    void doisAtendentesEntregandoMesmoSubPedido() throws Exception {
+        // ARRANGE: Criar SubPedido no estado PRONTO
+        Long subPedidoId = criarSubPedidoPronto();
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch latch = new CountDownLatch(2);
+        AtomicInteger sucessos = new AtomicInteger(0);
+        AtomicInteger conflitos = new AtomicInteger(0);
+
+        // ACT: 2 threads tentam marcar ENTREGUE simultaneamente
+        Future<ResponseEntity<String>> future1 = executor.submit(() -> {
+            try {
+                latch.countDown();
+                latch.await(); // Sincroniza início
+                
+                ResponseEntity<String> response = restTemplate.exchange(
+                    baseUrl + "/subpedidos/" + subPedidoId + "/entregar",
+                    HttpMethod.PATCH,
+                    criarRequestComAuth("ATENDENTE"),
+                    String.class
+                );
+                
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    sucessos.incrementAndGet();
+                } else if (response.getStatusCode() == HttpStatus.CONFLICT) {
+                    conflitos.incrementAndGet();
+                }
+                
+                return response;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<ResponseEntity<String>> future2 = executor.submit(() -> {
+            try {
+                latch.countDown();
+                latch.await(); // Sincroniza início
+                
+                ResponseEntity<String> response = restTemplate.exchange(
+                    baseUrl + "/subpedidos/" + subPedidoId + "/entregar",
+                    HttpMethod.PATCH,
+                    criarRequestComAuth("ATENDENTE"),
+                    String.class
+                );
+                
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    sucessos.incrementAndGet();
+                } else if (response.getStatusCode() == HttpStatus.CONFLICT) {
+                    conflitos.incrementAndGet();
+                }
+                
+                return response;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        // ASSERT: Aguardar ambas threads e validar
+        future1.get(5, TimeUnit.SECONDS);
+        future2.get(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // ✅ VALIDAÇÃO: Apenas 1 sucesso, 1 conflito (OptimisticLockException)
+        assertThat(sucessos.get()).isEqualTo(1);
+        assertThat(conflitos.get()).isEqualTo(1);
+
+        // ✅ VALIDAÇÃO: SubPedido está ENTREGUE (não corrompido)
+        SubPedidoResponse subPedido = buscarSubPedido(subPedidoId);
+        assertThat(subPedido.getStatus()).isEqualTo(StatusSubPedido.ENTREGUE);
+    }
+
+    @Test
+    @DisplayName("2 Cozinheiros tentam assumir() mesmo SubPedido simultaneamente - apenas 1 sucesso")
+    void doisCozinheirosAssumindoMesmoSubPedido() throws Exception {
+        // ARRANGE: Criar SubPedido no estado PENDENTE
+        Long subPedidoId = criarSubPedidoPendente();
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch latch = new CountDownLatch(2);
+        AtomicInteger sucessos = new AtomicInteger(0);
+        AtomicInteger conflitos = new AtomicInteger(0);
+
+        // ACT: 2 threads tentam assumir() simultaneamente
+        Future<ResponseEntity<String>> future1 = executor.submit(() -> {
+            try {
+                latch.countDown();
+                latch.await();
+                
+                ResponseEntity<String> response = restTemplate.exchange(
+                    baseUrl + "/subpedidos/" + subPedidoId + "/assumir",
+                    HttpMethod.PATCH,
+                    criarRequestComAuth("COZINHA"),
+                    String.class
+                );
+                
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    sucessos.incrementAndGet();
+                } else if (response.getStatusCode() == HttpStatus.CONFLICT) {
+                    conflitos.incrementAndGet();
+                }
+                
+                return response;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<ResponseEntity<String>> future2 = executor.submit(() -> {
+            try {
+                latch.countDown();
+                latch.await();
+                
+                ResponseEntity<String> response = restTemplate.exchange(
+                    baseUrl + "/subpedidos/" + subPedidoId + "/assumir",
+                    HttpMethod.PATCH,
+                    criarRequestComAuth("COZINHA"),
+                    String.class
+                );
+                
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    sucessos.incrementAndGet();
+                } else if (response.getStatusCode() == HttpStatus.CONFLICT) {
+                    conflitos.incrementAndGet();
+                }
+                
+                return response;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        // ASSERT
+        future1.get(5, TimeUnit.SECONDS);
+        future2.get(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(sucessos.get()).isEqualTo(1);
+        assertThat(conflitos.get()).isEqualTo(1);
+
+        SubPedidoResponse subPedido = buscarSubPedido(subPedidoId);
+        assertThat(subPedido.getStatus()).isEqualTo(StatusSubPedido.EM_PREPARACAO);
+    }
+
+    @Test
+    @DisplayName("10 threads criando pedidos simultaneamente - sem duplicação")
+    void dezThreadsCriandoPedidosSimultaneamente() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        CountDownLatch latch = new CountDownLatch(10);
+        AtomicInteger sucessos = new AtomicInteger(0);
+
+        List<Future<ResponseEntity<String>>> futures = new CopyOnWriteArrayList<>();
+
+        // ACT: 10 threads criando pedidos
+        for (int i = 0; i < 10; i++) {
+            final int threadId = i;
+            Future<ResponseEntity<String>> future = executor.submit(() -> {
+                try {
+                    latch.countDown();
+                    latch.await();
+                    
+                    CriarPedidoRequest request = criarRequestPedido(threadId);
+                    
+                    ResponseEntity<String> response = restTemplate.exchange(
+                        baseUrl + "/pedidos",
+                        HttpMethod.POST,
+                        new HttpEntity<>(request, criarHeaders("CLIENTE")),
+                        String.class
+                    );
+                    
+                    if (response.getStatusCode() == HttpStatus.CREATED) {
+                        sucessos.incrementAndGet();
+                    }
+                    
+                    return response;
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            futures.add(future);
+        }
+
+        // ASSERT: Todas as threads devem ter sucesso
+        for (Future<ResponseEntity<String>> future : futures) {
+            future.get(10, TimeUnit.SECONDS);
+        }
+        executor.shutdown();
+
+        assertThat(sucessos.get()).isEqualTo(10);
+    }
+
+    // ============ MÉTODOS AUXILIARES ============
+
+    private Long criarSubPedidoPronto() {
+        // TODO: Implementar criação de SubPedido via API
+        // Por enquanto, retorna mock ID
+        return 1L;
+    }
+
+    private Long criarSubPedidoPendente() {
+        // TODO: Implementar criação de SubPedido via API
+        return 2L;
+    }
+
+    private SubPedidoResponse buscarSubPedido(Long id) {
+        ResponseEntity<ApiResponse<SubPedidoResponse>> response = restTemplate.exchange(
+            baseUrl + "/subpedidos/" + id,
+            HttpMethod.GET,
+            criarRequestComAuth("GERENTE"),
+            new ParameterizedTypeReference<ApiResponse<SubPedidoResponse>>() {}
+        );
+        return response.getBody().getData();
+    }
+
+    private HttpEntity<Void> criarRequestComAuth(String role) {
+        return new HttpEntity<>(criarHeaders(role));
+    }
+
+    private HttpHeaders criarHeaders(String role) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        // TODO: Adicionar token JWT ou security context
+        headers.set("X-User-Role", role);
+        return headers;
+    }
+
+    private CriarPedidoRequest criarRequestPedido(int threadId) {
+        return CriarPedidoRequest.builder()
+            .mesaId(1L)
+            .itens(List.of(
+                ItemPedidoRequest.builder()
+                    .produtoId(1L)
+                    .quantidade(1)
+                    .build()
+            ))
+            .build();
+    }
+}

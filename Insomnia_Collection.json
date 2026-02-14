@@ -1,0 +1,899 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2024-01-15T00:00:00.000Z",
+  "__export_source": "insomnia.desktop.app:v2023.5.8",
+  "resources": [
+    {
+      "_id": "wrk_sistema_restauracao",
+      "_type": "workspace",
+      "name": "Sistema de Restauração",
+      "description": "API do Sistema de Restauração com integração AppyPay e TelcoSMS",
+      "scope": "collection"
+    },
+    {
+      "_id": "env_base",
+      "_type": "environment",
+      "name": "Base Environment",
+      "data": {
+        "baseUrl": "http://localhost:8080",
+        "telefone": "+244925813939"
+      },
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "folder_auth",
+      "_type": "request_group",
+      "name": "1. Autenticação (OTP)",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_auth_solicitar_otp",
+      "_type": "request",
+      "name": "1.1 Solicitar OTP",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/auth/solicitar-otp",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_auth"
+    },
+    {
+      "_id": "req_auth_validar_otp",
+      "_type": "request",
+      "name": "1.2 Validar OTP",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/auth/validar-otp",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\",\n  \"codigo\": \"123456\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_auth"
+    },
+    {
+      "_id": "folder_produtos",
+      "_type": "request_group",
+      "name": "2. Produtos",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_produtos_listar",
+      "_type": "request",
+      "name": "2.1 Listar Todos",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/produtos",
+      "parentId": "folder_produtos"
+    },
+    {
+      "_id": "req_produtos_criar",
+      "_type": "request",
+      "name": "2.2 Criar Produto",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/produtos",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"codigo\": \"TESTE001\",\n  \"nome\": \"Produto Teste\",\n  \"descricao\": \"Produto criado via Insomnia\",\n  \"preco\": 25.90,\n  \"categoria\": \"LANCHE\",\n  \"tempoPreparoMinutos\": 15,\n  \"urlImagem\": \"https://exemplo.com/imagem.jpg\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_produtos"
+    },
+    {
+      "_id": "req_produtos_atualizar",
+      "_type": "request",
+      "name": "2.3 Atualizar Produto",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/produtos/1",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"codigo\": \"HAMBURGUER001\",\n  \"nome\": \"Hambúrguer Clássico Atualizado\",\n  \"descricao\": \"Hambúrguer com carne, queijo, alface e tomate\",\n  \"preco\": 28.00,\n  \"categoria\": \"LANCHE\",\n  \"tempoPreparoMinutos\": 20,\n  \"urlImagem\": \"https://exemplo.com/hamburguer.jpg\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_produtos"
+    },
+    {
+      "_id": "req_produtos_categoria",
+      "_type": "request",
+      "name": "2.4 Listar por Categoria",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/produtos/categoria/LANCHE",
+      "parentId": "folder_produtos"
+    },
+    {
+      "_id": "req_produtos_buscar",
+      "_type": "request",
+      "name": "2.5 Buscar por Nome",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/produtos/buscar?termo=hamburguer",
+      "parentId": "folder_produtos"
+    },
+    {
+      "_id": "req_produtos_disponibilidade",
+      "_type": "request",
+      "name": "2.6 Alterar Disponibilidade",
+      "method": "PATCH",
+      "url": "{{ _.baseUrl }}/produtos/1/disponibilidade?disponivel=false",
+      "parentId": "folder_produtos"
+    },
+    {
+      "_id": "req_produtos_deletar",
+      "_type": "request",
+      "name": "2.7 Deletar Produto",
+      "method": "DELETE",
+      "url": "{{ _.baseUrl }}/produtos/1",
+      "parentId": "folder_produtos"
+    },
+    {
+      "_id": "folder_unidades_consumo",
+      "_type": "request_group",
+      "name": "3. Mesas / Unidades de Consumo",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_mesas_criar",
+      "_type": "request",
+      "name": "3.1 Criar Mesa (Abrir)",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/unidades-consumo",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"tipo\": \"MESA\",\n  \"identificador\": \"MESA-05\",\n  \"capacidade\": 4,\n  \"telefone\": \"{{ _.telefone }}\",\n  \"unidadeAtendimentoId\": 1\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_unidades_consumo"
+    },
+    {
+      "_id": "req_mesas_buscar_id",
+      "_type": "request",
+      "name": "3.2 Buscar Mesa por ID",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/unidades-consumo/1",
+      "parentId": "folder_unidades_consumo"
+    },
+    {
+      "_id": "req_mesas_buscar_qrcode",
+      "_type": "request",
+      "name": "3.3 Buscar Mesa por QR Code",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/unidades-consumo/qrcode/ABC123XYZ",
+      "parentId": "folder_unidades_consumo"
+    },
+    {
+      "_id": "req_mesas_listar",
+      "_type": "request",
+      "name": "3.4 Listar Todas as Mesas",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/unidades-consumo",
+      "parentId": "folder_unidades_consumo"
+    },
+    {
+      "_id": "req_mesas_por_status",
+      "_type": "request",
+      "name": "3.5 Listar por Status",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/unidades-consumo/status/ABERTA",
+      "parentId": "folder_unidades_consumo"
+    },
+    {
+      "_id": "req_mesas_disponiveis",
+      "_type": "request",
+      "name": "3.6 Mesas Disponíveis",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/unidades-consumo/disponiveis/MESA",
+      "parentId": "folder_unidades_consumo"
+    },
+    {
+      "_id": "req_mesas_fechar",
+      "_type": "request",
+      "name": "3.7 Fechar Mesa",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/api/unidades-consumo/1/fechar",
+      "parentId": "folder_unidades_consumo"
+    },
+    {
+      "_id": "req_mesas_atualizar_status",
+      "_type": "request",
+      "name": "3.8 Atualizar Status",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/api/unidades-consumo/1/atualizar-status?status=OCUPADA",
+      "parentId": "folder_unidades_consumo"
+    },
+    {
+      "_id": "folder_pedidos",
+      "_type": "request_group",
+      "name": "4. Pedidos",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_pedidos_criar",
+      "_type": "request",
+      "name": "4.1 Criar Pedido",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/pedidos",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"unidadeDeConsumoId\": 1,\n  \"itens\": [\n    {\n      \"produtoId\": 1,\n      \"quantidade\": 2,\n      \"observacao\": \"Sem cebola\"\n    },\n    {\n      \"produtoId\": 2,\n      \"quantidade\": 1\n    }\n  ],\n  \"observacao\": \"Pedido urgente\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_pedidos"
+    },
+    {
+      "_id": "req_pedidos_buscar_id",
+      "_type": "request",
+      "name": "4.2 Buscar Pedido por ID",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/pedidos/1",
+      "parentId": "folder_pedidos"
+    },
+    {
+      "_id": "req_pedidos_buscar_numero",
+      "_type": "request",
+      "name": "4.3 Buscar por Número",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/pedidos/numero/001",
+      "parentId": "folder_pedidos"
+    },
+    {
+      "_id": "req_pedidos_por_status",
+      "_type": "request",
+      "name": "4.4 Listar por Status",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/pedidos/status/AGUARDANDO",
+      "parentId": "folder_pedidos"
+    },
+    {
+      "_id": "req_pedidos_ativos",
+      "_type": "request",
+      "name": "4.5 Listar Pedidos Ativos",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/pedidos/ativos",
+      "parentId": "folder_pedidos"
+    },
+    {
+      "_id": "req_pedidos_cancelar",
+      "_type": "request",
+      "name": "4.6 Cancelar Pedido",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/pedidos/1/cancelar?motivo=Cliente desistiu",
+      "parentId": "folder_pedidos"
+    },
+    {
+      "_id": "folder_subpedidos",
+      "_type": "request_group",
+      "name": "5. SubPedidos (Cozinha)",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_subpedidos_buscar",
+      "_type": "request",
+      "name": "5.1 Buscar SubPedido",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/subpedidos/1",
+      "parentId": "folder_subpedidos"
+    },
+    {
+      "_id": "req_subpedidos_por_pedido",
+      "_type": "request",
+      "name": "5.2 Listar por Pedido",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/subpedidos/pedido/1",
+      "parentId": "folder_subpedidos"
+    },
+    {
+      "_id": "req_subpedidos_cozinha_ativos",
+      "_type": "request",
+      "name": "5.3 SubPedidos Ativos da Cozinha",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/subpedidos/cozinha/1/ativos",
+      "parentId": "folder_subpedidos"
+    },
+    {
+      "_id": "req_subpedidos_cozinha_prontos",
+      "_type": "request",
+      "name": "5.4 SubPedidos Prontos da Cozinha",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/subpedidos/cozinha/1/prontos",
+      "parentId": "folder_subpedidos"
+    },
+    {
+      "_id": "req_subpedidos_atrasados",
+      "_type": "request",
+      "name": "5.5 SubPedidos Atrasados",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/subpedidos/atrasados",
+      "parentId": "folder_subpedidos"
+    },
+    {
+      "_id": "req_subpedidos_assumir",
+      "_type": "request",
+      "name": "5.6 Assumir SubPedido",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/api/subpedidos/1/assumir?responsavel=Cozinheiro1",
+      "parentId": "folder_subpedidos"
+    },
+    {
+      "_id": "req_subpedidos_pronto",
+      "_type": "request",
+      "name": "5.7 Marcar como Pronto",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/api/subpedidos/1/marcar-pronto",
+      "parentId": "folder_subpedidos"
+    },
+    {
+      "_id": "req_subpedidos_entregue",
+      "_type": "request",
+      "name": "5.8 Marcar como Entregue",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/api/subpedidos/1/marcar-entregue",
+      "parentId": "folder_subpedidos"
+    },
+    {
+      "_id": "req_subpedidos_cancelar",
+      "_type": "request",
+      "name": "5.9 Cancelar SubPedido",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/api/subpedidos/1/cancelar?motivo=Produto indisponível",
+      "parentId": "folder_subpedidos"
+    },
+    {
+      "_id": "folder_pagamentos",
+      "_type": "request_group",
+      "name": "6. Pagamentos (AppyPay)",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_pagamentos_criar_gpo",
+      "_type": "request",
+      "name": "6.1 Criar Pagamento GPO (Instantâneo)",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/pagamentos",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"unidadeConsumoId\": 1,\n  \"valor\": 150.00,\n  \"metodo\": \"GPO\",\n  \"telefone\": \"{{ _.telefone }}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_pagamentos"
+    },
+    {
+      "_id": "req_pagamentos_criar_ref",
+      "_type": "request",
+      "name": "6.2 Criar Pagamento REF (Referência Bancária)",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/pagamentos",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"unidadeConsumoId\": 1,\n  \"valor\": 200.00,\n  \"metodo\": \"REF\",\n  \"telefone\": \"{{ _.telefone }}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_pagamentos"
+    },
+    {
+      "_id": "req_pagamentos_buscar",
+      "_type": "request",
+      "name": "6.3 Buscar Pagamento",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/pagamentos/1",
+      "parentId": "folder_pagamentos"
+    },
+    {
+      "_id": "req_pagamentos_por_unidade",
+      "_type": "request",
+      "name": "6.4 Pagamentos por Unidade de Consumo",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/pagamentos/unidade-consumo/1",
+      "parentId": "folder_pagamentos"
+    },
+    {
+      "_id": "req_pagamentos_aprovar",
+      "_type": "request",
+      "name": "6.5 Aprovar Pagamento Manual",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/pagamentos/1/aprovar",
+      "parentId": "folder_pagamentos"
+    },
+    {
+      "_id": "req_pagamentos_recusar",
+      "_type": "request",
+      "name": "6.6 Recusar Pagamento",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/pagamentos/1/recusar?motivo=Saldo insuficiente",
+      "parentId": "folder_pagamentos"
+    },
+    {
+      "_id": "req_pagamentos_cancelar",
+      "_type": "request",
+      "name": "6.7 Cancelar Pagamento",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/pagamentos/1/cancelar?motivo=Cliente desistiu",
+      "parentId": "folder_pagamentos"
+    },
+    {
+      "_id": "folder_notificacoes",
+      "_type": "request_group",
+      "name": "7. Notificações (TelcoSMS)",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_notif_sms_generico",
+      "_type": "request",
+      "name": "7.1 Enviar SMS Genérico",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/notificacoes/sms",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\",\n  \"mensagem\": \"Teste de SMS do Sistema de Restauração\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_notificacoes"
+    },
+    {
+      "_id": "req_notif_otp",
+      "_type": "request",
+      "name": "7.2 Enviar OTP",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/notificacoes/otp",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\",\n  \"codigo\": \"123456\",\n  \"validadeMinutos\": 5\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_notificacoes"
+    },
+    {
+      "_id": "req_notif_recarga_confirmada",
+      "_type": "request",
+      "name": "7.3 Notificar Recarga Confirmada",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/notificacoes/recarga-confirmada",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\",\n  \"valor\": 150.00,\n  \"novoSaldo\": 300.00\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_notificacoes"
+    },
+    {
+      "_id": "req_notif_pedido_criado",
+      "_type": "request",
+      "name": "7.4 Notificar Pedido Criado",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/notificacoes/pedido-criado",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\",\n  \"numeroPedido\": \"001\",\n  \"total\": 85.50\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_notificacoes"
+    },
+    {
+      "_id": "req_notif_pedido_pronto",
+      "_type": "request",
+      "name": "7.5 Notificar Pedido Pronto",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/notificacoes/pedido-pronto",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\",\n  \"numeroPedido\": \"001\",\n  \"mesaIdentificador\": \"MESA-05\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_notificacoes"
+    },
+    {
+      "_id": "req_notif_referencia_bancaria",
+      "_type": "request",
+      "name": "7.6 Notificar Referência Bancária",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/notificacoes/referencia-bancaria",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\",\n  \"referencia\": \"123456789\",\n  \"entidade\": \"12345\",\n  \"valor\": 200.00,\n  \"validadeHoras\": 24\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_notificacoes"
+    },
+    {
+      "_id": "req_notif_saldo_insuficiente",
+      "_type": "request",
+      "name": "7.7 Notificar Saldo Insuficiente",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/notificacoes/saldo-insuficiente",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\",\n  \"saldoAtual\": 50.00,\n  \"valorNecessario\": 120.00\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_notificacoes"
+    },
+    {
+      "_id": "folder_qrcode",
+      "_type": "request_group",
+      "name": "8. QR Code",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_qrcode_gerar",
+      "_type": "request",
+      "name": "8.1 Gerar QR Code",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/qrcode",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"unidadeConsumoId\": 1,\n  \"validadeDias\": 30\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_qrcode"
+    },
+    {
+      "_id": "req_qrcode_validar",
+      "_type": "request",
+      "name": "8.2 Validar QR Code",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/qrcode/validar/ABC123XYZ",
+      "parentId": "folder_qrcode"
+    },
+    {
+      "_id": "req_qrcode_usar",
+      "_type": "request",
+      "name": "8.3 Usar QR Code",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/qrcode/usar/ABC123XYZ",
+      "parentId": "folder_qrcode"
+    },
+    {
+      "_id": "req_qrcode_renovar",
+      "_type": "request",
+      "name": "8.4 Renovar QR Code",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/qrcode/renovar/ABC123XYZ?diasAdicionais=15",
+      "parentId": "folder_qrcode"
+    },
+    {
+      "_id": "req_qrcode_revogar",
+      "_type": "request",
+      "name": "8.5 Revogar QR Code",
+      "method": "DELETE",
+      "url": "{{ _.baseUrl }}/qrcode/ABC123XYZ",
+      "parentId": "folder_qrcode"
+    },
+    {
+      "_id": "req_qrcode_imagem",
+      "_type": "request",
+      "name": "8.6 Obter Imagem QR Code",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/qrcode/imagem/ABC123XYZ",
+      "parentId": "folder_qrcode"
+    },
+    {
+      "_id": "req_qrcode_imagem_print",
+      "_type": "request",
+      "name": "8.7 Imagem QR Code para Impressão",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/qrcode/imagem/ABC123XYZ/print?titulo=Mesa 05",
+      "parentId": "folder_qrcode"
+    },
+    {
+      "_id": "folder_cozinhas",
+      "_type": "request_group",
+      "name": "9. Cozinhas",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_cozinhas_criar",
+      "_type": "request",
+      "name": "9.1 Criar Cozinha",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/cozinhas",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"nome\": \"Cozinha Principal\",\n  \"tipo\": \"QUENTE\",\n  \"capacidadeSimultanea\": 10,\n  \"impressoraNome\": \"Impressora-01\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_cozinhas"
+    },
+    {
+      "_id": "req_cozinhas_listar",
+      "_type": "request",
+      "name": "9.2 Listar Cozinhas",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/cozinhas",
+      "parentId": "folder_cozinhas"
+    },
+    {
+      "_id": "req_cozinhas_ativas",
+      "_type": "request",
+      "name": "9.3 Listar Cozinhas Ativas",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/cozinhas/ativas",
+      "parentId": "folder_cozinhas"
+    },
+    {
+      "_id": "req_cozinhas_por_tipo",
+      "_type": "request",
+      "name": "9.4 Listar por Tipo",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/cozinhas/tipo/QUENTE",
+      "parentId": "folder_cozinhas"
+    },
+    {
+      "_id": "req_cozinhas_ativar",
+      "_type": "request",
+      "name": "9.5 Ativar Cozinha",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/api/cozinhas/1/ativar",
+      "parentId": "folder_cozinhas"
+    },
+    {
+      "_id": "req_cozinhas_desativar",
+      "_type": "request",
+      "name": "9.6 Desativar Cozinha",
+      "method": "PUT",
+      "url": "{{ _.baseUrl }}/api/cozinhas/1/desativar",
+      "parentId": "folder_cozinhas"
+    },
+    {
+      "_id": "folder_unidades_atendimento",
+      "_type": "request_group",
+      "name": "10. Unidades de Atendimento",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_unidades_criar",
+      "_type": "request",
+      "name": "10.1 Criar Unidade",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/unidades-atendimento",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"nome\": \"Restaurante Principal\",\n  \"tipo\": \"RESTAURANTE\",\n  \"endereco\": \"Av. Principal, 123\",\n  \"telefone\": \"+244925813939\",\n  \"horarioAbertura\": \"08:00\",\n  \"horarioFechamento\": \"22:00\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_unidades_atendimento"
+    },
+    {
+      "_id": "req_unidades_listar",
+      "_type": "request",
+      "name": "10.2 Listar Unidades",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/unidades-atendimento",
+      "parentId": "folder_unidades_atendimento"
+    },
+    {
+      "_id": "req_unidades_ativas",
+      "_type": "request",
+      "name": "10.3 Listar Ativas",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/unidades-atendimento/ativas",
+      "parentId": "folder_unidades_atendimento"
+    },
+    {
+      "_id": "req_unidades_operacionais",
+      "_type": "request",
+      "name": "10.4 Listar Operacionais",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/unidades-atendimento/operacionais",
+      "parentId": "folder_unidades_atendimento"
+    },
+    {
+      "_id": "folder_event_logs",
+      "_type": "request_group",
+      "name": "11. Event Logs (Auditoria)",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_logs_pedido",
+      "_type": "request",
+      "name": "11.1 Logs do Pedido",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/event-logs/pedidos/1",
+      "parentId": "folder_event_logs"
+    },
+    {
+      "_id": "req_logs_timeline",
+      "_type": "request",
+      "name": "11.2 Timeline do Pedido",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/event-logs/pedidos/1/timeline",
+      "parentId": "folder_event_logs"
+    },
+    {
+      "_id": "req_logs_subpedido",
+      "_type": "request",
+      "name": "11.3 Logs do SubPedido",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/event-logs/subpedidos/1",
+      "parentId": "folder_event_logs"
+    },
+    {
+      "_id": "req_logs_cozinha",
+      "_type": "request",
+      "name": "11.4 Logs da Cozinha",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/event-logs/subpedidos/cozinha/1",
+      "parentId": "folder_event_logs"
+    },
+    {
+      "_id": "req_logs_tempo_medio",
+      "_type": "request",
+      "name": "11.5 Tempo Médio da Cozinha",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/api/event-logs/cozinhas/1/tempo-medio",
+      "parentId": "folder_event_logs"
+    },
+    {
+      "_id": "folder_jwt_auth",
+      "_type": "request_group",
+      "name": "12. Autenticação JWT (Admin)",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_jwt_login",
+      "_type": "request",
+      "name": "12.1 Login JWT",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/auth/jwt/login",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"username\": \"admin\",\n  \"password\": \"admin123\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_jwt_auth"
+    },
+    {
+      "_id": "req_jwt_register",
+      "_type": "request",
+      "name": "12.2 Registrar Usuário",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/auth/jwt/register",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"username\": \"gerente\",\n  \"password\": \"senha123\",\n  \"email\": \"gerente@restaurante.com\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_jwt_auth"
+    },
+    {
+      "_id": "req_jwt_refresh",
+      "_type": "request",
+      "name": "12.3 Refresh Token",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/auth/jwt/refresh",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"refreshToken\": \"seu_refresh_token_aqui\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_jwt_auth"
+    },
+    {
+      "_id": "folder_callback",
+      "_type": "request_group",
+      "name": "13. Callbacks (Webhook AppyPay)",
+      "parentId": "wrk_sistema_restauracao"
+    },
+    {
+      "_id": "req_callback_appypay",
+      "_type": "request",
+      "name": "13.1 Callback AppyPay (Simulação)",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/pagamentos/callback",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"charge_id\": \"chg_abc123def456\",\n  \"status\": \"APPROVED\",\n  \"amount\": 150.00,\n  \"paid_at\": \"2024-01-15T14:30:00Z\",\n  \"reference\": \"REF-001\",\n  \"customer_phone\": \"{{ _.telefone }}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parentId": "folder_callback"
+    }
+  ]
+}

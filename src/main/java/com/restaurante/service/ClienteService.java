@@ -6,6 +6,7 @@ import com.restaurante.dto.response.ClienteResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Cliente;
+import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.repository.ClienteRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +26,9 @@ import java.time.LocalDateTime;
 public class ClienteService {
 
     private final ClienteRepository clienteRepository;
-    private static final int OTP_LENGTH = 6;
+    private final NotificacaoService notificacaoService;
+    
+    private static final int OTP_LENGTH = 4;
     private static final int OTP_EXPIRATION_MINUTES = 5;
 
     /**
@@ -45,8 +48,16 @@ public class ClienteService {
         
         clienteRepository.save(cliente);
 
-        // TODO: Integrar com serviço de SMS/WhatsApp para enviar OTP
-        log.info("OTP gerado: {} (válido por {} minutos)", otp, OTP_EXPIRATION_MINUTES);
+        // Envia OTP via SMS (TelcoSMS)
+        boolean enviado = notificacaoService.enviarOtp(request.getTelefone(), otp);
+        
+        if (enviado) {
+            log.info("OTP {} enviado com sucesso para {} (válido por {} minutos)", 
+                otp, request.getTelefone(), OTP_EXPIRATION_MINUTES);
+        } else {
+            log.warn("Falha ao enviar OTP para {}, mas código foi salvo no banco: {}", 
+                request.getTelefone(), otp);
+        }
     }
 
     /**

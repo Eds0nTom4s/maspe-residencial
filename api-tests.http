@@ -11,19 +11,19 @@
 ### ========================================
 
 ### 1.1 Solicitar OTP (Cliente)
-POST {{baseUrl}}/auth/otp/solicitar
+POST {{baseUrl}}/auth/solicitar-otp
 Content-Type: {{contentType}}
 
 {
-  "telefone": "+244923456789"
+  "telefone": "+244925813939"
 }
 
 ### 1.2 Validar OTP (Cliente)
-POST {{baseUrl}}/auth/otp/validar
+POST {{baseUrl}}/auth/validar-otp
 Content-Type: {{contentType}}
 
 {
-  "telefone": "+244923456789",
+  "telefone": "+244925813939",
   "codigo": "123456"
 }
 
@@ -179,70 +179,144 @@ PATCH {{baseUrl}}/pedidos/1/status/avancar
 PATCH {{baseUrl}}/pedidos/1/cancelar
 
 ### ========================================
-### 5. PAGAMENTOS
+### 5. FUNDOS DE CONSUMO (PRÉ-PAGO)
 ### ========================================
 
-### 5.1 Criar pagamento
-POST {{baseUrl}}/pagamentos
-Content-Type: {{contentType}}
-
-{
-  "mesaId": 1,
-  "metodoPagamento": "PIX"
-}
-
-### 5.2 Buscar pagamento por ID
-GET {{baseUrl}}/pagamentos/1
-
-### 5.3 Buscar pagamento da mesa
-GET {{baseUrl}}/pagamentos/mesa/1
-
-### 5.4 Listar pagamentos por status
-GET {{baseUrl}}/pagamentos/status/PENDENTE
-
-### 5.5 Processar pagamento
-POST {{baseUrl}}/pagamentos/1/processar
-
-### 5.6 Confirmar pagamento (aprovar)
-PATCH {{baseUrl}}/pagamentos/1/confirmar
-
-### 5.7 Cancelar pagamento
-PATCH {{baseUrl}}/pagamentos/1/cancelar
-
-### ========================================
-### 6. CENÁRIO COMPLETO - FLUXO DE ATENDIMENTO
-### ========================================
-
-### 6.1 PASSO 1: Cliente solicita OTP
-POST {{baseUrl}}/auth/otp/solicitar
-Content-Type: {{contentType}}
-
-{
-  "telefone": "+244923456789"
-}
-
-### 6.2 PASSO 2: Cliente valida OTP e se autentica
-POST {{baseUrl}}/auth/otp/validar
-Content-Type: {{contentType}}
-
-{
-  "telefone": "+244923456789",
-  "codigo": "123456"
-}
-
-### 6.3 PASSO 3: Cliente cria mesa (abre mesa)
-# Usar clienteId retornado no passo 2
-POST {{baseUrl}}/mesas
+### 5.1 Criar fundo de consumo para cliente
+POST {{baseUrl}}/fundos
 Content-Type: {{contentType}}
 
 {
   "clienteId": 1,
-  "numero": 10,
-  "capacidade": 4
+  "saldoInicial": 0.00
 }
 
-### 6.4 PASSO 4: Cliente faz pedido
-# Usar mesaId retornada no passo 3
+### 5.2 Buscar fundo por ID
+GET {{baseUrl}}/fundos/1
+
+### 5.3 Buscar fundo por cliente
+GET {{baseUrl}}/fundos/cliente/1
+
+### 5.4 Recarregar fundo (com AppyPay - GPO)
+POST {{baseUrl}}/fundos/1/recarregar
+Content-Type: {{contentType}}
+
+{
+  "valor": 5000.00,
+  "metodoPagamento": "GPO",
+  "descricao": "Recarga via GPO (pagamento instantâneo)"
+}
+
+### 5.5 Recarregar fundo (com AppyPay - REF)
+POST {{baseUrl}}/fundos/1/recarregar
+Content-Type: {{contentType}}
+
+{
+  "valor": 10000.00,
+  "metodoPagamento": "REF",
+  "descricao": "Recarga via Referência Bancária"
+}
+
+### 5.6 Consultar saldo do fundo
+GET {{baseUrl}}/fundos/1/saldo
+
+### 5.7 Listar transações do fundo
+GET {{baseUrl}}/fundos/1/transacoes
+
+### 5.8 Listar transações por tipo
+GET {{baseUrl}}/fundos/1/transacoes?tipo=RECARGA
+
+### ========================================
+### 6. PAGAMENTOS & APPYPAY GATEWAY
+### ========================================
+
+### 6.1 Webhook AppyPay - Callback de pagamento confirmado (GPO)
+POST {{baseUrl}}/pagamentos/callback
+Content-Type: {{contentType}}
+
+{
+  "chargeId": "CHG-GPO-2026-001",
+  "status": "PAID",
+  "amount": 5000.00,
+  "method": "GPO",
+  "externalReference": "REF-1234567890",
+  "paidAt": "2026-02-13T10:30:00Z",
+  "customer": {
+    "name": "João Silva",
+    "phone": "+244925813939"
+  }
+}
+
+### 6.2 Webhook AppyPay - Callback de pagamento confirmado (REF)
+POST {{baseUrl}}/pagamentos/callback
+Content-Type: {{contentType}}
+
+{
+  "chargeId": "CHG-REF-2026-002",
+  "status": "PAID",
+  "amount": 10000.00,
+  "method": "REF",
+  "externalReference": "REF-0987654321",
+  "paidAt": "2026-02-13T11:45:00Z",
+  "bankReference": {
+    "entity": "12345",
+    "reference": "999 888 777"
+  },
+  "customer": {
+    "name": "Maria Costa",
+    "phone": "+244925813939"
+  }
+}
+
+### 6.3 Webhook AppyPay - Callback de pagamento falhou
+POST {{baseUrl}}/pagamentos/callback
+Content-Type: {{contentType}}
+
+{
+  "chargeId": "CHG-GPO-2026-003",
+  "status": "FAILED",
+  "amount": 2500.00,
+  "method": "GPO",
+  "externalReference": "REF-1111111111",
+  "failedAt": "2026-02-13T12:00:00Z",
+  "errorCode": "INSUFFICIENT_FUNDS",
+  "errorMessage": "Saldo insuficiente"
+}
+
+### 6.4 Webhook AppyPay - Callback de estorno
+POST {{baseUrl}}/pagamentos/callback
+Content-Type: {{contentType}}
+
+{
+  "chargeId": "CHG-GPO-2026-001",
+  "status": "REFUNDED",
+  "amount": 5000.00,
+  "method": "GPO",
+  "externalReference": "REF-1234567890",
+  "refundedAt": "2026-02-13T13:00:00Z",
+  "refundReason": "Solicitação do cliente"
+}
+
+### 6.5 Buscar pagamento por external reference
+GET {{baseUrl}}/pagamentos/referencia/REF-1234567890
+
+### 6.6 Listar todos os pagamentos
+GET {{baseUrl}}/pagamentos
+
+### 6.7 Listar pagamentos por status
+GET {{baseUrl}}/pagamentos/status/PENDENTE
+
+### 6.8 Listar pagamentos por método
+GET {{baseUrl}}/pagamentos/metodo/GPO
+
+### 6.9 Consultar auditoria de pagamento
+GET {{baseUrl}}/pagamentos/1/auditoria
+
+### ========================================
+### 7. PEDIDOS COM PAGAMENTO
+### ========================================
+
+### 7.1 Criar pedido (será pago via fundo de consumo)
 POST {{baseUrl}}/pedidos
 Content-Type: {{contentType}}
 
@@ -251,41 +325,180 @@ Content-Type: {{contentType}}
   "itens": [
     {
       "produtoId": 1,
-      "quantidade": 1
-    },
-    {
-      "produtoId": 5,
-      "quantidade": 2
+      "quantidade": 2,
+      "observacoes": "Sem cebola"
     }
-  ]
+  ],
+  "fundoConsumoId": 1,
+  "observacoes": "Pedido pago via fundo pré-pago"
 }
 
-### 6.5 PASSO 5: Atendente avança status do pedido
-PATCH {{baseUrl}}/pedidos/1/status/avancar
+### 7.2 Buscar pedido por ID
+GET {{baseUrl}}/pedidos/1
 
-### 6.6 PASSO 6: Cliente solicita pagamento
-POST {{baseUrl}}/pagamentos
+### 7.3 Listar pedidos da mesa
+GET {{baseUrl}}/pedidos/mesa/1
+
+### 7.4 Listar pedidos por status
+GET {{baseUrl}}/pedidos/status/PENDENTE
+
+### ========================================
+### 8. CENÁRIO COMPLETO - FLUXO PRÉ-PAGO COM APPYPAY
+### ========================================
+
+### 8.1 PASSO 1: Cliente solicita OTP
+POST {{baseUrl}}/auth/otp/solicitar
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244925813939"
+}
+
+### 8.2 PASSO 2: Cliente valida OTP
+POST {{baseUrl}}/auth/otp/validar
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244925813939",
+  "codigo": "123456"
+}
+
+### 8.3 PASSO 3: Sistema cria fundo de consumo para o cliente
+# Usar clienteId retornado no passo 2
+POST {{baseUrl}}/fundos
+Content-Type: {{contentType}}
+
+{
+  "clienteId": 1,
+  "saldoInicial": 0.00
+}
+
+### 8.4 PASSO 4: Cliente recarrega fundo via AppyPay (GPO - instantâneo)
+# Usar fundoId retornado no passo 3
+POST {{baseUrl}}/fundos/1/recarregar
+Content-Type: {{contentType}}
+
+{
+  "valor": 10000.00,
+  "metodoPagamento": "GPO",
+  "descricao": "Primeira recarga"
+}
+
+### 8.5 PASSO 5: AppyPay confirma pagamento via webhook (GPO)
+# Este endpoint é chamado automaticamente pelo AppyPay
+# Simule manualmente para testes:
+POST {{baseUrl}}/pagamentos/callback
+Content-Type: {{contentType}}
+
+{
+  "chargeId": "CHG-GPO-TEST-001",
+  "status": "PAID",
+  "amount": 10000.00,
+  "method": "GPO",
+  "externalReference": "REF-1234567890",
+  "paidAt": "2026-02-13T10:30:00Z",
+  "customer": {
+    "name": "João Silva",
+    "phone": "+244925813939"
+  }
+}
+
+### 8.6 PASSO 6: Cliente verifica saldo
+GET {{baseUrl}}/fundos/1/saldo
+
+### 8.7 PASSO 7: Cliente cria mesa
+POST {{baseUrl}}/mesas
+Content-Type: {{contentType}}
+
+{
+  "clienteId": 1,
+  "numero": 5,
+  "capacidade": 4
+}
+
+### 8.8 PASSO 8: Cliente faz pedido usando o fundo
+# Usar mesaId do passo 7 e fundoId do passo 3
+POST {{baseUrl}}/pedidos
 Content-Type: {{contentType}}
 
 {
   "mesaId": 1,
-  "metodoPagamento": "PIX"
+  "fundoConsumoId": 1,
+  "itens": [
+    {
+      "produtoId": 1,
+      "quantidade": 2,
+      "observacoes": "Sem cebola"
+    },
+    {
+      "produtoId": 5,
+      "quantidade": 1
+    }
+  ]
 }
 
-### 6.7 PASSO 7: Sistema processa pagamento
-POST {{baseUrl}}/pagamentos/1/processar
+### 8.9 PASSO 9: Verificar saldo após consumo
+GET {{baseUrl}}/fundos/1/saldo
 
-### 6.8 PASSO 8: Sistema confirma pagamento
-PATCH {{baseUrl}}/pagamentos/1/confirmar
-
-### 6.9 PASSO 9: Sistema fecha a mesa
-POST {{baseUrl}}/mesas/1/fechar
+### 8.10 PASSO 10: Listar histórico de transações
+GET {{baseUrl}}/fundos/1/transacoes
 
 ### ========================================
-### 7. TESTES DE VALIDAÇÃO E ERROS
+### 9. CENÁRIO COMPLETO - RECARGA VIA REFERÊNCIA BANCÁRIA (REF)
 ### ========================================
 
-### 7.1 Criar produto sem campos obrigatórios (deve retornar 400)
+### 9.1 Cliente solicita recarga via REF
+POST {{baseUrl}}/fundos/1/recarregar
+Content-Type: {{contentType}}
+
+{
+  "valor": 25000.00,
+  "metodoPagamento": "REF",
+  "descricao": "Recarga grande via banco"
+}
+
+### 9.2 Sistema retorna referência bancária
+# O response do passo 9.1 incluirá:
+# {
+#   "pagamentoId": 2,
+#   "status": "PENDENTE",
+#   "entidade": "12345",
+#   "referencia": "999 888 777",
+#   "valor": 25000.00,
+#   "externalReference": "REF-0987654321"
+# }
+
+### 9.3 Cliente paga no banco usando a referência
+
+### 9.4 AppyPay confirma pagamento via webhook após processamento bancário
+POST {{baseUrl}}/pagamentos/callback
+Content-Type: {{contentType}}
+
+{
+  "chargeId": "CHG-REF-TEST-002",
+  "status": "PAID",
+  "amount": 25000.00,
+  "method": "REF",
+  "externalReference": "REF-0987654321",
+  "paidAt": "2026-02-13T14:30:00Z",
+  "bankReference": {
+    "entity": "12345",
+    "reference": "999 888 777"
+  },
+  "customer": {
+    "name": "João Silva",
+    "phone": "+244925813939"
+  }
+}
+
+### 9.5 Cliente verifica saldo atualizado
+GET {{baseUrl}}/fundos/1/saldo
+
+### ========================================
+### 10. TESTES DE VALIDAÇÃO E ERROS
+### ========================================
+
+### 10.1 Criar produto sem campos obrigatórios (deve retornar 400)
 POST {{baseUrl}}/produtos
 Content-Type: {{contentType}}
 
@@ -293,15 +506,74 @@ Content-Type: {{contentType}}
   "nome": "Produto Incompleto"
 }
 
-### 7.2 Buscar produto inexistente (deve retornar 404)
+### 10.2 Buscar produto inexistente (deve retornar 404)
 GET {{baseUrl}}/produtos/999
 
-### 7.3 Criar pedido com mesa inexistente (deve retornar 404)
+### 10.3 Recarregar fundo com valor negativo (deve retornar 400)
+POST {{baseUrl}}/fundos/1/recarregar
+Content-Type: {{contentType}}
+
+{
+  "valor": -100.00,
+  "metodoPagamento": "GPO"
+}
+
+### 10.4 Recarregar fundo inexistente (deve retornar 404)
+POST {{baseUrl}}/fundos/999/recarregar
+Content-Type: {{contentType}}
+
+{
+  "valor": 1000.00,
+  "metodoPagamento": "GPO"
+}
+
+### 10.5 Callback com externalReference duplicada (idempotência - deve retornar 200)
+POST {{baseUrl}}/pagamentos/callback
+Content-Type: {{contentType}}
+
+{
+  "chargeId": "CHG-GPO-TEST-001",
+  "status": "PAID",
+  "amount": 10000.00,
+  "method": "GPO",
+  "externalReference": "REF-1234567890",
+  "paidAt": "2026-02-13T10:30:00Z"
+}
+
+### 10.6 Callback com status inválido (deve retornar 400)
+POST {{baseUrl}}/pagamentos/callback
+Content-Type: {{contentType}}
+
+{
+  "chargeId": "CHG-INVALID",
+  "status": "INVALID_STATUS",
+  "amount": 1000.00,
+  "method": "GPO",
+  "externalReference": "REF-INVALID"
+}
+
+### 10.7 Criar pedido sem saldo suficiente no fundo (deve retornar 400)
 POST {{baseUrl}}/pedidos
 Content-Type: {{contentType}}
 
 {
-  "mesaId": 999,
+  "mesaId": 1,
+  "fundoConsumoId": 1,
+  "itens": [
+    {
+      "produtoId": 1,
+      "quantidade": 1000
+    }
+  ]
+}
+
+### 10.8 Criar pedido com fundo inexistente (deve retornar 404)
+POST {{baseUrl}}/pedidos
+Content-Type: {{contentType}}
+
+{
+  "mesaId": 1,
+  "fundoConsumoId": 999,
   "itens": [
     {
       "produtoId": 1,
@@ -310,17 +582,175 @@ Content-Type: {{contentType}}
   ]
 }
 
-### 7.4 Cancelar pedido com status inválido (deve retornar 400)
-# Primeiro avançar o pedido para ENTREGUE, depois tentar cancelar
-PATCH {{baseUrl}}/pedidos/1/cancelar
+### ========================================
+### 11. MONITORAMENTO E DEBUG
+### ========================================
 
-### 7.5 Criar pagamento para mesa sem pedidos (deve retornar 400)
-POST {{baseUrl}}/pagamentos
+### 11.1 Health Check
+GET http://localhost:8080/actuator/health
+
+### 11.2 Verificar métricas (se habilitado)
+GET http://localhost:8080/actuator/metrics
+
+### 11.3 Verificar info da aplicação
+GET http://localhost:8080/actuator/info
+
+### 11.4 Listar endpoints disponíveis
+GET http://localhost:8080/actuator
+
+### ========================================
+### 12. TESTES ESPECÍFICOS APPYPAY (MODO DEV)
+### ========================================
+
+### 12.1 Testar recarga GPO com valores reais
+# GPO = Pagamento instantâneo via wallet AppyPay
+POST {{baseUrl}}/fundos/1/recarregar
 Content-Type: {{contentType}}
 
 {
-  "mesaId": 999,
-  "metodoPagamento": "PIX"
+  "valor": 1000.00,
+  "metodoPagamento": "GPO",
+  "descricao": "Teste real GPO - Kz 1.000,00"
+}
+
+### 12.2 Testar recarga REF com valores reais
+# REF = Referência bancária multicaixa
+POST {{baseUrl}}/fundos/1/recarregar
+Content-Type: {{contentType}}
+
+{
+  "valor": 5000.00,
+  "metodoPagamento": "REF",
+  "descricao": "Teste real REF - Kz 5.000,00"
+}
+
+### 12.3 Simular callback de sucesso (para testes locais)
+POST {{baseUrl}}/pagamentos/callback
+Content-Type: {{contentType}}
+
+{
+  "chargeId": "CHG-REAL-TEST-001",
+  "status": "PAID",
+  "amount": 1000.00,
+  "method": "GPO",
+  "externalReference": "{{$randomUUID}}",
+  "paidAt": "{{$datetime iso8601}}",
+  "customer": {
+    "name": "Cliente Teste",
+    "phone": "+244925813939"
+  }
+}
+
+### 12.4 Verificar logs de auditoria do pagamento
+# Substitua {pagamentoId} pelo ID retornado nos passos anteriores
+GET {{baseUrl}}/pagamentos/1/auditoria
+
+### 12.5 Consultar estado do pagamento no gateway
+# Este endpoint seria implementado para consultar diretamente o AppyPay
+GET {{baseUrl}}/pagamentos/1/status-gateway
+
+### ========================================
+### 13. NOTIFICAÇÕES SMS (TELCOSMS)
+### ========================================
+
+### 13.1 Enviar SMS de teste simples
+POST {{baseUrl}}/notificacoes/sms
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244925813939",
+  "mensagem": "Mensagem de teste de integração TelcoSMS",
+  "contexto": "TESTE"
+}
+
+### 13.2 Enviar OTP via SMS
+POST {{baseUrl}}/notificacoes/otp
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244925813939",
+  "codigo": "123456"
+}
+
+### 13.3 Enviar notificação de recarga confirmada
+POST {{baseUrl}}/notificacoes/recarga-confirmada
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244925813939",
+  "valor": 5000.00,
+  "metodoPagamento": "GPO"
+}
+
+### 13.4 Enviar notificação de pedido criado
+POST {{baseUrl}}/notificacoes/pedido-criado
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244925813939",
+  "numeroPedido": "PED-20260213-001",
+  "total": 2500.00
+}
+
+### 13.5 Enviar notificação de pedido pronto
+POST {{baseUrl}}/notificacoes/pedido-pronto
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244925813939",
+  "numeroPedido": "PED-20260213-001"
+}
+
+### 13.6 Enviar notificação de referência bancária
+POST {{baseUrl}}/notificacoes/referencia-bancaria
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244925813939",
+  "entidade": "12345",
+  "referencia": "999 888 777",
+  "valor": 10000.00
+}
+
+### 13.7 Enviar notificação de saldo insuficiente
+POST {{baseUrl}}/notificacoes/saldo-insuficiente
+Content-Type: {{contentType}}
+
+{
+  "telefone": "+244925813939",
+  "saldoAtual": 500.00,
+  "valorNecessario": 2000.00
+}
+
+### 13.8 Testar normalização de números
+# Testa com formato 9XXXXXXXX
+POST {{baseUrl}}/notificacoes/sms
+Content-Type: {{contentType}}
+
+{
+  "telefone": "925813939",
+  "mensagem": "Teste sem código de país",
+  "contexto": "TESTE_NORMALIZACAO"
+}
+
+### 13.9 Testar com formato 0XXXXXXXXX
+POST {{baseUrl}}/notificacoes/sms
+Content-Type: {{contentType}}
+
+{
+  "telefone": "0925813939",
+  "mensagem": "Teste com zero inicial",
+  "contexto": "TESTE_NORMALIZACAO"
+}
+
+### 13.10 Testar com formato internacional completo
+POST {{baseUrl}}/notificacoes/sms
+Content-Type: {{contentType}}
+
+{
+  "telefone": "244925813939",
+  "mensagem": "Teste formato internacional",
+  "contexto": "TESTE_NORMALIZACAO"
 }
 
 ### ========================================

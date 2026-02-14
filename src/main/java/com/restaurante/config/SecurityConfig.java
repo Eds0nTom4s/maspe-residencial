@@ -22,11 +22,15 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 /**
  * Configuração de segurança do Spring Security
+ * 
+ * IMPORTANTE: Esta configuração é DESABILITADA em ambiente de teste (profile 'test')
+ * para permitir testes E2E sem autenticação. Em testes, usar TestSecurityConfig.
  */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 @RequiredArgsConstructor
+@org.springframework.context.annotation.Profile("!test")
 public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;
@@ -40,15 +44,18 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Endpoints públicos
-                        .requestMatchers("/api/auth/**").permitAll()
+                        // Endpoints públicos de autenticação
+                        .requestMatchers("/api/auth/**", "/auth/**").permitAll()
+                        
+                        // Documentação e monitoramento
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
-                        .requestMatchers("/h2-console/**").permitAll()
+                        .requestMatchers("/h2-console/**", "/api/h2-console/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         
-                        // Produtos podem ser visualizados por todos autenticados
-                        .requestMatchers(HttpMethod.GET, "/api/produtos/**").authenticated()
+                        // Webhooks e callbacks (AppyPay)
+                        .requestMatchers("/api/pagamentos/callback").permitAll()
+                        .requestMatchers("/pagamentos/webhook").permitAll()
                         
                         // Qualquer outra requisição requer autenticação
                         .anyRequest().authenticated()
@@ -56,8 +63,9 @@ public class SecurityConfig {
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
-        // Permitir H2 Console (desenvolvimento)
-        http.headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
+        // Permitir H2 Console (desenvolvimento) - desabilita CSRF e X-Frame-Options
+        http.headers(headers -> headers
+                .frameOptions(frame -> frame.disable()));
 
         return http.build();
     }

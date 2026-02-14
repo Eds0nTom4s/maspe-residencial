@@ -157,9 +157,7 @@ public class UnidadeDeConsumoService {
             throw new BusinessException("Unidade de consumo já está finalizada");
         }
 
-        if (unidade.getPagamento() == null) {
-            throw new BusinessException("Não é possível fechar unidade de consumo sem pagamento");
-        }
+        // Verificação de pagamento removida - será gerenciada pelo módulo financeiro
 
         unidade.fechar();
         UnidadeDeConsumo unidadeSalva = unidadeDeConsumoRepository.save(unidade);

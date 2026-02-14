@@ -1,0 +1,204 @@
+================================================================================
+INSTRUÇÕES - PERFIL DE DESENVOLVIMENTO (DEV)
+Sistema de Restauração - Integração AppyPay
+================================================================================
+
+COMO EXECUTAR COM PERFIL DEV
+-----------------------------
+
+OPÇÃO 1: Maven (Recomendado)
+-----------------------------
+mvn spring-boot:run -Dspring-boot.run.profiles=dev
+
+OPÇÃO 2: Variável de Ambiente
+------------------------------
+export SPRING_PROFILES_ACTIVE=dev
+mvn spring-boot:run
+
+OPÇÃO 3: IntelliJ IDEA / VS Code
+---------------------------------
+1. Editar Run Configuration
+2. Adicionar em "VM options" ou "Environment variables":
+   -Dspring.profiles.active=dev
+   ou
+   SPRING_PROFILES_ACTIVE=dev
+
+OPÇÃO 4: JAR Compilado
+-----------------------
+mvn clean package
+java -jar target/sistema-restauracao.jar --spring.profiles.active=dev
+
+================================================================================
+VERIFICAÇÃO DO PERFIL ATIVO
+================================================================================
+
+Ao iniciar, verifique no console:
+
+✅ CORRETO:
+The following 1 profile is active: "dev"
+
+❌ ERRADO:
+No active profile set, falling back to 1 default profile: "default"
+
+================================================================================
+CONFIGURAÇÕES ATIVAS NO PERFIL DEV
+================================================================================
+
+AppyPay:
+--------
+- Base URL: https://gwy-api.appypay.co.ao/v2.0/
+- Token URL: https://login.microsoftonline.com/auth.appypay.co.ao/oauth2/token
+- Client ID: 934fa141-1117-4514-8c13-bf67fb990050
+- Client Secret: [REDACTED] (configurar via variável de ambiente APPYPAY_CLIENT_SECRET)
+- Resource: bee57785-7a19-4f1c-9c8d-aa03f2f0e333
+- Mock: FALSE (chama API real)
+- Debug: TRUE (logs detalhados)
+- Timeout: 20000ms (20 segundos)
+
+Métodos:
+--------
+- GPO: GPO_fd67da50-9858-45c4-8871-b271709328c7
+- REF: REF_bb6415c5-bddf-47d9-9791-b4542ec60e07
+
+Callback:
+---------
+- URL: http://localhost:8080/api/payments/appypay/webhook
+
+Logs:
+-----
+- com.restaurante.financeiro: DEBUG
+- com.restaurante.financeiro.gateway.appypay: TRACE
+
+================================================================================
+TESTES MANUAIS
+================================================================================
+
+1. TESTAR AUTENTICAÇÃO
+-----------------------
+Ao iniciar, o sistema irá:
+- Tentar obter token OAuth2 da AppyPay
+- Cachear token
+- Log esperado: "Token OAuth2 obtido com sucesso"
+
+Se falhar:
+- Verificar credenciais (client_id, client_secret)
+- Verificar conectividade com AppyPay
+- Verificar logs com nivel TRACE
+
+2. TESTAR CRIAÇÃO DE PAGAMENTO GPO
+-----------------------------------
+POST /api/fundos/{fundoId}/recarga
+{
+  "valor": 5000.00,
+  "metodo": "GPO"
+}
+
+Esperado:
+- Pagamento criado (PENDENTE)
+- Chamada à AppyPay
+- Se GPO: confirmação imediata
+- Fundo creditado
+- Log: "Pagamento recarga confirmado com sucesso"
+
+3. TESTAR CRIAÇÃO DE PAGAMENTO REF
+-----------------------------------
+POST /api/fundos/{fundoId}/recarga
+{
+  "valor": 5000.00,
+  "metodo": "REF"
+}
+
+Esperado:
+- Pagamento criado (PENDENTE)
+- Retorna: entidade + referência
+- Status permanece PENDENTE
+- Aguarda callback da AppyPay
+
+4. TESTAR CALLBACK
+------------------
+POST /api/pagamentos/callback
+{
+  "chargeId": "...",
+  "merchantTransactionId": "REC...",
+  "status": "CONFIRMED",
+  "amount": 500000,
+  "paymentMethod": "REF_bb6415c5-bddf-47d9-9791-b4542ec60e07"
+}
+
+Esperado:
+- Pagamento localizado
+- Status atualizado para CONFIRMADO
+- Fundo creditado
+- TransacaoFundo criada
+- Log: "Callback processado com sucesso"
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+ERRO: "Token OAuth2 falhou"
+---------------------------
+Causa: Credenciais inválidas ou API indisponível
+Solução:
+1. Verificar client_id e client_secret
+2. Testar conectividade: curl https://login.microsoftonline.com/auth.appypay.co.ao/oauth2/token
+3. Verificar se AppyPay está operacional
+
+ERRO: "Method ID não configurado"
+----------------------------------
+Causa: app.payment.appypay.methods.gpo ou .ref não definidos
+Solução:
+1. Verificar application-dev.properties
+2. Confirmar IDs dos métodos com AppyPay
+
+ERRO: "Timeout ao chamar AppyPay"
+----------------------------------
+Causa: API lenta ou indisponível
+Solução:
+1. Aumentar timeout: app.payment.appypay.timeout-ms=30000
+2. Verificar conectividade de rede
+3. Verificar status da API AppyPay
+
+LOG: "Modo MOCK ativado"
+------------------------
+Causa: mock=true no perfil
+Solução:
+1. Verificar application-dev.properties
+2. Confirmar: app.payment.appypay.mock=false
+
+================================================================================
+MODO MOCK VS MODO REAL
+================================================================================
+
+MODO MOCK (mock=true):
+----------------------
+✅ Não requer credenciais
+✅ Não chama API real
+✅ Retorna responses simulados
+✅ GPO retorna CONFIRMED imediato
+✅ REF retorna PENDING + entidade/ref fake
+❌ Não testa integração real
+
+MODO REAL (mock=false):
+-----------------------
+✅ Chama API real da AppyPay
+✅ Valida credenciais
+✅ Testa integração completa
+✅ Confirma que tudo funciona
+❌ Requer credenciais válidas
+❌ Pode gerar cobranças reais
+
+================================================================================
+PRÓXIMOS PASSOS
+================================================================================
+
+Após validar que o perfil DEV está funcionando:
+
+1. Compilar projeto: mvn clean compile
+2. Executar com perfil: mvn spring-boot:run -Dspring-boot.run.profiles=dev
+3. Verificar logs de inicialização
+4. Testar endpoints de recarga
+5. Validar callbacks
+6. Criar testes automatizados
+
+================================================================================

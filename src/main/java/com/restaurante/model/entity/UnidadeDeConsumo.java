@@ -129,12 +129,6 @@ public class UnidadeDeConsumo extends BaseEntity {
     private List<Pedido> pedidos = new ArrayList<>();
 
     /**
-     * Relacionamento com pagamento
-     */
-    @OneToOne(mappedBy = "unidadeConsumo", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private Pagamento pagamento;
-
-    /**
      * Calcula o total da unidade somando todos os pedidos
      */
     public BigDecimal calcularTotal() {
@@ -168,10 +162,8 @@ public class UnidadeDeConsumo extends BaseEntity {
             boolean todosPedidosEntregues = pedidos.stream()
                 .allMatch(p -> p.getStatus() == com.restaurante.model.enums.StatusPedido.FINALIZADO);
             
-            if (todosPedidosEntregues && pagamento == null) {
+            if (todosPedidosEntregues) {
                 this.status = StatusUnidadeConsumo.AGUARDANDO_PAGAMENTO;
-            } else if (pagamento != null && pagamento.getStatus() == com.restaurante.model.enums.StatusPagamento.APROVADO) {
-                this.status = StatusUnidadeConsumo.FINALIZADA;
             } else {
                 this.status = StatusUnidadeConsumo.OCUPADA;
             }

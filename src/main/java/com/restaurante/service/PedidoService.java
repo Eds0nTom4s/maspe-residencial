@@ -16,6 +16,7 @@ import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
+import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.repository.PedidoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +49,7 @@ public class PedidoService {
     private final SubPedidoService subPedidoService;
     private final EventLogService eventLogService;
     private final PedidoFinanceiroService pedidoFinanceiroService;
-    // TODO: Injetar NotificacaoService para WebSocket
+    private final NotificacaoService notificacaoService;
 
     /**
      * Cria um novo pedido para uma unidade de consumo
@@ -166,8 +167,26 @@ public class PedidoService {
         log.info("Pedido criado com sucesso - Número: {}, Total: {}, SubPedidos: {}, Tipo Pagamento: {}, Status Financeiro: {}", 
                 pedido.getNumero(), pedido.getTotal(), itensPorCozinha.size(), pedido.getTipoPagamento(), pedido.getStatusFinanceiro());
 
-        // TODO: Enviar notificação via WebSocket para atendentes
-        // notificacaoService.notificarNovoPedido(pedido);
+        // Enviar notificação SMS para o cliente
+        try {
+            String telefoneCliente = unidadeConsumo.getCliente() != null 
+                ? unidadeConsumo.getCliente().getTelefone() 
+                : null;
+            
+            if (telefoneCliente != null) {
+                notificacaoService.enviarNotificacaoPedidoCriado(
+                    telefoneCliente, 
+                    pedido.getNumero(), 
+                    pedido.getTotal().doubleValue()
+                );
+                log.info("Notificação de pedido criado enviada para {}", telefoneCliente);
+            } else {
+                log.warn("Cliente sem telefone cadastrado - notificação não enviada");
+            }
+        } catch (Exception e) {
+            log.error("Erro ao enviar notificação de pedido criado: {}", e.getMessage());
+            // Não falhar a transação se notificação falhar
+        }
 
         return mapToResponse(pedido);
     }

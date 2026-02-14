@@ -63,6 +63,9 @@ class SubPedidoStateMachineTest {
 
     @Mock
     private Environment environment;
+    
+    @Mock
+    private com.restaurante.notificacao.service.NotificacaoService notificacaoService;
 
     private SubPedidoService subPedidoService;
 
@@ -79,7 +82,8 @@ class SubPedidoStateMachineTest {
                 unidadeAtendimentoRepository,
                 eventLogService,
                 transicaoEstadoValidator,
-                pedidoService
+                pedidoService,
+                notificacaoService
         );
 
         cozinha = Cozinha.builder()

@@ -16,6 +16,7 @@ import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.TipoTransacaoFundo;
+import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
@@ -62,6 +63,7 @@ public class PagamentoGatewayService {
     private final AppyPayClient appyPayClient;
     private final PedidoService pedidoService;
     private final ObjectMapper objectMapper;
+    private final NotificacaoService notificacaoService;
     
     /**
      * Cria pagamento para recarga de fundo (PRÉ-PAGO)
@@ -153,6 +155,27 @@ public class PagamentoGatewayService {
             if ("REF".equals(response.getPaymentMethod())) {
                 pagamento.setEntidade(response.getEntity());
                 pagamento.setReferencia(response.getReference());
+                
+                // Notificar cliente com referência bancária
+                try {
+                    String telefoneCliente = fundo.getCliente() != null 
+                        ? fundo.getCliente().getTelefone() 
+                        : null;
+                    
+                    if (telefoneCliente != null) {
+                        notificacaoService.enviarNotificacaoReferenciaBancaria(
+                            telefoneCliente,
+                            response.getEntity(),
+                            response.getReference(), 
+                            valor.doubleValue()
+                        );
+                        log.info("Notificação de referência bancária enviada para {}", telefoneCliente);
+                    } else {
+                        log.warn("Cliente sem telefone - notificação de referência não enviada");
+                    }
+                } catch (Exception e) {
+                    log.error("Erro ao enviar notificação de referência: {}", e.getMessage());
+                }
             }
             
             pagamentoRepository.save(pagamento);
@@ -269,6 +292,28 @@ public class PagamentoGatewayService {
             String.format("Recarga confirmada: %s AOA. Saldo: %s → %s", 
                 pagamento.getAmount(), saldoAnterior, saldoNovo)
         );
+        
+        // Notificar cliente sobre recarga confirmada
+        try {
+            String telefoneCliente = fundo.getCliente() != null 
+                ? fundo.getCliente().getTelefone() 
+                : null;
+            
+            if (telefoneCliente != null) {
+                notificacaoService.enviarNotificacaoRecargaConfirmada(
+                    telefoneCliente, 
+                    pagamento.getAmount().doubleValue(),
+                    pagamento.getMetodo().name()
+                );
+                log.info("Notificação de recarga confirmada enviada para {} - Valor: {}", 
+                    telefoneCliente, pagamento.getAmount());
+            } else {
+                log.warn("Cliente sem telefone - notificação de recarga não enviada");
+            }
+        } catch (Exception e) {
+            log.error("Erro ao enviar notificação de recarga: {}", e.getMessage());
+            // Não falhar a transação se notificação falhar
+        }
         
         log.info("Pagamento recarga confirmado com sucesso. Novo saldo: {}", saldoNovo);
     }

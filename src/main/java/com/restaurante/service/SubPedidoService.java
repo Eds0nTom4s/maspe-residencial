@@ -6,6 +6,7 @@ import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.CategoriaProduto;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoCozinha;
+import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
@@ -48,6 +49,7 @@ public class SubPedidoService {
     private final EventLogService eventLogService;
     private final TransicaoEstadoValidator transicaoValidator;
     private final PedidoService pedidoService; // Injeção lazy para evitar circular dependency
+    private final NotificacaoService notificacaoService;
 
     public SubPedidoService(
         SubPedidoRepository subPedidoRepository,
@@ -55,7 +57,8 @@ public class SubPedidoService {
         UnidadeAtendimentoRepository unidadeAtendimentoRepository,
         EventLogService eventLogService,
         TransicaoEstadoValidator transicaoValidator,
-        @Lazy PedidoService pedidoService // LAZY: evita dependência circular
+        @Lazy PedidoService pedidoService, // LAZY: evita dependência circular
+        NotificacaoService notificacaoService
     ) {
         this.subPedidoRepository = subPedidoRepository;
         this.cozinhaRepository = cozinhaRepository;
@@ -63,6 +66,7 @@ public class SubPedidoService {
         this.eventLogService = eventLogService;
         this.transicaoValidator = transicaoValidator;
         this.pedidoService = pedidoService;
+        this.notificacaoService = notificacaoService;
     }
 
     /**
@@ -272,7 +276,28 @@ public class SubPedidoService {
     @Transactional
     public SubPedido marcarPronto(Long id) {
         log.info("Marcando SubPedido {} como PRONTO", id);
-        return alterarStatus(id, StatusSubPedido.PRONTO, "Preparação finalizada");
+        SubPedido subPedido = alterarStatus(id, StatusSubPedido.PRONTO, "Preparação finalizada");
+        
+        // Enviar notificação SMS para o cliente
+        try {
+            Pedido pedido = subPedido.getPedido();
+            UnidadeDeConsumo unidadeConsumo = pedido.getUnidadeConsumo();
+            String telefoneCliente = unidadeConsumo.getCliente() != null 
+                ? unidadeConsumo.getCliente().getTelefone() 
+                : null;
+            
+            if (telefoneCliente != null) {
+                notificacaoService.enviarNotificacaoPedidoPronto(telefoneCliente, pedido.getNumero());
+                log.info("Notificação de pedido pronto enviada para {} - Pedido: {}", telefoneCliente, pedido.getNumero());
+            } else {
+                log.warn("Cliente sem telefone cadastrado - notificação não enviada");
+            }
+        } catch (Exception e) {
+            log.error("Erro ao enviar notificação de pedido pronto: {}", e.getMessage());
+            // Não falhar a transação se notificação falhar
+        }
+        
+        return subPedido;
     }
 
     /**

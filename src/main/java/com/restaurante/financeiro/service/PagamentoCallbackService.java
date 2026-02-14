@@ -7,6 +7,7 @@ import com.restaurante.financeiro.repository.PagamentoEventLogRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.entity.PagamentoEventLog;
+import com.restaurante.notificacao.service.NotificacaoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ public class PagamentoCallbackService {
     private final PagamentoGatewayRepository pagamentoRepository;
     private final PagamentoEventLogRepository eventLogRepository;
     private final PagamentoGatewayService pagamentoGatewayService;
+    private final NotificacaoService notificacaoService;
     
     /**
      * Processa callback da AppyPay

@@ -46,4 +46,11 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
         TipoPagamentoPedido tipoPagamento, 
         StatusFinanceiroPedido statusFinanceiro
     );
+
+    /**
+     * Busca pedido por ID com SubPedidos carregados (JOIN FETCH)
+     * ⚠️ Necessário para evitar lazy loading de subPedidos
+     */
+    @Query("SELECT p FROM Pedido p LEFT JOIN FETCH p.subPedidos WHERE p.id = :id")
+    Optional<Pedido> findByIdComSubPedidos(Long id);
 }

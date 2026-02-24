@@ -17,7 +17,9 @@ import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.notificacao.service.NotificacaoService;
+import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.UnidadeDeConsumoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -44,8 +46,10 @@ import java.util.stream.Collectors;
 public class PedidoService {
 
     private final PedidoRepository pedidoRepository;
+    private final UnidadeDeConsumoRepository unidadeDeConsumoRepository;
     private final UnidadeDeConsumoService unidadeDeConsumoService;
     private final ProdutoService produtoService;
+    private final WebSocketNotificacaoService webSocketNotificacaoService;
     private final SubPedidoService subPedidoService;
     private final EventLogService eventLogService;
     private final PedidoFinanceiroService pedidoFinanceiroService;
@@ -63,14 +67,16 @@ public class PedidoService {
      */
     @Transactional
     public PedidoResponse criar(CriarPedidoRequest request) {
-        log.info("Criando novo pedido para unidade de consumo ID: {}", request.getUnidadeConsumoId());
+        log.info("=".repeat(80));
+        log.info("🆕 CRIANDO NOVO PEDIDO");
+        log.info("  ┣ Unidade de Consumo ID: {}", request.getUnidadeConsumoId());
+        log.info("  ┣ Total de Itens: {}", request.getItens().size());
+        log.info("  ┗ Tipo Pagamento: {}", request.getTipoPagamento());
+        log.info("=".repeat(80));
 
-        // Buscar UnidadeDeConsumo por ID via service
-        var unidadeConsumoResponse = unidadeDeConsumoService.buscarPorId(request.getUnidadeConsumoId());
-        
-        // Para simplificar, buscar entity novamente (TODO: refatorar service para retornar entity)
-        UnidadeDeConsumo unidadeConsumo = new UnidadeDeConsumo();
-        unidadeConsumo.setId(unidadeConsumoResponse.getId());
+        // Buscar UnidadeDeConsumo completa do repositório
+        UnidadeDeConsumo unidadeConsumo = unidadeDeConsumoRepository.findById(request.getUnidadeConsumoId())
+                .orElseThrow(() -> new ResourceNotFoundException("Unidade de consumo não encontrada"));
 
         // Determina tipo de pagamento (default: PRE_PAGO)
         TipoPagamentoPedido tipoPagamento = request.getTipoPagamento() != null 
@@ -88,9 +94,15 @@ public class PedidoService {
             })
             .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
 
+        log.info("💰 VALIDAÇÃO FINANCEIRA");
+        log.info("  ┣ Total Calculado: {} AOA", totalPreliminar);
+        log.info("  ┣ Tipo Pagamento: {}", tipoPagamento);
+        log.info("  ┗ Roles Usuário: {}", roles);
+
         // VALIDAÇÃO FINANCEIRA - antes de criar pedido
-        Long clienteId = obterClienteId(unidadeConsumoResponse);
+        Long clienteId = unidadeConsumo.getCliente().getId();
         pedidoFinanceiroService.validarCriacaoPedido(clienteId, totalPreliminar, tipoPagamento, roles);
+        log.info("✅ Validação financeira APROVADA");
 
         // Cria o pedido
         Pedido pedido = Pedido.builder()
@@ -102,70 +114,113 @@ public class PedidoService {
                 .observacoes(request.getObservacoes())
                 .build();
 
+        log.info("📄 PEDIDO CRIADO");
+        log.info("  ┣ Número: {}", pedido.getNumero());
+        log.info("  ┣ Status: {}", pedido.getStatus());
+        log.info("  ┗ Status Financeiro: {}", pedido.getStatusFinanceiro());
+
         // Mapa para agrupar itens por cozinha (Cozinha -> Lista de ItemPedido)
         Map<Cozinha, List<ItemPedido>> itensPorCozinha = new HashMap<>();
 
-        // Adiciona os itens ao pedido e agrupa por cozinha
+        // Primeiro passo: agrupar produtos por cozinha (ainda não criar ItemPedido)
+        Map<Cozinha, List<ItemPedidoRequest>> requestsPorCozinha = new HashMap<>();
+        
         for (ItemPedidoRequest itemRequest : request.getItens()) {
             Produto produto = produtoService.buscarPorId(itemRequest.getProdutoId());
 
-            if (!produto.getDisponivel()) {
-                throw new BusinessException("Produto " + produto.getNome() + " não está disponível");
+            // Valida se produto está ativo (disponibilidade real depende de unidades de produção)
+            if (!produto.isAtivo()) {
+                throw new BusinessException("Produto " + produto.getNome() + " não está ativo");
             }
 
             // Determinar cozinha responsável pelo item
             Cozinha cozinha = subPedidoService.determinarCozinha(produto.getCategoria(), unidadeConsumo.getUnidadeAtendimento().getId());
-
-            ItemPedido item = ItemPedido.builder()
-                    .pedido(pedido)
-                    .produto(produto)
-                    .quantidade(itemRequest.getQuantidade())
-                    .precoUnitario(produto.getPreco())
-                    .observacoes(itemRequest.getObservacoes())
-                    .build();
-
-            item.calcularSubtotal();
-            pedido.adicionarItem(item);
-
-            // Agrupar item por cozinha
-            itensPorCozinha.computeIfAbsent(cozinha, k -> new ArrayList<>()).add(item);
+            
+            // Agrupar request por cozinha
+            requestsPorCozinha.computeIfAbsent(cozinha, k -> new ArrayList<>()).add(itemRequest);
         }
 
-        pedido.calcularTotal();
+        // Salvar pedido VAZIO primeiro (sem itens ainda)
         pedido = pedidoRepository.save(pedido);
 
-        // PROCESSAMENTO FINANCEIRO - depois de criar pedido
-        pedidoFinanceiroService.processarPagamentoPedido(pedido.getId(), clienteId, pedido.getTotal(), tipoPagamento);
-
-        // Criar SubPedidos automaticamente - um para cada cozinha
-        for (Map.Entry<Cozinha, List<ItemPedido>> entry : itensPorCozinha.entrySet()) {
+        // Criar SubPedidos primeiro, DEPOIS criar ItemPedidos com subPedido já associado
+        int contadorSubPedido = 1;
+        for (Map.Entry<Cozinha, List<ItemPedidoRequest>> entry : requestsPorCozinha.entrySet()) {
             Cozinha cozinha = entry.getKey();
-            List<ItemPedido> itens = entry.getValue();
+            List<ItemPedidoRequest> requests = entry.getValue();
 
             SubPedido subPedido = SubPedido.builder()
+                    .numero(pedido.getNumero() + "-" + contadorSubPedido)
                     .pedido(pedido)
                     .cozinha(cozinha)
                     .unidadeAtendimento(unidadeConsumo.getUnidadeAtendimento())
-                    .status(StatusSubPedido.PENDENTE)
+                    .status(StatusSubPedido.CRIADO)  // ✅ Inicia em CRIADO, aguardando confirmação
                     .build();
+            
+            contadorSubPedido++;
 
-            // Adicionar itens ao subpedido
-            for (ItemPedido item : itens) {
-                item.setSubPedido(subPedido);
+            // Criar ItemPedidos JÁ COM subPedido associado
+            for (ItemPedidoRequest itemRequest : requests) {
+                Produto produto = produtoService.buscarPorId(itemRequest.getProdutoId());
+                
+                ItemPedido item = ItemPedido.builder()
+                        .pedido(pedido)
+                        .subPedido(subPedido)  // ✅ JÁ ASSOCIADO
+                        .produto(produto)
+                        .quantidade(itemRequest.getQuantidade())
+                        .precoUnitario(produto.getPreco())
+                        .observacoes(itemRequest.getObservacoes())
+                        .build();
+
+                item.calcularSubtotal();
+                pedido.adicionarItem(item);
                 subPedido.adicionarItem(item);
             }
 
-            // Salvar subpedido
-            subPedidoService.salvar(subPedido);
+            // ✅ ADICIONAR SubPedido à lista do Pedido (cascade vai salvar automaticamente)
+            pedido.getSubPedidos().add(subPedido);
             
-            log.info("SubPedido criado para cozinha {} com {} itens", cozinha.getNome(), itens.size());
+            log.info("SubPedido criado para cozinha {} com {} itens", cozinha.getNome(), requests.size());
         }
+        
+        // Recalcular total com todos os itens
+        pedido.calcularTotal();
+        
+        // ✅ Salvar Pedido com SubPedidos (cascade salva tudo)
+        pedidoRepository.save(pedido);
+
+        log.info("📦 SUBPEDIDOS CRIADOS");
+        log.info("  ┣ Total de SubPedidos: {}", requestsPorCozinha.size());
+        log.info("  ┗ Total do Pedido: {} AOA", pedido.getTotal());
+
+        // PROCESSAMENTO FINANCEIRO - depois de criar pedido e calcular total
+        log.info("💳 PROCESSANDO PAGAMENTO");
+        pedidoFinanceiroService.processarPagamentoPedido(pedido.getId(), clienteId, pedido.getTotal(), tipoPagamento);
+        log.info("✅ Pagamento processado - Status: {}", pedido.getStatusFinanceiro());
+
+        // ⚠️ RECARREGAR PEDIDO DO BANCO - com JOIN FETCH para carregar SubPedidos
+        log.info("🔄 Recarregando pedido do banco para obter SubPedidos...");
+        Pedido pedidoAtualizado = pedidoRepository.findByIdComSubPedidos(pedido.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Pedido não encontrado após criação"));
+        log.info("✅ Pedido recarregado - {} SubPedidos encontrados", pedidoAtualizado.getSubPedidos().size());
+
+        // CONFIRMAÇÃO AUTOMÁTICA - transita CRIADO → PENDENTE se dentro do limite
+        log.info("🤖 INICIANDO CONFIRMAÇÃO AUTOMÁTICA");
+        boolean confirmado = confirmarPedidoAutomaticamente(pedidoAtualizado, unidadeConsumo.getId(), tipoPagamento);
 
         // Atualiza status da unidade de consumo
-        unidadeDeConsumoService.atualizarStatus(unidadeConsumoResponse.getId());
+        unidadeDeConsumoService.atualizarStatus(unidadeConsumo.getId());
 
-        log.info("Pedido criado com sucesso - Número: {}, Total: {}, SubPedidos: {}, Tipo Pagamento: {}, Status Financeiro: {}", 
-                pedido.getNumero(), pedido.getTotal(), itensPorCozinha.size(), pedido.getTipoPagamento(), pedido.getStatusFinanceiro());
+        log.info("=".repeat(80));
+        log.info("✅ PEDIDO CRIADO COM SUCESSO");
+        log.info("  ┣ Número: {}", pedidoAtualizado.getNumero());
+        log.info("  ┣ Total: {} AOA", pedidoAtualizado.getTotal());
+        log.info("  ┣ SubPedidos: {}", pedidoAtualizado.getSubPedidos().size());
+        log.info("  ┣ Tipo Pagamento: {}", pedidoAtualizado.getTipoPagamento());
+        log.info("  ┣ Status Financeiro: {}", pedidoAtualizado.getStatusFinanceiro());
+        log.info("  ┣ Confirmado Automaticamente: {}", confirmado ? "✅ SIM" : "❌ NÃO (limite atingido)");
+        log.info("  ┗ Status do Pedido: {}", pedidoAtualizado.getStatus());
+        log.info("=".repeat(80));
 
         // Enviar notificação SMS para o cliente
         try {
@@ -176,8 +231,8 @@ public class PedidoService {
             if (telefoneCliente != null) {
                 notificacaoService.enviarNotificacaoPedidoCriado(
                     telefoneCliente, 
-                    pedido.getNumero(), 
-                    pedido.getTotal().doubleValue()
+                    pedidoAtualizado.getNumero(), 
+                    pedidoAtualizado.getTotal().doubleValue()
                 );
                 log.info("Notificação de pedido criado enviada para {}", telefoneCliente);
             } else {
@@ -188,7 +243,7 @@ public class PedidoService {
             // Não falhar a transação se notificação falhar
         }
 
-        return mapToResponse(pedido);
+        return mapToResponse(pedidoAtualizado);
     }
 
     /**
@@ -382,6 +437,43 @@ public class PedidoService {
     }
 
     /**
+     * Confirma o pedido - transiciona todos SubPedidos de CRIADO → PENDENTE
+     * Torna o pedido visível para as cozinhas
+     * 
+     * IMPORTANTE: Este método deve ser chamado após criar o pedido para
+     * que as cozinhas vejam os SubPedidos e possam assumir preparação
+     * 
+     * @param id ID do pedido
+     * @return PedidoResponse atualizado
+     */
+    @Transactional
+    public PedidoResponse confirmar(Long id) {
+        log.info("Confirmando pedido ID: {}", id);
+        
+        Pedido pedido = buscarPorId(id);
+        
+        if (pedido.getStatus() != StatusPedido.CRIADO) {
+            throw new BusinessException("Apenas pedidos no status CRIADO podem ser confirmados. Status atual: " + pedido.getStatus());
+        }
+        
+        // Transiciona todos SubPedidos para PENDENTE
+        for (SubPedido subPedido : pedido.getSubPedidos()) {
+            if (subPedido.getStatus() == StatusSubPedido.CRIADO) {
+                subPedidoService.confirmar(subPedido.getId());
+                log.info("SubPedido {} confirmado (CRIADO → PENDENTE)", subPedido.getNumero());
+            }
+        }
+        
+        // Recalcula status do pedido (deve ficar EM_ANDAMENTO)
+        recalcularStatusPedido(id);
+        
+        pedido = buscarPorId(id); // Recarrega após recálculo
+        
+        log.info("Pedido {} confirmado com sucesso. Status: {}", pedido.getNumero(), pedido.getStatus());
+        return mapToResponse(pedido);
+    }
+    
+    /**
      * Confirma pagamento de pedido pós-pago (GERENTE/ADMIN)
      */
     @Transactional
@@ -429,6 +521,92 @@ public class PedidoService {
         String dataAtual = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         long count = pedidoRepository.count() + 1;
         return String.format("PED-%s-%03d", dataAtual, count);
+    }
+
+    /**
+     * Confirma pedido automaticamente se dentro do limite de risco
+     * 
+     * REGRA DE OURO: "O limite substitui o humano enquanto houver margem"
+     * 
+     * - Valida limite de pós-pago (se aplicável)
+     * - Se DENTRO do limite: transita SubPedidos CRIADO → PENDENTE
+     * - Se FORA do limite: mantém SubPedidos em CRIADO (bloqueado)
+     * - Notifica em tempo real via WebSocket
+     * 
+     * @param pedido Pedido a ser confirmado
+     * @param unidadeConsumoId ID da unidade de consumo
+     * @param tipoPagamento Tipo de pagamento do pedido
+     * @return true se confirmado, false se bloqueado por limite
+     */
+    @Transactional
+    private boolean confirmarPedidoAutomaticamente(Pedido pedido, Long unidadeConsumoId, TipoPagamentoPedido tipoPagamento) {
+        log.info("━".repeat(80));
+        log.info("🤖 CONFIRMAÇÃO AUTOMÁTICA - Pedido {}", pedido.getNumero());
+        log.info("  ┣ Tipo Pagamento: {}", tipoPagamento);
+        log.info("  ┣ Total: {} AOA", pedido.getTotal());
+        log.info("  ┗ SubPedidos: {}", pedido.getSubPedidos().size());
+
+        // Obter roles do usuário autenticado
+        Set<String> roles = obterRolesUsuarioAutenticado();
+        log.info("🔑 Roles do usuário: {}", roles);
+
+        // Valida se pedido pode ser confirmado (dentro do limite)
+        log.info("⌛ Validando limite de pós-pago...");
+        boolean podeConfirmar = pedidoFinanceiroService.validarEConfirmarSePermitido(
+            unidadeConsumoId, 
+            pedido.getTotal(), 
+            tipoPagamento, 
+            roles
+        );
+
+        if (!podeConfirmar) {
+            // BLOQUEADO: Limite atingido - mantém em CRIADO
+            log.warn("━".repeat(80));
+            log.warn("❌ PEDIDO BLOQUEADO - Limite de pós-pago atingido");
+            log.warn("  ┣ Pedido: {}", pedido.getNumero());
+            log.warn("  ┣ Total: {} AOA", pedido.getTotal());
+            log.warn("  ┣ Status mantido: CRIADO");
+            log.warn("  ┗ Ação: Notificando gerente sobre limite atingido");
+            log.warn("━".repeat(80));
+            webSocketNotificacaoService.notificarPedidoBloqueadoPorLimite(pedido);
+            return false;
+        }
+
+        // LIBERADO: Dentro do limite - confirma automaticamente
+        log.info("━".repeat(80));
+        log.info("✅ PEDIDO LIBERADO - Dentro do limite");
+        log.info("  ┗ Iniciando transição CRIADO → PENDENTE para {} SubPedidos", pedido.getSubPedidos().size());
+
+        // ⚠️ CRIAR CÓPIA DA LISTA para evitar ConcurrentModificationException
+        // (a lista é gerenciada pelo Hibernate e pode ser modificada durante iteração)
+        List<SubPedido> subPedidosCopia = new ArrayList<>(pedido.getSubPedidos());
+        
+        // Transita todos os SubPedidos de CRIADO → PENDENTE
+        int contador = 0;
+        for (SubPedido subPedido : subPedidosCopia) {
+            if (subPedido.getStatus() == StatusSubPedido.CRIADO) {
+                contador++;
+                log.info("  🔄 SubPedido {}/{}: {}", contador, subPedidosCopia.size(), subPedido.getNumero());
+                log.info("    ┣ Status Anterior: CRIADO");
+                log.info("    ┣ Cozinha: {}", subPedido.getCozinha().getNome());
+                log.info("    ┣ Itens: {}", subPedido.getItens().size());
+                
+                subPedidoService.confirmar(subPedido.getId());
+                
+                log.info("    ┗ Status Atual: PENDENTE ✅");
+            }
+        }
+
+        // Notifica em tempo real: cozinha, bar, painel gerente
+        log.info("━".repeat(80));
+        log.info("📡 NOTIFICANDO EM TEMPO REAL");
+        log.info("  ┣ Cozinhas: {} unidades", pedido.getSubPedidos().stream().map(sp -> sp.getCozinha().getId()).distinct().count());
+        log.info("  ┗ Painel Gerente: broadcast global");
+        webSocketNotificacaoService.notificarPedidoLiberadoAutomaticamente(pedido);
+        log.info("✅ Notificações enviadas com sucesso");
+        log.info("━".repeat(80));
+
+        return true;
     }
 
     /**

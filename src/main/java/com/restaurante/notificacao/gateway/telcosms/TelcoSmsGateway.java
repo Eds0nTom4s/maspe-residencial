@@ -59,8 +59,10 @@ public class TelcoSmsGateway implements SmsGateway {
      * Envia SMS real através da API TelcoSMS
      */
     private SmsResponse enviarSmsReal(String phoneNumber, String message) {
+        String url = properties.getBaseUrl() + "/send_message";
+        
         try {
-            String url = properties.getBaseUrl() + "/send_message";
+            log.info("Iniciando envio de SMS via TelcoSMS para: {}", phoneNumber);
             
             // Cria request
             TelcoSmsRequest request = new TelcoSmsRequest(
@@ -69,15 +71,17 @@ public class TelcoSmsGateway implements SmsGateway {
                 message
             );
             
+            // Log payload (sem expor chave completa)
+            String maskedKey = properties.getApiKey() != null && properties.getApiKey().length() > 4 
+                ? properties.getApiKey().substring(0, 4) + "***" 
+                : "***";
+            log.info("Payload TelcoSMS: URL={}, Fone={}, Msg='{}', KeyPrefix={}", url, phoneNumber, message, maskedKey);
+            
             // Configura headers
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             
             HttpEntity<TelcoSmsRequest> entity = new HttpEntity<>(request, headers);
-            
-            if (properties.getDebug()) {
-                log.debug("Enviando SMS via TelcoSMS para {}: {}", phoneNumber, message);
-            }
             
             // Envia requisição
             ResponseEntity<TelcoSmsResponse> response = restTemplate.exchange(
@@ -88,6 +92,7 @@ public class TelcoSmsGateway implements SmsGateway {
             );
             
             TelcoSmsResponse telcoResponse = response.getBody();
+            log.info("Resposta TelcoSMS: Status={}, Body={}", response.getStatusCode(), telcoResponse);
             
             // Converte TelcoSmsResponse para SmsResponse genérico
             if (telcoResponse != null && telcoResponse.isSuccess()) {
@@ -101,7 +106,7 @@ public class TelcoSmsGateway implements SmsGateway {
             }
             
         } catch (Exception e) {
-            log.error("Erro ao enviar SMS via TelcoSMS para {}: {}", phoneNumber, e.getMessage(), e);
+            log.error("Erro ao enviar SMS via TelcoSMS para {}. URL={}: {}", phoneNumber, url, e.getMessage(), e);
             return SmsResponse.error(e.getMessage(), "SEND_FAILED");
         }
     }

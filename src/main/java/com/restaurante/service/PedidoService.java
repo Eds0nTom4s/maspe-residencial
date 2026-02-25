@@ -129,7 +129,7 @@ public class PedidoService {
             Produto produto = produtoService.buscarPorId(itemRequest.getProdutoId());
 
             // Valida se produto está ativo (disponibilidade real depende de unidades de produção)
-            if (!produto.isAtivo()) {
+            if (produto.getAtivo() == null || !produto.getAtivo()) {
                 throw new BusinessException("Produto " + produto.getNome() + " não está ativo");
             }
 

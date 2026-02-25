@@ -1,6 +1,7 @@
 package com.restaurante.service;
 
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.LimitePosPagoExcedidoException;
 import com.restaurante.exception.PosPagoNaoPermitidoException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.exception.SaldoInsuficienteException;
@@ -88,6 +89,41 @@ public class PedidoFinanceiroService {
         } catch (ResourceNotFoundException e) {
             // Cliente não tem fundo ativo
             throw new SaldoInsuficienteException("Fundo de Consumo não encontrado. Recarregue seu saldo antes de fazer pedidos.");
+        }
+    }
+
+    /**
+     * Valida se pedido pode ser confirmado automaticamente sem lançar exception
+     * Usado para confirmação automática de pedidos dentro do limite de risco
+     */
+    @Transactional(readOnly = true)
+    public boolean validarEConfirmarSePermitido(Long unidadeConsumoId, BigDecimal valorTotal, TipoPagamentoPedido tipoPagamento, Set<String> roles) {
+        log.info("┏".repeat(80));
+        log.info("🔍 VALIDAÇÃO DE LIMITE - Confirmação Automática");
+        log.info("  ┣ Unidade Consumo ID: {}", unidadeConsumoId);
+        log.info("  ┣ Valor Total: {} AOA", valorTotal);
+        log.info("  ┣ Tipo Pagamento: {}", tipoPagamento);
+        log.info("  ┗ Roles: {}", roles);
+        
+        // PRE_PAGO sempre confirma automaticamente (já validou saldo)
+        if (tipoPagamento.isPrePago()) {
+            log.info("✅ PRE_PAGO: Confirmado automaticamente (saldo já validado)");
+            log.info("┗".repeat(80));
+            return true;
+        }
+
+        // POS_PAGO: verifica limite sem lançar exception
+        log.info("⌛ POS_PAGO: Verificando limite de risco...");
+        try {
+            configuracaoFinanceiraService.validarCriacaoPosPago(unidadeConsumoId, valorTotal, roles);
+            log.info("✅ POS_PAGO: DENTRO DO LIMITE - Confirmado automaticamente");
+            log.info("┗".repeat(80));
+            return true;
+        } catch (LimitePosPagoExcedidoException e) {
+            log.warn("❌ POS_PAGO: LIMITE ATINGIDO - Pedido BLOQUEADO");
+            log.warn("  ┗ Detalhes: {}", e.getMessage());
+            log.warn("┗".repeat(80));
+            return false;
         }
     }
 

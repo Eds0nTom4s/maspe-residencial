@@ -1,10 +1,12 @@
 package com.restaurante.notificacao.gateway.telcosms.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
 
 /**
  * Response do envio de SMS via TelcoSMS
  */
+@Data
 public class TelcoSmsResponse {
     
     @JsonProperty("status")

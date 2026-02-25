@@ -10,7 +10,7 @@ import java.util.Map;
  * Controller para gerenciamento de notificações
  */
 @RestController
-@RequestMapping("/notificacoes")
+@RequestMapping("/api/notificacoes")
 public class NotificacaoController {
     
     private final NotificacaoService notificacaoService;

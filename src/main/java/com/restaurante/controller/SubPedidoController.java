@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/subpedidos")
+@RequestMapping("/subpedidos")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "SubPedidos", description = "Gerenciamento de SubPedidos (unidades operacionais)")

@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -21,10 +22,11 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/event-logs")
+@RequestMapping("/event-logs")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Event Logs", description = "Auditoria e histórico de eventos")
+@PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
 public class EventLogController {
 
     private final EventLogService eventLogService;

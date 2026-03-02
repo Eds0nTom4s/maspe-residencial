@@ -32,6 +32,7 @@ public class PedidoController {
      * POST /api/pedidos
      */
     @PostMapping
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
     @Operation(summary = "Criar pedido", description = "Cria um novo pedido para uma mesa")
     public ResponseEntity<ApiResponse<PedidoResponse>> criar(@Valid @RequestBody CriarPedidoRequest request) {
         PedidoResponse pedido = pedidoService.criar(request);
@@ -90,6 +91,7 @@ public class PedidoController {
      * @param motivo Motivo obrigatório do cancelamento
      */
     @PutMapping("/{id}/cancelar")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
     @Operation(summary = "Cancelar pedido", description = "Cancela um pedido com motivo obrigatório")
     public ResponseEntity<ApiResponse<PedidoResponse>> cancelar(
             @PathVariable Long id,

@@ -1,0 +1,446 @@
+================================================================================
+  DOCUMENTO DE ALINHAMENTO — EQUIPE FRONTEND
+  Sistema de Restauração — Backend v1.1 (Sprint Domínio)
+  Data: 01 de Março de 2026
+  Responsável Backend: Eng.ª Margarida
+================================================================================
+
+Este documento descreve todas as alterações de contrato (API, DTOs, regras de
+negócio e comportamentos de UI) introduzidas na última sprint de domínio.
+Leia integralmente antes de iniciar qualquer tarefa de integração.
+
+Base URL de todos os endpoints: /api
+Autenticação: Bearer JWT — header "Authorization: Bearer <token>"
+
+________________________________________________________________________________
+ÍNDICE
+________________________________________________________________________________
+
+  1. Resumo Executivo das Mudanças
+  2. Novo Endpoint — Valor Mínimo de Operação
+  3. Endpoints Modificados — Configurações Financeiras
+  4. Novo Campo — Modo Anónimo em Unidade de Consumo
+  5. Lógica de Criação de Unidade de Consumo (dois fluxos)
+  6. Regras de Negócio que Afetam a Interface
+  7. Auditoria — Novo Log Financeiro
+  8. Tabela Completa de Endpoints Financeiros
+  9. Guia Rápido de Erros Esperados
+ 10. Exemplo de Fluxo Completo — Mesa Anónima
+ 11. Checklist de Integração por Ecrã
+
+________________________________________________________________________________
+1. RESUMO EXECUTIVO DAS MUDANÇAS
+________________________________________________________________________________
+
+  A. MODO ANÓNIMO (novo fluxo)
+     - Uma Unidade de Consumo (mesa/quarto) pode agora ser criada SEM vincular
+       um cliente. O QR Code torna-se o único identificador do portador.
+     - Campo novo: "modoAnonimo" (boolean) em request e response.
+
+  B. PÓS-PAGO BLOQUEADO NO MODO ANÓNIMO
+     - Se a unidade de consumo for anónima, o frontend NÃO deve apresentar a
+       opção "POS_PAGO" ao criar um pedido. O backend rejeita com 422.
+
+  C. NOVO ENDPOINT — VALOR MÍNIMO DE OPERAÇÃO
+     - PUT /api/configuracoes-financeiras/valor-minimo
+     - Configuração antes hardcoded (10,00 AOA); agora gerível pelo ADMIN.
+
+  D. PARÂMETRO "motivo" NOS ENDPOINTS DE CONFIGURAÇÃO
+     - Os endpoints de ativar/desativar pós-pago e de alterar limite agora
+       aceitam o query param "motivo" (opcional).
+     - Recomendado fortemente para compliance — mostrar campo de texto na UI.
+
+  E. LIMITE MÍNIMO DE PÓS-PAGO REDUZIDO
+     - Antes: 1.000,00 AOA  →  Agora: 100,00 AOA (mínimo aceite pelo backend).
+
+  F. NOVO CAMPO NA RESPOSTA DE CONFIGURAÇÃO
+     - "motivoUltimaAlteracao" (string, pode ser null) presente no objeto
+       ConfiguracaoFinanceiraSistema retornado por GET /configuracoes-financeiras.
+
+________________________________________________________________________________
+2. NOVO ENDPOINT — VALOR MÍNIMO DE OPERAÇÃO
+________________________________________________________________________________
+
+  PUT /api/configuracoes-financeiras/valor-minimo
+  Roles permitidas: ADMIN
+
+  Query params:
+    novoValor  (BigDecimal, obrigatório) — novo valor mínimo em AOA
+    motivo     (String,     opcional)    — razão da alteração
+
+  Resposta de sucesso (200):
+    {
+      "success": true,
+      "message": "Valor mínimo alterado para 15.00 AOA",
+      "data": null
+    }
+
+  Aplicação prática para o frontend:
+    - Painel ADMIN → aba "Parâmetros Financeiros"
+    - Campo numérico com label "Valor mínimo por operação (AOA)"
+    - Campo de texto "Motivo" (placeholder: "Ex: Ajuste operacional Q1 2026")
+    - Botão "Salvar" dispara PUT com os dois params acima
+
+________________________________________________________________________________
+3. ENDPOINTS MODIFICADOS — CONFIGURAÇÕES FINANCEIRAS
+________________________________________________________________________________
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  ANTES desta sprint, estes endpoints NÃO aceitavam o param "motivo".    │
+  │  O param é OPCIONAL — chamadas sem ele continuam funcionando.           │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  3.1 Ativar pós-pago
+  ───────────────────
+  PUT /api/configuracoes-financeiras/pos-pago/ativar
+  Roles: ADMIN
+
+  Query params:
+    motivo  (String, opcional)
+
+  Exemplo de chamada:
+    PUT /api/configuracoes-financeiras/pos-pago/ativar?motivo=Retomada+após+auditoria
+
+
+  3.2 Desativar pós-pago
+  ──────────────────────
+  PUT /api/configuracoes-financeiras/pos-pago/desativar
+  Roles: ADMIN
+
+  Query params:
+    motivo  (String, opcional)
+
+  Exemplo de chamada:
+    PUT /api/configuracoes-financeiras/pos-pago/desativar?motivo=Excesso+de+inadimplência
+
+
+  3.3 Alterar limite de pós-pago
+  ──────────────────────────────
+  PUT /api/configuracoes-financeiras/pos-pago/limite
+  Roles: ADMIN
+
+  Query params:
+    novoLimite  (BigDecimal, obrigatório) — MÍNIMO agora é 100,00 AOA
+    motivo      (String,     opcional)
+
+  ATENÇÃO: se o frontend validava localmente o mínimo como 1.000,00 AOA,
+  actualizar essa validação para 100,00 AOA.
+
+
+  3.4 Buscar configuração atual
+  ─────────────────────────────
+  GET /api/configuracoes-financeiras
+  Roles: ADMIN
+
+  Response — estrutura ConfiguracaoFinanceiraSistema (NOVO CAMPO):
+    {
+      "id": 1,
+      "posPagoAtivo": true,
+      "limitePosPago": 500.00,
+      "valorMinimoOperacao": 10.00,          ← NOVO
+      "atualizadoPorNome": "admin",
+      "atualizadoPorRole": "ADMIN",
+      "motivoUltimaAlteracao": "string|null", ← NOVO
+      "createdAt": "...",
+      "updatedAt": "..."
+    }
+
+  O painel de configurações deve exibir os dois novos campos.
+
+
+  3.5 Status rápido do pós-pago
+  ─────────────────────────────
+  GET /api/configuracoes-financeiras/pos-pago/status
+  Roles: ATENDENTE, GERENTE, ADMIN   ← (sem alteração de contrato)
+
+  Response:
+    { "success": true, "data": true|false }
+
+  Use este endpoint para esconder/mostrar a opção POS_PAGO nos formulários
+  de criação de pedido sem precisar carregar a configuração completa.
+
+________________________________________________________________________________
+4. NOVO CAMPO — MODO ANÓNIMO EM UNIDADE DE CONSUMO
+________________________________________________________________________________
+
+  4.1 Na CRIAÇÃO de uma unidade (POST /api/unidades-consumo)
+  ────────────────────────────────────────────────────────────
+  Request — CriarUnidadeConsumoRequest:
+
+    Campo             Tipo      Obrigatório   Descrição
+    ─────────────────────────────────────────────────────────────────────────
+    referencia        String    SIM           Ex: "Mesa 15", "Quarto 205"
+    tipo              Enum      não           Default: MESA_FISICA
+    numero            Integer   não           Número da unidade
+    telefoneCliente   String    não           AGORA OPCIONAL (ver nota abaixo)
+    modoAnonimo       boolean   não           Default: false
+    unidadeAtendimentoId Long   SIM
+    qrCode            String    não
+    capacidade        Integer   não
+    atendenteId       Long      não
+    ─────────────────────────────────────────────────────────────────────────
+
+  NOTA IMPORTANTE sobre telefoneCliente:
+    - Antes desta sprint era OBRIGATÓRIO.
+    - Agora é opcional. O campo pode ser enviado como null ou omitido.
+    - Quando modoAnonimo = true, o campo é completamente ignorado pelo backend.
+
+  4.2 Na RESPOSTA de uma unidade (GET /api/unidades-consumo/{id})
+  ────────────────────────────────────────────────────────────────
+  Response — UnidadeConsumoResponse:
+
+    Campo             Tipo      Novo?   Descrição
+    ─────────────────────────────────────────────────────────────────────────
+    id                Long      não
+    referencia        String    não
+    modoAnonimo       Boolean   SIM     true = unidade anónima
+    tipo              Enum      não
+    numero            Integer   não
+    qrCode            String    não
+    status            Enum      não
+    capacidade        Integer   não
+    cliente           Object    não     null quando modoAnonimo = true
+    pedidos           List      não
+    total             BigDecimal não
+    abertaEm          DateTime  não
+    fechadaEm         DateTime  não
+    ─────────────────────────────────────────────────────────────────────────
+
+  Quando modoAnonimo = true, o campo "cliente" vem sempre como null.
+  O frontend não deve tentar renderizar dados de cliente neste caso.
+
+________________________________________________________________________________
+5. LÓGICA DE CRIAÇÃO DE UNIDADE DE CONSUMO (DOIS FLUXOS)
+________________________________________________________________________________
+
+  FLUXO A — Unidade Identificada (comportamento anterior, mantido)
+  ─────────────────────────────────────────────────────────────────
+    modoAnonimo: false (ou omitido)
+    telefoneCliente: obrigatório para este fluxo (validado pelo backend)
+    Efeito: backend busca ou cria cliente via telefone; associa à unidade.
+    Pós-pago: PERMITIDO (respeitando limite e interruptor global).
+
+  FLUXO B — Unidade Anónima (NOVO)
+  ──────────────────────────────────
+    modoAnonimo: true
+    telefoneCliente: ignorado — não enviar ou enviar null
+    qrCode: deve ser preenchido pelo frontend (UUID gerado no lado cliente,
+            ou deixar vazio e usar o gerado pelo backend)
+    Efeito: unidade criada sem vínculo a cliente; fundo de consumo keyed
+            pelo UUID do QR Code.
+    Pós-pago: BLOQUEADO automaticamente pelo backend.
+
+  Sugestão de UI:
+    - Switch ou toggle "Consumo anónimo (sem identificação)"
+    - Quando activado: esconde campo telefone, mostra aviso:
+      "Atenção: a perda do QR Code implica perda de acesso ao saldo."
+    - Quando activado: remover opção POS_PAGO do formulário de pedido.
+
+________________________________________________________________________________
+6. REGRAS DE NEGÓCIO QUE AFETAM A INTERFACE
+________________________________________________________________________________
+
+  6.1 Pós-pago
+  ─────────────
+  REGRA: O tipo POS_PAGO só pode ser seleccionado se AMBAS as condições forem
+  verdadeiras:
+    (a) GET /api/configuracoes-financeiras/pos-pago/status retorna true
+    (b) A unidade de consumo NÃO está em modoAnonimo
+
+  Implementação sugerida:
+    - Ao abrir o formulário de pedido, consultar o endpoint de status.
+    - Se status = false OU unidade é anónima: desabilitar/ocultar opção POS_PAGO.
+    - Manter PRE_PAGO como único tipo disponível nesses casos.
+
+  6.2 Valor mínimo de operação
+  ─────────────────────────────
+  REGRA: O valor mínimo para recargas, débitos e estornos é configurável.
+  O valor actual está em:
+    GET /api/configuracoes-financeiras → campo "valorMinimoOperacao"
+
+  O frontend deve usar este valor como limite inferior nas validações locais
+  (não usar valor fixo de 10,00 AOA). Carregar ao inicializar o painel.
+
+  6.3 Limite de pós-pago
+  ──────────────────────
+  REGRA: O limite máximo de pós-pago aberto por unidade está em:
+    GET /api/configuracoes-financeiras → campo "limitePosPago"
+
+  Exibir este valor como informação no painel de configurações e como
+  aviso contextual no formulário de pedido pós-pago.
+
+  6.4 Saldo insuficiente (PRE_PAGO)
+  ───────────────────────────────────
+  Se o cliente não tiver saldo suficiente, o backend retorna 422 com:
+    { "success": false, "message": "Saldo insuficiente. Saldo: X AOA. Necessário: Y AOA." }
+
+  A UI deve mostrar esta mensagem directamente ao utilizador com um CTA
+  para recarga do fundo de consumo.
+
+________________________________________________________________________________
+7. AUDITORIA — NOVO LOG FINANCEIRO
+________________________________________________________________________________
+
+  Todas as operações críticas (ativar/desativar pós-pago, alterar limite,
+  alterar valor mínimo, confirmar pagamento pós-pago, estornar pedido) geram
+  um registo imutável em base de dados (tabela configuracao_financeira_event_log).
+
+  Endpoint para consulta (a expor no painel ADMIN):
+    Os endpoints de consulta de auditoria são servidos directamente pelo
+    serviço interno. Consultar a equipa de backend para obter o endpoint
+    REST de listagem de eventos (a publicar na próxima sprint).
+
+  Por ora, o painel deve exibir pelo menos:
+    - Quem fez a última alteração: campo "atualizadoPorNome" no GET configuração
+    - Qual foi o motivo: campo "motivoUltimaAlteracao"
+    - Quando foi alterado: campo "updatedAt"
+
+________________________________________________________________________________
+8. TABELA COMPLETA DE ENDPOINTS FINANCEIROS
+________________________________________________________________________________
+
+  Método  Endpoint                                     Roles           Novo/Alt?
+  ──────────────────────────────────────────────────────────────────────────────
+  GET     /configuracoes-financeiras                   ADMIN           ALTERADO*
+  PUT     /configuracoes-financeiras/pos-pago/ativar   ADMIN           ALTERADO**
+  PUT     /configuracoes-financeiras/pos-pago/desativar ADMIN          ALTERADO**
+  PUT     /configuracoes-financeiras/pos-pago/limite   ADMIN           ALTERADO***
+  PUT     /configuracoes-financeiras/valor-minimo      ADMIN           NOVO
+  GET     /configuracoes-financeiras/pos-pago/status   ATN/GER/ADM     sem alteração
+  ──────────────────────────────────────────────────────────────────────────────
+
+  *   Response tem dois novos campos: valorMinimoOperacao, motivoUltimaAlteracao
+  **  Aceita query param "motivo" (opcional)
+  *** Aceita query param "motivo" (opcional); limite mínimo baixou para 100 AOA
+
+________________________________________________________________________________
+9. GUIA RÁPIDO DE ERROS ESPERADOS
+________________________________________________________________________________
+
+  Código  Situação                                      Mensagem típica
+  ──────────────────────────────────────────────────────────────────────────────
+  400     novoLimite < 100,00 AOA                       "Limite mínimo é 100.00 AOA"
+  403     Papel sem permissão para operação crítica      "Access Denied"
+  404     Pedido / Unidade / Fundo não encontrado        "Recurso não encontrado: X"
+  409     Cliente já tem fundo activo                    "Cliente já possui fundo ativo"
+  422     POS_PAGO em modo anónimo                       "Pós-pago não permitido..."
+  422     POS_PAGO desactivado globalmente               "Pós-pago desabilitado..."
+  422     Limite de pós-pago excedido                    "Limite de pós-pago excedido..."
+  422     Saldo insuficiente (PRE_PAGO)                  "Saldo insuficiente. Saldo: X..."
+  ──────────────────────────────────────────────────────────────────────────────
+
+  Todos os erros seguem o envelope padrão:
+    { "success": false, "message": "<mensagem legível>", "data": null }
+
+________________________________________________________________________________
+10. EXEMPLO DE FLUXO COMPLETO — MESA ANÓNIMA
+________________________________________________________________________________
+
+  Cenário: Atendente abre uma mesa anónima (sem telemóvel do cliente) e
+           regista um pedido pré-pago.
+
+  PASSO 1 — Criar Unidade de Consumo anónima
+  ────────────────────────────────────────────
+  POST /api/unidades-consumo
+  Authorization: Bearer <token_atendente>
+
+  Body:
+    {
+      "referencia": "Mesa 07",
+      "tipo": "MESA_FISICA",
+      "numero": 7,
+      "modoAnonimo": true,
+      "unidadeAtendimentoId": 1,
+      "capacidade": 4
+    }
+
+  Resposta (201):
+    {
+      "success": true,
+      "data": {
+        "id": 42,
+        "referencia": "Mesa 07",
+        "modoAnonimo": true,
+        "qrCode": "a1b2c3d4-...",   ← UUID gerado pelo backend
+        "status": "DISPONIVEL",
+        "cliente": null,             ← sempre null em modo anónimo
+        ...
+      }
+    }
+
+  PASSO 2 — Verificar se pós-pago está activo (para habilitar/desabilitar opção)
+  ───────────────────────────────────────────────────────────────────────────────
+  GET /api/configuracoes-financeiras/pos-pago/status
+  → data: true
+
+  Mas como é modo anónimo, NÃO mostrar opção POS_PAGO de qualquer forma.
+
+  PASSO 3 — Criar Pedido (forçosamente PRE_PAGO)
+  ────────────────────────────────────────────────
+  POST /api/pedidos
+  Authorization: Bearer <token_atendente>
+
+  Body:
+    {
+      "unidadeConsumoId": 42,
+      "tipoPagamento": "PRE_PAGO",
+      "itens": [
+        { "produtoId": 5, "quantidade": 2 },
+        { "produtoId": 8, "quantidade": 1 }
+      ],
+      "observacoes": "Sem pimenta"
+    }
+
+  Resposta (201):
+    {
+      "success": true,
+      "data": {
+        "id": 101,
+        "numero": "PED-20260301-101",
+        "status": "CONFIRMADO",
+        "total": 2500.00,
+        ...
+      }
+    }
+
+  PASSO 4 — Fechar a mesa
+  ────────────────────────
+  PUT /api/unidades-consumo/42/fechar
+  → Unidade fechada; histórico de pedidos preservado.
+
+________________________________________________________________________________
+11. CHECKLIST DE INTEGRAÇÃO POR ECRÃ
+________________________________________________________________________________
+
+  [ ] Ecrã de criação de Unidade de Consumo
+      ├─ Adicionar toggle "Modo Anónimo"
+      ├─ Quando activo: ocultar campo "Telefone do Cliente"
+      ├─ Quando activo: mostrar aviso sobre perda do QR Code
+      └─ Enviar modoAnonimo: true no body
+
+  [ ] Ecrã de detalhe de Unidade de Consumo
+      ├─ Exibir badge "ANÓNIMO" quando modoAnonimo = true
+      └─ Não renderizar secção de dados do cliente quando modoAnonimo = true
+
+  [ ] Formulário de criação de Pedido
+      ├─ Consultar GET /pos-pago/status antes de montar o selector de tipo
+      ├─ Se status = false OU unidade.modoAnonimo = true: ocultar POS_PAGO
+      └─ Em caso de erro 422, mostrar mensagem da API directamente
+
+  [ ] Painel Admin — Configurações Financeiras
+      ├─ Exibir campo "Valor mínimo de operação (AOA)" com botão de edição
+      ├─ Exibir campo "Limite pós-pago (AOA)" — mínimo local: 100 AOA
+      ├─ Adicionar campo "Motivo" em todos os formulários de alteração
+      ├─ Exibir "Última alteração por: <nome> — <motivo>" no cabeçalho
+      └─ Actualizar validação local de limite mínimo: 100 AOA (era 1.000 AOA)
+
+  [ ] Testes de contrato a executar pelo frontend
+      ├─ POST unidade com modoAnonimo=true → cliente deve ser null na resposta
+      ├─ POST pedido POS_PAGO em unidade anónima → esperar 422
+      ├─ PUT /valor-minimo sem autenticação → esperar 403
+      └─ PUT /pos-pago/limite com novoLimite=50 → esperar 400
+
+================================================================================
+  FIM DO DOCUMENTO
+  Dúvidas: contactar a equipa de backend antes de iniciar a implementação.
+================================================================================

@@ -88,11 +88,32 @@ public class UnidadeDeConsumo extends BaseEntity {
     private Integer capacidade;
 
     /**
-     * Relacionamento OBRIGATÓRIO com Cliente
+     * Relacionamento com Cliente – OPCIONAL no fluxo anónimo.
+     *
+     * <p>No fluxo identificado (OTP), este campo é preenchido.
+     * No fluxo anónimo (bar, evento, balada), fica nulo: o portador
+     * do consumo é o próprio QR Code + Fundo de Consumo associado.
+     *
+     * <p>Regra: {@code modoAnonimo = true} ↔ {@code cliente = null}.
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cliente_id", nullable = false)
+    @JoinColumn(name = "cliente_id", nullable = true)
     private Cliente cliente;
+
+    /**
+     * Indica se esta unidade opera no modo anónimo (sem identidade do cliente).
+     *
+     * <p>Quando {@code true}:
+     * <ul>
+     *   <li>Não há cadastro de cliente vinculado.</li>
+     *   <li>O QR Code atua como único identificador do portador.</li>
+     *   <li>Perda do QR = perda do saldo – responsabilidade do portador.</li>
+     *   <li>Pós-pago NÃO é permitido neste modo.</li>
+     * </ul>
+     */
+    @Column(name = "modo_anonimo", nullable = false)
+    @Builder.Default
+    private Boolean modoAnonimo = false;
 
     /**
      * Relacionamento OPCIONAL com Atendente (se foi criada manualmente)

@@ -12,6 +12,7 @@ import com.restaurante.model.entity.User;
 import com.restaurante.repository.AtendenteRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.JwtTokenProvider;
+import com.restaurante.util.PhoneNumberUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -38,41 +39,51 @@ public class AuthService {
 
     /**
      * Realiza login
+     * 
+     * ⚠️ SEGURANÇA: Mensagens genéricas para não vazar informação sobre usuários existentes
      */
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        log.info("Tentativa de login para usuário: {}", request.getUsername());
+        log.info("Tentativa de login JWT - Input: {}", request.getUsername());
 
-        // Autentica
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getUsername(),
-                        request.getPassword()
-                )
-        );
+        try {
+            // Autentica
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            request.getUsername(),
+                            request.getPassword()
+                    )
+            );
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
-        // Gera tokens
+        // Gera tokens usando o username do principal autenticado
+        String authenticatedUsername = authentication.getName();
         String accessToken = jwtTokenProvider.generateToken(authentication);
-        String refreshToken = jwtTokenProvider.generateRefreshToken(request.getUsername());
+        String refreshToken = jwtTokenProvider.generateRefreshToken(authenticatedUsername);
 
-        // Atualiza último acesso
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new BusinessException("Usuário não encontrado"));
+        // Busca usuário pelo username real (não pelo input que pode ser telefone)
+        User user = userRepository.findByUsername(authenticatedUsername)
+                .orElseThrow(() -> new BusinessException("Credenciais inválidas"));
         user.atualizarUltimoAcesso();
         userRepository.save(user);
 
-        log.info("Login realizado com sucesso para: {}", request.getUsername());
+            log.info("✅ Login JWT bem-sucedido - Username: {}, Roles: {}", user.getUsername(), user.getRoles());
 
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .tokenType("Bearer")
-                .expiresIn(86400000L) // 24 horas em ms
-                .username(user.getUsername())
-                .roles(user.getRoles())
-                .build();
+            return AuthResponse.builder()
+                    .accessToken(accessToken)
+                    .refreshToken(refreshToken)
+                    .tokenType("Bearer")
+                    .expiresIn(3600000L) // 1 hora em ms
+                    .username(user.getUsername())
+                    .roles(user.getRoles())
+                    .build();
+        } catch (Exception e) {
+            // ⚠️ SEGURANÇA: Log interno detalhado, mas mensagem genérica para usuário
+            log.error("❌ Falha no login JWT - Input: {} - Tipo: {} - Mensagem: {}", 
+                     request.getUsername(), e.getClass().getSimpleName(), e.getMessage(), e);
+            throw new BusinessException("Credenciais inválidas");
+        }
     }
 
     /**
@@ -182,35 +193,73 @@ public class AuthService {
      */
     @Transactional(readOnly = true)
     public LoginAtendenteResponse loginAtendente(LoginAtendenteRequest request) {
-        log.info("Tentativa de login atendente para telefone: {}", request.getTelefone());
+        log.info("=== SERVICE: Processando login Atendente ===");
+        log.info("Telefone recebido: {}", request.getTelefone());
+        log.info("Senha length: {}", request.getSenha() != null ? request.getSenha().length() : 0);
         
-        // Busca atendente por telefone
-        Atendente atendente = atendenteRepository.findByTelefoneAndAtivoTrue(request.getTelefone())
-            .orElseThrow(() -> new BusinessException("Telefone ou senha inválidos"));
+        try {
+            // Busca atendente por telefone
+            log.debug("Buscando atendente no banco de dados...");
+            
+            // Normaliza o telefone antes de buscar
+            String telefoneParaBuscar = request.getTelefone();
+            try {
+                telefoneParaBuscar = PhoneNumberUtil.normalize(request.getTelefone());
+                log.info("Telefone normalizado: {} -> {}", request.getTelefone(), telefoneParaBuscar);
+            } catch (IllegalArgumentException e) {
+                log.warn("Erro ao normalizar telefone: {} - {}", request.getTelefone(), e.getMessage());
+            }
+            
+            final String telefoneNormalizado = telefoneParaBuscar;
+            
+            Atendente atendente = atendenteRepository.findByTelefoneAndAtivoTrue(telefoneNormalizado)
+                .orElseThrow(() -> {
+                    log.warn("Telefone não encontrado ou atendente inativo: {} (normalizado: {})", 
+                             request.getTelefone(), telefoneNormalizado);
+                    return new BusinessException("Telefone ou senha inválidos");
+                });
+            
+            log.info("Atendente encontrado: ID={}, Nome={}, Tipo={}", 
+                     atendente.getId(), atendente.getNome(), atendente.getTipoUsuario());
         
-        // Valida senha
-        if (!passwordEncoder.matches(request.getSenha(), atendente.getSenha())) {
-            log.warn("Tentativa de login com senha incorreta para: {}", request.getTelefone());
-            throw new BusinessException("Telefone ou senha inválidos");
+            // Valida senha
+            log.debug("Validando senha...");
+            if (!passwordEncoder.matches(request.getSenha(), atendente.getSenha())) {
+                log.warn("Senha incorreta para telefone: {}", request.getTelefone());
+                throw new BusinessException("Telefone ou senha inválidos");
+            }
+            log.info("Senha validada com sucesso");
+            
+            // Gera token JWT com role
+            log.debug("Gerando token JWT...");
+            String role = "ROLE_" + atendente.getTipoUsuario().name();
+            log.info("Role atribuída: {}", role);
+            
+            String token = jwtTokenProvider.generateToken(
+                atendente.getTelefone(),
+                role
+            );
+            
+            log.info("Login atendente concluído com sucesso: {} ({})", atendente.getNome(), atendente.getTipoUsuario());
+            log.info("Token gerado com sucesso (length: {})", token != null ? token.length() : 0);
+            
+            return LoginAtendenteResponse.builder()
+                .id(atendente.getId())
+                .nome(atendente.getNome())
+                .telefone(atendente.getTelefone())
+                .email(atendente.getEmail())
+                .tipoUsuario(atendente.getTipoUsuario())
+                .token(token)
+                .expiresIn(86400L) // 24 horas em segundos
+                .build();
+        } catch (BusinessException e) {
+            log.error("Erro de negócio no login atendente: {}", e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("Erro inesperado no login atendente para telefone: {}", request.getTelefone(), e);
+            log.error("Tipo de erro: {}", e.getClass().getName());
+            throw new BusinessException("Erro ao processar login");
         }
-        
-        // Gera token JWT com role
-        String token = jwtTokenProvider.generateToken(
-            atendente.getTelefone(),
-            "ROLE_" + atendente.getTipoUsuario().name()
-        );
-        
-        log.info("Login atendente bem-sucedido: {} ({})", atendente.getNome(), atendente.getTipoUsuario());
-        
-        return LoginAtendenteResponse.builder()
-            .id(atendente.getId())
-            .nome(atendente.getNome())
-            .telefone(atendente.getTelefone())
-            .email(atendente.getEmail())
-            .tipoUsuario(atendente.getTipoUsuario())
-            .token(token)
-            .expiresIn(86400L) // 24 horas em segundos
-            .build();
     }
 }
 

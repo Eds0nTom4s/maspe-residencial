@@ -1,0 +1,104 @@
+RELATÓRIO GLOBAL DE ESTADO – BACKEND
+Sistema de Restauração (Pré-pago / Pós-pago / Fundo de Consumo)
+
+OBJETIVO:
+Gerar um relatório técnico completo, estruturado e objetivo sobre o estado atual do backend, incluindo progresso, maturidade do domínio, estabilidade, riscos e próximos passos.
+
+1. VISÃO GERAL DO SISTEMA
+- Arquitetura: Monólito modular baseado em Spring Boot (Layers: Controller, Service, Repository, Entity).
+- Tecnologias: Java 17+, Spring Boot 3.x, Spring Security (JWT), Spring Data JPA, WebSocket (Stomp), H2/PostgreSQL (inferred).
+- Estado do Domínio: Estável e bem segregado (Operacional vs Financeiro).
+- Maturidade: Alta no núcleo financeiro e operacional de pedidos; média em funcionalidades periféricas.
+
+2. DOMÍNIO PRINCIPAL
+
+2.1 Unidade de Atendimento
+✅ Concluído
+- Cadastro e gestão de unidades implementados (UnidadeAtendimentoService).
+- Associação com cozinhas via CozinhaService.
+- Status operacional (ativa/inativa) presente.
+
+2.2 Unidade de Consumo (Mesa / Comanda / QR)
+⚠️ Parcial
+- Abertura e gestão de estado implementadas (UnidadeDeConsumoService).
+- Vinculação obrigatória com Cliente (busca por telefone).
+- ❌ GAP: Não há suporte explícito para abertura anônima; fluxo atual exige cadastro/identificação prévia do cliente.
+
+2.3 Produtos e Categorias
+⚠️ Parcial
+- CRUD completo e categorização implementados (ProdutoService).
+- Roteamento para cozinhas baseado em categoria implementado (SubPedidoService).
+- ❌ GAP: Disponibilidade dinâmica baseada no status da cozinha não implementada (apenas flag manual 'disponivel').
+
+2.4 Pedidos e SubPedidos
+✅ Concluído
+- Máquina de estados robusta com validação de transição (TransicaoEstadoValidator).
+- Divisão automática em SubPedidos por tipo de cozinha (Central, Pizzaria, etc.).
+- Idempotência e proteção contra inconsistências de estado.
+
+3. MOTOR FINANCEIRO
+
+3.1 Fundo de Consumo (Pré-pago)
+✅ Concluído
+- Logic de débito, recarga e validação de saldo (FundoConsumoService).
+- Proteção robusta contra concorrência (Isolation.SERIALIZABLE + Optimistic Lock).
+- Auditoria de transações.
+
+3.2 Pós-pago
+✅ Concluído
+- Interruptor global (Circuit Breaker) via ConfiguracaoFinanceiraService.
+- Validação de limites de risco e permissões por role (GERENTE/ADMIN).
+- Separação clara entre fluxo operacional e validação financeira.
+
+3.3 Pagamentos
+✅ Concluído
+- Integração AppyPay (GPO e REF) via PagamentoGatewayService.
+- Tratamento de callbacks e atualização de status financeiro.
+- Idempotência garantida por referência externa.
+
+4. CONCORRÊNCIA E TRANSAÇÕES
+- Uso extensivo de @Version para Optimistic Locking em entidades críticas (FundoConsumo, Pedido).
+- Transações críticas (financeiro) com isolamento SERIALIZABLE.
+- Proteção contra saldo negativo e race conditions validada no código.
+
+5. COMUNICAÇÃO EM TEMPO REAL
+- Infraestrutura WebSocket (Stomp) configurada (WebSocketConfig).
+- Serviço de notificação (WebSocketNotificacaoService) integrado ao ciclo de vida do pedido.
+- Tópicos definidos para cozinha, atendentes e pedidos específicos.
+
+6. SEGURANÇA (SPRING SECURITY)
+- Autenticação via JWT (Stateless).
+- Controle de acesso baseado em Roles (ADMIN, GERENTE, CLIENTE).
+- Endpoints protegidos por padrão.
+
+7. AUDITORIA E RASTREABILIDADE
+- EventLogService registra mudanças de estado em Pedidos e SubPedidos.
+- PagamentoEventLogRepository para rastreabilidade financeira detalhada.
+- Logs estruturados em pontos críticos de decisão (Autorização Pós-pago, Estornos).
+
+8. PREPARAÇÃO PARA FUTURO
+- Estrutura de 'UnidadeAtendimento' facilita expansão para multi-unidade/filiais.
+- Separação de gateways de notificação (SmsGateway interface) facilita troca de provedores.
+- Código desacoplado permite migração gradual para microsserviços se necessário.
+
+9. GAPS IDENTIFICADOS
+
+Gaps Críticos (Bloqueantes para Produção em massa):
+- Falta de fluxo para clientes anônimos (obrigatoriedade de check-in com telefone pode gerar atrito).
+
+Gaps Médios (Ajustes pós go-live):
+- Ausência de trava automática de produtos quando a cozinha fecha/cai.
+- Dashboard operacional agregado ainda incipiente no backend (apenas CRUDs isolados).
+
+Gaps Leves:
+- Refinamento de mensagens de erro para o cliente final.
+
+10. CLASSIFICAÇÃO FINAL
+PRONTO COM RESSALVAS
+
+- Maturidade Estimada: 85%
+- Tempo estimado para ajustes finais: 1-2 semanas (foco em fluxo anônimo e testes de carga).
+- Risco Financeiro: BAIXO (Núcleo financeiro muito robusto e auditado).
+- Risco Operacional: MÉDIO (Dependência de fluxo de cadastro de cliente e estabilidade de conexão para WebSocket).
+
+O sistema backend apresenta uma arquitetura sólida, com excelente rigor no tratamento financeiro e concorrente. A principal barreira para uma operação fluida em ambiente caótico (balada/bar) é a exigência atual de identificação do cliente para abrir mesa, o que deve ser flexibilizado.

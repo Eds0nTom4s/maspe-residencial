@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/unidades-atendimento")
+@RequestMapping("/unidades-atendimento")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Unidades de Atendimento", description = "Gerenciamento de unidades de atendimento")

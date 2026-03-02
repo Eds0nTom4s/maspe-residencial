@@ -2,7 +2,9 @@ package com.restaurante.config;
 
 import com.restaurante.security.CustomUserDetailsService;
 import com.restaurante.security.JwtAuthenticationFilter;
+import com.restaurante.security.JwtSecurityExceptionHandlers;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -30,11 +32,14 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 @RequiredArgsConstructor
+@Slf4j
 @org.springframework.context.annotation.Profile("!test")
 public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final JwtSecurityExceptionHandlers.JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+    private final JwtSecurityExceptionHandlers.JwtAccessDeniedHandler jwtAccessDeniedHandler;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -43,15 +48,24 @@ public class SecurityConfig {
                 .cors(cors -> cors.configure(http))
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(jwtAuthenticationEntryPoint)
+                        .accessDeniedHandler(jwtAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
                         // Endpoints públicos de autenticação
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
+                        
+                        // Debug endpoint (⚠️ REMOVER EM PRODUÇÃO)
+                        .requestMatchers("/api/debug/**", "/debug/**").permitAll()
                         
                         // Documentação e monitoramento
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/h2-console/**", "/api/h2-console/**").permitAll()
                         .requestMatchers("/error").permitAll()
+                        
+                        // CORS preflight (OPTIONS)
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         
                         // Webhooks e callbacks (AppyPay)
                         .requestMatchers("/api/pagamentos/callback").permitAll()
@@ -65,26 +79,35 @@ public class SecurityConfig {
 
         // Permitir H2 Console (desenvolvimento) - desabilita CSRF e X-Frame-Options
         http.headers(headers -> headers
-                .frameOptions(frame -> frame.disable()));
+                .frameOptions(frame -> frame.disable())
+                .contentSecurityPolicy(csp -> csp
+                    .policyDirectives("default-src 'self'; frame-ancestors 'none'; form-action 'self';"))
+                .contentTypeOptions(contentType -> contentType.disable()));
 
         return http.build();
     }
 
     @Bean
     public AuthenticationProvider authenticationProvider() {
+        log.info("🔧 Configurando DaoAuthenticationProvider...");
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
         authProvider.setUserDetailsService(userDetailsService);
         authProvider.setPasswordEncoder(passwordEncoder());
+        log.info("✅ DaoAuthenticationProvider configurado com BCryptPasswordEncoder");
         return authProvider;
     }
 
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        log.info("🔧 Configurando AuthenticationManager...");
         return config.getAuthenticationManager();
     }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        log.info("🔧 Criando BCryptPasswordEncoder...");
+        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+        log.info("✅ BCryptPasswordEncoder criado - Strength: 10 (default)");
+        return encoder;
     }
 }

@@ -11,6 +11,7 @@ import com.restaurante.repository.ConfiguracaoFinanceiraSistemaRepository;
 import com.restaurante.repository.PedidoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,12 +20,17 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Service para configuração financeira global
- * 
- * INTERRUPTOR GLOBAL DE POS-PAGO:
- * - ADMIN pode ativar/desativar pós-pago em tempo real
- * - Valida limites de risco por cliente/unidade
- * - Registra auditoria de todas alterações
+ * Serviço de configuração financeira global.
+ *
+ * <p>Princípio de inicialização:
+ * <ol>
+ *   <li>Na <b>primeira execução</b>, os valores de {@code application.properties}
+ *       ({@code financeiro.limite-pos-pago} e {@code financeiro.valor-minimo-operacao})
+ *       são usados como semente para criar o registro inicial no banco.</li>
+ *   <li>Nas execuções seguintes, o <b>banco é a fonte de verdade</b>.</li>
+ *   <li>O frontend administrativo atualiza os valores via API (sem deploy).</li>
+ *   <li>Toda alteração gera registro imutável em {@code ConfiguracaoFinanceiraEventLog}.</li>
+ * </ol>
  */
 @Service
 @RequiredArgsConstructor
@@ -34,94 +40,109 @@ public class ConfiguracaoFinanceiraService {
     private final ConfiguracaoFinanceiraSistemaRepository configuracaoRepository;
     private final PedidoRepository pedidoRepository;
     private final EventLogService eventLogService;
+    private final AuditoriaFinanceiraService auditoriaFinanceiraService;
 
-    // Limite padrão de pós-pago por unidade (pode ser configurável)
-    private static final BigDecimal LIMITE_POS_PAGO_PADRAO = new BigDecimal("500.00");
+    // Valores-semente lidos de application.properties
+    @Value("${financeiro.limite-pos-pago:500.00}")
+    private BigDecimal limitePosPageSemente;
+
+    @Value("${financeiro.valor-minimo-operacao:10.00}")
+    private BigDecimal valorMinimoSemente;
 
     /**
-     * Busca configuração atual (cria se não existir)
+     * Busca configuração atual.
+     * Se ainda não existe, cria usando os valores-semente de application.properties.
+     * Após criação, o banco é a fonte de verdade.
      */
     @Transactional
     public ConfiguracaoFinanceiraSistema buscarOuCriarConfiguracao() {
         return configuracaoRepository.findAtual()
             .orElseGet(() -> {
-                log.info("Criando configuração financeira inicial");
+                log.info("Criando configuração financeira inicial com valores de bootstrap: " +
+                         "limitePosPago={} AOA, valorMinimo={} AOA",
+                         limitePosPageSemente, valorMinimoSemente);
                 ConfiguracaoFinanceiraSistema config = ConfiguracaoFinanceiraSistema.builder()
                     .posPagoAtivo(true)
+                    .limitePosPago(limitePosPageSemente)
+                    .valorMinimoOperacao(valorMinimoSemente)
                     .atualizadoPorNome("Sistema")
                     .atualizadoPorRole("ADMIN")
+                    .motivoUltimaAlteracao("Inicialização automática (bootstrap)")
                     .build();
                 return configuracaoRepository.save(config);
             });
     }
 
-    /**
-     * Verifica se pós-pago está ativo
-     */
+    /** Verifica se pós-pago está ativo. */
     public boolean isPosPagoAtivo() {
         return buscarOuCriarConfiguracao().getPosPagoAtivo();
     }
 
     /**
-     * Valida se pedido POS-PAGO pode ser criado
-     * 
-     * REGRAS:
-     * - posPagoAtivo deve ser true
-     * - Usuário deve ter role GERENTE ou ADMIN
-     * - Total aberto não pode exceder limite
+     * Valida se pedido POS-PAGO pode ser criado.
+     *
+     * <p>Regras:
+     * <ul>
+     *   <li>posPagoAtivo deve ser true</li>
+     *   <li>Usuário deve ter role GERENTE ou ADMIN</li>
+     *   <li>Total aberto não pode exceder o limite configurado</li>
+     * </ul>
      */
     @Transactional(readOnly = true)
     public void validarCriacaoPosPago(Long unidadeConsumoId, BigDecimal valorNovo, Set<String> roles) {
         log.info("Validando criação de pós-pago para unidade {} - valor {}", unidadeConsumoId, valorNovo);
 
-        // 1. Verifica se pós-pago está ativo globalmente
         if (!isPosPagoAtivo()) {
             throw new PosPagoDesabilitadoException();
         }
 
-        // 2. Verifica permissão (já validado em PedidoFinanceiroService, mas reforça)
         boolean temPermissao = roles.stream()
             .anyMatch(role -> role.equals("GERENTE") || role.equals("ADMIN"));
         if (!temPermissao) {
             throw new BusinessException("Apenas GERENTE ou ADMIN podem autorizar pós-pago");
         }
 
-        // 3. Verifica limite de risco
+        ConfiguracaoFinanceiraSistema config = buscarOuCriarConfiguracao();
+        BigDecimal limitePosPago = config.getLimitePosPago();
         BigDecimal totalAberto = calcularTotalPosPagoAberto(unidadeConsumoId);
         BigDecimal novoTotal = totalAberto.add(valorNovo);
-        
-        if (novoTotal.compareTo(LIMITE_POS_PAGO_PADRAO) > 0) {
-            throw new LimitePosPagoExcedidoException(novoTotal, LIMITE_POS_PAGO_PADRAO);
+
+        if (novoTotal.compareTo(limitePosPago) > 0) {
+            throw new LimitePosPagoExcedidoException(novoTotal, limitePosPago);
         }
 
-        log.info("Validação de pós-pago OK. Total aberto após pedido: R$ {}", novoTotal);
+        log.info("Validação de pós-pago OK. Total aberto após pedido: {} AOA (limite: {} AOA)",
+                novoTotal, limitePosPago);
     }
 
-    /**
-     * Calcula total de pós-pago aberto (NAO_PAGO) para unidade
-     */
+    /** Calcula total de pós-pago aberto (NAO_PAGO) para unidade. */
     private BigDecimal calcularTotalPosPagoAberto(Long unidadeConsumoId) {
-        List<Pedido> pedidosAbertos = pedidoRepository.findByUnidadeConsumoIdAndTipoPagamentoAndStatusFinanceiro(
-            unidadeConsumoId, 
-            TipoPagamentoPedido.POS_PAGO, 
-            StatusFinanceiroPedido.NAO_PAGO
-        );
-
+        List<Pedido> pedidosAbertos = pedidoRepository
+            .findByUnidadeConsumoIdAndTipoPagamentoAndStatusFinanceiro(
+                unidadeConsumoId,
+                TipoPagamentoPedido.POS_PAGO,
+                StatusFinanceiroPedido.NAO_PAGO);
         return pedidosAbertos.stream()
             .map(Pedido::getTotal)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /**
-     * Ativa pós-pago globalmente
+     * Ativa pós-pago globalmente.
+     * Registra auditoria em banco.
      */
     @Transactional
     public void ativarPosPago(String userName, String userRole) {
+        ativarPosPago(userName, userRole, null);
+    }
+
+    @Transactional
+    public void ativarPosPago(String userName, String userRole, String motivo) {
         log.info("Ativando pós-pago globalmente por {} ({})", userName, userRole);
-        
+
         ConfiguracaoFinanceiraSistema config = buscarOuCriarConfiguracao();
         boolean valorAnterior = config.getPosPagoAtivo();
-        
+
         if (valorAnterior) {
             log.info("Pós-pago já estava ativo. Nenhuma alteração necessária.");
             return;
@@ -130,22 +151,31 @@ public class ConfiguracaoFinanceiraService {
         config.setPosPagoAtivo(true);
         config.setAtualizadoPorNome(userName);
         config.setAtualizadoPorRole(userRole);
+        config.setMotivoUltimaAlteracao(motivo);
         configuracaoRepository.save(config);
 
-        // TODO: Gerar EventLog ALTERACAO_POLITICA_POS_PAGO
+        // ✅ AUDITORIA em banco
+        auditoriaFinanceiraService.registrarAlteracaoPosPagoAtivo(
+                config.getId(), valorAnterior, true, userName, userRole, motivo);
         log.info("Pós-pago ATIVADO globalmente");
     }
 
     /**
-     * Desativa pós-pago globalmente
+     * Desativa pós-pago globalmente.
+     * Registra auditoria em banco.
      */
     @Transactional
     public void desativarPosPago(String userName, String userRole) {
+        desativarPosPago(userName, userRole, null);
+    }
+
+    @Transactional
+    public void desativarPosPago(String userName, String userRole, String motivo) {
         log.info("Desativando pós-pago globalmente por {} ({})", userName, userRole);
-        
+
         ConfiguracaoFinanceiraSistema config = buscarOuCriarConfiguracao();
         boolean valorAnterior = config.getPosPagoAtivo();
-        
+
         if (!valorAnterior) {
             log.info("Pós-pago já estava desativado. Nenhuma alteração necessária.");
             return;
@@ -154,15 +184,85 @@ public class ConfiguracaoFinanceiraService {
         config.setPosPagoAtivo(false);
         config.setAtualizadoPorNome(userName);
         config.setAtualizadoPorRole(userRole);
+        config.setMotivoUltimaAlteracao(motivo);
         configuracaoRepository.save(config);
 
-        // TODO: Gerar EventLog ALTERACAO_POLITICA_POS_PAGO
+        // ✅ AUDITORIA em banco
+        auditoriaFinanceiraService.registrarAlteracaoPosPagoAtivo(
+                config.getId(), valorAnterior, false, userName, userRole, motivo);
         log.info("Pós-pago DESATIVADO globalmente");
     }
 
     /**
-     * Altera estado do pós-pago (método genérico para testes)
+     * Altera limite de pós-pago.
+     * Registra auditoria em banco.
      */
+    @Transactional
+    public void alterarLimitePosPago(BigDecimal novoLimite, String userName, String userRole) {
+        alterarLimitePosPago(novoLimite, userName, userRole, null);
+    }
+
+    @Transactional
+    public void alterarLimitePosPago(BigDecimal novoLimite, String userName, String userRole, String motivo) {
+        log.info("Alterando limite de pós-pago para {} AOA por {} ({})", novoLimite, userName, userRole);
+
+        if (novoLimite == null || novoLimite.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Limite de pós-pago deve ser maior que zero");
+        }
+
+        ConfiguracaoFinanceiraSistema config = buscarOuCriarConfiguracao();
+        BigDecimal limiteAnterior = config.getLimitePosPago();
+
+        if (limiteAnterior.compareTo(novoLimite) == 0) {
+            log.info("Limite já é {} AOA. Nenhuma alteração necessária.", novoLimite);
+            return;
+        }
+
+        config.setLimitePosPago(novoLimite);
+        config.setAtualizadoPorNome(userName);
+        config.setAtualizadoPorRole(userRole);
+        config.setMotivoUltimaAlteracao(motivo);
+        configuracaoRepository.save(config);
+
+        // ✅ AUDITORIA em banco
+        auditoriaFinanceiraService.registrarAlteracaoLimitePosPago(
+                config.getId(), limiteAnterior, novoLimite, userName, userRole, motivo);
+        log.info("Limite de pós-pago alterado de {} AOA para {} AOA", limiteAnterior, novoLimite);
+    }
+
+    /**
+     * Altera valor mínimo de operação.
+     * Registra auditoria em banco.
+     */
+    @Transactional
+    public void alterarValorMinimo(BigDecimal novoValor, String userName, String userRole, String motivo) {
+        log.info("Alterando valor mínimo de operação para {} AOA por {} ({})", novoValor, userName, userRole);
+
+        if (novoValor == null || novoValor.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Valor mínimo de operação deve ser maior que zero");
+        }
+
+        ConfiguracaoFinanceiraSistema config = buscarOuCriarConfiguracao();
+        BigDecimal valorAnterior = config.getValorMinimoOperacao();
+
+        if (valorAnterior.compareTo(novoValor) == 0) {
+            log.info("Valor mínimo já é {} AOA. Nenhuma alteração necessária.", novoValor);
+            return;
+        }
+
+        config.setValorMinimoOperacao(novoValor);
+        config.setAtualizadoPorNome(userName);
+        config.setAtualizadoPorRole(userRole);
+        config.setMotivoUltimaAlteracao(motivo);
+        configuracaoRepository.save(config);
+
+        // ✅ AUDITORIA em banco
+        auditoriaFinanceiraService.registrarAlteracaoValorMinimo(
+                config.getId(), valorAnterior, novoValor, userName, userRole, motivo);
+        log.info("Valor mínimo alterado de {} AOA para {} AOA", valorAnterior, novoValor);
+    }
+
+    /** Altera estado do pós-pago (método genérico). */
     @Transactional
     public void alterarPosPagoAtivo(boolean ativo, String userName, String userRole) {
         if (ativo) {

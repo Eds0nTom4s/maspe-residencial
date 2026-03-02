@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Service para gerenciar Fundo de Consumo (pré-pago)
@@ -48,6 +49,7 @@ public class FundoConsumoService {
     private final TransacaoFundoRepository transacaoFundoRepository;
     private final ClienteRepository clienteRepository;
     private final PedidoRepository pedidoRepository;
+    private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
 
     /**
      * Cria fundo para cliente
@@ -66,9 +68,12 @@ public class FundoConsumoService {
             throw new BusinessException("Cliente já possui fundo de consumo ativo");
         }
 
-        // Cria fundo com saldo zero
+        // Cria fundo com saldo zero.
+        // tokenPortador é gerado automaticamente — o QR Code impresso para o cliente
+        // é derivado deste token, tal como no fluxo anónimo.
         FundoConsumo fundo = FundoConsumo.builder()
             .cliente(cliente)
+            .tokenPortador(UUID.randomUUID().toString())
             .saldoAtual(BigDecimal.ZERO)
             .ativo(true)
             .build();
@@ -103,11 +108,20 @@ public class FundoConsumoService {
      */
     @Transactional(isolation = Isolation.SERIALIZABLE)
     public TransacaoFundo recarregar(Long clienteId, BigDecimal valor, String observacoes) {
-        log.info("Recarregando R$ {} no fundo do cliente {}", valor, clienteId);
+        log.info("Recarregando {} AOA no fundo do cliente {}", valor, clienteId);
 
         // Valida valor positivo
         if (valor.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("Valor de recarga deve ser maior que zero");
+        }
+
+        // Valida valor mínimo de operação
+        BigDecimal valorMinimo = configuracaoFinanceiraService.buscarOuCriarConfiguracao().getValorMinimoOperacao();
+        if (valor.compareTo(valorMinimo) < 0) {
+            throw new BusinessException(
+                String.format("Valor de recarga (%s AOA) abaixo do mínimo permitido (%s AOA)", 
+                    valor, valorMinimo)
+            );
         }
 
         // Busca fundo ativo
@@ -273,12 +287,32 @@ public class FundoConsumoService {
     }
 
     /**
-     * Busca histórico de transações com paginação
+     * Busca histórico de transações com paginação (por clienteId)
      */
     @Transactional(readOnly = true)
     public Page<TransacaoFundo> buscarHistorico(Long clienteId, Pageable pageable) {
         FundoConsumo fundo = buscarPorCliente(clienteId);
         return transacaoFundoRepository.findByFundoConsumoIdOrderByCreatedAtDesc(fundo.getId(), pageable);
+    }
+
+    /**
+     * Busca histórico de transações directamente pelo ID do fundo.
+     * Funciona para fundos identificados e anónimos.
+     */
+    @Transactional(readOnly = true)
+    public Page<TransacaoFundo> buscarHistoricoPorFundo(Long fundoId, Pageable pageable) {
+        return transacaoFundoRepository.findByFundoConsumoIdOrderByCreatedAtDesc(fundoId, pageable);
+    }
+
+    /**
+     * Encerra fundo por token — funciona para ambos os tipos (identificado e anónimo).
+     */
+    @Transactional
+    public void encerrarFundoPorToken(String tokenPortador) {
+        log.info("Encerrando fundo pelo token: {}", tokenPortador);
+        FundoConsumo fundo = buscarPorToken(tokenPortador);
+        fundo.encerrar();
+        fundoConsumoRepository.save(fundo);
     }
 
     /**
@@ -291,7 +325,7 @@ public class FundoConsumoService {
     }
 
     /**
-     * Encerra fundo (não permite mais movimentação)
+     * Encerra fundo (não permite mais movimentação) por clienteId
      */
     @Transactional
     public void encerrarFundo(Long clienteId) {
@@ -299,5 +333,178 @@ public class FundoConsumoService {
         FundoConsumo fundo = buscarPorCliente(clienteId);
         fundo.encerrar();
         fundoConsumoRepository.save(fundo);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // FLUXO ANÓNIMO – operações por token portador (QR Code UUID)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Cria fundo anónimo identificado pelo token do QR Code.
+     *
+     * <p>Não exige cliente. O QR Code é o único portador do saldo.
+     * <strong>Perda do QR = perda do saldo</strong>; não há recuperação.
+     *
+     * @param tokenPortador UUID único do QR Code emitido para o consumidor
+     */
+    @Transactional
+    public FundoConsumo criarFundoAnonimo(String tokenPortador) {
+        log.info("Criando fundo de consumo anónimo para token: {}", tokenPortador);
+
+        if (tokenPortador == null || tokenPortador.isBlank()) {
+            throw new BusinessException("Token portador é obrigatório para fundo anónimo");
+        }
+
+        if (fundoConsumoRepository.existsByTokenPortadorAndAtivoTrue(tokenPortador)) {
+            throw new BusinessException("Já existe fundo de consumo ativo para este QR Code");
+        }
+
+        FundoConsumo fundo = FundoConsumo.builder()
+                .cliente(null)
+                .tokenPortador(tokenPortador)
+                .saldoAtual(BigDecimal.ZERO)
+                .ativo(true)
+                .build();
+
+        return fundoConsumoRepository.save(fundo);
+    }
+
+    /**
+     * Busca fundo ativo pelo token portador.
+     */
+    @Transactional(readOnly = true)
+    public FundoConsumo buscarPorToken(String tokenPortador) {
+        return fundoConsumoRepository.findByTokenPortadorAndAtivoTrue(tokenPortador)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Fundo de consumo não encontrado para o QR Code: " + tokenPortador));
+    }
+
+    /**
+     * Consulta saldo do fundo anónimo pelo token.
+     */
+    @Transactional(readOnly = true)
+    public BigDecimal consultarSaldoPorToken(String tokenPortador) {
+        return buscarPorToken(tokenPortador).getSaldoAtual();
+    }
+
+    /**
+     * Recarrega saldo do fundo anónimo (CREDITO por token).
+     * Mesmas regras de validação do fluxo identificado.
+     *
+     * @param tokenPortador UUID do QR Code
+     * @param valor         valor a creditar (> mínimo configurado)
+     * @param observacoes   motivo da recarga
+     */
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public TransacaoFundo recarregarPorToken(String tokenPortador, BigDecimal valor, String observacoes) {
+        log.info("Recarregando {} AOA no fundo anónimo do token {}", valor, tokenPortador);
+
+        if (valor.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Valor de recarga deve ser maior que zero");
+        }
+
+        BigDecimal valorMinimo = configuracaoFinanceiraService.buscarOuCriarConfiguracao().getValorMinimoOperacao();
+        if (valor.compareTo(valorMinimo) < 0) {
+            throw new BusinessException(String.format(
+                    "Valor de recarga (%s AOA) abaixo do mínimo permitido (%s AOA)", valor, valorMinimo));
+        }
+
+        FundoConsumo fundo = buscarPorToken(tokenPortador);
+
+        if (!fundo.getAtivo()) {
+            throw new BusinessException("Fundo de consumo anónimo encerrado. Não é possível recarregar.");
+        }
+
+        BigDecimal saldoAnterior = fundo.getSaldoAtual();
+        fundo.creditar(valor);
+        fundoConsumoRepository.save(fundo);
+
+        TransacaoFundo transacao = TransacaoFundo.builder()
+                .fundoConsumo(fundo)
+                .valor(valor)
+                .tipo(TipoTransacaoFundo.CREDITO)
+                .saldoAnterior(saldoAnterior)
+                .saldoNovo(fundo.getSaldoAtual())
+                .observacoes(observacoes != null ? observacoes : "Recarga anónima")
+                .build();
+
+        transacao = transacaoFundoRepository.save(transacao);
+        log.info("Recarga anónima concluída. Saldo anterior: {} AOA, Saldo novo: {} AOA",
+                saldoAnterior, fundo.getSaldoAtual());
+        return transacao;
+    }
+
+    /**
+     * Debita valor para pedido a partir do fundo anónimo (DEBITO por token).
+     *
+     * <p>Idempotente: se o pedido já foi debitado, retorna a transação existente.
+     *
+     * @param tokenPortador UUID do QR Code
+     * @param pedidoId      ID do pedido
+     * @param valor         valor a debitar
+     * @throws SaldoInsuficienteException se saldo insuficiente
+     */
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public TransacaoFundo debitarPorToken(String tokenPortador, Long pedidoId, BigDecimal valor) {
+        log.info("Debitando {} AOA do fundo anónimo (token: {}) para pedido {}", valor, tokenPortador, pedidoId);
+
+        // IDEMPOTÊNCIA
+        var transacaoExistente = transacaoFundoRepository.findByPedidoIdAndTipo(pedidoId, TipoTransacaoFundo.DEBITO);
+        if (transacaoExistente.isPresent()) {
+            log.info("Pedido {} já foi debitado. Retornando transação existente.", pedidoId);
+            return transacaoExistente.get();
+        }
+
+        if (valor.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Valor de débito deve ser maior que zero");
+        }
+
+        FundoConsumo fundo = buscarPorToken(tokenPortador);
+
+        if (!fundo.getAtivo()) {
+            throw new BusinessException("Fundo de consumo anónimo encerrado. Não é possível debitar.");
+        }
+
+        if (!fundo.temSaldoSuficiente(valor)) {
+            throw new SaldoInsuficienteException(fundo.getSaldoAtual(), valor);
+        }
+
+        Pedido pedido = pedidoRepository.findById(pedidoId)
+                .orElseThrow(() -> new ResourceNotFoundException("Pedido não encontrado: " + pedidoId));
+
+        BigDecimal saldoAnterior = fundo.getSaldoAtual();
+        fundo.debitar(valor);
+        fundoConsumoRepository.save(fundo);
+
+        TransacaoFundo transacao = TransacaoFundo.builder()
+                .fundoConsumo(fundo)
+                .valor(valor)
+                .tipo(TipoTransacaoFundo.DEBITO)
+                .pedido(pedido)
+                .saldoAnterior(saldoAnterior)
+                .saldoNovo(fundo.getSaldoAtual())
+                .observacoes("Débito anónimo - Pedido #" + pedidoId)
+                .build();
+
+        transacao = transacaoFundoRepository.save(transacao);
+        log.info("Débito anónimo concluído. Saldo anterior: {} AOA, Saldo novo: {} AOA",
+                saldoAnterior, fundo.getSaldoAtual());
+        return transacao;
+    }
+
+    /**
+     * Valida se o fundo anónimo tem saldo suficiente.
+     * Usado pelo motor financeiro antes de criar o pedido.
+     */
+    public void validarSaldoSuficientePorToken(String tokenPortador, BigDecimal valorTotal) {
+        try {
+            FundoConsumo fundo = buscarPorToken(tokenPortador);
+            if (!fundo.temSaldoSuficiente(valorTotal)) {
+                throw new SaldoInsuficienteException(fundo.getSaldoAtual(), valorTotal);
+            }
+        } catch (ResourceNotFoundException e) {
+            throw new SaldoInsuficienteException(
+                    "Fundo de Consumo não encontrado para este QR Code. Recarregue antes de fazer pedidos.");
+        }
     }
 }

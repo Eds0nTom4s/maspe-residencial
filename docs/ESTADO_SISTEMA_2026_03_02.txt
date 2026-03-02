@@ -1,0 +1,562 @@
+================================================================================
+  SISTEMA DE RESTAURAÇÃO — ESTADO ATUAL E ALTERAÇÕES RECENTES
+  Data: 02 de Março de 2026
+  Última build: SUCCESS (176 ficheiros compilados — Java 21 / Spring Boot 3.x)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 1 — ALTERAÇÕES REALIZADAS NESTA SESSÃO (fev–mar 2026)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.1  CORRECÇÕES DE BUILD
+──────────────────────────────────────────────────────────────────────────────
+Ficheiros corrigidos:
+  - PedidoFinanceiroService.java    → corpos de classe duplicados removidos
+  - ConfiguracaoFinanceiraService.java → idem
+  - FundoConsumo.java               → imports em falta adicionados
+  - CriarUnidadeConsumoRequest.java → imports em falta adicionados
+
+Resultado: BUILD SUCCESS — 174 ficheiros (antes das novas classes).
+
+1.2  NOVOS FICHEIROS CRIADOS
+──────────────────────────────────────────────────────────────────────────────
+a) AuditoriaController.java
+   Caminho : src/main/java/com/restaurante/controller/AuditoriaController.java
+   Motivo  : o frontend precisava de endpoints de auditoria que não existiam.
+   Endpoints expostos:
+     GET /api/auditoria/acoes          → lista eventos com filtros opcionais
+     GET /api/auditoria/estatisticas   → contadores agrupados por tipo de evento
+     GET /api/auditoria/modulos        → tipos de eventos registados no sistema
+   Segurança: GERENTE e ADMIN.
+
+b) FundoConsumoResponse.java
+   Caminho : src/main/java/com/restaurante/dto/response/FundoConsumoResponse.java
+   Campos  : id, saldoAtual, ativo, clienteId (null se anónimo),
+             tokenPortador (identificador universal = QR Code), createdAt, updatedAt
+
+c) TransacaoFundoResponse.java
+   Caminho : src/main/java/com/restaurante/dto/response/TransacaoFundoResponse.java
+   Campos  : id, tipo (CREDITO/DEBITO/ESTORNO), valor, saldoAnterior, saldoNovo,
+             pedidoId (null para recargas), observacoes, createdAt
+
+d) RecarregarFundoRequest.java
+   Caminho : src/main/java/com/restaurante/dto/request/RecarregarFundoRequest.java
+   Campos  : valor (@NotNull, @DecimalMin("0.01")), observacoes (opcional)
+
+e) FundoConsumoController.java  ← PEÇA CENTRAL DESTA SESSÃO
+   Caminho : src/main/java/com/restaurante/controller/FundoConsumoController.java
+   Contexto: antes desta sessão, toda a lógica do Fundo de Consumo era interna
+             (service-to-service). Não existia qualquer endpoint REST público.
+
+   API implementada:
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │  CRIAÇÃO — dois pontos de entrada                                   │
+   │  POST /api/fundos/cliente/{clienteId}   GERENTE, ADMIN              │
+   │         → cria fundo identificado; token UUID gerado automaticamente│
+   │  POST /api/fundos/anonimo/{token}       ATENDENTE, GERENTE, ADMIN   │
+   │         → cria fundo anónimo com o QR Code da mesa como token       │
+   │                                                                     │
+   │  OPERAÇÕES UNIVERSAIS — garçom lê QR → obtém token → usa abaixo    │
+   │  (funcionam igualmente para fundos de cliente e anónimos)           │
+   │  GET    /api/fundos/{token}             → consultar fundo completo  │
+   │  GET    /api/fundos/{token}/saldo       → saldo rápido (BigDecimal) │
+   │  POST   /api/fundos/{token}/recarregar  → creditar saldo            │
+   │  GET    /api/fundos/{token}/historico   → histórico paginado        │
+   │  DELETE /api/fundos/{token}             → encerrar fundo (ADMIN)    │
+   │                                                                     │
+   │  LOOKUP ADMINISTRATIVO                                              │
+   │  GET    /api/fundos/cliente/{clienteId} → encontrar token do cliente│
+   └─────────────────────────────────────────────────────────────────────┘
+
+1.3  FICHEIROS MODIFICADOS
+──────────────────────────────────────────────────────────────────────────────
+a) FundoConsumoService.java
+   Alteração 1 — criarFundo(Long clienteId) agora gera tokenPortador automaticamente:
+     tokenPortador = UUID.randomUUID().toString()
+   Antes: o token só existia no fluxo anónimo. Fundos de cliente ficavam sem token,
+          impossibilitando operações unificadas pelo QR Code.
+
+   Alteração 2 — dois novos métodos adicionados:
+     buscarHistoricoPorFundo(Long fundoId, Pageable pageable)
+       → histórico paginado directo pelo ID do fundo; usado pelo controller unificado
+     encerrarFundoPorToken(String tokenPortador)
+       → encerra fundo pelo token; funciona para identificado e anónimo
+
+b) docs/RESPOSTAS_BACKEND_PERGUNTAS.txt
+   - Criado do zero para responder as 22 perguntas do frontend
+   - Acrescentada secção 8.3 com o modelo correcto de Mesa/QR Code
+   - Acrescentada documentação completa da API de QR Code
+
+c) ConfiguracaoFinanceiraEventLogRepository.java
+   - Queries adicionadas para suporte ao AuditoriaController
+
+1.4  MODELO DE NEGÓCIO CLARIFICADO E APLICADO NO CÓDIGO
+──────────────────────────────────────────────────────────────────────────────
+Fundo de Consumo:
+  - É um MÉTODO DE PAGAMENTO pré-pago, não um produto nem uma conta de cliente.
+  - O QR Code (tokenPortador) é o identificador universal do fundo.
+  - Fundo identificado: tem clienteId + token gerado automaticamente.
+  - Fundo anónimo: sem clienteId, token = QR Code da mesa (UnidadeConsumo.qrCode).
+  - Após criação: AMBOS operam exclusivamente pelo token. O garçom nunca precisa
+    saber se o fundo é identificado ou anónimo — lê o QR, usa o token, acabou.
+
+Mesa (UnidadeConsumo):
+  - Pre-registada pelo admin. Não tem dependência directa do cliente.
+  - O QR Code é o elo físico entre a mesa e o sistema.
+  - Fluxo: cliente senta → garçom lê QR da mesa → token identificado →
+    cria pedido ou fundo de consumo.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 2 — VISÃO GLOBAL DO SISTEMA (estado a 02/03/2026)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2.1  TECNOLOGIA
+──────────────────────────────────────────────────────────────────────────────
+  - Java 21 + Spring Boot 3.x
+  - Spring Security + JWT (autenticação stateless)
+  - Spring Data JPA + Hibernate
+  - Base de dados: H2 em dev, PostgreSQL em produção (inferido)
+  - SMS: integração TelcoSMS (gateway angolano)
+  - Pagamento: integração AppyPay (gateway angolano — referências multibanco)
+  - Documentação automática: SpringDoc / Swagger UI em /swagger-ui.html
+  - Base URL: /api
+
+2.2  ENTIDADES DO DOMÍNIO (19 entidades)
+──────────────────────────────────────────────────────────────────────────────
+  User               → utilizador do sistema (staff)
+  Atendente          → extensão de User para o role ATENDENTE
+  Cliente            → cliente final (autenticado via OTP)
+  Cozinha            → recurso de preparação (ex: cozinha principal, bar, grelhador)
+  UnidadeAtendimento → agrupamento físico (ex: restaurante, esplanada, piso 2)
+  UnidadeDeConsumo   → mesa / quarto / área individual
+  QrCodeToken        → token QR gerado para acesso seguro
+  Produto            → item do menu com categoria e preço
+  Pedido             → pedido principal (agrupa sub-pedidos)
+  SubPedido          → unidade operacional por cozinha
+  ItemPedido         → linha de item dentro de um sub-pedido
+  PedidoEventLog     → log imutável de eventos do pedido
+  SubPedidoEventLog  → log imutável de eventos do sub-pedido
+  Pagamento          → registo de pagamento (AppyPay REF)
+  PagamentoEventLog  → log imutável de eventos de pagamento
+  FundoConsumo       → fundo pré-pago (método de pagamento por QR Code)
+  TransacaoFundo     → log imutável de movimentos do fundo
+  ConfiguracaoFinanceiraSistema   → configuração global (pós-pago on/off, limites)
+  ConfiguracaoFinanceiraEventLog  → log imutável de alterações à configuração
+
+2.3  ENUMERAÇÕES (14 enums)
+──────────────────────────────────────────────────────────────────────────────
+  Role                  → CLIENTE, ATENDENTE, COZINHA, GERENTE, ADMIN
+  TipoUsuario           → tipos de utilizador
+  CategoriaProduto      → ENTRADA, PRATO_PRINCIPAL, SOBREMESA, BEBIDA, etc.
+  StatusPedido          → PENDENTE, RECEBIDO, EM_PREPARO, PRONTO, ENTREGUE, CANCELADO
+  StatusSubPedido       → estados operacionais de cozinha
+  StatusFinanceiroPedido → PENDENTE, PAGO, CANCELADO, ESTORNADO
+  TipoPagamentoPedido   → FUNDO_CONSUMO, APPYPAY, POS_PAGO
+  MetodoPagamento       → métodos aceites
+  StatusPagamento       → PENDENTE, CONFIRMADO, FALHOU, CANCELADO
+  TipoQrCode            → MESA, ACESSO_RAPIDO, USO_UNICO, PERMANENTE
+  StatusQrCode          → ATIVO, USADO, EXPIRADO, CANCELADO
+  TipoUnidadeAtendimento → RESTAURANTE, BAR, ESPLANADA, QUARTO, SALA_PRIVADA
+  TipoUnidadeConsumo    → MESA, BALCAO, QUARTO, AREA_EXTERNA
+  StatusUnidadeConsumo  → DISPONIVEL, OCUPADA, RESERVADA, MANUTENCAO
+  TipoCozinha           → PRINCIPAL, BAR, GRELHADOR, PASTELARIA, etc.
+  TipoTransacaoFundo    → CREDITO, DEBITO, ESTORNO
+
+2.4  CAMADA DE CONTROLLERS — ENDPOINTS DISPONÍVEIS
+──────────────────────────────────────────────────────────────────────────────
+Prefixo global: /api
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ #  Controller                   Base URL                 Autenticação      │
+├────────────────────────────────────────────────────────────────────────────┤
+│  1 AuthController               /api/auth                Pública (OTP/JWT) │
+│    POST /solicitar-otp                                                     │
+│    POST /validar-otp                                                       │
+│    POST /admin/login                                                       │
+│    POST /admin/refresh                                                     │
+│                                                                            │
+│  2 JwtAuthController            /api/jwt-auth            Pública           │
+│    POST /login                                                             │
+│    POST /refresh                                                           │
+│                                                                            │
+│  3 UserController               /api/usuarios            ADMIN             │
+│    GET  /                        (paginado)                                │
+│    GET  /{id}                                                              │
+│                                                                            │
+│  4 ProdutoController            /api/produtos            Variável          │
+│    POST /                        GERENTE, ADMIN                            │
+│    GET  /                        Pública                                   │
+│    GET  /{id}                    Pública                                   │
+│    GET  /categoria/{cat}         Pública                                   │
+│    GET  /disponiveis             Pública                                   │
+│    PUT  /{id}                    GERENTE, ADMIN                            │
+│    DELETE /{id}                  ADMIN                                     │
+│                                                                            │
+│  5 PedidoController             /api/pedidos             Variável          │
+│    POST /                        ATENDENTE, GERENTE, ADMIN                 │
+│    GET  /{id}                                                              │
+│    GET  /numero/{numero}                                                   │
+│    GET  /status/{status}                                                   │
+│    GET  /ativos                                                            │
+│    PUT  /{id}/cancelar           GERENTE, ADMIN                            │
+│                                                                            │
+│  6 SubPedidoController          /api/subpedidos          Variável          │
+│    GET  /{id}                                                              │
+│    GET  /pedido/{pedidoId}                                                 │
+│    GET  /cozinha/{id}/ativos                                               │
+│    GET  /cozinha/{id}/prontos                                              │
+│    GET  /atrasados                                                         │
+│    PUT  /{id}/status             ATENDENTE, COZINHA, GERENTE, ADMIN        │
+│    PUT  /{id}/iniciar            COZINHA, GERENTE, ADMIN                   │
+│    PUT  /{id}/pronto             COZINHA, GERENTE, ADMIN                   │
+│    PUT  /{id}/entregar           ATENDENTE, GERENTE, ADMIN                 │
+│                                                                            │
+│  7 CozinhaController            /api/cozinhas            Variável          │
+│    POST /                                                                  │
+│    GET  /                                                                  │
+│    GET  /{id}                                                              │
+│    GET  /tipo/{tipo}                                                       │
+│    DELETE /{id}                  ADMIN                                     │
+│                                                                            │
+│  8 UnidadeAtendimentoController /api/unidades-atendimento Variável         │
+│    POST /                                                                  │
+│    GET  /                                                                  │
+│    GET  /{id}                                                              │
+│    GET  /tipo/{tipo}                                                       │
+│                                                                            │
+│  9 UnidadeDeConsumoController   /api/unidades-consumo    Variável          │
+│    POST /                                                                  │
+│    GET  /                                                                  │
+│    GET  /{id}                                                              │
+│    GET  /qrcode/{qrCode}                                                   │
+│    GET  /status/{status}                                                   │
+│    GET  /disponiveis/{tipo}                                                │
+│    GET  /unidade-atendimento/{id}                                         │
+│    PUT  /{id}/fechar                                                       │
+│    PUT  /{id}/atualizar-status                                             │
+│                                                                            │
+│ 10 QrCodeController             /api/qrcode              Variável          │
+│    POST /                        ATENDENTE, GERENTE, ADMIN                 │
+│    GET  /validar/{token}         Pública                                   │
+│    POST /usar/{token}            ATENDENTE, COZINHA, GERENTE, ADMIN        │
+│    POST /renovar/{token}         GERENTE, ADMIN                            │
+│    GET  /tipo/{tipo}             GERENTE, ADMIN                            │
+│    GET  /ativos                  GERENTE, ADMIN                            │
+│    GET  /{id}/imagem             Pública (retorna PNG)                     │
+│                                                                            │
+│ 11 ConfiguracaoFinanceiraController /api/configuracoes-financeiras ADMIN   │
+│    GET  /                                                                  │
+│    PUT  /pos-pago/ativar                                                   │
+│    PUT  /pos-pago/desativar                                                │
+│    PUT  /limite-risco                                                      │
+│    GET  /historico                                                         │
+│                                                                            │
+│ 12 DashboardController          /api/dashboard           GERENTE, ADMIN    │
+│    GET  /stats                                                             │
+│    GET  /activity                                                          │
+│    GET  /top-products           GERENTE, ADMIN                             │
+│                                                                            │
+│ 13 EventLogController           /api/event-logs          GERENTE, ADMIN    │
+│    GET  /pedidos/{pedidoId}                                                │
+│    GET  /pedidos/periodo                                                   │
+│    GET  /subpedidos/{subPedidoId}                                         │
+│    GET  /subpedidos/cozinha/{id}                                          │
+│    GET  /subpedidos/cozinha/{id}/periodo                                  │
+│                                                                            │
+│ 14 AuditoriaController          /api/auditoria           GERENTE, ADMIN    │
+│    GET  /acoes           (filtros: tipo, dataInicio, dataFim, usuario)     │
+│    GET  /estatisticas    (contadores por tipo de evento)                   │
+│    GET  /modulos         (lista de tipos de eventos disponíveis)           │
+│                                                                            │
+│ 15 FundoConsumoController       /api/fundos              Variável          │
+│    POST /cliente/{clienteId}     GERENTE, ADMIN                            │
+│    POST /anonimo/{token}         ATENDENTE, GERENTE, ADMIN                 │
+│    GET  /{token}                 ATENDENTE, GERENTE, ADMIN                 │
+│    GET  /{token}/saldo           ATENDENTE, GERENTE, ADMIN                 │
+│    POST /{token}/recarregar      GERENTE, ADMIN                            │
+│    GET  /{token}/historico       GERENTE, ADMIN                            │
+│    DELETE /{token}               ADMIN                                     │
+│    GET  /cliente/{clienteId}     GERENTE, ADMIN                            │
+│                                                                            │
+│ 16 PagamentoCallbackController  /api/pagamentos/callback Pública (HMAC)    │
+│    POST /callback                → processa retorno do gateway AppyPay     │
+│                                                                            │
+│ 17 NotificacaoController        /api/notificacoes        Interna/Admin      │
+│    POST /sms                     → envia SMS genérico                     │
+│    POST /otp                     → envia OTP por SMS                      │
+│    (+ outros endpoints de teste de notificação)                            │
+│                                                                            │
+│ 18 DebugController              /api/debug               Apenas DEV        │
+│    Endpoints de diagnóstico — desabilitar em produção                      │
+└────────────────────────────────────────────────────────────────────────────┘
+
+2.5  INTEGRAÇÕES EXTERNAS IMPLEMENTADAS
+──────────────────────────────────────────────────────────────────────────────
+a) AppyPay (gateway de pagamento angolano)
+   Ficheiros: AppyPayClient.java, AppyPayAuthService.java, AppyPayProperties.java
+              PagamentoGatewayService.java, PagamentoCallbackService.java
+   Configuração: application.properties → appypay.*
+   Fluxo:
+     1. Backend gera referência de pagamento via AppyPay API
+     2. Cliente paga na app / ATM / Internet Banking
+     3. AppyPay chama POST /api/pagamentos/callback (HMAC assinado)
+     4. PagamentoCallbackService processa → confirma ou falha o Pagamento
+     5. Se confirmado: PedidoFinanceiroService fecha o pedido financeiramente
+   Estado: IMPLEMENTADO (relatório de integração em INTEGRACAO_APPYPAY_RELATORIO.txt)
+
+b) TelcoSMS (SMS angolano)
+   Ficheiros: SmsGateway.java, SmsResponse.java, telcosms/
+              NotificacaoService.java, WebSocketNotificacaoService.java
+   Usos: OTP de autenticação do cliente, notificações de pedido
+   Estado: IMPLEMENTADO (relatório em INTEGRACAO_TELCOSMS_RELATORIO.md)
+
+2.6  SEGURANÇA
+──────────────────────────────────────────────────────────────────────────────
+  - Spring Security + JWT Bearer Token
+  - Dois fluxos de autenticação:
+      → Cliente final: OTP via SMS → token JWT (role CLIENTE)
+      → Staff (Atendente/Gerente/Admin): telefone + senha → token JWT
+  - Refresh token implementado (JwtAuthController)
+  - @PreAuthorize por endpoint com roles granulares
+  - Relatório detalhado em RELATORIO_SEGURANCA_SPRING_SECURITY.txt
+
+2.7  FLUXO OPERACIONAL COMPLETO (como o sistema funciona no dia-a-dia)
+──────────────────────────────────────────────────────────────────────────────
+  1. SETUP (admin, feito uma vez):
+     → Criar UnidadeAtendimento (ex: "Restaurante Principal")
+     → Criar UnidadeConsumo (ex: "Mesa 7") com QR Code gerado
+     → Criar Cozinhas (ex: "Cozinha Principal", "Bar")
+     → Associar produtos a cozinhas
+
+  2. ABERTURA DE MESA:
+     → Garçom lê QR da mesa → obtém token da UnidadeConsumo
+     → Cria Pedido associado à mesa
+
+  3. LANÇAMENTO DE ITENS:
+     → Pedido criado → sistema distribui automaticamente os itens
+       pelos SubPedidos por cozinha (ex: bebidas → Bar, pratos → Cozinha)
+
+  4. COZINHA:
+     → Cozinheiro vê SubPedidos ativos em /api/subpedidos/cozinha/{id}/ativos
+     → Actualiza: RECEBIDO → EM_PREPARO → PRONTO
+     → Garçom entrega e marca como ENTREGUE
+
+  5. PAGAMENTO — três métodos possíveis:
+     a) FUNDO DE CONSUMO (pré-pago):
+        → Garçom lê QR do fundo → POST /{token}/recarregar (se necessário)
+        → Sistema debita automaticamente quando pedido é fechado
+     b) APPYPAY (referência multibanco/móvel):
+        → Sistema gera referência → cliente paga → callback confirma
+     c) PÓS-PAGO:
+        → Disponível apenas se ativado pelo ADMIN em /api/configuracoes-financeiras
+        → Sujeito a limite de risco configurável
+
+  6. ENCERRAMENTO:
+     → Pedido financeiramente fechado → SubPedidos concluídos
+     → Mesa disponível novamente
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 3 — O QUE FALTA / LACUNAS IDENTIFICADAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Legenda de prioridade:
+  [CRÍTICO]  → bloqueia uso real do sistema
+  [ALTO]     → funcionalidade importante em falta
+  [MÉDIO]    → melhora significativamente a experiência
+  [BAIXO]    → nice-to-have, pode aguardar
+
+3.1  ENDPOINTS EM FALTA
+──────────────────────────────────────────────────────────────────────────────
+[CRÍTICO] ClienteController — gestão de clientes via REST
+  Problema : o ClienteService existe e tem todas as operações, mas não há
+             controller dedicado. O único acesso a clientes é via /api/auth.
+             O frontend (painel admin) não tem como listar, editar ou gerir
+             clientes sem este controller.
+  Solução  : criar ClienteController com:
+               GET  /api/clientes            → listar (paginado, GERENTE/ADMIN)
+               GET  /api/clientes/{id}       → buscar por ID
+               GET  /api/clientes/telefone/{tel} → buscar por telefone
+               PUT  /api/clientes/{id}       → actualizar perfil
+               DELETE /api/clientes/{id}    → desactivar (ADMIN)
+
+[CRÍTICO] PagamentoController — initiating de pagamento pelo staff
+  Problema : PagamentoCallbackController só processa retornos da AppyPay.
+             Não existe endpoint para o STAFF iniciar um pagamento
+             (gerar referência AppyPay para uma mesa).
+  Solução  : criar PagamentoController com:
+               POST /api/pagamentos/gerar-referencia
+                    → body: { pedidoId, metodo: "APPYPAY" }
+                    → retorna referência + QR Code AppyPay para o cliente
+               GET  /api/pagamentos/{pedidoId} → estado do pagamento
+               GET  /api/pagamentos/pedido/{id} → histórico de pagamentos
+
+[CRÍTICO] Endpoint de fechamento de conta (checkout)
+  Problema : não existe um endpoint explícito para "fechar a conta" de uma
+             mesa — ou seja, encerrar o pedido, cobrar, e libertar a mesa.
+             O PedidoFinanceiroService tem lógica interna mas não está exposto.
+  Solução  : adicionar em PedidoController:
+               POST /api/pedidos/{id}/fechar
+                    → body: { metodoPagamento, tokenFundo (se FUNDO_CONSUMO) }
+                    → orquestra pagamento + encerramento do pedido + liberta mesa
+
+[ALTO] Endpoint de débito do Fundo de Consumo por pedido
+  Problema : FundoConsumoService.debitarPorToken(token, pedidoId, valor) existe
+             mas não está exposto via REST. O frontend não tem como disparar
+             o débito manualmente se a integração automática falhar.
+  Solução  : adicionar em FundoConsumoController:
+               POST /api/fundos/{token}/debitar
+                    → body: { pedidoId, valor }
+                    → útil para recuperação manual de falhas
+
+[ALTO] RegisterController / endpoint de criação de staff
+  Problema : JwtAuthController tem um endpoint de register, mas não há
+             um fluxo completo para o admin criar atendentes/gerentes com
+             role específico.
+  Solução  : expandir UserController ou criar endpoint dedicado:
+               POST /api/usuarios/atendente  (ADMIN)
+               POST /api/usuarios/gerente    (ADMIN)
+
+3.2  INTEGRAÇÕES EM FALTA OU INCOMPLETAS
+──────────────────────────────────────────────────────────────────────────────
+[CRÍTICO] Integração automática Fundo de Consumo ↔ Pedido
+  Problema : quando um pedido é criado com método FUNDO_CONSUMO, o sistema
+             deveria debitar automaticamente o fundo. Não é claro se
+             PedidoService.criar() chama FundoConsumoService.debitarPorToken().
+             Se não chamar, o débito nunca acontece.
+  Acção    : verificar PedidoService.criar() e PedidoFinanceiroService.
+             Se não integrado, implementar a chamada.
+
+[ALTO] WebSocket para actualizações em tempo real
+  Problema : WebSocketNotificacaoService existe mas não é claro se está
+             activamente a emitir eventos para:
+               - cozinha recebe novo sub-pedido em tempo real
+               - garçom é notificado quando prato fica pronto
+               - painel do admin vê métricas a actualizar
+  Acção    : verificar configuração do WebSocket e testar fluxo end-to-end.
+
+[MÉDIO] Estorno automático AppyPay
+  Problema : se um pedido AppyPay pago for cancelado, o sistema deve chamar
+             a API de estorno da AppyPay. Não confirmado se está implementado.
+  Acção    : verificar PagamentoCallbackService e fluxo de cancelamento.
+
+3.3  FUNCIONALIDADES DE NEGÓCIO EM FALTA
+──────────────────────────────────────────────────────────────────────────────
+[ALTO] Reservas de mesa
+  Estado  : não existe entidade nem endpoints para reservas.
+  Impacto : se o negócio aceitar reservas (hotéis, jantares especiais),
+            o sistema não suporta.
+
+[ALTO] Relatórios financeiros
+  Estado  : DashboardController tem stats básicas. Não há:
+            - relatório de receita por período
+            - relatório de produtos mais/menos vendidos com totais
+            - relatório de uso de Fundo de Consumo
+            - exportação CSV/PDF
+  Acção   : criar RelatóriosController com endpoints dedicados.
+
+[MÉDIO] Gestão de stock / inventário
+  Estado  : Produto tem campos de preço e disponibilidade, mas não há
+            controlo de stock.
+  Impacto : sistema não avisa quando produto esgota.
+
+[MÉDIO] Histórico de pedidos por mesa (UnidadeConsumo)
+  Estado  : não existe endpoint GET /api/unidades-consumo/{id}/pedidos.
+  Impacto : o frontend não consegue mostrar o histórico de uma mesa específica.
+
+[MÉDIO] Transferência de pedido entre mesas
+  Estado  : não existe endpoint para mover um pedido de uma mesa para outra.
+
+[BAIXO] Desconto e promoções
+  Estado  : não existe entidade de desconto. ItemPedido não tem campo de desconto.
+
+[BAIXO] Impressão de recibo / comanda
+  Estado  : não existe endpoint que retorne um recibo formatado para impressão.
+  Nota    : CozinhaController pode já ter algo para comanda — verificar.
+
+3.4  QUALIDADE E TESTES
+──────────────────────────────────────────────────────────────────────────────
+[ALTO] Cobertura de testes automatizados
+  Estado  : estrutura de testes existe (src/test/), mas cobertura desconhecida.
+  Risco   : código financeiro (FundoConsumo, PedidoFinanceiro, AppyPay)
+            sem testes unitários é risco crítico em produção.
+  Acção   : implementar pelo menos:
+            - FundoConsumoServiceTest (débito, saldo insuficiente, idempotência)
+            - PedidoFinanceiroServiceTest
+            - AppyPay callback handling test
+
+[MÉDIO] Testes de integração E2E
+  Estado  : ficheiro PERFIL_ESPECIALISTA_TESTES_E2E.txt existe → indica que
+            havia intenção. Verificar se testes foram implementados.
+
+[MÉDIO] DebugController em produção
+  Risco   : DebugController não deve estar activo em produção.
+  Acção   : garantir @Profile("dev") ou desabilitar via configuração.
+
+3.5  CONFIGURAÇÃO E OPERAÇÕES
+──────────────────────────────────────────────────────────────────────────────
+[ALTO] Migração de base de dados (Flyway / Liquibase)
+  Estado  : usa data.sql (script estático). Em produção, alterações de schema
+            requerem migrações versionadas.
+  Acção   : adoptar Flyway com scripts V1__init.sql, V2__add_fundo.sql, etc.
+
+[ALTO] Variáveis sensíveis em application.properties
+  Risco   : credenciais AppyPay, TelcoSMS, JWT secret podem estar hardcoded.
+  Acção   : mover para variáveis de ambiente / vault. Ver DEPLOYMENT.md.
+
+[MÉDIO] Rate limiting nos endpoints públicos
+  Estado  : /api/auth/solicitar-otp é público. Sem rate limit → risco de
+            abuso (custo de SMS).
+  Acção   : adicionar rate limiting (Bucket4j ou similar).
+
+[BAIXO] Health check e métricas (Spring Actuator)
+  Estado  : não confirmado se Spring Actuator está configurado.
+  Acção   : expor /actuator/health para monitorização em produção.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 4 — RESUMO EXECUTIVO DE PRIORIDADES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PARA LANÇAR EM PRODUÇÃO (sem estas não há Go-Live):
+  ────────────────────────────────────────────────────
+  1. ClienteController (gestão de clientes pelo admin)
+  2. PagamentoController (iniciar pagamento AppyPay)
+  3. Endpoint de fechamento de conta (checkout da mesa)
+  4. Verificar/implementar integração automática Fundo↔Pedido
+  5. Migração de BD para Flyway
+  6. Variáveis sensíveis em ambiente (não no .properties)
+  7. DebugController desactivado em produção
+
+  PARA VERSÃO 1.0 ESTÁVEL:
+  ─────────────────────────
+  8.  Testes unitários do módulo financeiro
+  9.  WebSocket — verificar e validar fluxo cozinha em tempo real
+  10. Endpoint de débito manual do fundo
+  11. Relatórios financeiros básicos
+  12. Rate limiting em /api/auth/solicitar-otp
+
+  PARA VERSÃO 1.1:
+  ─────────────────
+  13. Reservas de mesa
+  14. Histórico de pedidos por mesa
+  15. Estorno automático AppyPay no cancelamento
+  16. Stock / inventário básico
+  17. Recibo de impressão
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 5 — FICHEIROS RELEVANTES DO PROJECTO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  docs/RESPOSTAS_BACKEND_PERGUNTAS.txt  → 22 respostas às perguntas do frontend
+  docs/ALINHAMENTO_FRONTEND.txt         → guia de integração para a equipa frontend
+  INTEGRACAO_APPYPAY_RELATORIO.txt      → detalhes da integração AppyPay
+  INTEGRACAO_TELCOSMS_RELATORIO.md      → detalhes da integração TelcoSMS
+  RELATORIO_SEGURANCA_SPRING_SECURITY.txt → configuração de segurança
+  DEPLOYMENT.md                         → guia de deploy
+  CHECKLIST_GO_LIVE.txt                 → checklist de produção
+  API_EXAMPLES.md                       → exemplos de chamadas à API
+  api-tests.http                        → testes HTTP (VS Code REST Client)
+  Insomnia_Collection.json              → colecção Insomnia para testes
+
+================================================================================
+  Fim do documento — Sistema de Restauração v1.0-dev — 02/03/2026
+================================================================================

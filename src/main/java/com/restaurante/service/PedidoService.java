@@ -99,9 +99,17 @@ public class PedidoService {
         log.info("  ┣ Tipo Pagamento: {}", tipoPagamento);
         log.info("  ┗ Roles Usuário: {}", roles);
 
+        // Resolve portador: cliente identificado OU token do QR Code (anónimo)
+        Long clienteId = unidadeConsumo.getCliente() != null
+                ? unidadeConsumo.getCliente().getId()
+                : null;
+        String fundoToken = (clienteId == null) ? unidadeConsumo.getQrCode() : null;
+
+        log.info("  ┣ Portador: {}",
+                clienteId != null ? "cliente#" + clienteId : "anónimo (token:" + fundoToken + ")");
+
         // VALIDAÇÃO FINANCEIRA - antes de criar pedido
-        Long clienteId = unidadeConsumo.getCliente().getId();
-        pedidoFinanceiroService.validarCriacaoPedido(clienteId, totalPreliminar, tipoPagamento, roles);
+        pedidoFinanceiroService.validarCriacaoPedido(clienteId, fundoToken, totalPreliminar, tipoPagamento, roles);
         log.info("✅ Validação financeira APROVADA");
 
         // Cria o pedido
@@ -135,6 +143,14 @@ public class PedidoService {
 
             // Determinar cozinha responsável pelo item
             Cozinha cozinha = subPedidoService.determinarCozinha(produto.getCategoria(), unidadeConsumo.getUnidadeAtendimento().getId());
+            
+            // ✅ VALIDAÇÃO CRÍTICA: Cozinha deve estar ATIVA
+            if (cozinha.getAtiva() == null || !cozinha.getAtiva()) {
+                throw new BusinessException(
+                    String.format("Produto '%s' não pode ser pedido: cozinha '%s' está inativa", 
+                        produto.getNome(), cozinha.getNome())
+                );
+            }
             
             // Agrupar request por cozinha
             requestsPorCozinha.computeIfAbsent(cozinha, k -> new ArrayList<>()).add(itemRequest);
@@ -195,7 +211,7 @@ public class PedidoService {
 
         // PROCESSAMENTO FINANCEIRO - depois de criar pedido e calcular total
         log.info("💳 PROCESSANDO PAGAMENTO");
-        pedidoFinanceiroService.processarPagamentoPedido(pedido.getId(), clienteId, pedido.getTotal(), tipoPagamento);
+        pedidoFinanceiroService.processarPagamentoPedido(pedido.getId(), clienteId, fundoToken, pedido.getTotal(), tipoPagamento);
         log.info("✅ Pagamento processado - Status: {}", pedido.getStatusFinanceiro());
 
         // ⚠️ RECARREGAR PEDIDO DO BANCO - com JOIN FETCH para carregar SubPedidos
@@ -222,25 +238,25 @@ public class PedidoService {
         log.info("  ┗ Status do Pedido: {}", pedidoAtualizado.getStatus());
         log.info("=".repeat(80));
 
-        // Enviar notificação SMS para o cliente
+        // Enviar notificação SMS para o cliente (somente fluxo identificado)
         try {
-            String telefoneCliente = unidadeConsumo.getCliente() != null 
-                ? unidadeConsumo.getCliente().getTelefone() 
+            String telefoneCliente = (unidadeConsumo.getCliente() != null)
+                ? unidadeConsumo.getCliente().getTelefone()
                 : null;
-            
+
             if (telefoneCliente != null) {
                 notificacaoService.enviarNotificacaoPedidoCriado(
-                    telefoneCliente, 
-                    pedidoAtualizado.getNumero(), 
+                    telefoneCliente,
+                    pedidoAtualizado.getNumero(),
                     pedidoAtualizado.getTotal().doubleValue()
                 );
                 log.info("Notificação de pedido criado enviada para {}", telefoneCliente);
             } else {
-                log.warn("Cliente sem telefone cadastrado - notificação não enviada");
+                log.debug("Pedido anónimo ou cliente sem telefone – SMS não enviado (WebSocket cobre UI)");
             }
         } catch (Exception e) {
-            log.error("Erro ao enviar notificação de pedido criado: {}", e.getMessage());
-            // Não falhar a transação se notificação falhar
+            // WebSocket já notificou em tempo real; SMS é complementar
+            log.error("Erro ao enviar notificação SMS de pedido criado: {}", e.getMessage());
         }
 
         return mapToResponse(pedidoAtualizado);

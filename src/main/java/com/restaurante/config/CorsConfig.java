@@ -13,10 +13,25 @@ public class CorsConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        // ⚠️ SEGURANÇA: Em produção, substituir por domínios reais via variável de ambiente
+        // Exemplo: String[] allowedOrigins = System.getenv("ALLOWED_ORIGINS").split(",");
+        String[] allowedOrigins = {
+            "http://localhost:3000",
+            "http://localhost:4200"
+            // Adicionar domínios de produção aqui
+        };
+        
         registry.addMapping("/api/**")
-                .allowedOrigins("http://localhost:3000", "http://localhost:4200")
+                .allowedOrigins(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
-                .allowedHeaders("*")
+                .allowedHeaders(
+                    "Authorization",
+                    "Content-Type",
+                    "Accept",
+                    "Origin",
+                    "X-Requested-With"
+                )
+                .exposedHeaders("Authorization")
                 .allowCredentials(true)
                 .maxAge(3600);
     }

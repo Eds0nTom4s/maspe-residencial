@@ -21,8 +21,23 @@ public class CriarUnidadeConsumoRequest {
 
     private Integer numero; // Número da unidade (quando aplicável)
 
-    @NotBlank(message = "Telefone do cliente é obrigatório")
+    /**
+     * Telefone do cliente para o fluxo identificado (OTP).
+     * Nulo quando {@code modoAnonimo = true}.
+     */
     private String telefoneCliente;
+
+    /**
+     * Ativa o modo de consumo anónimo.
+     *
+     * Quando {@code true}:
+     * - {@code telefoneCliente} é ignorado
+     * - O QR Code é o único identificador do portador
+     * - Pós-pago bloqueado automaticamente
+     * - Perda do QR = perda do saldo (sem recuperação)
+     */
+    @Builder.Default
+    private boolean modoAnonimo = false;
 
     @NotNull(message = "Unidade de atendimento é obrigatória")
     private Long unidadeAtendimentoId;

@@ -30,4 +30,26 @@ public interface FundoConsumoRepository extends JpaRepository<FundoConsumo, Long
      * Verifica se cliente já tem fundo ativo
      */
     boolean existsByClienteIdAndAtivoTrue(Long clienteId);
+
+    // ──────────────────────────────────────────────────────────────────────
+    // FLUXO ANÓNIMO – busca por token portador (QR Code UUID)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Busca fundo ativo pelo token do portador anónimo.
+     */
+    @Query("SELECT f FROM FundoConsumo f WHERE f.tokenPortador = :token AND f.ativo = true")
+    Optional<FundoConsumo> findByTokenPortadorAndAtivoTrue(@Param("token") String token);
+
+    /**
+     * Busca fundo anónimo com lock pessimista (para operações concorrentes).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT f FROM FundoConsumo f WHERE f.tokenPortador = :token AND f.ativo = true")
+    Optional<FundoConsumo> findByTokenPortadorWithLock(@Param("token") String token);
+
+    /**
+     * Verifica se token já tem fundo ativo.
+     */
+    boolean existsByTokenPortadorAndAtivoTrue(String tokenPortador);
 }

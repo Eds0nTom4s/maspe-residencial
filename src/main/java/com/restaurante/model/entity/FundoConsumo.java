@@ -35,12 +35,27 @@ import java.util.List;
 public class FundoConsumo extends BaseEntity {
 
     /**
-     * Cliente proprietário do fundo
+     * Cliente proprietário do fundo (fluxo identificado).
+     *
+     * <p>Nulo no fluxo anónimo. Neste caso o portador é identificado
+     * pelo {@link #tokenPortador} (UUID do QR Code).
+     *
+     * <p>Regra de unicidade: um cliente pode ter apenas 1 fundo ativo;
+     * um token pode ter apenas 1 fundo ativo.
      */
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cliente_id", nullable = false, unique = true)
-    @NotNull
+    @JoinColumn(name = "cliente_id", nullable = true, unique = true)
     private Cliente cliente;
+
+    /**
+     * Token do portador anónimo (UUID do QR Code).
+     *
+     * <p>Preenchido exclusivamente quando {@code cliente} é nulo.
+     * Representa o QR Code entregue ao consumidor no fluxo anónimo.
+     * Perda do token = perda de acesso ao saldo.
+     */
+    @Column(name = "token_portador", length = 36, unique = true)
+    private String tokenPortador;
 
     /**
      * Saldo atual disponível

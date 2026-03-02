@@ -1,0 +1,372 @@
+================================================================================
+                        CHECKLIST DE GO-LIVE
+            Sistema de Restauração - Pré-pago / Pós-pago
+================================================================================
+
+Data de Preparação: 25 de Fevereiro de 2026
+Versão: 1.0.0 - Produção
+
+Este documento contém as validações obrigatórias antes de colocar o sistema
+em produção real (restaurante/bar/discoteca).
+
+================================================================================
+SEÇÃO 1: VALIDAÇÕES CRÍTICAS DE SEGURANÇA FINANCEIRA
+================================================================================
+
+[ ] 1.1 CONCORRÊNCIA E INTEGRIDADE
+    - OptimisticLock (@Version) ativo em todas entidades críticas:
+      ✓ BaseEntity.java contém @Version
+      ✓ SubPedido herda de BaseEntity
+      ✓ FundoConsumo herda de BaseEntity
+      ✓ Pagamento herda de BaseEntity
+    - Testes E2E de concorrência executados: 42 testes passando
+    - Isolation.SERIALIZABLE em operações financeiras:
+      ✓ FundoConsumoService.recarregar()
+      ✓ FundoConsumoService.debitar()
+      ✓ FundoConsumoService.estornar()
+      ✓ PagamentoGatewayService operações críticas
+
+[ ] 1.2 SALDO NUNCA NEGATIVO
+    - Validação pré-débito implementada:
+      ✓ FundoConsumo.temSaldoSuficiente() antes de debitar
+      ✓ Exceção SaldoInsuficienteException lançada quando saldo < valor
+    - Débitos bloqueados quando fundo inativo:
+      ✓ Validação fundo.ativo == true em todas operações
+
+[ ] 1.3 IDEMPOTÊNCIA FINANCEIRA
+    - Débito de pedido idempotente:
+      ✓ Verifica transação existente por pedidoId
+      ✓ Retorna transação existente sem duplicar débito
+    - Estorno idempotente:
+      ✓ Verifica estorno existente por pedidoId
+      ✓ Retorna transação existente sem duplicar crédito
+    - Pagamento gateway idempotente:
+      ✓ merchantTransactionId único (<= 15 chars)
+      ✓ Callback duplicado = NO-OP
+
+[ ] 1.4 VALIDAÇÕES DE VALOR MÍNIMO
+    - Valor mínimo configurável no banco de dados:
+      ✓ ConfiguracaoFinanceiraSistema.valorMinimoOperacao
+      ✓ Carregado de application.properties na primeira execução
+      ✓ Banco é fonte de verdade após inicialização
+    - Validação aplicada em:
+      ✓ Recarga de fundo (FundoConsumoService.recarregar)
+      ⚠️  Pendente: Débito de pedido (se aplicável)
+      ⚠️  Pendente: Estorno (se aplicável)
+
+[ ] 1.5 LIMITE DE PÓS-PAGO
+    - Limite configurável no banco de dados:
+      ✓ ConfiguracaoFinanceiraSistema.limitePosPago
+      ✓ Não mais hardcoded (removido LIMITE_POS_PAGO_PADRAO)
+      ✓ ConfiguracaoFinanceiraService.validarCriacaoPosPago usa banco
+    - Bloqueio automático ao exceder limite:
+      ✓ Exceção LimitePosPagoExcedidoException lançada
+      ✓ Pedido não é criado quando limite ultrapassado
+
+================================================================================
+SEÇÃO 2: VALIDAÇÕES OPERACIONAIS
+================================================================================
+
+[ ] 2.1 MÁQUINA DE ESTADOS
+    - Transições validadas por TransicaoEstadoValidator:
+      ✓ StatusSubPedido.podeTransicionarPara() implementado
+      ✓ Estados terminais bloqueiam novas transições
+      ✓ Idempotência: mesmo estado → sucesso sem alteração
+    - Nenhum setStatus() manual fora do motor:
+      ✓ Buscar no código: grep -r "setStatus" src/
+      ✓ Apenas SubPedidoService.alterarStatus() altera status
+    - Permissões por role validadas:
+      ✓ COZINHA: EM_PREPARACAO, PRONTO
+      ✓ ATENDENTE: ENTREGUE
+      ✓ GERENTE/ADMIN: CANCELADO
+
+[ ] 2.2 DISPONIBILIDADE DE PRODUTOS
+    - Validação de cozinha ativa implementada:
+      ✓ PedidoService valida cozinha.ativa == true
+      ✓ Exceção BusinessException clara: "cozinha inativa"
+      ✓ Validação ANTES da criação de SubPedidos
+    - Produto disponível ≠ Produto operacional:
+      ✓ produto.ativo validado
+      ✓ cozinha.ativa validado
+
+[ ] 2.3 STATUS DERIVADO DO PEDIDO
+    - StatusPedido calculado exclusivamente dos SubPedidos:
+      ✓ PedidoService.recalcularStatusPedido() implementado
+      ✓ Chamado após mudança de SubPedido
+      ✓ Nunca setado manualmente fora do método central
+
+[ ] 2.4 CONFIRMAÇÃO AUTOMÁTICA
+    - Pedidos pré-pago confirmados automaticamente:
+      ✓ CRIADO → PENDENTE após pagamento bem-sucedido
+    - Pedidos pós-pago confirmados se dentro do limite:
+      ✓ PedidoService.confirmarPedidoAutomaticamente()
+      ✓ Modelo: "limite substitui humano enquanto houver margem"
+
+================================================================================
+SEÇÃO 3: AUDITORIA E RASTREABILIDADE
+================================================================================
+
+[ ] 3.1 EVENT LOGS IMPLEMENTADOS
+    - Eventos de SubPedido:
+      ✓ SubPedidoEventLog registra todas mudanças
+      ✓ Campos: usuário, statusAnterior, statusNovo, timestamp, motivo
+    - Eventos de Pedido:
+      ✓ PedidoEventLog registra mudanças agregadas
+    - Eventos de Pagamento:
+      ✓ PagamentoEventLog registra transações financeiras
+    - Transações de Fundo:
+      ✓ TransacaoFundo registra CREDITO, DEBITO, ESTORNO
+
+[ ] 3.2 AUDITORIA DE AÇÕES CRÍTICAS
+    - Cancelamento de pedido:
+      ✓ Motivo obrigatório
+      ✓ EventLog gerado com usuário e role
+    - Estorno de fundo:
+      ✓ Motivo registrado em observacoes
+      ✓ TransacaoFundo tipo ESTORNO
+    - Autorização de pós-pago:
+      ✓ Auditado via ConfiguracaoFinanceiraSistema
+      ✓ Campos: atualizadoPorNome, atualizadoPorRole, updatedAt
+    - Confirmação de pagamento:
+      ✓ PagamentoEventLog com status, timestamp, gateway
+
+[ ] 3.3 AUDITORIA DE POLÍTICA PÓS-PAGO
+    - Ativar/Desativar pós-pago gera log:
+      ✓ Log WARN com usuário, role, timestamp
+      ✓ Não exige motivo (mas é auditado)
+      ✓ Campos persistidos em ConfiguracaoFinanceiraSistema
+
+================================================================================
+SEÇÃO 4: BANCO DE DADOS E PERSISTÊNCIA
+================================================================================
+
+[ ] 4.1 INICIALIZAÇÃO DO BANCO
+    - Schema criado automaticamente:
+      ✓ spring.jpa.hibernate.ddl-auto configurado
+      ✓ Produção: update (não create-drop)
+    - Configuração financeira inicializada:
+      ✓ InicializacaoFinanceiraConfig.@EventListener
+      ✓ Executa APENAS na primeira execução
+      ✓ Carrega valores de application.properties
+      ✓ Após primeira execução: BANCO é fonte de verdade
+
+[ ] 4.2 ÍNDICES DE PERFORMANCE
+    - Índices críticos criados via @Index:
+      ✓ idx_subpedido_status
+      ✓ idx_subpedido_cozinha
+      ✓ idx_pedido_status_financeiro
+      ✓ idx_fundo_cliente
+      ✓ idx_pagamento_external_ref (UNIQUE)
+      ✓ idx_unidade_consumo_qr_code (UNIQUE)
+
+[ ] 4.3 MIGRAÇÕES E BACKUP
+    - Estratégia de backup definida:
+      ⚠️  A ser implementado em produção
+      ⚠️  Backup diário obrigatório
+      ⚠️  Retenção mínima: 30 dias
+    - Estratégia de rollback definida:
+      ⚠️  Scripts de migração versionados
+      ⚠️  Testes de rollback realizados
+
+================================================================================
+SEÇÃO 5: INTEGRAÇÕES EXTERNAS
+================================================================================
+
+[ ] 5.1 APPYPAY (GATEWAY DE PAGAMENTO)
+    - Credenciais produção configuradas:
+      ⚠️  APPYPAY_CLIENT_SECRET via variável de ambiente
+      ⚠️  APPYPAY_RESOURCE configurado
+      ✓ app.payment.appypay.mock=false em produção
+    - Webhook testado em staging:
+      ⚠️  CRÍTICO: Testar em ambiente staging ANTES de produção
+      ✓ Callback duplicado tratado (idempotência)
+      ✓ Callback fora de ordem não quebra estado
+    - Timeout configurado:
+      ✓ 20 segundos (ajustável se necessário)
+
+[ ] 5.2 TELCOSMS (NOTIFICAÇÕES SMS)
+    - Credenciais produção configuradas:
+      ⚠️  TELCOSMS_API_KEY via variável de ambiente
+      ✓ app.notification.telcosms.mock=false em produção
+    - Fallback de notificação:
+      ✓ Falha de SMS não quebra transação
+      ✓ Erro logado mas sistema continua
+
+================================================================================
+SEÇÃO 6: COMUNICAÇÃO EM TEMPO REAL
+================================================================================
+
+[ ] 6.1 WEBSOCKET FUNCIONAL
+    - WebSocket configurado e ativo:
+      ✓ WebSocketNotificacaoService implementado
+      ✓ Tópicos configurados:
+        /topic/cozinha/{cozinhaId}
+        /topic/atendente/unidade/{unidadeId}
+        /topic/subpedido/{id}
+        /topic/pedido/{id}
+    - Nenhuma UI depende de polling:
+      ✓ Todas notificações via WebSocket
+      ✓ SubPedido muda estado → evento emitido
+
+[ ] 6.2 FALLBACK DE COMUNICAÇÃO
+    - Sistema funciona sem WebSocket:
+      ✓ Operações backend continuam sem WebSocket
+      ⚠️  UI deve ter fallback para polling (responsabilidade frontend)
+
+================================================================================
+SEÇÃO 7: TESTES E QUALIDADE
+================================================================================
+
+[ ] 7.1 TESTES E2E
+    - Testes de concorrência executados:
+      ✓ 42 testes passando (0 falhas)
+      ✓ ConcurrenciaRealE2ETest.java
+      ✓ ConcurrencyE2ETest.java
+      ✓ ConcurrencyChaosTest.java
+    - Cenários validados:
+      ✓ Dois operadores mesmo SubPedido → HTTP 409
+      ✓ Dois débitos simultâneos → apenas 1 sucede
+      ✓ OptimisticLockException tratado corretamente
+
+[ ] 7.2 TESTES UNITÁRIOS
+    - Services críticos testados:
+      ✓ SubPedidoStateMachineTest (13 testes)
+      ✓ FundoConsumoServiceTest (6 testes)
+      ✓ PosPagoServiceTest (5 testes)
+      ✓ PedidoStatusDerivadoTest (4 testes)
+
+[ ] 7.3 COBERTURA DE CÓDIGO
+    - Proporção teste/código: 13.5%
+    - Classes críticas com testes:
+      ✓ SubPedidoService
+      ✓ FundoConsumoService
+      ✓ PedidoFinanceiroService
+      ✓ ConfiguracaoFinanceiraService
+    - Cenários edge testados:
+      ✓ Saldo insuficiente
+      ✓ Cozinha inativa
+      ✓ Transição inválida
+      ✓ Permissão negada
+
+================================================================================
+SEÇÃO 8: CONFIGURAÇÕES DE PRODUÇÃO
+================================================================================
+
+[ ] 8.1 VARIÁVEIS DE AMBIENTE
+    - Variáveis obrigatórias configuradas:
+      ⚠️  APPYPAY_CLIENT_SECRET
+      ⚠️  APPYPAY_RESOURCE
+      ⚠️  TELCOSMS_API_KEY
+      ⚠️  JWT_SECRET (diferente de dev)
+      ⚠️  DATABASE_URL (PostgreSQL produção)
+      ⚠️  DATABASE_USERNAME
+      ⚠️  DATABASE_PASSWORD
+
+[ ] 8.2 PERFIL DE PRODUÇÃO
+    - Perfil 'prod' configurado:
+      ⚠️  application-prod.properties criado
+      ⚠️  spring.jpa.hibernate.ddl-auto=update (NUNCA create-drop)
+      ⚠️  spring.jpa.show-sql=false
+      ⚠️  logging.level ajustado (INFO/WARN)
+      ⚠️  CORS restrito a domínios reais
+      ⚠️  Mock desabilitado: *.mock=false
+
+[ ] 8.3 RECURSOS COMPUTACIONAIS
+    - JVM configurada:
+      ⚠️  Heap mínimo: -Xms512m
+      ⚠️  Heap máximo: -Xmx2g
+      ⚠️  GC: G1GC recomendado
+    - Pool de conexões:
+      ⚠️  spring.datasource.hikari.maximum-pool-size=20
+      ⚠️  spring.datasource.hikari.minimum-idle=5
+
+================================================================================
+SEÇÃO 9: MONITORAMENTO E OBSERVABILIDADE
+================================================================================
+
+[ ] 9.1 LOGS ESTRUTURADOS
+    - Logs de auditoria identificáveis:
+      ✓ Padrão: "🔐 AUDITORIA: ..."
+      ✓ Nível WARN para ações críticas
+      ✓ Campos: usuário, role, timestamp
+    - Logs de erro com contexto:
+      ✓ Exception stacktrace completo
+      ✓ Contexto de negócio (pedidoId, clienteId, etc.)
+
+[ ] 9.2 MÉTRICAS
+    - Endpoints de saúde:
+      ⚠️  /actuator/health (habilitar Spring Actuator)
+      ⚠️  /actuator/metrics (opcional)
+    - Alertas configurados:
+      ⚠️  Taxa de erro > 5%
+      ⚠️  Latência > 2s
+      ⚠️  Saldo negativo detectado (nunca deve ocorrer)
+
+================================================================================
+SEÇÃO 10: VALIDAÇÃO FINAL
+================================================================================
+
+[ ] 10.1 SMOKE TESTS EM PRODUÇÃO
+    - Após deploy, executar sequência:
+      1. Criar cliente
+      2. Criar fundo de consumo
+      3. Recarregar fundo (valor mínimo + 1)
+      4. Criar pedido pré-pago
+      5. Validar débito automático
+      6. Validar notificação WebSocket
+      7. Avançar SubPedido até ENTREGUE
+      8. Validar StatusPedido = FINALIZADO
+      9. Cancelar pedido (como ADMIN)
+      10. Validar estorno automático
+
+[ ] 10.2 ROLLBACK PREPARADO
+    - Script de rollback disponível:
+      ⚠️  Rollback de código (Git tag)
+      ⚠️  Rollback de banco (backup disponível)
+      ⚠️  Tempo estimado: < 15 minutos
+
+[ ] 10.3 EQUIPE PREPARADA
+    - Treinamento realizado:
+      ⚠️  Equipe conhece máquina de estados
+      ⚠️  Equipe sabe interpretar logs de auditoria
+      ⚠️  Equipe conhece limites do sistema
+    - Procedimentos de emergência:
+      ⚠️  Como desativar pós-pago globalmente
+      ⚠️  Como identificar saldo negativo (não deve ocorrer)
+      ⚠️  Como estornar transação manualmente (último recurso)
+
+================================================================================
+ASSINATURA DE VALIDAÇÃO
+================================================================================
+
+Data de Validação: ___ / ___ / 2026
+Validado por: _____________________________ (Eng. Responsável)
+Aprovado por: _____________________________ (Gerente de Projeto)
+
+Observações:
+_______________________________________________________________________________
+_______________________________________________________________________________
+_______________________________________________________________________________
+
+================================================================================
+PRÓXIMOS PASSOS PÓS GO-LIVE
+================================================================================
+
+[ ] Semana 1: Monitoramento intensivo
+    - Validar performance real
+    - Coletar métricas de uso
+    - Identificar gargalos
+
+[ ] Semana 2-4: Otimizações
+    - Ajustar limites conforme uso real
+    - Otimizar queries lentas
+    - Ajustar pool de conexões
+
+[ ] Mês 2+: Evolução
+    - Implementar delivery (se aplicável)
+    - Adicionar relatórios gerenciais
+    - Expandir integrações
+
+================================================================================
+FIM DO CHECKLIST
+================================================================================

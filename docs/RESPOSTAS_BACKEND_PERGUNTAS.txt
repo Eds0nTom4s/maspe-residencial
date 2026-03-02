@@ -1,0 +1,817 @@
+================================================================================
+  RESPOSTAS ÀS PERGUNTAS DO FRONTEND — SISTEMA DE RESTAURAÇÃO
+  Documento gerado após revisão completa do código-fonte
+  Data: 2025 | Versão Backend: Spring Boot 3.x / Java 21
+================================================================================
+
+Nota de leitura:
+  [OK]    = Funciona conforme esperado
+  [GAP]   = Funcionalidade inexistente no backend — frontend deve adaptar-se
+  [FIX]   = Comportamento diferente do esperado — frontend deve corrigir
+  [AVISO] = Detalhe crítico que frequentemente causa bugs de integração
+
+================================================================================
+SECÇÃO 1 — AUTENTICAÇÃO E JWT
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+1.1  Qual o endpoint correto de login para o staff (atendentes, gerentes, admin)?
+─────────────────────────────────────────────────────────────────────────────
+
+[OK] ENDPOINT PRINCIPAL DO STAFF:
+
+  POST /api/auth/admin/login
+  Content-Type: application/json
+  (SEM token — endpoint público)
+
+  Corpo da requisição:
+  {
+    "telefone": "+244923000001",
+    "senha":    "minhasenha123"
+  }
+
+  Resposta (200 OK — wrapper ApiResponse):
+  {
+    "success": true,
+    "message": "Login realizado com sucesso",
+    "data": {
+      "id":          1,
+      "nome":        "Maria Silva",
+      "telefone":    "+244923000001",
+      "email":       "maria@restaurante.ao",
+      "tipoUsuario": "ADMIN",        ← string, não array
+      "token":       "eyJhbGci...",  ← JWT access token
+      "expiresIn":   86400           ← [FIX] SEGUNDOS, NÃO milissegundos
+    }
+  }
+
+  [AVISO] expiresIn = 86400 SEGUNDOS (24 horas), NÃO milissegundos.
+  Se o frontend armazenar como millisDate = now + expiresIn, o token vai
+  parecer expirado dentro de 86 segundos. Calcular assim:
+    expiry = Date.now() + (data.expiresIn * 1000)
+
+  [AVISO] O campo retornado é "tipoUsuario", NÃO "role" nem "roles".
+  Valores possíveis: "ADMIN" | "GERENTE" | "ATENDENTE" | "CLIENTE"
+
+  Endpoint secundário (tabela User — NÃO usar para staff do painel):
+    POST /api/auth/jwt/login
+    Body: { "username": "...", "password": "..." }
+    Resposta inclui: accessToken, refreshToken, expiresIn (3600000ms), roles (Set<Role>)
+    Este endpoint existe mas é para o sistema User separado.
+    O painel do staff deve usar SEMPRE /api/auth/admin/login.
+
+─────────────────────────────────────────────────────────────────────────────
+1.2  Que claims vêm dentro do JWT? Há "unidadeAtendimentoId"? Há "nome"?
+─────────────────────────────────────────────────────────────────────────────
+
+[FIX] CLAIMS DO JWT (gerado por /auth/admin/login):
+
+  Header: { "alg": "HS256" }
+
+  Payload:
+  {
+    "sub":   "+244923000001",   ← telefone do atendente (NÃO username)
+    "roles": "ROLE_ADMIN",     ← [FIX] string simples, NÃO array JSON
+    "iat":   1700000000,
+    "exp":   1700086400
+  }
+
+  [GAP] NÃO existem no JWT:
+    - "nome"                 → usar o campo "nome" do corpo da resposta de login
+    - "email"                → usar o campo "email" do corpo da resposta de login
+    - "unidadeAtendimentoId" → NÃO existe em lugar nenhum no token
+    - "tipoUsuario"          → usar o campo "tipoUsuario" do corpo de login
+    - "userId"               → usar o campo "id" do corpo de login
+
+  Como extrair a role do JWT:
+    const rolesString = jwtPayload.roles;   // "ROLE_ADMIN"
+    // É uma string simples, pode conter vírgulas se múltiplas roles:
+    // "ROLE_ADMIN,ROLE_GERENTE" — mas na prática só vem uma role.
+    const roles = rolesString.split(',');   // ["ROLE_ADMIN"]
+
+  Recomendação: armazenar nome, email, tipoUsuario, id e token
+  separadamente no localStorage/store após o login.
+
+─────────────────────────────────────────────────────────────────────────────
+1.3  Existe endpoint /api/auth/refresh e /api/auth/me?
+─────────────────────────────────────────────────────────────────────────────
+
+[OK] REFRESH TOKEN — existe via sistema JWT (NÃO via sistema Atendente):
+  POST /api/auth/jwt/refresh
+  Content-Type: application/json
+  Body: { "refreshToken": "eyJhbGci..." }
+
+  Atenção: o /auth/admin/login NÃO emite refreshToken.
+  Apenas /auth/jwt/login emite refreshToken.
+  Logo, se o frontend usa /admin/login, não há refresh automático —
+  ao expirar (24h), o usuário faz login novamente.
+
+[GAP] /api/auth/me — NÃO EXISTE.
+  Não há endpoint para verificar/introspeccionar token no servidor.
+  Para saber se o token ainda é válido, o frontend deve:
+    a) Verificar a expiração local (exp do JWT decodificado), OU
+    b) Fazer qualquer requisição autenticada e tratar o 401.
+
+================================================================================
+SECÇÃO 2 — FUNDO DE CONSUMO (PRÉ-PAGO)
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+2.1  Como funciona o fluxo PRE_PAGO para unidades anónimas?
+     Existe endpoint para criar fundo anónimo / consultar saldo?
+─────────────────────────────────────────────────────────────────────────────
+
+[GAP] NÃO EXISTEM ENDPOINTS REST para Fundo de Consumo.
+  Toda a lógica de fundo é INTERNA ao backend (service-to-service).
+
+  Fluxo real implementado (apenas internamente):
+    1. Cliente escaneia QR Code da mesa/quarto.
+    2. O backend cria automaticamente o FundoConsumo via tokenPortador do QR.
+    3. Ao criar pedido PRE_PAGO, o backend debita automaticamente do fundo.
+    4. O frontend NÃO precisa (e não pode) interagir com o fundo directamente.
+
+  Para unidade anónima (sem cliente identificado):
+    - Fundo criado internamente com criarFundoAnonimo(tokenPortador).
+    - Frontend apenas cria pedido normalmente — o backend trata do resto.
+
+  Para saldo de fundo — [GAP] frontend não consegue consultar.
+  Implicação: se a UI precisar mostrar saldo, isso requer implementação
+  de um controller FundoConsumo (trabalho futuro no backend).
+
+─────────────────────────────────────────────────────────────────────────────
+2.2  Existe GET /api/fundos ou GET /api/fundos/{id}?
+─────────────────────────────────────────────────────────────────────────────
+
+[GAP] NÃO EXISTE nenhum FundoConsumoController.
+  Não há nenhuma rota sob /api/fundos.
+  Remover essas chamadas do frontend por agora.
+
+─────────────────────────────────────────────────────────────────────────────
+2.3  Como obter o valor mínimo de operação? Existe /api/fundos/config/valor-minimo?
+─────────────────────────────────────────────────────────────────────────────
+
+[FIX] /api/fundos/config/valor-minimo NÃO EXISTE.
+  O valor mínimo está na configuração financeira do sistema.
+
+  Usar em substituição:
+    GET /api/configuracoes-financeiras
+    Authorization: Bearer {token}   (requer role ADMIN)
+
+  Resposta inclui o campo: "valorMinimoOperacao" (BigDecimal, em AOA).
+
+  Para saber se pós-pago está activo (não requer ADMIN):
+    GET /api/configuracoes-financeiras/pos-pago/status
+    Authorization: Bearer {token}   (roles: ATENDENTE, GERENTE, ADMIN)
+    Resposta: { "data": true/false }
+
+─────────────────────────────────────────────────────────────────────────────
+2.4  Como se integra com AppyPay? Há endpoint frontend-facing para pagamentos?
+─────────────────────────────────────────────────────────────────────────────
+
+[GAP] NÃO há endpoint de pagamento para o frontend.
+  O que existe é apenas o webhook de callback:
+    POST /api/pagamentos/callback   (PÚBLICO — chamado pela AppyPay, não pelo frontend)
+
+  O processamento de pagamento AppyPay é 100% interno:
+    PagamentoGatewayService → chama API AppyPay → AppyPay chama /callback.
+  O frontend nunca interage directamente com o gateway.
+
+================================================================================
+SECÇÃO 3 — PEDIDOS
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+3.1  Como finalizar um pedido? Existe POST /api/pedidos/{id}/finalizar?
+─────────────────────────────────────────────────────────────────────────────
+
+[GAP] NÃO existe /api/pedidos/{id}/finalizar nem /fechar em Pedido.
+
+  Ciclo de vida real:
+    Pedido criado → status CRIADO → EM_ANDAMENTO → FINALIZADO
+
+  A transição para FINALIZADO é AUTOMÁTICA no backend quando todos os
+  SubPedidos do pedido são marcados como ENTREGUE.
+
+  O atendente trabalha com SubPedidos (unidades operacionais), não com o Pedido directamente:
+    PUT /api/subpedidos/{id}/assumir       → PENDENTE → EM_PREPARACAO (Cozinha)
+    PUT /api/subpedidos/{id}/marcar-pronto → EM_PREPARACAO → PRONTO (Cozinha)
+    PUT /api/subpedidos/{id}/marcar-entregue → PRONTO → ENTREGUE (Atendente)
+
+  Quando o último SubPedido é marcado ENTREGUE → Pedido vira FINALIZADO automaticamente.
+
+  Para pagamento pós-pago, o endpoint de confirmação existe em:
+    PUT /api/configuracoes-financeiras → ver RELATORIO_ESTADO_BACKEND.txt
+
+─────────────────────────────────────────────────────────────────────────────
+3.2  Como cancelar um pedido? Qual método HTTP e como passar o motivo?
+─────────────────────────────────────────────────────────────────────────────
+
+[FIX] ENDPOINT DE CANCELAMENTO:
+
+  PUT /api/pedidos/{id}/cancelar?motivo=TEXTO_DO_MOTIVO
+  Authorization: Bearer {token}   (roles: GERENTE, ADMIN)
+
+  [FIX] Método é PUT (não POST, não DELETE).
+  [FIX] motivo é query parameter (NÃO body, NÃO path variable).
+  [FIX] motivo é OBRIGATÓRIO — se omitido, retorna 400.
+
+  Exemplo:
+    PUT /api/pedidos/42/cancelar?motivo=Cliente%20desistiu
+    Authorization: Bearer eyJhbGci...
+
+  Resposta (200 OK):
+  {
+    "success": true,
+    "message": "Pedido cancelado com sucesso",
+    "data": { ...PedidoResponse com status: "CANCELADO" }
+  }
+
+  Roles permitidas: GERENTE, ADMIN. ATENDENTE não pode cancelar pedido.
+
+─────────────────────────────────────────────────────────────────────────────
+3.3  Existe campo "origem" em CriarPedidoRequest?
+─────────────────────────────────────────────────────────────────────────────
+
+[GAP] NÃO existe campo "origem" em CriarPedidoRequest.
+
+  Campos reais de CriarPedidoRequest:
+  {
+    "unidadeConsumoId": 5,          (Long, obrigatório)
+    "itens": [                      (List, mínimo 1 item, obrigatório)
+      {
+        "produtoId":   12,          (Long, obrigatório)
+        "quantidade":  2,           (Integer, obrigatório)
+        "observacoes": "sem sal"    (String, opcional)
+      }
+    ],
+    "tipoPagamento": "PRE_PAGO",    (enum TipoPagamentoPedido, opcional — default: PRE_PAGO)
+    "observacoes": "..."            (String, opcional)
+  }
+
+  Se o frontend enviar "origem", o campo é simplesmente ignorado.
+  Valores de TipoPagamentoPedido: PRE_PAGO | POS_PAGO
+
+─────────────────────────────────────────────────────────────────────────────
+3.4  Existe POST /api/pagamentos para processar pagamento de um pedido?
+─────────────────────────────────────────────────────────────────────────────
+
+[GAP] NÃO existe POST /api/pagamentos.
+  Não há PagamentosController com endpoints para o frontend.
+
+  O único endpoint sob /api/pagamentos é:
+    POST /api/pagamentos/callback   (webhook AppyPay — não usar no frontend)
+
+  Para pagamento pós-pago, a confirmação manual é feita pelo atendente via:
+    Configurações Financeiras → endpoints de GERENTE/ADMIN.
+
+─────────────────────────────────────────────────────────────────────────────
+3.5  O PedidoResponse contém "fundoConsumoId"?
+─────────────────────────────────────────────────────────────────────────────
+
+[FIX] NÃO. PedidoResponse NÃO tem "fundoConsumoId".
+
+  Campos reais de PedidoResponse:
+  {
+    "id":                        Long,
+    "numero":                    String,    (ex: "PED-20250101-0001")
+    "status":                    String,    (enum StatusPedido)
+    "observacoes":               String,
+    "total":                     BigDecimal,
+    "unidadeConsumoId":          Long,
+    "referenciaUnidadeConsumo":  String,    (ex: "Mesa 05")
+    "itens":                     List<ItemPedidoResponse>,
+    "createdAt":                 LocalDateTime,
+    "updatedAt":                 LocalDateTime
+  }
+
+  Remover qualquer validação no frontend que verifique pedido.fundoConsumoId.
+  O vínculo fundo←→pedido é gerido internamente pelo backend.
+
+================================================================================
+SECÇÃO 4 — AUDITORIA
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+4.1  Os endpoints /api/auditoria/* estão implementados?
+─────────────────────────────────────────────────────────────────────────────
+
+[OK] SIM — foram implementados (AuditoriaController.java).
+
+  Todos requerem: Authorization: Bearer {token}   (roles: GERENTE, ADMIN)
+
+  GET /api/auditoria/acoes
+    Query params (todos opcionais):
+      limite=50        (int, default 50)
+      tipo=            (string, tipo de evento)
+      operador=        (string, username/telefone)
+      inicio=          (ISO datetime, ex: 2025-01-01T00:00:00)
+      fim=             (ISO datetime)
+    Retorna: List de ConfiguracaoFinanceiraEventLog
+
+  GET /api/auditoria/estatisticas
+    Retorna:
+    {
+      "totalEventos":       Long,
+      "eventosUltimas24h":  Long,
+      "eventosUltimos7dias": Long,
+      "porTipo":            Map<String, Long>
+    }
+
+  GET /api/auditoria/modulos
+    Retorna:
+    {
+      "modulos": [
+        { "tipo": "ATIVOU_POS_PAGO", "label": "Pós-pago", "categoria": "CONFIG_FINANCEIRA" },
+        ...
+      ],
+      "totalRegistrado": Long
+    }
+
+─────────────────────────────────────────────────────────────────────────────
+4.2  Que tipos de acções/módulos existem no sistema de auditoria?
+─────────────────────────────────────────────────────────────────────────────
+
+[OK] Tipos de eventos registados (campo TipoEvento):
+
+  ATIVOU_POS_PAGO             → Admin activou modo pós-pago
+  DESATIVOU_POS_PAGO          → Admin desactivou modo pós-pago
+  ALTEROU_LIMITE_POS_PAGO     → Admin alterou limite de risco pós-pago
+  ALTEROU_VALOR_MINIMO        → Admin alterou valor mínimo de operação
+  CONFIRMOU_PAGAMENTO_POS_PAGO → Pagamento pós-pago confirmado manualmente
+  ESTORNOU_PEDIDO             → Estorno de pedido realizado
+  AUTORIZOU_POS_PAGO          → Gerente autorizou pós-pago para uma unidade
+
+  Estrutura de cada log:
+  {
+    "id":         Long,
+    "tipoEvento": String,
+    "descricao":  String,
+    "operador":   String,    (username ou telefone de quem fez a acção)
+    "ip":         String,
+    "timestamp":  LocalDateTime,
+    "valorAnterior": String,
+    "valorNovo":     String
+  }
+
+================================================================================
+SECÇÃO 5 — DASHBOARD
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+5.1  Quais são os endpoints de dashboard e que dados retornam exactamente?
+─────────────────────────────────────────────────────────────────────────────
+
+[OK] Endpoints disponíveis:
+
+  GET /api/dashboard/stats
+    Roles: ADMIN, GERENTE, ATENDENTE
+    [FIX] Retorna APENAS 4 campos (não 10 como o frontend esperava):
+    {
+      "totalPedidosHoje":  Integer,
+      "pedidosPendentes":  Integer,
+      "receitaHoje":       BigDecimal,
+      "clientesAtivos":    Integer
+    }
+    Campos NÃO existentes: pedidosEmAndamento, pedidosConcluidos,
+    pedidosCancelados, receitaMes, mesasOcupadas, mesasDisponiveis,
+    produtosDisponiveis.
+    Tratar estes campos como null/0 no frontend por agora.
+
+  GET /api/dashboard/activity?limit=10
+    Roles: ADMIN, GERENTE, ATENDENTE
+    Query param limit (default 10).
+    Retorna: Array de:
+    {
+      "tipo":      String,
+      "descricao": String,
+      "timestamp": LocalDateTime,
+      "detalhes":  String    (pode ser null)
+    }
+
+  GET /api/dashboard/top-products?limit=10
+    Roles: ADMIN, GERENTE   (ATENDENTE não tem acesso — retorna 403)
+    Query param limit (default 10).
+    Retorna: Array de:
+    {
+      "produtoId":         Long,
+      "nome":              String,
+      "quantidadeVendida": Integer,
+      "valorTotal":        BigDecimal,
+      "categoria":         String
+    }
+
+─────────────────────────────────────────────────────────────────────────────
+5.2  Quais são os valores válidos do enum StatusPedido?
+─────────────────────────────────────────────────────────────────────────────
+
+[FIX] Valores reais de StatusPedido:
+  CRIADO         → pedido recém-criado, aguarda processamento
+  EM_ANDAMENTO   → pelo menos um SubPedido está em preparação
+  FINALIZADO     → todos SubPedidos entregues, pedido concluído
+  CANCELADO      → pedido cancelado por GERENTE/ADMIN
+
+  [FIX] "CONFIRMADO" NÃO EXISTE. Remover do frontend.
+
+================================================================================
+SECÇÃO 6 — PRODUTOS
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+6.1  Existe POST /api/produtos/{id}/imagem para upload de imagem?
+─────────────────────────────────────────────────────────────────────────────
+
+[GAP] NÃO existe upload de imagem (multipart/form-data).
+
+  Produtos usam URL de imagem como string simples.
+  Para criar/actualizar produto com imagem:
+
+    POST /api/produtos   (criar) — requer role GERENTE
+    PUT  /api/produtos/{id}   (actualizar) — requer role GERENTE
+
+    Body (application/json):
+    {
+      "codigo":               "PROD-001",     (obrigatório)
+      "nome":                 "Frango Grelhado",  (obrigatório, 3-150 chars)
+      "descricao":            "...",          (opcional, max 500)
+      "preco":                1500.00,        (obrigatório, > 0)
+      "categoria":            "PRATO_PRINCIPAL", (obrigatório — ver enum abaixo)
+      "urlImagem":            "https://cdn.exemplo.com/img.jpg",  (opcional)
+      "tempoPreparoMinutos":  20,             (opcional)
+      "disponivel":           true            (opcional)
+    }
+
+  Solução para imagens: usar hosting externo (Cloudinary, S3, Firebase Storage)
+  e enviar a URL resultante no campo urlImagem.
+
+  Outros endpoints de produto:
+    GET    /api/produtos                          → listar disponíveis (público)
+    GET    /api/produtos/categoria/{categoria}    → filtrar por categoria
+    GET    /api/produtos/buscar?nome=X            → busca por nome
+    PATCH  /api/produtos/{id}/disponibilidade?disponivel=true   (GERENTE)
+    DELETE /api/produtos/{id}                     → soft delete (GERENTE)
+
+================================================================================
+SECÇÃO 7 — CONFIGURAÇÕES FINANCEIRAS
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+7.1  Os endpoints PUT de configuração retornam os dados actualizados?
+─────────────────────────────────────────────────────────────────────────────
+
+[FIX] NÃO. Todos os endpoints PUT de ConfiguracaoFinanceira retornam:
+  {
+    "success": true,
+    "message": "...",
+    "data": null          ← sempre null
+  }
+
+  Padrão recomendado para o frontend:
+    1. Fazer o PUT → verificar success: true
+    2. Fazer um GET /api/configuracoes-financeiras para obter estado actual
+
+  Endpoints disponíveis (todos requerem role ADMIN):
+    GET  /api/configuracoes-financeiras                       → config completa
+    PUT  /api/configuracoes-financeiras/pos-pago/ativar       (?motivo=opcional)
+    PUT  /api/configuracoes-financeiras/pos-pago/desativar    (?motivo=opcional)
+    PUT  /api/configuracoes-financeiras/pos-pago/limite       (?novoLimite=X&motivo=opcional)
+    PUT  /api/configuracoes-financeiras/valor-minimo          (?novoValor=X&motivo=opcional)
+    GET  /api/configuracoes-financeiras/pos-pago/status       (ATENDENTE, GERENTE, ADMIN)
+
+  Campos de ConfiguracaoFinanceiraSistema retornada pelo GET:
+  {
+    "id":                    Long,
+    "posPagoAtivo":          Boolean,
+    "limitePosPagePadrao":   BigDecimal,
+    "valorMinimoOperacao":   BigDecimal,
+    "updatedAt":             LocalDateTime,
+    "updatedBy":             String
+  }
+
+================================================================================
+SECÇÃO 8 — UNIDADES DE CONSUMO (MESAS / QUARTOS / ÁREAS)
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+MODELO DE NEGÓCIO — LEITURA OBRIGATÓRIA
+─────────────────────────────────────────────────────────────────────────────
+
+  Mesa e Cliente NÃO têm dependência directa.
+
+  Fluxo correcto:
+    1. ADMIN pré-cadastra mesas (UnidadeConsumo) no sistema via backoffice.
+       Cada mesa existe independentemente de qualquer cliente.
+    2. O backend gera automaticamente um QR Code único e permanente para
+       cada mesa (TipoQrCode.MESA, renovação automática a cada 24h).
+    3. ADMIN imprime a imagem PNG do QR Code e afixa fisicamente na mesa.
+    4. Cliente chega, lê o QR Code com o telemóvel.
+    5. O token lido pelo QR Code identifica a UnidadeConsumo → sessão iniciada.
+    6. Cliente pode então fazer pedidos associados a essa mesa.
+
+  A mesa não fica "pertencente" a um cliente. Quando o pedido é
+  finalizado/cancelado, a mesa volta ao estado DISPONIVEL.
+
+─────────────────────────────────────────────────────────────────────────────
+8.1  Existe GET /api/unidades-consumo/minhas para listar unidades do utilizador?
+─────────────────────────────────────────────────────────────────────────────
+
+[GAP] NÃO existe /api/unidades-consumo/minhas.
+  Não faz sentido neste modelo — mesas não pertencem a utilizadores.
+
+  Endpoints de listagem disponíveis:
+
+    GET /api/unidades-consumo
+      → Lista TODAS as unidades de consumo (sem filtro de role)
+
+    GET /api/unidades-consumo/status/{status}
+      → Filtrar por status (path variable, NÃO query param)
+      → Ex: GET /api/unidades-consumo/status/DISPONIVEL
+      → Ex: GET /api/unidades-consumo/status/OCUPADA
+
+    GET /api/unidades-consumo/disponiveis/{tipo}
+      → Listar disponíveis por tipo
+      → Ex: GET /api/unidades-consumo/disponiveis/MESA_FISICA
+
+    GET /api/unidades-consumo/unidade-atendimento/{unidadeAtendimentoId}
+      → Listar todas as unidades de uma Unidade de Atendimento específica
+
+    GET /api/unidades-consumo/{id}
+      → Buscar por ID
+
+    GET /api/unidades-consumo/qrcode/{qrCode}
+      → Buscar por QR Code (string do token)
+
+    PUT /api/unidades-consumo/{id}/fechar
+      → Fechar unidade (liberta mesa — volta a DISPONIVEL)
+
+    PUT /api/unidades-consumo/{id}/atualizar-status
+      → Recalcular e actualizar status da unidade
+
+─────────────────────────────────────────────────────────────────────────────
+8.2  Quais são os valores válidos dos enums de unidade de consumo?
+─────────────────────────────────────────────────────────────────────────────
+
+[OK] TipoUnidadeConsumo (campo "tipo"):
+  MESA_FISICA    → Mesa física de restaurante
+  QUARTO         → Quarto de hotel
+  AREA_EVENTO    → Área de evento
+  ESPACO_LOUNGE  → Espaço lounge
+  VIRTUAL        → Virtual/Delivery (sem localização física)
+
+[FIX] StatusUnidadeConsumo (campo "status") — 4 estados reais:
+  DISPONIVEL            → Mesa livre, sem ocupação, QR Code activo
+  OCUPADA               → Mesa em uso (pedido em curso associado)
+  AGUARDANDO_PAGAMENTO  → Consumo encerrado, aguarda pagamento
+  FINALIZADA            → Pagamento concluído, pronta para libertação
+
+  [GAP] "INDISPONIVEL" / "MANUTENCAO" NÃO EXISTEM no enum.
+  Se o negócio precisar de marcar uma mesa como fora de serviço,
+  isso requer adição de novo valor ao enum (trabalho futuro).
+  Por enquanto: remover mesa via soft-delete ou simplesmente não
+  gerar QR Code para ela é o workaround.
+
+  Estrutura de UnidadeConsumoResponse:
+  {
+    "id":                   Long,
+    "referencia":           String,    (ex: "Mesa 05", "Quarto 101")
+    "tipo":                 String,    (TipoUnidadeConsumo)
+    "status":               String,    (StatusUnidadeConsumo)
+    "qrCode":               String,    (token do QR Code activo)
+    "capacidade":           Integer,
+    "unidadeAtendimentoId": Long,
+    "createdAt":            LocalDateTime,
+    "updatedAt":            LocalDateTime
+  }
+
+  Para criar unidade — POST /api/unidades-consumo (roles: qualquer autenticado):
+  {
+    "referencia":           "Mesa 06",   (obrigatório — nome único da mesa)
+    "tipo":                 "MESA_FISICA", (obrigatório)
+    "capacidade":           4,           (opcional — número de lugares)
+    "unidadeAtendimentoId": 1            (obrigatório — a que restaurante pertence)
+  }
+  → Após criar a mesa, gerar o QR Code (ver Secção 8.3 abaixo).
+
+─────────────────────────────────────────────────────────────────────────────
+8.3  Como funciona o sistema de QR Code das mesas?
+     Como o admin associa o QR Code físico à mesa?
+─────────────────────────────────────────────────────────────────────────────
+
+[OK] FLUXO COMPLETO DO ADMIN (pré-cadastro de mesa):
+
+  PASSO 1 — Criar a mesa:
+    POST /api/unidades-consumo
+    Body: { "referencia": "Mesa 07", "tipo": "MESA_FISICA", ... }
+    → Recebe UnidadeConsumoResponse com "id"
+
+  PASSO 2 — Gerar QR Code para a mesa:
+    POST /api/qrcode
+    Authorization: Bearer {token}   (roles: ATENDENTE, GERENTE, ADMIN)
+    Body:
+    {
+      "tipo":               "MESA",
+      "unidadeDeConsumoId": 7,         (id da mesa criada no passo 1)
+      "validadeMinutos":    1440        (opcional — default 24h / 1440min)
+    }
+    → Recebe QrCodeResponse com "token" (ex: "qrc_a1b2c3d4...")
+
+    [OK] Se já existe QR ativo para essa mesa, o backend renova automaticamente
+    em vez de criar duplicado.
+
+  PASSO 3 — Baixar imagem PNG para impressão:
+    GET /api/qrcode/imagem/{token}/print
+    Authorization: Bearer {token_jwt}   (roles: ATENDENTE, GERENTE, ADMIN)
+    → Retorna imagem PNG 500×500 (alta resolução)
+    → Content-Disposition: attachment; filename="qrcode-print-{token}.png"
+
+    Alternativa (300×300 para visualização inline):
+    GET /api/qrcode/imagem/{token}
+    → Retorna imagem PNG 300×300
+    → Content-Disposition: inline
+
+  PASSO 4 — Imprimir e afixar fisicamente na mesa.
+
+  PASSO 5 — Cliente lê o QR Code → obtém o token → sistema valida:
+    GET /api/qrcode/validar/{token}   (PÚBLICO — sem autenticação)
+    → Retorna QrCodeValidacaoResponse:
+    {
+      "valido":        true/false,
+      "mensagem":      "QR Code válido",
+      "qrCode":        { ...QrCodeResponse },
+      "motivoInvalido": null   (ou: "EXPIRADO" | "USADO" | "CANCELADO" | "NAO_ENCONTRADO")
+    }
+    → Se válido, o "qrCode.unidadeDeConsumoId" identifica a mesa.
+    → Frontend usa esse ID para criar pedidos.
+
+[OK] OUTROS ENDPOINTS DE QR CODE:
+
+    POST /api/qrcode/renovar/{token}
+      → Renova validade de QR Code de mesa (apenas TipoQrCode.MESA)
+      → Roles: ATENDENTE, GERENTE, ADMIN
+
+    DELETE /api/qrcode/{token}
+      → Cancela QR Code (torna inválido — ex: mesa danificada)
+      → Roles: GERENTE, ADMIN
+
+    POST /api/qrcode/usar/{token}
+      → Marca como USADO (para QR de uso único: ENTREGA, PAGAMENTO)
+      → Roles: ATENDENTE, COZINHA, GERENTE, ADMIN
+
+    GET /api/qrcode/unidade-consumo/{id}
+      → Lista todos os QR Codes activos de uma mesa
+      → Roles: ATENDENTE, GERENTE, ADMIN
+
+[OK] TIPOS DE QR CODE:
+  MESA      → Uso MÚLTIPLO | Validade 24h (renovação automática pelo backend)
+  ENTREGA   → Uso ÚNICO   | Validade 30 minutos (confirmação de entrega)
+  PAGAMENTO → Uso ÚNICO   | Validade 1 hora (pagamento)
+
+[OK] Campos de QrCodeResponse:
+  {
+    "id":                    Long,
+    "token":                 String,    (identificador único — codificado no QR)
+    "tipo":                  String,    (MESA | ENTREGA | PAGAMENTO)
+    "status":                String,    (ATIVO | USADO | EXPIRADO | CANCELADO)
+    "expiraEm":              LocalDateTime,
+    "unidadeDeConsumoId":    Long,
+    "unidadeDeConsumoNome":  String,    (ex: "Mesa 07")
+    "pedidoId":              Long,      (null para tipo MESA)
+    "usadoEm":               LocalDateTime,
+    "usadoPor":              String,
+    "url":                   String,    (URL completa codificada no QR)
+    "valido":                Boolean,
+    "expirado":              Boolean,
+    "criadoEm":              LocalDateTime,
+    "criadoPor":             String
+  }
+
+================================================================================
+SECÇÃO 9 — WEBSOCKET / TEMPO REAL
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+9.1  Como conectar ao WebSocket? Que tópicos existem?
+─────────────────────────────────────────────────────────────────────────────
+
+[OK] CONFIGURAÇÃO DO WEBSOCKET:
+  Protocolo: STOMP sobre SockJS
+  URL:       http://localhost:8080/ws   (produção: URL do servidor)
+  Allowed Origins: http://localhost:3000, http://localhost:4200
+
+  Broker Topics (subscrever para receber):
+    /topic/pedidos/novos       → notificação de novo pedido
+    /topic/pedidos/{id}        → actualização de pedido específico
+    /topic/mesas/{id}          → actualização de estado de mesa
+    /queue/user/{userId}       → mensagens privadas para utilizador
+
+  Application Destination Prefix (enviar do cliente):
+    /app/...
+
+  Exemplo com SockJS + stomp.js:
+    const socket = new SockJS('http://localhost:8080/ws');
+    const client = Stomp.over(socket);
+    client.connect({}, () => {
+      client.subscribe('/topic/pedidos/novos', (msg) => {
+        const pedido = JSON.parse(msg.body);
+      });
+    });
+
+  [AVISO] ESTADO ACTUAL: O WebSocket está CONFIGURADO mas NÃO está a emitir
+  eventos reais. Nenhum controller usa SimpMessagingTemplate actualmente.
+  A infra está pronta mas as emissões não foram implementadas.
+
+  RECOMENDAÇÃO PARA O FRONTEND (enquanto WS não emite):
+  Usar polling HTTP em vez de WebSocket:
+    setInterval(() => fetchAtivos(), 8000);
+    GET /api/pedidos/ativos   → lista pedidos activos (CRIADO + EM_ANDAMENTO)
+
+================================================================================
+SECÇÃO 10 — ROLES E PERMISSÕES
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+10.1  Quais são as roles do sistema? Como estão representadas no JWT?
+      Um utilizador pode ter múltiplas roles?
+─────────────────────────────────────────────────────────────────────────────
+
+[OK] ROLES DISPONÍVEIS (5 no total):
+
+  ROLE_ADMIN      → Acesso total ao sistema
+  ROLE_GERENTE    → Gestão operacional (pedidos, config financeira, reports)
+  ROLE_ATENDENTE  → Criar pedidos, gerir mesas, marcar entregas
+  ROLE_COZINHA    → Assumir e marcar SubPedidos prontos
+  ROLE_CLIENTE    → Acesso de cliente (OTP)
+
+  No JWT (via /auth/admin/login):
+    "roles": "ROLE_ADMIN"     (string, NÃO array)
+    ou "ROLE_GERENTE", etc.
+
+  Na resposta de login (/auth/admin/login):
+    "tipoUsuario": "ADMIN"    (SEM prefixo ROLE_)
+
+  [FIX] Correspondência:
+    tipoUsuario "ADMIN"     ↔  JWT roles "ROLE_ADMIN"
+    tipoUsuario "GERENTE"   ↔  JWT roles "ROLE_GERENTE"
+    tipoUsuario "ATENDENTE" ↔  JWT roles "ROLE_ATENDENTE"
+    tipoUsuario "CLIENTE"   ↔  JWT roles "ROLE_CLIENTE"
+
+  [AVISO] ROLE_COZINHA existe na enum Role (tabela User) mas NÃO existe
+  na enum TipoUsuario (tabela Atendente). Utilizadores cozinha são
+  geridos pela tabela User (via /auth/jwt/login), não pela tabela Atendente.
+
+  [OK] Múltiplas roles: NÃO para Atendentes (TipoUsuario é um enum único).
+  Para Users (tabela User), tecnicamente podem ter Set<Role> múltiplas.
+
+  Hierarquia de acesso típica por endpoint:
+    Dashboard stats:      ADMIN, GERENTE, ATENDENTE
+    Dashboard top-products: ADMIN, GERENTE
+    Criar pedido:         ATENDENTE, GERENTE, ADMIN
+    Cancelar pedido:      GERENTE, ADMIN
+    SubPedido assumir:    COZINHA, GERENTE, ADMIN
+    SubPedido pronto:     COZINHA, GERENTE, ADMIN
+    SubPedido entregue:   ATENDENTE, GERENTE, ADMIN
+    Config financeira:    ADMIN (maioria), ATENDENTE/GERENTE (status apenas)
+    Criar produto:        GERENTE
+    Auditoria:            GERENTE, ADMIN
+
+================================================================================
+RESUMO EXECUTIVO — ACÇÕES IMEDIATAS PARA O FRONTEND
+================================================================================
+
+MODELO DE NEGÓCIO — PONTO CRÍTICO:
+  Mesa não depende de cliente. Admin pré-cadastra mesas → gera QR Code →
+  imprime e afixa fisicamente. Cliente lê QR → token identifica a mesa.
+  Não há "login de cliente numa mesa". A mesa é identificada pelo token do QR.
+
+CORRECÇÕES PRIORITÁRIAS (causam bugs):
+  1. expiresIn em /auth/admin/login é SEGUNDOS → multiplicar por 1000
+  2. Campo "tipoUsuario" (não "roles") na resposta de login
+  3. JWT roles é STRING, não array → usar split(',') para parsear
+  4. StatusPedido "CONFIRMADO" não existe → remover
+  5. cancelar pedido é PUT com query param, não body
+  6. PedidoResponse não tem "fundoConsumoId" → remover validação
+  7. DashboardStats retorna apenas 4 campos → tratar outros como null
+
+FUNCIONALIDADES SEM SUPORTE BACKEND (aguardar):
+  8. GET /api/fundos/* — não existe
+  9. POST /api/pagamentos — não existe
+  10. POST /api/produtos/{id}/imagem — não existe (usar urlImagem em JSON)
+  11. GET /api/unidades-consumo/minhas — não existe (mesas não têm dono)
+  12. GET /api/auth/me — não existe
+  13. WebSocket ainda não emite eventos reais → usar polling
+  14. Status "INDISPONIVEL" para mesa — não existe no enum
+
+JÁ DISPONÍVEIS (confirmar integração):
+  15. GET /api/auditoria/acoes|estatisticas|modulos ✅
+  16. GET /api/configuracoes-financeiras/pos-pago/status ✅
+  17. GET /api/pedidos/ativos ✅
+  18. GET /api/subpedidos/cozinha/{id}/ativos ✅
+  19. GET /api/unidades-consumo/status/{status} ✅ (path var, não query)
+  20. POST /api/auth/admin/login ✅
+  21. POST /api/auth/jwt/refresh ✅ (apenas para tokens do /jwt/login)
+  22. POST /api/qrcode → gerar QR para mesa ✅
+  23. GET /api/qrcode/imagem/{token}/print → PNG alta resolução para impressão ✅
+  24. GET /api/qrcode/validar/{token} → validar token lido pelo cliente (público) ✅
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================

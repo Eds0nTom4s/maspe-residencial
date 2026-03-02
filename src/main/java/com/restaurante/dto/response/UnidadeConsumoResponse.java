@@ -19,6 +19,7 @@ public class UnidadeConsumoResponse {
 
     private Long id;
     private String referencia;
+    private Boolean modoAnonimo;
     private TipoUnidadeConsumo tipo;
     private Integer numero;
     private String qrCode;

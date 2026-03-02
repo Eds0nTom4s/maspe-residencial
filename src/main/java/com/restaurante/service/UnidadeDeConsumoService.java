@@ -25,8 +25,17 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Service para operações de negócio com UnidadeDeConsumo
- * Regra importante: UnidadeDeConsumo SEMPRE deve estar associada a um cliente
+ * Service para operações de negócio com UnidadeDeConsumo.
+ *
+ * <p>Suporta dois modos de abertura:
+ * <ol>
+ *   <li><b>Identificado</b>: cliente fornece telefone, valida OTP, vincula sua conta.
+ *       O Fundo de Consumo é criado ou recuperado pelo {@code clienteId}.</li>
+ *   <li><b>Anónimo</b>: nenhuma identidade pessoal é exigida.
+ *       O QR Code funciona como único token do portador.
+ *       O Fundo de Consumo é criado ou recuperado pelo {@code tokenPortador}.
+ *       <strong>Perda do QR = perda do saldo</strong> – sem recuperação.</li>
+ * </ol>
  */
 @Service
 @RequiredArgsConstructor
@@ -39,36 +48,57 @@ public class UnidadeDeConsumoService {
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
 
     /**
-     * Cria uma nova unidade de consumo associada a um cliente
-     * Utilizado quando cliente escaneia QR Code ou atendente cria manualmente
+     * Cria uma nova unidade de consumo.
+     *
+     * <p>Modo identificado: {@code request.getModoAnonimo() == false} → exige telefone do cliente.
+     * <p>Modo anónimo: {@code request.getModoAnonimo() == true} → nenhum cliente é necessário;
+     * o QR Code age como token do portador.
      */
     @Transactional
     public UnidadeConsumoResponse criar(CriarUnidadeConsumoRequest request) {
-        log.info("Criando nova unidade de consumo: {} para telefone: {}", request.getReferencia(), request.getTelefoneCliente());
+        log.info("Criando nova unidade de consumo: {} | modoAnonimo: {}",
+                request.getReferencia(), request.isModoAnonimo());
 
-        // Busca ou cria cliente
-        Cliente cliente = clienteService.buscarPorTelefone(request.getTelefoneCliente());
-
-        // Verifica se cliente já possui unidade ativa
-        unidadeDeConsumoRepository.findUnidadeAtivaByCliente(cliente.getId())
-                .ifPresent(unidade -> {
-                    throw new BusinessException("Cliente já possui uma unidade ativa (" + unidade.getReferencia() + ")");
-                });
-
-        // Busca unidade de atendimento
-        UnidadeAtendimento unidadeAtendimento = unidadeAtendimentoRepository.findById(request.getUnidadeAtendimentoId())
+        // Busca unidade de atendimento (obrigatório em ambos os modos)
+        UnidadeAtendimento unidadeAtendimento = unidadeAtendimentoRepository
+                .findById(request.getUnidadeAtendimentoId())
                 .orElseThrow(() -> new ResourceNotFoundException("Unidade de atendimento não encontrada"));
 
-        UnidadeDeConsumo unidade = UnidadeDeConsumo.builder()
+        UnidadeDeConsumo.UnidadeDeConsumoBuilder builder = UnidadeDeConsumo.builder()
                 .referencia(request.getReferencia())
                 .tipo(request.getTipo() != null ? request.getTipo() : TipoUnidadeConsumo.MESA_FISICA)
                 .numero(request.getNumero())
                 .qrCode(request.getQrCode())
                 .capacidade(request.getCapacidade())
                 .status(StatusUnidadeConsumo.OCUPADA)
-                .cliente(cliente)
-                .unidadeAtendimento(unidadeAtendimento)
-                .build();
+                .modoAnonimo(request.isModoAnonimo())
+                .unidadeAtendimento(unidadeAtendimento);
+
+        if (!request.isModoAnonimo()) {
+            // FLUXO IDENTIFICADO: requer telefone e valida cliente
+            if (request.getTelefoneCliente() == null || request.getTelefoneCliente().isBlank()) {
+                throw new com.restaurante.exception.BusinessException(
+                        "Telefone do cliente é obrigatório no fluxo identificado");
+            }
+            Cliente cliente = clienteService.buscarPorTelefone(request.getTelefoneCliente());
+
+            // Verifica se cliente já possui unidade ativa
+            unidadeDeConsumoRepository.findUnidadeAtivaByCliente(cliente.getId())
+                    .ifPresent(unidade -> {
+                        throw new com.restaurante.exception.BusinessException(
+                                "Cliente já possui uma unidade ativa (" + unidade.getReferencia() + ")");
+                    });
+            builder.cliente(cliente);
+        } else {
+            // FLUXO ANÓNIMO: QR Code é obrigatório como identificador do portador
+            if (request.getQrCode() == null || request.getQrCode().isBlank()) {
+                throw new com.restaurante.exception.BusinessException(
+                        "QR Code é obrigatório no fluxo anónimo");
+            }
+            log.info("Unidade anónima: portador identificado pelo QR Code '{}'", request.getQrCode());
+        }
+
+        UnidadeDeConsumo unidade = builder.build();
 
         // Se foi criada por atendente
         if (request.getAtendenteId() != null) {
@@ -78,7 +108,8 @@ public class UnidadeDeConsumoService {
         }
 
         UnidadeDeConsumo unidadeSalva = unidadeDeConsumoRepository.save(unidade);
-        log.info("Unidade de consumo criada com sucesso: {}", unidadeSalva.getId());
+        log.info("Unidade de consumo criada com sucesso: {} (anónima: {})",
+                unidadeSalva.getId(), unidadeSalva.getModoAnonimo());
 
         return converterParaResponse(unidadeSalva);
     }
@@ -183,14 +214,18 @@ public class UnidadeDeConsumoService {
     }
 
     /**
-     * Converte entity para DTO response
+     * Converte entity para DTO response.
+     * Null-safe para o campo {@code cliente} (modo anónimo).
      */
     private UnidadeConsumoResponse converterParaResponse(UnidadeDeConsumo unidade) {
-        ClienteResponse clienteResponse = ClienteResponse.builder()
-                .id(unidade.getCliente().getId())
-                .telefone(unidade.getCliente().getTelefone())
-                .nome(unidade.getCliente().getNome())
-                .build();
+        ClienteResponse clienteResponse = null;
+        if (unidade.getCliente() != null) {
+            clienteResponse = ClienteResponse.builder()
+                    .id(unidade.getCliente().getId())
+                    .telefone(unidade.getCliente().getTelefone())
+                    .nome(unidade.getCliente().getNome())
+                    .build();
+        }
 
         List<PedidoResumoResponse> pedidosResponse = unidade.getPedidos().stream()
                 .map(pedido -> PedidoResumoResponse.builder()
@@ -206,6 +241,7 @@ public class UnidadeDeConsumoService {
         return UnidadeConsumoResponse.builder()
                 .id(unidade.getId())
                 .referencia(unidade.getReferencia())
+                .modoAnonimo(unidade.getModoAnonimo())
                 .tipo(unidade.getTipo())
                 .numero(unidade.getNumero())
                 .qrCode(unidade.getQrCode())

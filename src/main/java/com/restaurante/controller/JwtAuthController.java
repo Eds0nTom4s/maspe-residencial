@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.*;
  * Controller para autenticação JWT (Staff: Atendente, Gerente, Cozinha, Admin)
  */
 @RestController
-@RequestMapping("/api/auth/jwt")
+@RequestMapping("/auth/jwt")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Autenticação JWT", description = "Endpoints de autenticação JWT para staff")
@@ -30,9 +30,15 @@ public class JwtAuthController {
     @PostMapping("/login")
     @Operation(summary = "Realizar login com JWT")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
-        log.info("Requisição de login JWT para usuário: {}", request.getUsername());
+        log.info("=== LOGIN JWT (USERNAME) ===");
+        log.info("Username recebido: {}", request.getUsername());
+        log.info("Password recebido: [OCULTA - {} caracteres]", request.getPassword() != null ? request.getPassword().length() : 0);
+        log.info("Request completo (sem senha): username={}", request.getUsername());
         
         AuthResponse response = authService.login(request);
+        
+        log.info("Login JWT realizado com sucesso - Username: {}, Roles: {}", 
+                 response.getUsername(), response.getRoles());
         return ResponseEntity.ok(ApiResponse.success("Login realizado com sucesso", response));
     }
 

@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/cozinhas")
+@RequestMapping("/cozinhas")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Cozinhas", description = "Gerenciamento de cozinhas (recursos de preparação)")

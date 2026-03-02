@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/unidades-consumo")
+@RequestMapping("/unidades-consumo")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Unidades de Consumo", description = "Gerenciamento de unidades de consumo (mesas, quartos, áreas)")

@@ -16,15 +16,21 @@ import java.util.stream.Collectors;
 
 /**
  * Provider para geração e validação de JWT tokens
+ * 
+ * ⚠️ SEGURANÇA CRÍTICA:
+ * - Secret deve ter mínimo 256 bits (32 caracteres) para HS256
+ * - EM PRODUÇÃO: Usar variável de ambiente JWT_SECRET
+ * - Expiração padrão: 1 hora (access token), 7 dias (refresh token)
+ * - Algoritmo: HS256 (HMAC com SHA-256)
  */
 @Component
 @Slf4j
 public class JwtTokenProvider {
 
-    @Value("${jwt.secret:sistema-restauracao-secret-key-super-secreta-minimo-256-bits-para-HS256}")
+    @Value("${jwt.secret}")
     private String jwtSecret;
 
-    @Value("${jwt.expiration:86400000}") // 24 horas em ms
+    @Value("${jwt.expiration:3600000}") // 1 hora em ms
     private long jwtExpiration;
 
     @Value("${jwt.refresh-expiration:604800000}") // 7 dias em ms

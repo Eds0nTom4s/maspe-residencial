@@ -104,16 +104,16 @@ public class QrCodeController {
     }
 
     /**
-     * Busca QR Codes por Unidade de Consumo
-     * GET /api/qrcode/unidade-consumo/{id}
+     * Busca QR Codes por Mesa
+     * GET /api/qrcode/mesa/{id}
      */
-    @GetMapping("/unidade-consumo/{id}")
+    @GetMapping("/mesa/{id}")
     @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
-    @Operation(summary = "QR Codes por Unidade", description = "Busca QR Codes ativos de uma unidade de consumo")
-    public ResponseEntity<ApiResponse<List<QrCodeResponse>>> buscarPorUnidadeDeConsumo(@PathVariable Long id) {
-        log.info("Buscando QR Codes da unidade de consumo: {}", id);
+    @Operation(summary = "QR Codes por Mesa", description = "Busca QR Codes ativos de uma mesa")
+    public ResponseEntity<ApiResponse<List<QrCodeResponse>>> buscarPorMesa(@PathVariable Long id) {
+        log.info("Buscando QR Codes da mesa: {}", id);
         
-        List<QrCodeResponse> qrCodes = qrCodeService.buscarPorUnidadeDeConsumo(id);
+        List<QrCodeResponse> qrCodes = qrCodeService.buscarPorMesa(id);
         return ResponseEntity.ok(ApiResponse.success("QR Codes encontrados", qrCodes));
     }
 

@@ -144,8 +144,13 @@ public class UnidadeDeConsumo extends BaseEntity {
 
     /**
      * Relacionamento com pedidos
+     *
+     * @deprecated Pedido migrou para referenciar SessaoConsumo.
+     * Este mapeamento é mantido apenas para evitar erros de inicialização do Hibernate.
+     * Não usar em código novo — use SessaoConsumo.getPedidos().
      */
-    @OneToMany(mappedBy = "unidadeConsumo", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Deprecated
+    @OneToMany(mappedBy = "sessaoConsumo", fetch = FetchType.LAZY)
     @Builder.Default
     private List<Pedido> pedidos = new ArrayList<>();
 

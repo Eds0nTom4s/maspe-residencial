@@ -14,22 +14,32 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Set;
 
 /**
- * DataSeeder para inicialização de dados de desenvolvimento
- * 
+ * DataSeeder — única fonte de dados de desenvolvimento.
+ *
  * RESPONSABILIDADES:
- * - Criar usuário admin padrão
- * - Criar cozinhas de exemplo
- * - Criar produtos de exemplo
- * - Criar unidades de atendimento e consumo
- * 
+ *   - Usuários Spring Security (login username/senha)
+ *   - Atendentes (login telefone/senha)
+ *   - Clientes de teste
+ *   - Cozinhas + relacionamento com Unidades de Atendimento
+ *   - Unidades de Atendimento (Salão, Bar, Esplanada)
+ *   - Cardápio completo (produtos)
+ *   - Mesas físicas permanentes distribuídas pelas unidades
+ *
  * REGRAS:
- * - Executado APENAS em perfil 'dev'
- * - Executado APÓS InicializacaoFinanceiraConfig (Order 100)
- * - Verifica se dados já existem antes de criar (idempotente)
- * - Não sobrescreve dados existentes
+ *   - Executado APENAS em perfil 'dev'  (@Profile("dev"))
+ *   - Executado APÓS InicializacaoFinanceiraConfig (Order 100)
+ *   - Idempotente: verifica count() antes de inserir
+ *   - data.sql está DESABILITADO — este seeder é a única fonte de dados dev
+ *
+ * CREDENCIAIS DE TESTE:
+ *   Admin    username=admin       / senha=admin123    |  tel=+244923000001
+ *   Atendente username=atendente  / senha=atendente123|  tel=+244923000002
+ *   Cozinha  username=cozinha     / senha=cozinha123
+ *   Gerente  username=gerente     / senha=gerente123  |  tel=+244923000003
  */
 @Component
 @Profile("dev")
@@ -41,353 +51,344 @@ public class DataSeeder {
     private final UserRepository userRepository;
     private final AtendenteRepository atendenteRepository;
     private final CozinhaRepository cozinhaRepository;
-    private final ProdutoRepository produtoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
-    private final UnidadeDeConsumoRepository unidadeDeConsumoRepository;
+    private final ProdutoRepository produtoRepository;
+    private final MesaRepository mesaRepository;
     private final ClienteRepository clienteRepository;
     private final PasswordEncoder passwordEncoder;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Ponto de entrada
+    // ─────────────────────────────────────────────────────────────────────────
 
     @EventListener(ApplicationReadyEvent.class)
     @Transactional
     public void seed() {
-        log.info("=".repeat(80));
-        log.info("🌱 INICIANDO DATA SEEDER (Perfil: dev)");
-        log.info("=".repeat(80));
+        log.info("=".repeat(72));
+        log.info("🌱  DATA SEEDER — Perfil: dev");
+        log.info("=".repeat(72));
 
         seedUsuarios();
         seedAtendentes();
         seedClientes();
-        seedUnidadesAtendimento();
         seedCozinhas();
+        seedUnidadesAtendimento();   // depende das cozinhas já persistidas
         seedProdutos();
-        seedUnidadesConsumo();
+        seedMesas();                 // depende das unidades já persistidas
 
-        log.info("=".repeat(80));
-        log.info("✅ DATA SEEDER CONCLUÍDO COM SUCESSO");
-        log.info("=".repeat(80));
+        log.info("=".repeat(72));
+        log.info("✅  DATA SEEDER CONCLUÍDO");
+        log.info("=".repeat(72));
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Usuários Spring Security
+    // ─────────────────────────────────────────────────────────────────────────
 
     private void seedUsuarios() {
-        log.info("👥 Verificando usuários...");
-
         if (userRepository.count() > 0) {
-            log.info("  ┗ Usuários já existem. Pulando...");
+            log.info("  [usuarios]        já existem — pulando");
             return;
         }
 
-        log.info("🔐 PasswordEncoder sendo usado: {}", passwordEncoder.getClass().getSimpleName());
+        userRepository.saveAll(List.of(
+            User.builder()
+                .username("admin")
+                .password(passwordEncoder.encode("admin123"))
+                .nomeCompleto("Administrador do Sistema")
+                .telefone("+244923456789")
+                .email("admin@restaurante.ao")
+                .roles(Set.of(Role.ROLE_ADMIN))
+                .ativo(true).build(),
 
-        // 1. Usuário ADMIN
-        String adminPasswordPlain = "admin123";
-        String adminPasswordEncoded = passwordEncoder.encode(adminPasswordPlain);
-        log.info("🔐 DEBUG Admin - Senha Plain: {}, Senha Encoded: {}", adminPasswordPlain, adminPasswordEncoded);
-        
-        User admin = User.builder()
-            .username("admin")
-            .password(adminPasswordEncoded)
-            .nomeCompleto("Administrador do Sistema")
-            .telefone("+244923456789")
-            .email("admin@restaurante.ao")
-            .roles(Set.of(Role.ROLE_ADMIN))
-            .ativo(true)
-            .build();
-        userRepository.save(admin);
-        
-        // Teste de verificação
-        boolean matchTest = passwordEncoder.matches(adminPasswordPlain, adminPasswordEncoded);
-        log.info("  ┣ ✅ Admin criado: username=admin, senha=admin123");
-        log.info("  ┣ 🔍 Teste de match: passwordEncoder.matches('admin123', hash) = {}", matchTest);
+            User.builder()
+                .username("atendente")
+                .password(passwordEncoder.encode("atendente123"))
+                .nomeCompleto("João Silva")
+                .telefone("+244923111222")
+                .email("atendente@restaurante.ao")
+                .roles(Set.of(Role.ROLE_ATENDENTE))
+                .ativo(true).build(),
 
-        // 2. Usuário ATENDENTE
-        User atendente = User.builder()
-            .username("atendente")
-            .password(passwordEncoder.encode("atendente123"))
-            .nomeCompleto("João Silva - Atendente")
-            .telefone("+244923111222")
-            .email("atendente@restaurante.ao")
-            .roles(Set.of(Role.ROLE_ATENDENTE))
-            .ativo(true)
-            .build();
-        userRepository.save(atendente);
-        log.info("  ┣ ✅ Atendente criado: username=atendente, senha=atendente123");
+            User.builder()
+                .username("cozinha")
+                .password(passwordEncoder.encode("cozinha123"))
+                .nomeCompleto("Maria Santos")
+                .telefone("+244923222333")
+                .email("cozinha@restaurante.ao")
+                .roles(Set.of(Role.ROLE_COZINHA))
+                .ativo(true).build(),
 
-        // 3. Usuário COZINHA
-        User cozinha = User.builder()
-            .username("cozinha")
-            .password(passwordEncoder.encode("cozinha123"))
-            .nomeCompleto("Maria Santos - Cozinha")
-            .telefone("+244923222333")
-            .email("cozinha@restaurante.ao")
-            .roles(Set.of(Role.ROLE_COZINHA))
-            .ativo(true)
-            .build();
-        userRepository.save(cozinha);
-        log.info("  ┣ ✅ Cozinha criado: username=cozinha, senha=cozinha123");
+            User.builder()
+                .username("gerente")
+                .password(passwordEncoder.encode("gerente123"))
+                .nomeCompleto("Carlos Mendes")
+                .telefone("+244923333444")
+                .email("gerente@restaurante.ao")
+                .roles(Set.of(Role.ROLE_GERENTE))
+                .ativo(true).build()
+        ));
 
-        // 4. Usuário GERENTE
-        User gerente = User.builder()
-            .username("gerente")
-            .password(passwordEncoder.encode("gerente123"))
-            .nomeCompleto("Carlos Mendes - Gerente")
-            .telefone("+244923333444")
-            .email("gerente@restaurante.ao")
-            .roles(Set.of(Role.ROLE_GERENTE))
-            .ativo(true)
-            .build();
-        userRepository.save(gerente);
-        log.info("  ┗ ✅ Gerente criado: username=gerente, senha=gerente123");
-
-        log.info("  📊 Total: 4 usuários criados (Admin, Atendente, Cozinha, Gerente)");
+        log.info("  [usuarios]        ✅ 4 criados  (admin / atendente / cozinha / gerente)");
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Atendentes (login por telefone)
+    // ─────────────────────────────────────────────────────────────────────────
 
     private void seedAtendentes() {
-        log.info("👔 Verificando atendentes...");
-
         if (atendenteRepository.count() > 0) {
-            log.info("  ┗ Atendentes já existem. Pulando...");
+            log.info("  [atendentes]      já existem — pulando");
             return;
         }
 
-        // 1. ADMIN (via telefone)
-        Atendente admin = Atendente.builder()
-            .nome("Administrador do Sistema")
-            .email("admin.tel@restaurante.ao")
-            .telefone("+244923000001")
-            .senha(passwordEncoder.encode("admin123"))
-            .tipoUsuario(TipoUsuario.ADMIN)
-            .ativo(true)
-            .build();
-        atendenteRepository.save(admin);
-        log.info("  ┣ ✅ Admin: telefone=+244923000001, senha=admin123");
+        atendenteRepository.saveAll(List.of(
+            Atendente.builder()
+                .nome("Administrador do Sistema")
+                .email("admin.tel@restaurante.ao")
+                .telefone("+244923000001")
+                .senha(passwordEncoder.encode("admin123"))
+                .tipoUsuario(TipoUsuario.ADMIN)
+                .ativo(true).build(),
 
-        // 2. ATENDENTE (via telefone)
-        Atendente atendente = Atendente.builder()
-            .nome("João Silva - Atendente")
-            .email("atendente.tel@restaurante.ao")
-            .telefone("+244923000002")
-            .senha(passwordEncoder.encode("atendente123"))
-            .tipoUsuario(TipoUsuario.ATENDENTE)
-            .ativo(true)
-            .build();
-        atendenteRepository.save(atendente);
-        log.info("  ┣ ✅ Atendente: telefone=+244923000002, senha=atendente123");
+            Atendente.builder()
+                .nome("João Silva")
+                .email("atendente.tel@restaurante.ao")
+                .telefone("+244923000002")
+                .senha(passwordEncoder.encode("atendente123"))
+                .tipoUsuario(TipoUsuario.ATENDENTE)
+                .ativo(true).build(),
 
-        // 3. GERENTE (via telefone)
-        Atendente gerente = Atendente.builder()
-            .nome("Carlos Mendes - Gerente")
-            .email("gerente.tel@restaurante.ao")
-            .telefone("+244923000003")
-            .senha(passwordEncoder.encode("gerente123"))
-            .tipoUsuario(TipoUsuario.GERENTE)
-            .ativo(true)
-            .build();
-        atendenteRepository.save(gerente);
-        log.info("  ┗ ✅ Gerente: telefone=+244923000003, senha=gerente123");
+            Atendente.builder()
+                .nome("Carlos Mendes")
+                .email("gerente.tel@restaurante.ao")
+                .telefone("+244923000003")
+                .senha(passwordEncoder.encode("gerente123"))
+                .tipoUsuario(TipoUsuario.GERENTE)
+                .ativo(true).build()
+        ));
 
-        log.info("  📊 Total: 3 atendentes criados (login via TELEFONE)");
+        log.info("  [atendentes]      ✅ 3 criados  (+244923000001 / +244923000002 / +244923000003)");
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Clientes de teste
+    // ─────────────────────────────────────────────────────────────────────────
 
     private void seedClientes() {
-        log.info("👥 Verificando clientes...");
-
         if (clienteRepository.count() > 0) {
-            log.info("  ┗ Clientes já existem. Pulando...");
+            log.info("  [clientes]        já existem — pulando");
             return;
         }
 
-        // Criar 5 clientes de teste
-        for (int i = 1; i <= 5; i++) {
-            Cliente cliente = Cliente.builder()
-                .telefone(String.format("+244%09d", 900000000 + i))
-                .nome(String.format("Cliente Teste %d", i))
-                .telefoneVerificado(true)
-                .tipoUsuario(TipoUsuario.CLIENTE)
-                .build();
+        clienteRepository.saveAll(List.of(
+            cliente("+244923111222", "João Pedro Afonso"),
+            cliente("+244945222333", "Ana Maria Sebastião"),
+            cliente("+244912333444", "Carlos Alberto Neto"),
+            cliente("+244947444555", "Fernanda Lopes Dias"),
+            cliente("+244924555666", "Paulo Eduardo Ferreira")
+        ));
 
-            clienteRepository.save(cliente);
-        }
-
-        log.info("  ┗ ✅ 5 clientes criados");
+        log.info("  [clientes]        ✅ 5 criados");
     }
 
-    private void seedUnidadesAtendimento() {
-        log.info("🏢 Verificando unidades de atendimento...");
-
-        if (unidadeAtendimentoRepository.count() > 0) {
-            log.info("  ┗ Unidades já existem. Pulando...");
-            return;
-        }
-
-        UnidadeAtendimento unidade1 = UnidadeAtendimento.builder()
-            .nome("Restaurante Central")
-            .tipo(TipoUnidadeAtendimento.RESTAURANTE)
-            .descricao("Restaurante principal - Av. 4 de Fevereiro, Luanda")
-            .ativa(true)
+    private Cliente cliente(String telefone, String nome) {
+        return Cliente.builder()
+            .telefone(telefone)
+            .nome(nome)
+            .telefoneVerificado(true)
+            .tipoUsuario(TipoUsuario.CLIENTE)
             .build();
-
-        UnidadeAtendimento unidade2 = UnidadeAtendimento.builder()
-            .nome("Cantina Corporativa")
-            .tipo(TipoUnidadeAtendimento.CAFETERIA)
-            .descricao("Cantina corporativa - Zona Industrial, Viana")
-            .ativa(true)
-            .build();
-
-        unidadeAtendimentoRepository.save(unidade1);
-        unidadeAtendimentoRepository.save(unidade2);
-        log.info("  ┗ ✅ 2 unidades de atendimento criadas");
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Cozinhas
+    // ─────────────────────────────────────────────────────────────────────────
 
     private void seedCozinhas() {
-        log.info("🍳 Verificando cozinhas...");
-
         if (cozinhaRepository.count() > 0) {
-            log.info("  ┗ Cozinhas já existem. Pulando...");
+            log.info("  [cozinhas]        já existem — pulando");
             return;
         }
 
-        Cozinha cozinha1 = Cozinha.builder()
-            .nome("Cozinha Principal")
-            .tipo(TipoCozinha.CENTRAL)
-            .descricao("Cozinha principal - pratos quentes")
-            .ativa(true)
-            .build();
+        cozinhaRepository.saveAll(List.of(
+            cozinha("Cozinha Principal",  TipoCozinha.CENTRAL,      "Pratos quentes e grelhados angolanos", true),
+            cozinha("Pizzaria",           TipoCozinha.PIZZARIA,     "Forno para pizzas e massas",           true),
+            cozinha("Confeitaria",        TipoCozinha.CONFEITARIA,  "Sobremesas, saladas e entradas",       true),
+            cozinha("Bar e Bebidas",      TipoCozinha.BAR_PREP,     "Bebidas, cocktails e petiscos",        true),
+            cozinha("Churrasqueira",      TipoCozinha.GRILL,        "Grelhados e churrascos (inativo)",     false)
+        ));
 
-        Cozinha cozinha2 = Cozinha.builder()
-            .nome("Cozinha Fria")
-            .tipo(TipoCozinha.BAR_PREP)
-            .descricao("Saladas, sobremesas e bebidas")
-            .ativa(true)
-            .build();
-
-        Cozinha cozinha3 = Cozinha.builder()
-            .nome("Cozinha Inativa (Teste)")
-            .tipo(TipoCozinha.GRILL)
-            .descricao("Cozinha desativada para testes de validação")
-            .ativa(false)
-            .build();
-
-        cozinhaRepository.save(cozinha1);
-        cozinhaRepository.save(cozinha2);
-        cozinhaRepository.save(cozinha3);
-        log.info("  ┗ ✅ 3 cozinhas criadas (2 ativas, 1 inativa)");
+        log.info("  [cozinhas]        ✅ 5 criadas  (4 ativas + 1 inativa para testes)");
     }
+
+    private Cozinha cozinha(String nome, TipoCozinha tipo, String descricao, boolean ativa) {
+        return Cozinha.builder()
+            .nome(nome).tipo(tipo).descricao(descricao).ativa(ativa).build();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Unidades de Atendimento + relacionamentos com Cozinhas
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void seedUnidadesAtendimento() {
+        if (unidadeAtendimentoRepository.count() > 0) {
+            log.info("  [unid.atendimento] já existem — pulando");
+            return;
+        }
+
+        Cozinha cozinhaPrincipal = cozinhaRepository.findByNomeIgnoreCase("Cozinha Principal").orElseThrow();
+        Cozinha pizzaria         = cozinhaRepository.findByNomeIgnoreCase("Pizzaria").orElseThrow();
+        Cozinha confeitaria      = cozinhaRepository.findByNomeIgnoreCase("Confeitaria").orElseThrow();
+        Cozinha bar              = cozinhaRepository.findByNomeIgnoreCase("Bar e Bebidas").orElseThrow();
+
+        // Salão Principal → todas as 4 cozinhas ativas
+        UnidadeAtendimento salao = UnidadeAtendimento.builder()
+            .nome("Salão Principal")
+            .tipo(TipoUnidadeAtendimento.RESTAURANTE)
+            .descricao("Área principal do restaurante — Av. 4 de Fevereiro, Luanda")
+            .ativa(true).build();
+        salao.adicionarCozinha(cozinhaPrincipal);
+        salao.adicionarCozinha(pizzaria);
+        salao.adicionarCozinha(confeitaria);
+        salao.adicionarCozinha(bar);
+        unidadeAtendimentoRepository.save(salao);
+
+        // Bar Angolano → Bar e Confeitaria
+        UnidadeAtendimento barAngolano = UnidadeAtendimento.builder()
+            .nome("Bar Angolano")
+            .tipo(TipoUnidadeAtendimento.BAR)
+            .descricao("Bar com petiscos e bebidas típicas angolanas")
+            .ativa(true).build();
+        barAngolano.adicionarCozinha(bar);
+        barAngolano.adicionarCozinha(confeitaria);
+        unidadeAtendimentoRepository.save(barAngolano);
+
+        // Esplanada → Cozinha Principal e Bar
+        UnidadeAtendimento esplanada = UnidadeAtendimento.builder()
+            .nome("Esplanada")
+            .tipo(TipoUnidadeAtendimento.LOUNGE)
+            .descricao("Área externa com vista — serviço simplificado")
+            .ativa(true).build();
+        esplanada.adicionarCozinha(cozinhaPrincipal);
+        esplanada.adicionarCozinha(bar);
+        unidadeAtendimentoRepository.save(esplanada);
+
+        log.info("  [unid.atendimento] ✅ 3 criadas  (Salão/Bar/Esplanada + cozinhas associadas)");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Cardápio completo (produtos)
+    // ─────────────────────────────────────────────────────────────────────────
 
     private void seedProdutos() {
-        log.info("🍽️  Verificando produtos...");
-
         if (produtoRepository.count() > 0) {
-            log.info("  ┗ Produtos já existem. Pulando...");
+            log.info("  [produtos]        já existem — pulando");
             return;
         }
 
-        // Produtos diversos
-        Produto produto1 = Produto.builder()
-            .codigo("PROD-001")
-            .nome("Muamba de Galinha")
-            .descricao("Prato tradicional angolano com galinha ao molho de óleo de palma")
-            .preco(new BigDecimal("1500.00"))
-            .categoria(CategoriaProduto.PRATO_PRINCIPAL)
-            .disponivel(true)
-            .ativo(true)
-            .build();
+        produtoRepository.saveAll(List.of(
 
-        Produto produto2 = Produto.builder()
-            .codigo("PROD-002")
-            .nome("Calulu de Peixe")
-            .descricao("Peixe fresco com vegetais e óleo de palma")
-            .preco(new BigDecimal("1800.00"))
-            .categoria(CategoriaProduto.PRATO_PRINCIPAL)
-            .disponivel(true)
-            .ativo(true)
-            .build();
+            // ── Entradas ─────────────────────────────────────────────────────
+            produto("ENT-001", "Pastéis de Bacalhau",    "Pastéis de bacalhau desfiado crocantes",            3500, null, CategoriaProduto.ENTRADA, true),
+            produto("ENT-002", "Salada Tropical",        "Mix de folhas, manga, abacate e molho de maracujá", 2800, null, CategoriaProduto.ENTRADA, true),
+            produto("ENT-003", "Pataniscas de Bacalhau", "Bolinhos de bacalhau com molho de piri-piri",       4200, null, CategoriaProduto.ENTRADA, true),
 
-        Produto produto3 = Produto.builder()
-            .codigo("PROD-003")
-            .nome("Funge com Feijão")
-            .descricao("Funge tradicional acompanhado de feijão temperado")
-            .preco(new BigDecimal("800.00"))
-            .categoria(CategoriaProduto.ACOMPANHAMENTO)
-            .disponivel(true)
-            .ativo(true)
-            .build();
+            // ── Pratos Principais ─────────────────────────────────────────────
+            produto("PRATO-001", "Muamba de Galinha",  "Galinha refogada com quiabo e dendê",                 8500, 35, CategoriaProduto.PRATO_PRINCIPAL, true),
+            produto("PRATO-002", "Calulu de Peixe",    "Peixe fresco com batata doce, quiabo e óleo de palma",9200, 30, CategoriaProduto.PRATO_PRINCIPAL, true),
+            produto("PRATO-003", "Cabidela de Frango", "Frango no próprio sangue com arroz",                  7800, 40, CategoriaProduto.PRATO_PRINCIPAL, true),
+            produto("PRATO-004", "Churrasco Misto",    "Picanha, linguiça e frango grelhados",               12500, 35, CategoriaProduto.PRATO_PRINCIPAL, true),
 
-        Produto produto4 = Produto.builder()
-            .codigo("PROD-004")
-            .nome("Salada Tropical")
-            .descricao("Mix de folhas, abacate e manga")
-            .preco(new BigDecimal("600.00"))
-            .categoria(CategoriaProduto.ENTRADA)
-            .disponivel(true)
-            .ativo(true)
-            .build();
+            // ── Acompanhamentos ───────────────────────────────────────────────
+            produto("ACOMP-001", "Funge com Feijão",  "Funge tradicional com feijão temperado",               800,  15, CategoriaProduto.ACOMPANHAMENTO, true),
+            produto("ACOMP-002", "Arroz Branco",      "Arroz cozido no ponto",                                 500,  10, CategoriaProduto.ACOMPANHAMENTO, true),
 
-        Produto produto5 = Produto.builder()
-            .codigo("PROD-005")
-            .nome("Sumo Natural de Maracujá")
-            .descricao("Sumo natural de maracujá fresco")
-            .preco(new BigDecimal("300.00"))
-            .categoria(CategoriaProduto.BEBIDA_NAO_ALCOOLICA)
-            .disponivel(true)
-            .ativo(true)
-            .build();
+            // ── Pizzas ────────────────────────────────────────────────────────
+            produto("PIZZA-001", "Pizza Margherita",          "Molho de tomate, mussarela, manjericão",          6500, 20, CategoriaProduto.PIZZA, true),
+            produto("PIZZA-002", "Pizza Frango com Catupiry", "Frango desfiado, catupiry e azeitonas",           7200, 20, CategoriaProduto.PIZZA, true),
+            produto("PIZZA-003", "Pizza Quatro Queijos",      "Mussarela, gorgonzola, parmesão, provolone",      7800, 20, CategoriaProduto.PIZZA, true),
 
-        Produto produto6 = Produto.builder()
-            .codigo("PROD-006")
-            .nome("Cerveja Cuca (350ml)")
-            .descricao("Cerveja Cuca gelada")
-            .preco(new BigDecimal("250.00"))
-            .categoria(CategoriaProduto.BEBIDA_ALCOOLICA)
-            .disponivel(true)
-            .ativo(true)
-            .build();
+            // ── Sobremesas ────────────────────────────────────────────────────
+            produto("SOB-001", "Cocada Angolana",    "Cocada cremosa tradicional angolana",        2500, 10, CategoriaProduto.SOBREMESA, true),
+            produto("SOB-002", "Bolo de Ginguba",    "Bolo de amendoim com cobertura de chocolate",2800, 10, CategoriaProduto.SOBREMESA, true),
+            produto("SOB-003", "Mousse de Maracujá", "Mousse cremoso de maracujá com calda",       3200, 15, CategoriaProduto.SOBREMESA, true),
 
-        // Produto inativo (para testes)
-        Produto produto7 = Produto.builder()
-            .codigo("PROD-999")
-            .nome("Produto Indisponível (Teste)")
-            .descricao("Produto desativado para testes de validação")
-            .preco(new BigDecimal("100.00"))
-            .categoria(CategoriaProduto.OUTROS)
-            .disponivel(false)
-            .ativo(true)
-            .build();
+            // ── Bebidas Não Alcoólicas ────────────────────────────────────────
+            produto("BEB-001", "Refrigerante Lata",  "Coca-Cola, Pepsi, Fanta (350ml)",            800,  null, CategoriaProduto.BEBIDA_NAO_ALCOOLICA, true),
+            produto("BEB-002", "Sumo Natural",       "Laranja, Maracujá ou Abacaxi (500ml)",      1500,  null, CategoriaProduto.BEBIDA_NAO_ALCOOLICA, true),
+            produto("BEB-003", "Água Mineral",       "Com ou sem gás (500ml)",                     600,  null, CategoriaProduto.BEBIDA_NAO_ALCOOLICA, true),
+            produto("BEB-004", "Kissangua",          "Bebida tradicional de milho fermentado",    1200,  null, CategoriaProduto.BEBIDA_NAO_ALCOOLICA, true),
 
-        produtoRepository.save(produto1);
-        produtoRepository.save(produto2);
-        produtoRepository.save(produto3);
-        produtoRepository.save(produto4);
-        produtoRepository.save(produto5);
-        produtoRepository.save(produto6);
-        produtoRepository.save(produto7);
+            // ── Bebidas Alcoólicas ────────────────────────────────────────────
+            produto("ALC-001", "Cerveja Cuca",          "Cerveja angolana (330ml)",                1500, null, CategoriaProduto.BEBIDA_ALCOOLICA, true),
+            produto("ALC-002", "Cerveja Ngola",         "Cerveja angolana premium (330ml)",        1800, null, CategoriaProduto.BEBIDA_ALCOOLICA, true),
+            produto("ALC-003", "Caipirinha",            "Cachaça, limão, açúcar",                  2500, null, CategoriaProduto.BEBIDA_ALCOOLICA, true),
+            produto("ALC-004", "Vinho Português (taça)","Tinto ou branco (150ml)",                 3200, null, CategoriaProduto.BEBIDA_ALCOOLICA, true),
 
-        log.info("  ┗ ✅ 7 produtos criados (6 disponíveis, 1 indisponível)");
+            // ── Produto inativo — para testes de validação ───────────────────
+            produto("TEST-999", "Produto Indisponível (Teste)", "Usado em testes — nunca deve aparecer no cardápio", 100, null, CategoriaProduto.OUTROS, false)
+        ));
+
+        log.info("  [produtos]        ✅ 23 criados  (22 disponíveis + 1 inativo para testes)");
     }
 
-    private void seedUnidadesConsumo() {
-        log.info("👤 Verificando unidades de consumo...");
+    private Produto produto(String codigo, String nome, String descricao,
+                            int preco, Integer tempoPreparo,
+                            CategoriaProduto categoria, boolean disponivel) {
+        return Produto.builder()
+            .codigo(codigo)
+            .nome(nome)
+            .descricao(descricao)
+            .preco(new BigDecimal(preco))
+            .tempoPreparoMinutos(tempoPreparo)
+            .categoria(categoria)
+            .disponivel(disponivel)
+            .ativo(true)
+            .build();
+    }
 
-        if (unidadeDeConsumoRepository.count() > 0) {
-            log.info("  ┗ Unidades de consumo já existem. Pulando...");
+    // ─────────────────────────────────────────────────────────────────────────
+    // Mesas físicas permanentes (sem status — derivado em runtime)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void seedMesas() {
+        if (mesaRepository.count() > 0) {
+            log.info("  [mesas]           já existem — pulando");
             return;
         }
 
-        var unidadeAtendimento = unidadeAtendimentoRepository.findAll().get(0);
-        var clientes = clienteRepository.findAll();
+        UnidadeAtendimento salao       = unidadeAtendimentoRepository.findByNomeIgnoreCase("Salão Principal").orElseThrow();
+        UnidadeAtendimento barAngolano = unidadeAtendimentoRepository.findByNomeIgnoreCase("Bar Angolano").orElseThrow();
+        UnidadeAtendimento esplanada   = unidadeAtendimentoRepository.findByNomeIgnoreCase("Esplanada").orElseThrow();
 
-        // Criar 5 unidades de consumo de teste (mesas) - uma para cada cliente
-        for (int i = 0; i < Math.min(5, clientes.size()); i++) {
-            UnidadeDeConsumo unidade = UnidadeDeConsumo.builder()
-                .referencia(String.format("Mesa %d", i + 1))
-                .tipo(TipoUnidadeConsumo.MESA_FISICA)
-                .numero(i + 1)
-                .status(StatusUnidadeConsumo.OCUPADA)
-                .unidadeAtendimento(unidadeAtendimento)
-                .cliente(clientes.get(i))
-                .build();
-
-            unidadeDeConsumoRepository.save(unidade);
+        // Salão Principal — 10 mesas (capacidade 4 pessoas)
+        for (int i = 1; i <= 10; i++) {
+            mesaRepository.save(mesa(i, "Mesa " + i, 4, salao));
         }
 
-        log.info("  ┗ ✅ {} unidades de consumo criadas", Math.min(5, clientes.size()));
+        // Bar Angolano — 4 banquetas/mesas de bar (capacidade 2 pessoas)
+        for (int i = 1; i <= 4; i++) {
+            mesaRepository.save(mesa(100 + i, "Bar " + i, 2, barAngolano));
+        }
+
+        // Esplanada — 6 mesas externas (capacidade 4 pessoas)
+        for (int i = 1; i <= 6; i++) {
+            mesaRepository.save(mesa(200 + i, "Esplanada " + i, 4, esplanada));
+        }
+
+        log.info("  [mesas]           ✅ 20 criadas  (10 Salão + 4 Bar + 6 Esplanada — status derivado)");
+    }
+
+    private Mesa mesa(int numero, String referencia, int capacidade, UnidadeAtendimento unidade) {
+        return Mesa.builder()
+            .numero(numero)
+            .referencia(referencia)
+            .tipo(TipoUnidadeConsumo.MESA_FISICA)
+            .capacidade(capacidade)
+            .ativa(true)
+            .unidadeAtendimento(unidade)
+            .build();
     }
 }
+

@@ -20,8 +20,8 @@ public class QrCodeResponse {
     private TipoQrCode tipo;
     private StatusQrCode status;
     private LocalDateTime expiraEm;
-    private Long unidadeDeConsumoId;
-    private String unidadeDeConsumoNome;
+    private Long mesaId;
+    private String referenciaMesa;
     private Long pedidoId;
     private LocalDateTime usadoEm;
     private String usadoPor;

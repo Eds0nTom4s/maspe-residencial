@@ -54,8 +54,8 @@ public class Atendente extends BaseEntity {
     @Builder.Default
     private Boolean ativo = true;
 
-    // Relacionamento com unidades de consumo criadas manualmente
-    @OneToMany(mappedBy = "atendente", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    // Sessões de consumo abertas por este atendente
+    @OneToMany(mappedBy = "aberturaPor", fetch = FetchType.LAZY)
     @Builder.Default
-    private List<UnidadeDeConsumo> unidadesConsumo = new ArrayList<>();
+    private List<SessaoConsumo> sessoesAbertas = new ArrayList<>();
 }

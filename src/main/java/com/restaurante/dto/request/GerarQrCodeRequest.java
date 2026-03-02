@@ -15,9 +15,9 @@ public class GerarQrCodeRequest {
     private TipoQrCode tipo;
 
     /**
-     * ID da Unidade de Consumo (obrigatório para tipo MESA)
+     * ID da Mesa (obrigatório para tipo MESA)
      */
-    private Long unidadeDeConsumoId;
+    private Long mesaId;
 
     /**
      * ID do Pedido (obrigatório para tipos ENTREGA e PAGAMENTO)

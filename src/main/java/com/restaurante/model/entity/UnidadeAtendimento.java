@@ -64,11 +64,11 @@ public class UnidadeAtendimento extends BaseEntity {
     private List<Cozinha> cozinhas = new ArrayList<>();
 
     /**
-     * Relacionamento com unidades de consumo desta unidade
+     * Mesas físicas pertencentes a esta unidade de atendimento.
      */
     @OneToMany(mappedBy = "unidadeAtendimento", fetch = FetchType.LAZY)
     @Builder.Default
-    private List<UnidadeDeConsumo> unidadesConsumo = new ArrayList<>();
+    private List<Mesa> mesas = new ArrayList<>();
 
     /**
      * Verifica se a unidade está operacional

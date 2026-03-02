@@ -1,0 +1,1133 @@
+================================================================================
+  SISTEMA DE RESTAURAÇÃO — DOCUMENTO DE ALINHAMENTO FRONTEND
+  Versão: 1.0 | Data: 2026-03-02 | Gerado a partir do código-fonte actual
+================================================================================
+
+ÍNDICE
+------
+  1.  Visão Geral da Arquitectura
+  2.  Base URL e Configuração HTTP
+  3.  Autenticação e Autorização
+  4.  Envelope de Resposta da API
+  5.  Tratamento de Erros
+  6.  Modelo Conceptual: Mesa, SessaoConsumo e Pedido
+  7.  Enumerações (Enums)
+  8.  Endpoints — Referência Completa
+       8.1  Autenticação
+       8.2  Mesas
+       8.3  Sessões de Consumo
+       8.4  Pedidos
+       8.5  Sub-Pedidos (Cozinha)
+       8.6  Produtos
+       8.7  Cozinhas
+       8.8  Unidades de Atendimento
+       8.9  Clientes
+       8.10 Fundo de Consumo (Pré-Pago)
+       8.11 Pagamentos (AppyPay)
+       8.12 QR Codes
+       8.13 Dashboard
+       8.14 Auditoria e Event Logs
+       8.15 Configurações Financeiras
+       8.16 Utilizadores
+  9.  WebSocket — Notificações em Tempo Real
+  10. Fluxos Operacionais Completos
+  11. Regras de Negócio Críticas para o Frontend
+  12. Dados de Teste (Perfil Dev)
+
+
+================================================================================
+  1. VISÃO GERAL DA ARQUITECTURA
+================================================================================
+
+  O sistema segue uma arquitectura REST + WebSocket com dois planos distintos:
+
+  PLANO FÍSICO (permanente)
+    Mesa → recurso físico permanente. Criada pelo ADMIN uma única vez.
+           NÃO tem status próprio no banco. Status é DERIVADO.
+
+  PLANO TEMPORAL (evento)
+    SessaoConsumo → evento de ocupação. Criada pelo ATENDENTE ao sentar
+                    clientes. Tem ciclo de vida próprio (ABERTA →
+                    AGUARDANDO_PAGAMENTO → ENCERRADA).
+
+  PEDIDO
+    Pedido → sempre ligado a uma SessaoConsumo (nunca directamente a
+             uma Mesa). Um pedido subdivide-se em SubPedidos por cozinha.
+
+  FUNDO DE CONSUMO
+    FundoConsumo → carteira digital pré-paga do cliente. Débito
+                   automático a cada pedido PRE_PAGO.
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  Mesa (física, permanente)                               │
+  │  └─► SessaoConsumo (temporal, por visita)               │
+  │       └─► Pedido (por solicitação)                      │
+  │            └─► SubPedido (por cozinha)                  │
+  └─────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  2. BASE URL E CONFIGURAÇÃO HTTP
+================================================================================
+
+  Base URL:        http://localhost:8080/api
+  Swagger UI:      http://localhost:8080/api/swagger-ui.html
+  OpenAPI JSON:    http://localhost:8080/api/v3/api-docs
+  WebSocket:       ws://localhost:8080/api/ws  (SockJS)
+
+  Content-Type padrão:  application/json
+  Accept padrão:        application/json
+
+  CORS permitido:
+    http://localhost:3000
+    http://localhost:3001
+    http://localhost:3002
+    http://localhost:3003
+    http://localhost:4200
+    (credentials: true)
+
+  NOTA: Em produção, a Base URL e as origens CORS serão actualizadas.
+
+
+================================================================================
+  3. AUTENTICAÇÃO E AUTORIZAÇÃO
+================================================================================
+
+  O sistema possui DOIS mecanismos de autenticação paralelos:
+
+  ── A) OTP via SMS (Clientes) ──────────────────────────────────────────────
+
+    Fluxo:
+      1. POST /auth/solicitar-otp   → envia SMS com código de 6 dígitos
+      2. POST /auth/validar-otp     → valida código → retorna ClienteResponse
+                                       + token JWT
+
+    O token retornado é usado no header:
+      Authorization: Bearer <token>
+
+  ── B) Login por Telefone + Senha (Equipa Interna) ────────────────────────
+
+    POST /auth/admin/login
+      → retorna LoginAtendenteResponse com token JWT
+
+    Roles disponíveis:
+      ROLE_ADMIN       — Acesso total
+      ROLE_GERENTE     — Gestão operacional e financeira
+      ROLE_ATENDENTE   — Operações de mesa e pedidos
+      ROLE_COZINHA     — Gestão de sub-pedidos na cozinha
+      ROLE_CLIENTE     — Acesso do cliente (via OTP)
+
+  ── C) JWT Username/Password (uso secundário, debug) ─────────────────────
+
+    POST /auth/jwt/login    → AuthResponse (accessToken + refreshToken)
+    POST /auth/jwt/refresh  → novo AuthResponse
+
+  ── Envio do Token ────────────────────────────────────────────────────────
+
+    TODOS os endpoints protegidos requerem:
+      Authorization: Bearer <token>
+
+    Expiração padrão:   3 600 000 ms  = 1 hora
+    Refresh Token:     604 800 000 ms = 7 dias
+
+  ── Interpretação de Roles em @PreAuthorize ──────────────────────────────
+
+    hasRole('ADMIN')                    → apenas ADMIN
+    hasAnyRole('ATENDENTE','GERENTE')   → qualquer um dos listados
+    Sem anotação                        → endpoint público
+
+
+================================================================================
+  4. ENVELOPE DE RESPOSTA DA API
+================================================================================
+
+  TODAS as respostas bem-sucedidas seguem o envelope ApiResponse<T>:
+
+  {
+    "success": true,
+    "message": "Operação realizada com sucesso",
+    "data": { ... }   // ou [...]  ou null
+  }
+
+  Campos:
+    success  Boolean   true = operação OK; false = erro de negócio
+    message  String    Mensagem legível para o utilizador
+    data     T | null  Payload da resposta (pode ser null em DELETE/void)
+
+  Exemplos de data conforme o endpoint:
+    GET /mesas         → data: [ MesaResponse, ... ]
+    POST /pedidos      → data: PedidoResponse
+    DELETE /x/{id}     → data: null
+
+
+================================================================================
+  5. TRATAMENTO DE ERROS
+================================================================================
+
+  Quando success = false ou status HTTP >= 400, o corpo segue ErrorResponse:
+
+  {
+    "timestamp": "2026-03-02T14:30:00",
+    "status": 404,
+    "error": "Recurso não encontrado",
+    "message": "Mesa com ID 99 não encontrada",
+    "path": "/api/mesas/99",
+    "validationErrors": null
+  }
+
+  Em erros de validação (422 / 400), validationErrors é preenchido:
+
+  {
+    "timestamp": "...",
+    "status": 400,
+    "error": "Erro de validação",
+    "message": "Dados inválidos fornecidos",
+    "path": "/api/pedidos",
+    "validationErrors": {
+      "sessaoConsumoId": "ID da sessão de consumo é obrigatório",
+      "itens": "Pedido deve conter ao menos um item"
+    }
+  }
+
+  Tabela de HTTP Status usados:
+    200  OK                  Sucesso geral (GET, PUT, PATCH)
+    201  Created             Recurso criado (POST)
+    204  No Content          DELETE bem-sucedido
+    400  Bad Request         Validação ou regra de negócio violada
+    401  Unauthorized        Token ausente ou inválido
+    403  Forbidden           Role insuficiente
+    404  Not Found           Recurso não encontrado
+    409  Conflict            Race condition / concorrência
+    500  Internal Error      Erro inesperado do servidor
+
+  IMPORTANTE:
+    Erros de negócio específicos têm mensagens descritivas em "message".
+    Ex: "Limite pós-pago excedido (2500.00 AOA)", "Mesa já está ocupada",
+        "QR Code expirado", "Saldo insuficiente no Fundo de Consumo".
+
+
+================================================================================
+  6. MODELO CONCEPTUAL: MESA, SESSAOCONSUMO E PEDIDO
+================================================================================
+
+  ── MesaResponse ────────────────────────────────────────────────────────────
+
+  {
+    "id": 1,
+    "referencia": "Mesa 01",
+    "numero": 1,
+    "qrCode": "MESA-A7F3C2",
+    "capacidade": 4,
+    "ativa": true,
+    "tipo": "MESA_FISICA",
+    "unidadeAtendimentoId": 1,
+    "unidadeAtendimentoNome": "Salão Principal",
+    "status": "DISPONIVEL",          ← CAMPO DERIVADO (nunca no BD)
+    "sessaoAtivaId": null,           ← null quando DISPONIVEL
+    "createdAt": "2026-03-01T10:00:00"
+  }
+
+  status derivado:
+    "DISPONIVEL" — nenhuma SessaoConsumo ABERTA para esta mesa
+    "OCUPADA"    — existe pelo menos uma SessaoConsumo ABERTA
+
+  ── SessaoConsumoResponse ───────────────────────────────────────────────────
+
+  {
+    "id": 101,
+    "mesaId": 1,
+    "referenciaMesa": "Mesa 01",
+    "clienteId": 5,                  ← null no modo anónimo
+    "nomeCliente": "Maria Silva",    ← null no modo anónimo
+    "telefoneCliente": "+244923111222",
+    "aberturaPorId": 2,              ← ID do atendente (pode ser null)
+    "nomeAtendente": "João Atendente",
+    "abertaEm": "2026-03-02T12:30:00",
+    "fechadaEm": null,               ← preenchido ao encerrar
+    "status": "ABERTA",
+    "modoAnonimo": false,
+    "qrCodePortador": null,          ← preenchido no modo anónimo
+    "totalConsumo": 4500.00
+  }
+
+  ── PedidoResponse ──────────────────────────────────────────────────────────
+
+  {
+    "id": 201,
+    "numero": "PED-20260302-001",
+    "status": "EM_ANDAMENTO",
+    "observacoes": "sem cebola",
+    "total": 2500.00,
+    "sessaoConsumoId": 101,
+    "mesaId": 1,
+    "referenciaMesa": "Mesa 01",
+    "itens": [
+      {
+        "id": 1,
+        "produtoId": 3,
+        "produtoNome": "Frango Grelhado",
+        "produtoCodigo": "PRD-003",
+        "quantidade": 2,
+        "precoUnitario": 1250.00,
+        "subtotal": 2500.00,
+        "observacoes": "sem cebola"
+      }
+    ],
+    "createdAt": "2026-03-02T12:35:00",
+    "updatedAt": "2026-03-02T12:36:00"
+  }
+
+  NOTA: O frontend deve sempre navegar Mesa → sessaoAtivaId → SessaoConsumo
+        → pedidos. Nunca assume que uma mesa tem pedidos directamente.
+
+
+================================================================================
+  7. ENUMERAÇÕES (ENUMS)
+================================================================================
+
+  StatusSessaoConsumo
+    ABERTA               — sessão em curso (mesa ocupada)
+    AGUARDANDO_PAGAMENTO — conta fechada, aguarda pagamento físico
+    ENCERRADA            — sessão finalizada e auditada
+
+  StatusPedido
+    CRIADO               — pedido registado, à espera de confirmação
+    EM_ANDAMENTO         — pelo menos um sub-pedido em preparação
+    FINALIZADO           — todos os sub-pedidos entregues e conta fechada
+    CANCELADO            — pedido cancelado (terminal)
+
+  StatusSubPedido
+    CRIADO               — criado, aguarda cozinha
+    PENDENTE             — na fila da cozinha
+    EM_PREPARACAO        — cozinheiro assumiu
+    PRONTO               — pronto para entrega
+    ENTREGUE             — entregue ao cliente (terminal)
+    CANCELADO            — cancelado (terminal)
+
+  StatusQrCode
+    ATIVO                — válido e usável
+    USADO                — já utilizado (tokens de uso único)
+    EXPIRADO             — fora do prazo de validade
+    CANCELADO            — revogado manualmente
+
+  StatusFinanceiroPedido
+    NAO_PAGO             — pós-pago pendente
+    PAGO                 — debitado ou confirmado
+    ESTORNADO            — valor devolvido
+
+  StatusPagamento (Gateway AppyPay)
+    PENDENTE | PROCESSANDO | APROVADO | RECUSADO | CANCELADO | ESTORNADO
+
+  CategoriaProduto
+    ENTRADA | PRATO_PRINCIPAL | ACOMPANHAMENTO | SOBREMESA |
+    BEBIDA_ALCOOLICA | BEBIDA_NAO_ALCOOLICA | LANCHE | PIZZA | OUTROS
+
+  TipoPagamentoPedido
+    PRE_PAGO   — débito automático do Fundo de Consumo (padrão)
+    POS_PAGO   — pagamento presencial posterior (só GERENTE/ADMIN)
+
+  TipoQrCode
+    MESA       — QR fixo da mesa; validade 24h; uso múltiplo
+    ENTREGA    — confirmação de entrega; validade 30 min; uso único
+    PAGAMENTO  — finalização de pagamento; validade 1h; uso único
+
+  TipoCozinha
+    CENTRAL | BAR_PREP | CONFEITARIA | GRILL | PIZZARIA | SUSHI | ESPECIAL
+
+  TipoUnidadeAtendimento
+    RESTAURANTE | BAR | CAFETERIA | ROOM_SERVICE | EVENTO | PISCINA | LOUNGE
+
+  TipoUnidadeConsumo (Tipo da Mesa)
+    MESA_FISICA | QUARTO | AREA_EVENTO | ESPACO_LOUNGE | VIRTUAL
+
+  Role (no token JWT)
+    ROLE_ADMIN | ROLE_GERENTE | ROLE_ATENDENTE | ROLE_COZINHA | ROLE_CLIENTE
+
+  MetodoPagamento
+    DINHEIRO | CARTAO_CREDITO | CARTAO_DEBITO | PIX | VALE_REFEICAO | DIGITAL
+
+
+================================================================================
+  8. ENDPOINTS — REFERÊNCIA COMPLETA
+================================================================================
+
+  LEGENDA:
+    [PUB]           público (sem autenticação)
+    [AUTH]          qualquer utilizador autenticado
+    [ATD]           ATENDENTE, GERENTE ou ADMIN
+    [GER]           GERENTE ou ADMIN
+    [ADM]           apenas ADMIN
+    [COZ]           COZINHA, GERENTE ou ADMIN
+    ────────────────────────────────────────────────────────────────────────
+
+  8.1  AUTENTICAÇÃO
+  ─────────────────
+
+  POST   /auth/solicitar-otp                     [PUB]
+    Body: { "telefone": "+244923111222" }
+    Resp: ApiResponse<Void>
+    Efeito: envia SMS com OTP ao número indicado
+
+  POST   /auth/validar-otp                       [PUB]
+    Body: { "telefone": "+244923111222", "codigo": "123456" }
+    Resp: ApiResponse<ClienteResponse>  (inclui token no header)
+    NOTA: token JWT devolvido no campo data ou header — verificar impl.
+
+  POST   /auth/admin/login                       [PUB]
+    Body: { "telefone": "+244923000001", "senha": "admin123" }
+    Resp: ApiResponse<LoginAtendenteResponse>
+    LoginAtendenteResponse: {
+      id, nome, telefone, email, tipoUsuario,
+      token: "eyJ...",
+      expiresIn: 3600   // segundos
+    }
+
+  POST   /auth/jwt/login                         [PUB]
+    Body: { "username": "admin", "password": "admin123" }
+    Resp: ApiResponse<AuthResponse>
+    AuthResponse: {
+      accessToken, refreshToken, tokenType: "Bearer",
+      expiresIn, username, roles: ["ROLE_ADMIN"]
+    }
+
+  POST   /auth/jwt/refresh                       [PUB]
+    Body: { "refreshToken": "..." }
+    Resp: ApiResponse<AuthResponse>
+
+  POST   /auth/jwt/register                      [PUB]
+    Body: { "username": "...", "password": "...", "email": "..." }
+    Resp: ApiResponse<AuthResponse>
+
+  ────────────────────────────────────────────────────────────────────────
+  8.2  MESAS
+  ──────────
+
+  POST   /mesas                                  [ADM]
+    Body: {
+      "referencia": "Mesa 15",    // obrigatório
+      "numero": 15,
+      "tipo": "MESA_FISICA",
+      "capacidade": 4,
+      "qrCode": "MESA-X1Y2Z3",   // opcional (pode gerar depois)
+      "unidadeAtendimentoId": 1  // obrigatório
+    }
+    Resp: ApiResponse<MesaResponse>
+
+  PUT    /mesas/{id}/ativar                      [ADM]
+    Resp: ApiResponse<MesaResponse>
+
+  PUT    /mesas/{id}/desativar                   [ADM]
+    Resp: ApiResponse<MesaResponse>
+
+  GET    /mesas                                  [AUTH]
+    Resp: ApiResponse<List<MesaResponse>>
+    Retorna todas as mesas (ativas e inativas)
+
+  GET    /mesas/{id}                             [AUTH]
+    Resp: ApiResponse<MesaResponse>
+
+  GET    /mesas/qrcode/{qrCode}                  [AUTH]
+    Resp: ApiResponse<MesaResponse>
+    Uso: o cliente escaneia QR e o app identifica a mesa
+
+  GET    /mesas/ativas                           [AUTH]
+    Resp: ApiResponse<List<MesaResponse>>
+
+  GET    /mesas/disponiveis                      [AUTH]
+    Resp: ApiResponse<List<MesaResponse>>
+    Retorna apenas mesas sem sessão ABERTA (status="DISPONIVEL")
+
+  GET    /mesas/ocupadas                         [AUTH]
+    Resp: ApiResponse<List<MesaResponse>>
+    Retorna mesas com sessão ABERTA (status="OCUPADA")
+
+  GET    /mesas/unidade-atendimento/{id}         [AUTH]
+    Resp: ApiResponse<List<MesaResponse>>
+    Retorna mesas de uma UnidadeAtendimento específica
+
+  ────────────────────────────────────────────────────────────────────────
+  8.3  SESSÕES DE CONSUMO
+  ────────────────────────
+
+  POST   /sessoes-consumo                        [ATD]
+    Body (identificado):
+    {
+      "mesaId": 1,                    // obrigatório
+      "telefoneCliente": "+244923111222",
+      "modoAnonimo": false,
+      "atendenteId": 2                // opcional (auditoria)
+    }
+    Body (anónimo):
+    {
+      "mesaId": 1,
+      "modoAnonimo": true
+    }
+    Resp: ApiResponse<SessaoConsumoResponse>
+    ERRO 409: mesa já tem sessão ABERTA
+
+  PUT    /sessoes-consumo/{id}/fechar             [ATD]
+    Resp: ApiResponse<SessaoConsumoResponse>
+    Efeito: fecha a conta; status → ENCERRADA
+    Pré-condição: todos os pedidos devem estar FINALIZADOS ou CANCELADOS
+
+  PUT    /sessoes-consumo/{id}/aguardar-pagamento [ATD]
+    Resp: ApiResponse<SessaoConsumoResponse>
+    Efeito: status → AGUARDANDO_PAGAMENTO
+    Uso: cliente pede a conta; atendente regista antes do pagamento presencial
+
+  GET    /sessoes-consumo/{id}                   [AUTH]
+    Resp: ApiResponse<SessaoConsumoResponse>
+
+  GET    /sessoes-consumo/mesa/{mesaId}/ativa     [AUTH]
+    Resp: ApiResponse<SessaoConsumoResponse>
+    Retorna a sessão ABERTA da mesa (404 se não existir)
+    Uso mais comum para obter sessaoConsumoId antes de criar pedido
+
+  GET    /sessoes-consumo/mesa/{mesaId}/historico [AUTH]
+    Resp: ApiResponse<List<SessaoConsumoResponse>>
+    Histórico completo da mesa (todas as sessões, qualquer status)
+
+  GET    /sessoes-consumo/abertas                 [ATD]
+    Resp: ApiResponse<List<SessaoConsumoResponse>>
+    Todas as sessões com status=ABERTA (visão global)
+
+  ────────────────────────────────────────────────────────────────────────
+  8.4  PEDIDOS
+  ─────────────
+
+  POST   /pedidos                                [ATD]
+    Body:
+    {
+      "sessaoConsumoId": 101,         // obrigatório
+      "tipoPagamento": "PRE_PAGO",    // opcional (default: PRE_PAGO)
+      "observacoes": "sem pimenta",
+      "itens": [
+        { "produtoId": 3, "quantidade": 2, "observacoes": "..." },
+        { "produtoId": 7, "quantidade": 1 }
+      ]
+    }
+    Resp: ApiResponse<PedidoResponse>
+    NOTA PRE_PAGO: débito automático do Fundo de Consumo do cliente.
+                  Exige saldo suficiente.
+    NOTA POS_PAGO: apenas GERENTE/ADMIN. Requer pós-pago habilitado
+                   nas configurações e não exceder limite.
+
+  GET    /pedidos/{id}                           [AUTH]
+    Resp: ApiResponse<PedidoResponse>
+
+  GET    /pedidos/numero/{numero}                [AUTH]
+    Resp: ApiResponse<PedidoResponse>
+    Ex: /pedidos/numero/PED-20260302-001
+
+  GET    /pedidos/status/{status}                [AUTH]
+    Resp: ApiResponse<List<PedidoResponse>>
+    Ex: /pedidos/status/EM_ANDAMENTO
+
+  GET    /pedidos/ativos                         [AUTH]
+    Resp: ApiResponse<List<PedidoResponse>>
+    Pedidos com status CRIADO ou EM_ANDAMENTO
+
+  PUT    /pedidos/{id}/confirmar                 [ATD]
+    Resp: ApiResponse<PedidoResponse>
+    Transição: CRIADO → EM_ANDAMENTO
+    Efeito: gera SubPedidos para cada cozinha envolvida
+
+  PUT    /pedidos/{id}/fechar                    [ATD]
+    Resp: ApiResponse<PedidoResponse>
+    Transição: EM_ANDAMENTO → FINALIZADO
+    Uso: checkout — conta do pedido fechada
+
+  PUT    /pedidos/{id}/cancelar                  [GER]
+    Body: { "motivo": "..." }  (opcional)
+    Resp: ApiResponse<PedidoResponse>
+    Transição: CRIADO | EM_ANDAMENTO → CANCELADO
+
+  PUT    /pedidos/{id}/confirmar-pagamento       [GER]
+    Resp: ApiResponse<PedidoResponse>
+    Uso: confirmar pagamento presencial de pedido POS_PAGO
+
+  ────────────────────────────────────────────────────────────────────────
+  8.5  SUB-PEDIDOS (COZINHA)
+  ────────────────────────────
+
+  SubPedidoResponse:
+  {
+    "id": 301,
+    "pedidoId": 201,
+    "numeroPedido": "PED-20260302-001",
+    "cozinhaId": 1,
+    "nomeCozinha": "Cozinha Central",
+    "unidadeAtendimentoId": 1,
+    "nomeUnidadeAtendimento": "Salão Principal",
+    "status": "EM_PREPARACAO",
+    "itens": [ ... ],
+    "observacoes": "...",
+    "recebidoEm": "...",
+    "iniciadoEm": "...",
+    "prontoEm": null,
+    "entregueEm": null,
+    "tempoPreparacaoMinutos": 8
+  }
+
+  GET    /subpedidos/{id}                        [AUTH]
+  GET    /subpedidos/pedido/{pedidoId}           [AUTH]  → todos os sub-pedidos de um pedido
+  GET    /subpedidos/cozinha/{id}/ativos         [AUTH]  → fila activa da cozinha
+  GET    /subpedidos/cozinha/{id}/prontos        [AUTH]  → prontos para entrega
+  GET    /subpedidos/atrasados                   [AUTH]  → sub-pedidos com atraso
+  GET    /subpedidos/kpi/tempo-medio             [AUTH]  → tempo médio por cozinha
+
+  PUT    /subpedidos/{id}/assumir                [COZ]
+    Transição: PENDENTE → EM_PREPARACAO
+
+  PUT    /subpedidos/{id}/marcar-pronto          [COZ]
+    Transição: EM_PREPARACAO → PRONTO
+
+  PUT    /subpedidos/{id}/marcar-entregue        [ATD]
+    Transição: PRONTO → ENTREGUE
+
+  PUT    /subpedidos/{id}/cancelar               [GER]
+    Transição: CRIADO | PENDENTE | EM_PREPARACAO → CANCELADO
+
+  ────────────────────────────────────────────────────────────────────────
+  8.6  PRODUTOS
+  ──────────────
+
+  ProdutoResponse:
+  {
+    "id": 3, "codigo": "PRD-003", "nome": "Frango Grelhado",
+    "descricao": "Frango grelhado com batata frita",
+    "preco": 1250.00, "categoria": "PRATO_PRINCIPAL",
+    "urlImagem": null, "tempoPreparoMinutos": 20,
+    "disponivel": true, "ativo": true,
+    "createdAt": "...", "updatedAt": "..."
+  }
+
+  POST   /produtos                               [GERENTE]
+    Body: { "codigo", "nome", "descricao", "preco", "categoria",
+            "tempoPreparoMinutos", "disponivel" }
+    Resp: ApiResponse<ProdutoResponse>
+
+  PUT    /produtos/{id}                          [GERENTE]
+    Body: (mesmo que POST)
+
+  GET    /produtos                               [AUTH]
+    Retorna apenas disponivel=true e ativo=true
+
+  GET    /produtos/categoria/{categoria}         [AUTH]
+    Ex: /produtos/categoria/PRATO_PRINCIPAL
+
+  GET    /produtos/buscar?nome={nome}            [AUTH]
+    Busca parcial por nome
+
+  PATCH  /produtos/{id}/disponibilidade         [GERENTE]
+    Body: { "disponivel": false }
+
+  DELETE /produtos/{id}                          [GERENTE]
+    Desactivação lógica (ativo=false)
+
+  ────────────────────────────────────────────────────────────────────────
+  8.7  COZINHAS
+  ──────────────
+
+  CozinhaResponse:
+  {
+    "id": 1, "nome": "Cozinha Central", "tipo": "CENTRAL",
+    "descricao": "...", "ativa": true, "enderecoImpressora": null
+  }
+
+  POST   /cozinhas                               [AUTH]   criar
+  GET    /cozinhas                               [AUTH]   todas
+  GET    /cozinhas/ativas                        [AUTH]   apenas activas
+  GET    /cozinhas/{id}                          [AUTH]
+  GET    /cozinhas/tipo/{tipo}                   [AUTH]   por TipoCozinha
+  PUT    /cozinhas/{id}/ativar                   [AUTH]
+  PUT    /cozinhas/{id}/desativar                [AUTH]
+  PUT    /cozinhas/{id}/impressora               [AUTH]
+    Body: { "enderecoImpressora": "192.168.1.100" }
+  POST   /cozinhas/{cozinhaId}/vincular/{unidadeAtendimentoId}   [AUTH]
+  DELETE /cozinhas/{cozinhaId}/desvincular/{unidadeAtendimentoId} [AUTH]
+
+  ────────────────────────────────────────────────────────────────────────
+  8.8  UNIDADES DE ATENDIMENTO
+  ──────────────────────────────
+
+  UnidadeAtendimentoResponse:
+  {
+    "id": 1, "nome": "Salão Principal",
+    "tipo": "RESTAURANTE", "descricao": "...",
+    "ativa": true, "operacional": true,
+    "cozinhas": [ CozinhaResponse, ... ],
+    "unidadesConsumoAtivas": 10
+  }
+
+  POST   /unidades-atendimento                   [AUTH]   criar
+  GET    /unidades-atendimento                   [AUTH]   todas
+  GET    /unidades-atendimento/ativas            [AUTH]
+  GET    /unidades-atendimento/operacionais      [AUTH]   ativas E com cozinhas
+  GET    /unidades-atendimento/{id}              [AUTH]
+  GET    /unidades-atendimento/tipo/{tipo}       [AUTH]   por TipoUnidadeAtendimento
+  PUT    /unidades-atendimento/{id}/ativar       [AUTH]
+  PUT    /unidades-atendimento/{id}/desativar    [AUTH]
+  POST   /unidades-atendimento/{uId}/cozinhas/{cId}     [AUTH]   associar cozinha
+  DELETE /unidades-atendimento/{uId}/cozinhas/{cId}     [AUTH]   desassociar cozinha
+
+  ────────────────────────────────────────────────────────────────────────
+  8.9  CLIENTES
+  ──────────────
+
+  ClienteResponse:
+  {
+    "id": 5, "telefone": "+244923111222", "nome": "Maria Silva",
+    "telefoneVerificado": true, "ativo": true, "createdAt": "..."
+  }
+
+  GET    /clientes                               [GER]   paginado
+    Params: page=0&size=20&sort=nome,asc
+    Resp: ApiResponse<Page<ClienteResponse>>
+
+  GET    /clientes/{id}                          [GER]
+  GET    /clientes/telefone/{telefone}           [GER]
+  PUT    /clientes/{id}                          [GER]
+    Body: { "nome": "...", "email": "..." }
+  DELETE /clientes/{id}                          [ADM]  desactivação lógica
+
+  ────────────────────────────────────────────────────────────────────────
+  8.10 FUNDO DE CONSUMO (PRÉ-PAGO)
+  ──────────────────────────────────
+
+  FundoConsumoResponse:
+  {
+    "id": 10, "saldoAtual": 5000.00, "ativo": true,
+    "clienteId": 5,      // fluxo identificado
+    "tokenPortador": null, // fluxo anónimo: UUID do QR
+    "createdAt": "...", "updatedAt": "..."
+  }
+
+  POST   /fundos/cliente/{clienteId}             [GER]   criar fundo para cliente
+    Body: { "saldoInicial": 0.00 }
+
+  POST   /fundos/anonimo/{token}                 [ATD]   criar fundo anónimo (token = QR da mesa)
+    Body: { "saldoInicial": 0.00 }
+
+  GET    /fundos/{token}                         [ATD]   consultar fundo
+  GET    /fundos/{token}/saldo                   [ATD]   apenas saldo
+  GET    /fundos/cliente/{clienteId}             [GER]   fundo do cliente
+
+  POST   /fundos/{token}/recarregar              [GER]
+    Body: { "valor": 5000.00, "descricao": "Recarga balcão" }
+    Resp: ApiResponse<TransacaoFundoResponse>
+
+  GET    /fundos/{token}/historico               [GER]   paginado
+    Resp: ApiResponse<Page<TransacaoFundoResponse>>
+
+  DELETE /fundos/{token}                         [ADM]   encerrar fundo
+
+  ────────────────────────────────────────────────────────────────────────
+  8.11 PAGAMENTOS (AppyPay)
+  ──────────────────────────
+
+  PagamentoGatewayResponse:
+  {
+    "id": 1, "status": "APROVADO", "valor": 5000.00,
+    "referencia": "REF123", "fundoId": 10,
+    "criadoEm": "...", "atualizadoEm": "..."
+  }
+
+  POST   /pagamentos/recarregar                  [GER]
+    Body: { "fundoToken": "...", "valor": 5000.00, "telefone": "+244..." }
+    Efeito: inicia cobrança AppyPay → fundo recarregado após callback
+    Resp: ApiResponse<PagamentoGatewayResponse>
+
+  GET    /pagamentos/{id}                        [ATD]
+  GET    /pagamentos/fundo/{fundoId}             [GER]   histórico de pagamentos do fundo
+
+  Callback (servidor → AppyPay):
+    POST /pagamentos/callback  [público, verificado via token secret]
+
+  ────────────────────────────────────────────────────────────────────────
+  8.12 QR CODES
+  ──────────────
+
+  QrCodeResponse:
+  {
+    "id": 1, "token": "QR-A7F3C2...", "tipo": "MESA",
+    "status": "ATIVO", "expiraEm": "2026-03-03T12:00:00",
+    "mesaId": 1, "referenciaMesa": "Mesa 01",
+    "pedidoId": null, "usadoEm": null, "usadoPor": null,
+    "metadados": null, "url": "http://localhost:3000/qr/QR-A7F3C2",
+    "valido": true, "expirado": false,
+    "criadoEm": "...", "criadoPor": "admin"
+  }
+
+  POST   /qrcode                                 [ATD]
+    Body: {
+      "tipo": "MESA",         // MESA | ENTREGA | PAGAMENTO
+      "mesaId": 1,            // obrigatório para tipo MESA
+      "pedidoId": null,       // obrigatório para ENTREGA e PAGAMENTO
+      "validadeMinutos": null, // null = usa padrão do tipo
+      "metadados": null
+    }
+    Resp: ApiResponse<QrCodeResponse>
+
+  GET    /qrcode/validar/{token}                 [PUB]
+    Resp: ApiResponse<QrCodeValidacaoResponse>
+    QrCodeValidacaoResponse: {
+      "valido": true/false,
+      "mensagem": "QR Code válido",
+      "qrCode": QrCodeResponse,
+      "motivoInvalido": null  // EXPIRADO | USADO | CANCELADO | NAO_ENCONTRADO
+    }
+    Uso: cliente escaneia QR antes de qualquer operação
+
+  POST   /qrcode/usar/{token}                    [COZ+ATD]
+    Resp: ApiResponse<QrCodeResponse>
+    Efeito: marca como USADO (tokens de uso único)
+
+  POST   /qrcode/renovar/{token}                 [ATD]
+    Resp: ApiResponse<QrCodeResponse>
+    Efeito: gera novo token (invalida o anterior)
+    Uso: QR de mesa expirou, atendente renova
+
+  DELETE /qrcode/{token}                         [GER]
+    Efeito: status → CANCELADO
+
+  GET    /qrcode/mesa/{id}                       [ATD]
+    Resp: ApiResponse<List<QrCodeResponse>>
+    Todos os QR Codes da mesa
+
+  GET    /qrcode/imagem/{token}                  [PUB]
+    Resp: image/png (bytes)
+    Uso: <img src="/api/qrcode/imagem/{token}" />
+
+  GET    /qrcode/imagem/{token}/print            [ATD]
+    Resp: image/png (dimensão maior, optimizada para impressão)
+
+  ────────────────────────────────────────────────────────────────────────
+  8.13 DASHBOARD
+  ───────────────
+
+  GET    /dashboard/stats                        [ATD]
+    Resp: ApiResponse<DashboardStatsResponse>
+    {
+      "totalPedidosHoje": 42,
+      "pedidosPendentes": 7,
+      "receitaHoje": 125000.00,
+      "clientesAtivos": 18
+    }
+
+  GET    /dashboard/activity                     [ATD]
+    Params: limit=10
+    Resp: ApiResponse<List<DashboardActivityResponse>>
+
+  GET    /dashboard/top-products                 [GER]
+    Params: limit=5
+    Resp: ApiResponse<List<DashboardTopProductResponse>>
+    { "produtoId", "nome", "totalVendido", "receita" }
+
+  ────────────────────────────────────────────────────────────────────────
+  8.14 AUDITORIA E EVENT LOGS
+  ────────────────────────────
+
+  ── Auditoria Financeira (apenas GERENTE/ADMIN) ───────────────────────
+
+  GET    /auditoria/acoes
+    Params: page, size, dataInicio, dataFim, usuario, modulo
+    Resp: ApiResponse<List<ConfiguracaoFinanceiraEventLog>>
+
+  GET    /auditoria/estatisticas
+    Resp: ApiResponse<Map<String,Object>>
+
+  GET    /auditoria/modulos
+    Resp: ApiResponse<Map<String,Object>>
+
+  ── Event Logs de Pedidos (apenas GERENTE/ADMIN) ─────────────────────
+
+  GET    /event-logs/pedidos/{pedidoId}              → histórico do pedido
+  GET    /event-logs/pedidos/{pedidoId}/timeline     → timeline formatada
+  GET    /event-logs/pedidos/{pedidoId}/contagem     → contagem de eventos
+  GET    /event-logs/pedidos/status/{status}         → por status
+  GET    /event-logs/pedidos/usuario/{usuario}       → por utilizador
+  GET    /event-logs/pedidos/periodo                 → por período (dataInicio, dataFim)
+  GET    /event-logs/pedidos/recentes                → últimos N eventos (Params: limit)
+
+  ── Event Logs de Sub-Pedidos (apenas GERENTE/ADMIN) ─────────────────
+
+  GET    /event-logs/subpedidos/{subPedidoId}
+  GET    /event-logs/subpedidos/pedido/{pedidoId}
+  GET    /event-logs/subpedidos/cozinha/{cozinhaId}
+  GET    /event-logs/subpedidos/cozinha/{cozinhaId}/periodo
+  GET    /event-logs/subpedidos/usuario/{usuario}
+  GET    /event-logs/subpedidos/periodo
+  GET    /event-logs/subpedidos/criticos/recentes
+  GET    /event-logs/subpedidos/status/{status}
+  GET    /event-logs/cozinhas/{cozinhaId}/tempo-medio  → Double (minutos)
+
+  ────────────────────────────────────────────────────────────────────────
+  8.15 CONFIGURAÇÕES FINANCEIRAS
+  ────────────────────────────────
+
+  GET    /configuracoes-financeiras                  [ADM]
+    Resp: ApiResponse<ConfiguracaoFinanceiraSistema>
+
+  GET    /configuracoes-financeiras/pos-pago/status  [ATD]
+    Resp: ApiResponse<Boolean>
+    Uso: verificar se pós-pago está habilitado antes de exibir opção
+
+  PUT    /configuracoes-financeiras/pos-pago/ativar  [ADM]
+    Body: { "motivo": "..." }
+
+  PUT    /configuracoes-financeiras/pos-pago/desativar  [ADM]
+    Body: { "motivo": "..." }
+
+  PUT    /configuracoes-financeiras/pos-pago/limite  [ADM]
+    Body: { "limite": 5000.00 }
+
+  PUT    /configuracoes-financeiras/valor-minimo     [ADM]
+    Body: { "valorMinimo": 500.00 }
+
+  ────────────────────────────────────────────────────────────────────────
+  8.16 UTILIZADORES
+  ───────────────────
+
+  GET    /usuarios           [ADM]   paginado → Page<UserResponse>
+  GET    /usuarios/{id}      [ADM]
+
+  UserResponse: { id, username, email, roles: [Role], ativo, createdAt }
+
+  ── Debug (apenas ambiente dev) ──────────────────────────────────────
+
+  GET    /debug/users           → lista utilizadores com senha encriptada
+  POST   /debug/test-password   → Body: { username, rawPassword }
+  POST   /debug/create-admin    → cria admin de emergência
+
+
+================================================================================
+  9. WEBSOCKET — NOTIFICAÇÕES EM TEMPO REAL
+================================================================================
+
+  Protocolo:  STOMP sobre SockJS
+  Endpoint:   ws://localhost:8080/api/ws  (via SockJS)
+
+  Configuração cliente (JavaScript/TypeScript):
+
+    import SockJS from 'sockjs-client';
+    import { Client } from '@stomp/stompjs';
+
+    const client = new Client({
+      webSocketFactory: () => new SockJS('http://localhost:8080/api/ws'),
+      onConnect: () => {
+        // Subscrições após conectar
+      }
+    });
+    client.activate();
+
+  ── Tópicos de Subscrição ─────────────────────────────────────────────
+
+  /topic/cozinha/{cozinhaId}
+    — Notificações de novos sub-pedidos para a cozinha específica
+    — Payload: NotificacaoSubPedidoDTO
+    — Subscritores: ecrã da cozinha
+
+  /topic/atendente/unidade/{unidadeAtendimentoId}
+    — Notificações de sub-pedidos prontos para entrega
+    — Subscritores: ecrã de atendimento da unidade
+
+  /topic/gerente/pedidos
+    — Eventos de todos os pedidos (visão de gestão)
+    — Subscritores: painel de gerência
+
+  /topic/gerente/alertas
+    — Alertas operacionais (atrasos, anomalias)
+    — Subscritores: painel de gerência
+
+  /topic/pedido/{pedidoId}
+    — Actualizações de um pedido específico (status, sub-pedidos)
+    — Subscritores: ecrã de acompanhamento do cliente
+
+  /topic/subpedido/{id}
+    — Estado de um sub-pedido específico
+    — Subscritores: ecrã da cozinha ou atendente
+
+  ── Prefixo de envio do cliente ──────────────────────────────────────
+
+  /app/{destino}   → mensagens do cliente para o servidor (se aplicável)
+
+  NOTA: O sistema envia notificações automaticamente através dos eventos
+        de ciclo de vida dos pedidos e sub-pedidos. O frontend apenas
+        subscreve; não precisa enviar mensagens via WebSocket.
+
+
+================================================================================
+  10. FLUXOS OPERACIONAIS COMPLETOS
+================================================================================
+
+  ── FLUXO 1: Sentar Cliente e Criar Pedido ───────────────────────────
+
+    1. GET  /mesas/disponiveis                     → escolher mesa livre
+    2. POST /sessoes-consumo                       → abrir sessão
+         { mesaId, telefoneCliente, modoAnonimo: false }
+         ← sessaoConsumoId (ex: 101)
+    3. POST /fundos/cliente/{clienteId}            → criar/verificar fundo
+         (se PRE_PAGO e fundo não existir)
+    4. GET  /produtos                              → listar cardápio
+    5. POST /pedidos                               → criar pedido
+         { sessaoConsumoId: 101, itens: [...], tipoPagamento: "PRE_PAGO" }
+    6. PUT  /pedidos/{id}/confirmar                → confirmar → gera SubPedidos
+    7. WebSocket /topic/cozinha/{id}               → cozinha recebe notificação
+
+  ── FLUXO 2: Cozinha Prepara e Entrega ───────────────────────────────
+
+    1. GET /subpedidos/cozinha/{id}/ativos         → fila activa
+    2. PUT /subpedidos/{id}/assumir                → EM_PREPARACAO
+    3. PUT /subpedidos/{id}/marcar-pronto          → PRONTO
+    4. WebSocket /topic/atendente/unidade/{id}     → atendente notificado
+    5. PUT /subpedidos/{id}/marcar-entregue        → ENTREGUE
+
+  ── FLUXO 3: Fechar Conta e Encerrar Sessão ──────────────────────────
+
+    1. PUT  /pedidos/{id}/fechar                   → FINALIZADO
+    2. PUT  /sessoes-consumo/{id}/aguardar-pagamento → aguarda pagamento
+    3. (pagamento presencial realizado)
+    4. PUT  /sessoes-consumo/{id}/fechar           → ENCERRADA
+
+  ── FLUXO 4: Cliente Escaneia QR Code ────────────────────────────────
+
+    1. GET  /qrcode/validar/{token}                → verificar validade [PUB]
+    2. GET  /mesas/qrcode/{qrCode}                 → obter info da mesa
+    3. GET  /sessoes-consumo/mesa/{mesaId}/ativa   → obter sessão activa
+    4. Redirigir para cardápio com sessaoConsumoId na URL/state
+
+  ── FLUXO 5: Recarga do Fundo via AppyPay ────────────────────────────
+
+    1. POST /pagamentos/recarregar                 → inicia cobrança AppyPay
+    2. (AppyPay processa e chama callback)
+    3. GET  /fundos/{token}/saldo                  → verificar saldo actualizado
+
+  ── FLUXO 6: Modo Anónimo ────────────────────────────────────────────
+
+    1. POST /sessoes-consumo { mesaId, modoAnonimo: true }
+         ← qrCodePortador (UUID único da sessão)
+    2. POST /fundos/anonimo/{qrCodePortador}       → cria fundo anónimo
+    3. POST /fundos/{qrCodePortador}/recarregar    → recarregar
+    4. POST /pedidos { sessaoConsumoId, tipoPagamento: "PRE_PAGO" }
+         → fundo debita pelo qrCodePortador
+
+
+================================================================================
+  11. REGRAS DE NEGÓCIO CRÍTICAS PARA O FRONTEND
+================================================================================
+
+  REGRA 1 — Status da Mesa é DERIVADO
+    Nunca mostrar/persistir o status da mesa a partir de um campo.
+    Calcular sempre: mesa.status = (mesa.sessaoAtivaId != null) ? "OCUPADA" : "DISPONIVEL"
+    Ou usar GET /mesas/disponiveis e GET /mesas/ocupadas.
+
+  REGRA 2 — Pedido sem SessaoConsumo não existe
+    Sempre obter sessaoConsumoId ANTES de criar pedido.
+    Sequência obrigatória: abrir sessão → criar pedido.
+
+  REGRA 3 — POS_PAGO é restrito
+    Mostrar opção de pós-pago apenas a utilizadores com ROLE_GERENTE ou ROLE_ADMIN.
+    Verificar previamente: GET /configuracoes-financeiras/pos-pago/status
+
+  REGRA 4 — Sub-Pedidos são gerados automaticamente
+    Não criar sub-pedidos manualmente. São gerados pelo backend
+    automaticamente ao confirmar o pedido (PUT /pedidos/{id}/confirmar).
+    Um sub-pedido por cozinha envolvida.
+
+  REGRA 5 — QR Code de mesa tem uso múltiplo; outros são de uso único
+    MESA: pode ser escaneado N vezes (validade 24h, renovável)
+    ENTREGA: uso único (expirado após uso)
+    PAGAMENTO: uso único
+
+  REGRA 6 — Fundo de Consumo é obrigatório para PRE_PAGO
+    Se o cliente não tiver fundo activo, criar antes de aceitar pedido PRE_PAGO.
+    Erro esperado: "Saldo insuficiente no Fundo de Consumo" (400)
+
+  REGRA 7 — Transições de estado são validadas no servidor
+    O frontend pode mostrar botões apenas para transições válidas,
+    mas o servidor irá rejeitar qualquer transição inválida com 400.
+    Sub-pedido: CRIADO→PENDENTE→EM_PREPARACAO→PRONTO→ENTREGUE
+    Pedido:     CRIADO→EM_ANDAMENTO→FINALIZADO
+
+  REGRA 8 — SessaoConsumo só fecha com pedidos terminais
+    Tentar fechar sessão com pedidos EM_ANDAMENTO resultará em erro 400.
+    Fluxo correcto: fechar todos os pedidos primeiro.
+
+  REGRA 9 — Paginação
+    Endpoints de lista que retornam Page<T> aceitam:
+    ?page=0&size=20&sort=createdAt,desc
+
+  REGRA 10 — Moeda: AOA (Kwanza Angolano)
+    Todos os valores monetários são BigDecimal em AOA.
+    Exibir com símbolo "Kz" e 2 casas decimais.
+    Ex: 1250.00 → "1.250,00 Kz"
+
+
+================================================================================
+  12. DADOS DE TESTE (PERFIL DEV — H2 em memória)
+================================================================================
+
+  ── Credenciais de Login (HTTP POST /auth/admin/login) ──────────────
+
+  ADMIN:
+    telefone: +244923000001 | senha: admin123
+    username: admin (para /auth/jwt/login)
+
+  ATENDENTE:
+    telefone: +244923000002 | senha: atendente123
+    username: atendente
+
+  GERENTE:
+    telefone: +244923000003 | senha: gerente123
+    username: gerente
+
+  Cozinha:
+    username: cozinha | senha: cozinha123
+
+  ── Clientes de Teste ────────────────────────────────────────────────
+
+  +244923111001  Ana Ferreira Santos
+  +244923111002  Carlos Eduardo Neto
+  +244923111003  Beatriz Conceição
+  +244923111004  Paulo António Lopes
+  +244923111005  Sofia Maria Pinto
+
+  ── Mesas Disponíveis ────────────────────────────────────────────────
+
+  Salão Principal (id=1):  Mesa 1–10    (capacidade 4, números 1-10)
+  Bar Angolano    (id=2):  Mesa 101–104 (capacidade 2)
+  Esplanada       (id=3):  Mesa 201–206 (capacidade 4)
+
+  Total: 20 mesas
+
+  ── Produtos de Teste ────────────────────────────────────────────────
+
+  23 produtos: entradas angolanas, pratos típicos, pizzas, acompanhamentos,
+  sobremesas, bebidas não alcoólicas e alcoólicas.
+  Usar GET /produtos para listar todos disponíveis.
+
+  ── Unidades de Atendimento ──────────────────────────────────────────
+
+  id=1  Salão Principal  (RESTAURANTE)  → cozinhas: Central, Pizzaria, Confeitaria, Bar_Prep
+  id=2  Bar Angolano     (BAR)          → cozinhas: Bar_Prep, Confeitaria
+  id=3  Esplanada        (LOUNGE)       → cozinhas: Central, Bar_Prep
+
+  ── Cozinhas ─────────────────────────────────────────────────────────
+
+  id=1  Cozinha Central   (CENTRAL)
+  id=2  Pizzaria          (PIZZARIA)
+  id=3  Confeitaria       (CONFEITARIA)
+  id=4  Bar Preparação    (BAR_PREP)
+  id=5  Grill             (GRILL)  — INACTIVA (uso em testes de filtro)
+
+  NOTA: O banco H2 é criado de raiz a cada arranque da aplicação
+        (spring.jpa.hibernate.ddl-auto=create-drop). Todos os dados
+        são reinseridos pelo DataSeeder.java no arranque.
+
+
+================================================================================
+  FIM DO DOCUMENTO
+  Para dúvidas técnicas: consultar Swagger UI em /api/swagger-ui.html
+  Para questões de negócio: contactar equipa de backend/produto
+================================================================================

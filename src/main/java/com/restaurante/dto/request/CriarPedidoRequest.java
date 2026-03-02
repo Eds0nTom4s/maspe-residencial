@@ -25,8 +25,8 @@ import java.util.List;
 @Builder
 public class CriarPedidoRequest {
 
-    @NotNull(message = "ID da unidade de consumo é obrigatório")
-    private Long unidadeConsumoId;
+    @NotNull(message = "ID da sessão de consumo é obrigatório")
+    private Long sessaoConsumoId;
 
     @NotEmpty(message = "Pedido deve conter ao menos um item")
     @Valid

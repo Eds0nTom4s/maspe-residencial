@@ -1,0 +1,281 @@
+================================================================================
+  RELATÓRIO DE REVISÃO — ALINHAMENTO FRONTEND ↔ BACKEND
+  Data: 03/03/2026
+  Versão: 1.0
+  Equipa Frontend: Painel Administrativo (Vue 3 + Vite)
+================================================================================
+
+Este documento descreve todas as alterações realizadas no frontend para alinhar
+os serviços com a documentação oficial do backend (ALINHAMENTO_FRONTEND_GERAL.txt).
+Destina-se à equipa do backend para validação cruzada.
+
+────────────────────────────────────────────────────────────────────────────────
+SECÇÃO 1 — ALTERAÇÕES REALIZADAS NO FRONTEND
+────────────────────────────────────────────────────────────────────────────────
+
+1.1  dashboardService.js
+────────────────────────
+ANTES: Continha três constantes de dados fictícios — MOCK_STATS, MOCK_ACTIVITY,
+       MOCK_TOP_PRODUCTS — usados como fallback em bloco try-catch. Se o backend
+       retornasse erro, o painel mostrava dados inventados sem alertar o utilizador.
+
+DEPOIS: Mocks removidos na totalidade. Os três métodos chamam directamente:
+  GET /api/dashboard/stats
+  GET /api/dashboard/activity?limit={n}
+  GET /api/dashboard/top-products?limit={n}
+  Erros são propagados, logados com stacktrace e apresentados ao utilizador.
+
+CAMPO RELEVANTE PARA O BACKEND:
+  Os campos lidos de /dashboard/top-products são:
+    produto.nome, produto.totalVendido, produto.receita
+  (correcção de nomes — anteriormente o template usava quantidadeVendida e receitaTotal)
+
+────────────────────────────────────────────────────────────────────────────────
+
+1.2  fundoConsumoService.js
+───────────────────────────
+ANTES: Todos os métodos retornavam null imediatamente, com console.warn a dizer
+       que os endpoints não existiam. O módulo de fundos estava completamente
+       não funcional.
+
+DEPOIS: Serviço completamente reescrito com os endpoints do §8.10:
+  POST   /api/fundos/cliente/{clienteId}          criarFundoParaCliente
+  POST   /api/fundos/anonimo/{tokenPortador}       criarFundoAnonimo
+  GET    /api/fundos/{token}                       consultarFundo
+  GET    /api/fundos/{token}/saldo                 consultarSaldo
+  GET    /api/fundos/cliente/{clienteId}           buscarFundoPorCliente
+  POST   /api/fundos/{token}/recarregar            recarregarFundo
+  GET    /api/fundos/{token}/historico             buscarHistorico
+  DELETE /api/fundos/{token}                       encerrarFundo
+
+PEDIDO AO BACKEND: Confirmar que o endpoint POST /fundos/{token}/recarregar
+  aceita body { valor: number, descricao?: string }.
+
+────────────────────────────────────────────────────────────────────────────────
+
+1.3  auditoriaService.js
+─────────────────────────
+ANTES: Usava endpoint errado /auditoria/logs (inexistente). Retornava array vazio
+       em caso de 404 — ocultando o problema ao utilizador. Tinha métodos
+       buscarPorId e listarPorEntidade que não existem no backend.
+
+DEPOIS:
+  GET  /api/auditoria/acoes          listar (paginação 1-based convertida para 0-based)
+  GET  /api/auditoria/estatisticas   obterEstatisticas
+  GET  /api/auditoria/modulos        listarModulos
+  listarAcoes() → síncrono, retorna constantes locais (sem endpoint dedicado)
+  exportarCSV() → lança erro descritivo (sem endpoint no backend)
+  exportarPDF() → lança erro descritivo (sem endpoint no backend)
+
+PEDIDO AO BACKEND: Se existir plano para endpoints de exportação, informar a
+  URL e o formato de resposta (blob ou URL de download).
+
+────────────────────────────────────────────────────────────────────────────────
+
+1.4  produtosService.js — getDisponiveis()
+───────────────────────────────────────────
+ANTES: Chamava GET /api/produtos/disponiveis (endpoint inexistente → 404).
+
+DEPOIS: Chama GET /api/produtos e filtra client-side por disponivel === true
+        e ativo === true, conforme indicado na documentação de alinhamento.
+
+────────────────────────────────────────────────────────────────────────────────
+
+1.5  UsuariosView.vue
+──────────────────────
+ANTES: Continha flag usandoMock, banner amarelo "Módulo em Desenvolvimento" e
+       try-catch aninhado que, perante 404, activava modo mock silenciosamente.
+
+DEPOIS: Remoção completa do modo mock. Em caso de erro, o utilizador vê
+        mensagem amigável e o stacktrace completo é impresso no console.
+
+────────────────────────────────────────────────────────────────────────────────
+
+1.6  AuditoriaView.vue
+───────────────────────
+ANTES: Blocos catch genéricos sem stacktrace. Mensagens fixas hardcoded.
+
+DEPOIS: Padrão unificado em todos os catch:
+  console.error('[Módulo] Mensagem', error)
+  if (error?.stack) console.error(error.stack)
+  notificationStore.erro(error.mensagemAmigavel || error.response?.data?.message || error.message)
+
+────────────────────────────────────────────────────────────────────────────────
+SECÇÃO 2 — ENDPOINTS CONSUMIDOS PELO FRONTEND (MAPA COMPLETO)
+────────────────────────────────────────────────────────────────────────────────
+
+Módulo           Método HTTP   Endpoint                                         Role mínima
+───────────────────────────────────────────────────────────────────────────────
+AUTH (store)     POST          /auth/admin/login                                PUBLIC
+authService.js   POST          /auth/jwt/login          ← ver nota §3.1
+───────────────────────────────────────────────────────────────────────────────
+DASHBOARD        GET           /dashboard/stats                                 GERENTE+
+                 GET           /dashboard/activity                              GERENTE+
+                 GET           /dashboard/top-products                          GERENTE+
+───────────────────────────────────────────────────────────────────────────────
+PRODUTOS         GET           /produtos                                        PÚBLICO
+                 GET           /produtos/{id}                                   PÚBLICO
+                 POST          /produtos                                        ADMIN
+                 PUT           /produtos/{id}                                   ADMIN
+                 PATCH         /produtos/{id}/disponibilidade?disponivel=bool   ADMIN
+───────────────────────────────────────────────────────────────────────────────
+MESAS            GET           /mesas                                           GERENTE+
+                 GET           /mesas/ativas                                    GERENTE+
+                 GET           /mesas/disponiveis                               GERENTE+
+                 GET           /mesas/ocupadas                                  GERENTE+
+                 GET           /mesas/unidade-atendimento/{id}                  GERENTE+
+                 GET           /mesas/{id}                                      GERENTE+
+                 GET           /mesas/qrcode/{qrCode}                           GERENTE+
+                 POST          /mesas                                           ADMIN
+                 PUT           /mesas/{id}/ativar                               ADMIN
+                 PUT           /mesas/{id}/desativar                            ADMIN
+───────────────────────────────────────────────────────────────────────────────
+SESSÕES          GET           /sessoes-consumo/abertas                         GERENTE+
+                 GET           /sessoes-consumo/{id}                            GERENTE+
+                 GET           /sessoes-consumo/mesa/{id}/ativa                 GERENTE+
+                 GET           /sessoes-consumo/mesa/{id}/historico             GERENTE+
+                 POST          /sessoes-consumo                                 ATENDENTE+
+                 PUT           /sessoes-consumo/{id}/fechar                     GERENTE+
+                 PUT           /sessoes-consumo/{id}/aguardar-pagamento         GERENTE+
+───────────────────────────────────────────────────────────────────────────────
+PEDIDOS          POST          /pedidos                                         ATENDENTE+
+                 GET           /pedidos/{id}                                    ATENDENTE+
+                 GET           /pedidos/numero/{numero}                         ATENDENTE+
+                 GET           /pedidos/status/{status}                         ATENDENTE+
+                 GET           /pedidos/ativos                                  ATENDENTE+
+                 GET           /pedidos/sessao-consumo/{id}/ativo               ATENDENTE+
+                 PUT           /pedidos/{id}/cancelar?motivo={m}                GERENTE+
+───────────────────────────────────────────────────────────────────────────────
+SUBPEDIDOS       GET           /subpedidos/{id}                                 ATENDENTE+
+                 GET           /subpedidos/pedido/{pedidoId}                    ATENDENTE+
+                 GET           /subpedidos/cozinha/{id}/ativos                  COZINHA+
+                 PUT           /subpedidos/{id}/assumir                         COZINHA+
+                 PUT           /subpedidos/{id}/marcar-pronto                   COZINHA+
+                 PUT           /subpedidos/{id}/marcar-entregue                 ATENDENTE+
+                 PUT           /subpedidos/{id}/cancelar?motivo={m}             GERENTE+
+                 GET           /subpedidos/atrasados?minutosAtraso={n}          GERENTE+
+───────────────────────────────────────────────────────────────────────────────
+FUNDOS           POST          /fundos/cliente/{clienteId}                      ATENDENTE+
+                 POST          /fundos/anonimo/{token}                          ATENDENTE+
+                 GET           /fundos/{token}                                  ATENDENTE+
+                 GET           /fundos/{token}/saldo                            ATENDENTE+
+                 GET           /fundos/cliente/{clienteId}                      ATENDENTE+
+                 POST          /fundos/{token}/recarregar                       GERENTE+
+                 GET           /fundos/{token}/historico                        GERENTE+
+                 DELETE        /fundos/{token}                                  ADMIN
+───────────────────────────────────────────────────────────────────────────────
+AUDITORIA        GET           /auditoria/acoes                                 GERENTE+
+                 GET           /auditoria/estatisticas                          GERENTE+
+                 GET           /auditoria/modulos                               GERENTE+
+───────────────────────────────────────────────────────────────────────────────
+CONFIG.FIN.      GET           /configuracoes-financeiras                       ADMIN
+                 GET           /configuracoes-financeiras/pos-pago/status       ATENDENTE+
+                 PUT           /configuracoes-financeiras/pos-pago/ativar       ADMIN
+                 PUT           /configuracoes-financeiras/pos-pago/desativar    ADMIN
+                 PUT           /configuracoes-financeiras/pos-pago/limite       ADMIN
+                 PUT           /configuracoes-financeiras/valor-minimo          ADMIN
+───────────────────────────────────────────────────────────────────────────────
+USUÁRIOS         GET           /usuarios                                        ADMIN
+                 GET           /usuarios/{id}                                   ADMIN
+                 POST          /usuarios                                        ADMIN
+                 PUT           /usuarios/{id}                                   ADMIN
+                 DELETE        /usuarios/{id}                                   ADMIN
+                 PATCH         /usuarios/{id}/ativar                            ADMIN
+                 PATCH         /usuarios/{id}/desativar                         ADMIN
+                 PATCH         /usuarios/{id}/senha                             ADMIN
+                 POST          /usuarios/reset-senha                            PUBLIC
+                 POST          /usuarios/reset-senha/confirmar                  PUBLIC
+                 GET           /usuarios/permissoes                             ADMIN
+                 GET           /usuarios/{id}/logs                              ADMIN
+───────────────────────────────────────────────────────────────────────────────
+QR CODE          POST          /qrcode                                          GERENTE+
+                 GET           /qrcode/mesa/{id}                                GERENTE+
+                 GET           /qrcode/validar/{token}                          GERENTE+
+                 POST          /qrcode/renovar/{token}                          GERENTE+
+                 DELETE        /qrcode/{token}                                  GERENTE+
+                 GET           /qrcode/imagem/{token}                           GERENTE+
+                 GET           /qrcode/imagem/{token}/print                     GERENTE+
+───────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+SECÇÃO 3 — DÚVIDAS E PONTOS A VALIDAR PELO BACKEND
+────────────────────────────────────────────────────────────────────────────────
+
+3.1  ENDPOINT DE LOGIN — INCONSISTÊNCIA INTERNA
+     O auth store (src/store/auth.js — usado pelo login da UI) chama:
+       POST /auth/admin/login  com body { telefone, senha }
+     O authService.js (ficheiro de serviço alternativo) chama:
+       POST /auth/jwt/login    com body { username, password }
+     PEDIDO: Confirmar qual dos dois é o endpoint correcto para o Painel Administrativo.
+     O frontend irá unificar assim que for confirmado.
+
+3.2  CAMPOS DA RESPOSTA DE /dashboard/top-products
+     O frontend lê: nome, totalVendido, receita
+     Confirmar se estes são os nomes exactos dos campos no DTO de resposta.
+
+3.3  CORPO DO POST /fundos/{token}/recarregar
+     O frontend envia: { valor: number, descricao?: string }
+     Confirmar se o backend aceita este formato ou usa parâmetros query.
+
+3.4  EXPORTAÇÃO CSV/PDF DE AUDITORIA
+     Não identificado nenhum endpoint para exportação nos documentos recebidos.
+     Se existir plano de implementação, por favor partilhar a URL e o formato
+     de resposta esperado (blob binário ou URL de download pré-assinada).
+
+3.5  ENDPOINT GET /unidades-consumo (modelo antigo)
+     O frontend mantém unidadesConsumoService.js marcado como @deprecated,
+     delegando para mesasService e sessoesConsumoService.
+     Confirmar se os endpoints /unidades-consumo/* ainda estão activos no backend
+     ou se foram removidos com a nova arquitectura de mesas.
+
+3.6  ENDPOINTS DE USUÁRIOS NÃO CONFIRMADOS
+     Os seguintes endpoints estão implementados no frontend mas não foram
+     encontrados explicitamente na documentação recebida:
+       GET  /usuarios/permissoes
+       GET  /usuarios/{id}/logs
+       POST /usuarios/reset-senha
+       POST /usuarios/reset-senha/confirmar
+     Confirmar existência ou informar se devem ser removidos.
+
+────────────────────────────────────────────────────────────────────────────────
+SECÇÃO 4 — PADRÃO DE RESPOSTA ESPERADO PELO FRONTEND
+────────────────────────────────────────────────────────────────────────────────
+
+O frontend assume o envelope padrão ApiResponse<T> em todas as chamadas:
+  {
+    "success": true | false,
+    "message": "string",
+    "data": <T>
+  }
+
+O interceptor de Axios (api.js) define error.mensagemAmigavel a partir de
+  error.response.data.message para todos os status 4xx/5xx.
+
+Para respostas de listagem paginada, o frontend lê response.data?.data.
+  Se o backend retornar Page<T> do Spring, o frontend acede ao campo .content
+  via: dados?.content ?? dados (compatível com ambos os formatos).
+
+Conversão de paginação: o frontend trabalha em 1-based (pagina=1, 2, 3...)
+  e converte para 0-based (page=0, 1, 2...) antes de enviar ao backend.
+
+────────────────────────────────────────────────────────────────────────────────
+SECÇÃO 5 — ENDPOINTS NÃO EXISTENTES (FRONTEND ADAPTADO)
+────────────────────────────────────────────────────────────────────────────────
+
+Os seguintes endpoints foram identificados como inexistentes no backend.
+O frontend foi ajustado para não os chamar:
+
+  GET  /produtos/disponiveis        → filtrado client-side via GET /produtos
+  GET  /unidades-consumo/{id}/resumo → calculado client-side pelo frontend
+  GET  /contas/*                    → não implementado pelo backend
+  POST /pedidos/{id}/pagar          → não implementado pelo backend
+  GET  /auditoria/logs              → endpoint errado; correcto: /auditoria/acoes
+  POST/GET /configuracoes-financeiras/valor-minimo/consultar → não existe
+  GET  /fundos/valor-minimo         → não existe; valor mínimo vem de configuracoes-financeiras
+  GET  /auditoria/{id}              → não existe
+  GET  /auditoria/usuario/{id}      → não existe
+  GET  /auditoria/entidade/{tipo}/{id} → não existe
+
+================================================================================
+FIM DO RELATÓRIO
+================================================================================

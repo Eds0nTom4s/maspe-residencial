@@ -18,7 +18,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "qr_code_tokens", indexes = {
     @Index(name = "idx_qrcode_token", columnList = "token", unique = true),
-    @Index(name = "idx_qrcode_unidade_consumo", columnList = "unidade_consumo_id"),
+    @Index(name = "idx_qrcode_mesa", columnList = "mesa_id"),
     @Index(name = "idx_qrcode_status", columnList = "status"),
     @Index(name = "idx_qrcode_expiracao", columnList = "expiraEm")
 })
@@ -56,12 +56,12 @@ public class QrCodeToken extends BaseEntity {
     private LocalDateTime expiraEm;
 
     /**
-     * Unidade de Consumo associada (mesa, quarto, etc)
-     * Obrigatório para tipo MESA
+     * Mesa associada (recurso físico permanente).
+     * Obrigatório para tipo MESA.
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "unidade_consumo_id")
-    private UnidadeDeConsumo unidadeDeConsumo;
+    @JoinColumn(name = "mesa_id")
+    private Mesa mesa;
 
     /**
      * Pedido associado (para tipo ENTREGA ou PAGAMENTO)

@@ -194,7 +194,7 @@ public class WebSocketNotificacaoService {
             "pedidoId", pedido.getId(),
             "total", pedido.getTotal(),
             "tipoPagamento", pedido.getTipoPagamento().toString(),
-            "unidadeConsumoReferencia", pedido.getUnidadeConsumo().getReferencia(),
+            "unidadeConsumoReferencia", pedido.getSessaoConsumo().getMesa().getReferencia(),
             "mensagem", "Limite de pós-pago atingido. Pedido aguarda confirmação de pagamento.",
             "timestamp", java.time.LocalDateTime.now()
         );

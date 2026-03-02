@@ -1,0 +1,532 @@
+================================================================================
+  ALINHAMENTO FRONTEND — NOVO MODELO DE MESAS E SESSÕES DE CONSUMO
+  Sistema de Restauração — Refactoring Arquitectural (Março 2026)
+  Data: 02 de Março de 2026
+  Responsável Backend: Eng.ª Margarida
+================================================================================
+
+⚠️  LEITURA OBRIGATÓRIA ANTES DE QUALQUER INTEGRAÇÃO COM MESAS OU PEDIDOS
+    Este documento substitui as secções de "UnidadeDeConsumo" de todos os
+    documentos anteriores. O modelo antigo foi REMOVIDO do backend.
+
+Base URL de todos os endpoints: /api
+Autenticação: Bearer JWT — header "Authorization: Bearer <token>"
+
+________________________________________________________________________________
+ÍNDICE
+________________________________________________________________________________
+
+  1. O Que Mudou e Porquê (resumo executivo)
+  2. Novo Modelo Conceptual — Mesa vs Sessão de Consumo
+  3. Regra Central: Status da Mesa é DERIVADO
+  4. API — Endpoints de Mesa (/api/mesas)
+  5. API — Endpoints de Sessão de Consumo (/api/sessoes-consumo)
+  6. API — Pedidos: campo alterado (sessaoConsumoId)
+  7. API — QR Code: campo alterado (mesaId)
+  8. Fluxo Completo Dia-a-Dia (passo a passo para UI)
+  9. DTOs Completos — Campos e Tipos
+ 10. Tabela Comparativa Antes / Depois
+ 11. Erros Esperados e Como Apresentá-los
+ 12. Checklist de Migração por Ecrã
+
+________________________________________________________________________________
+1. O QUE MUDOU E PORQUÊ
+________________________________________________________________________________
+
+ANTES (modelo antigo — já não existe):
+  UnidadeDeConsumo
+    ├── referencia: "Mesa 7"
+    ├── status: DISPONIVEL | OCUPADA | AGUARDANDO_PAGAMENTO | FINALIZADA
+    ├── cliente: Cliente (FK)
+    └── pedidos: List<Pedido>
+
+  Problema 1 — Mesas "morriam": ao fechar a conta, o status ia para FINALIZADA
+               e a mesa nunca mais voltava a DISPONIVEL sem intervenção manual.
+  Problema 2 — Sem histórico: cada sessão sobrescrevia a anterior.
+  Problema 3 — Status persistido era inconsistente com a realidade operacional.
+
+AGORA (modelo novo — em produção):
+  Mesa  ──────────────────────────────────  recurso físico, permanente
+    ├── referencia: "Mesa 7"               (nunca muda)
+    ├── qrCode: "mesa-07-abc123"           (fixo, impresso no QR da mesa)
+    ├── ativa: true | false                (apenas ADMIN pode desativar)
+    └── NÃO tem campo status               ← status é calculado em tempo real
+
+  SessaoConsumo  ─────────────────────────  evento temporal (uma "abertura")
+    ├── mesa: Mesa (FK)
+    ├── status: ABERTA | AGUARDANDO_PAGAMENTO | ENCERRADA
+    ├── abertaEm: timestamp
+    ├── fechadaEm: timestamp (null enquanto ABERTA)
+    └── pedidos: List<Pedido>
+
+  Resultado:
+    → Mesa fica disponível automaticamente ao encerrar a sessão.
+    → Histórico completo de todas as sessões de uma mesa é preservado.
+    → Status "DISPONIVEL / OCUPADA" é derivado (EXISTS sessão ABERTA?).
+
+________________________________________________________________________________
+2. NOVO MODELO CONCEPTUAL — MESA vs SESSÃO DE CONSUMO
+________________________________________________________________________________
+
+  MESA (Mesa)
+  ──────────────────────────────────────────────────────────────────────────────
+  O que é  : o objecto físico — a mesa de madeira com QR Code colado.
+             Existe antes de qualquer cliente. Existe depois de todos irem embora.
+  Criado por: ADMIN (uma vez, durante o setup do restaurante)
+  Lifecycle : ATIVA ↔ INATIVA  (apenas por decisão do admin, ex: mesa em manutenção)
+  Status    : DISPONIVEL ou OCUPADA — calculado em tempo real pelo backend.
+              O frontend NUNCA deve persistir ou assumir o status de uma mesa.
+
+  SESSÃO DE CONSUMO (SessaoConsumo)
+  ──────────────────────────────────────────────────────────────────────────────
+  O que é  : o "evento" de um grupo sentar-se a uma mesa.
+             Tem início, meio e fim. Guarda todos os pedidos desse grupo.
+  Criado por: ATENDENTE, GERENTE ou ADMIN
+  Lifecycle :
+    ABERTA  ──────────────────────────→  AGUARDANDO_PAGAMENTO  ──→  ENCERRADA
+    (mesa fica OCUPADA)                  (pedidos entregues,         (mesa fica
+                                          aguarda pagamento)          DISPONIVEL)
+
+  PEDIDO (Pedido)
+  ──────────────────────────────────────────────────────────────────────────────
+  Pertence a: SessaoConsumo (não mais à mesa directamente)
+  Campo FK  : sessaoConsumoId  ← era unidadeConsumoId no modelo antigo
+
+  REGRA DE NEGÓCIO FUNDAMENTAL:
+  ─────────────────────────────
+  Uma mesa só pode ter UMA sessão com status ABERTA em simultâneo.
+  Ao tentar abrir uma segunda sessão para a mesma mesa → backend retorna 409.
+
+________________________________________________________________________________
+3. REGRA CENTRAL: STATUS DA MESA É DERIVADO
+________________________________________________________________________________
+
+  O backend NUNCA armazena o campo "status" na entidade Mesa.
+  O status é calculado em cada chamada à API:
+
+    Mesa DISPONIVEL  →  não existe nenhuma SessaoConsumo com status ABERTA
+                        para esta mesa neste momento.
+
+    Mesa OCUPADA     →  existe pelo menos uma SessaoConsumo com status ABERTA
+                        para esta mesa.
+
+  IMPLICAÇÃO PARA O FRONTEND:
+  ──────────────────────────────────────────────────────────────────────────────
+  ✓  Use sempre GET /api/mesas/{id} ou GET /api/mesas/disponiveis para
+     obter o status actualizado. Nunca leia de cache local sem TTL.
+
+  ✓  Ao encerrar uma sessão (PUT /api/sessoes-consumo/{id}/fechar),
+     a mesa fica DISPONIVEL AUTOMATICAMENTE — não é necessária nenhuma
+     chamada extra ao backend para "libertar" a mesa.
+
+  ✗  Não mostre um campo editável de "status da mesa" na UI do admin.
+     O status não é configurável — é uma consequência do estado das sessões.
+
+________________________________________________________________________________
+4. API — ENDPOINTS DE MESA (/api/mesas)
+________________________________________________________________________________
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │ GESTÃO (apenas ADMIN)                                                    │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │ POST   /api/mesas                    Criar nova mesa                     │
+  │ PUT    /api/mesas/{id}/ativar        Reativar mesa desativada             │
+  │ PUT    /api/mesas/{id}/desativar     Desativar mesa (bloqueia se OCUPADA) │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │ CONSULTAS (qualquer utilizador autenticado)                               │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │ GET    /api/mesas                    Listar todas as mesas                │
+  │ GET    /api/mesas/{id}               Detalhe de uma mesa                  │
+  │ GET    /api/mesas/qrcode/{qrCode}    Buscar por QR Code (garçom lê QR)    │
+  │ GET    /api/mesas/ativas             Listar apenas mesas ativas           │
+  │ GET    /api/mesas/disponiveis        Listar mesas sem sessão aberta       │
+  │ GET    /api/mesas/ocupadas           Listar mesas com sessão aberta       │
+  │ GET    /api/mesas/unidade-atendimento/{id}  Mesas de um espaço            │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  ── POST /api/mesas ─────────────────────────────────────────────────────────
+  Role: ADMIN
+  Body (JSON):
+    {
+      "referencia": "Mesa 7",            // obrigatório, único por unidade
+      "tipo": "MESA_FISICA",             // enum TipoUnidadeConsumo
+      "numero": 7,                       // opcional
+      "qrCode": "mesa-07-qr",            // opcional (gerado se omitido)
+      "capacidade": 4,                   // opcional
+      "unidadeAtendimentoId": 1          // obrigatório
+    }
+
+  Resposta 201:  ver secção 9 — MesaResponse
+
+  ── GET /api/mesas/disponiveis ──────────────────────────────────────────────
+  Retorna apenas mesas onde NÃO existe SessaoConsumo ABERTA.
+  Usar para: mapa do restaurante (mesas verdes), seleção ao abrir sessão.
+
+  ── GET /api/mesas/ocupadas ─────────────────────────────────────────────────
+  Retorna mesas onde EXISTE SessaoConsumo ABERTA.
+  Cada item inclui sessaoAtivaId — use-o para ir directamente ao detalhe
+  da sessão activa (GET /api/sessoes-consumo/{sessaoAtivaId}).
+
+  ── GET /api/mesas/qrcode/{qrCode} ──────────────────────────────────────────
+  Endpoint central para o fluxo de QR Code:
+    1. Garçom aponta câmara ao QR da mesa
+    2. Lê o valor do QR (string)
+    3. Chama GET /api/mesas/qrcode/{valorLido}
+    4. Obtém mesaId e sessaoAtivaId
+    5. Se sessaoAtivaId não nulo → vai para a sessão existente
+    6. Se sessaoAtivaId nulo → abre nova sessão (POST /api/sessoes-consumo)
+
+________________________________________________________________________________
+5. API — ENDPOINTS DE SESSÃO DE CONSUMO (/api/sessoes-consumo)
+________________________________________________________________________________
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │ OPERAÇÕES (ATENDENTE, GERENTE, ADMIN)                                    │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │ POST   /api/sessoes-consumo                   Abrir sessão (ocupa mesa)   │
+  │ PUT    /api/sessoes-consumo/{id}/fechar        Encerrar sessão            │
+  │ PUT    /api/sessoes-consumo/{id}/aguardar-pagamento  Mudar para AGUARDANDO│
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │ CONSULTAS (qualquer utilizador autenticado)                               │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │ GET    /api/sessoes-consumo/{id}              Detalhe da sessão           │
+  │ GET    /api/sessoes-consumo/mesa/{mesaId}/ativa    Sessão aberta da mesa  │
+  │ GET    /api/sessoes-consumo/mesa/{mesaId}/historico Todas as sessões      │
+  │ GET    /api/sessoes-consumo/abertas           Todas as sessões abertas    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  ── POST /api/sessoes-consumo ────────────────────────────────────────────────
+  Role: ATENDENTE, GERENTE, ADMIN
+  Body (JSON):
+    {
+      "mesaId": 7,                       // obrigatório
+      "telefoneCliente": "+244923456789",// opcional (null = modo anónimo)
+      "modoAnonimo": false,              // default false
+      "atendenteId": 2                   // opcional
+    }
+
+  Validações internas (backend rejeita se):
+    → Mesa não existe ou está inativa  → 404 / 422
+    → Mesa já tem sessão ABERTA        → 409 Conflict
+    → Cliente já tem sessão aberta noutro local → 409 Conflict
+
+  Resposta 201: ver secção 9 — SessaoConsumoResponse
+
+  ── PUT /api/sessoes-consumo/{id}/aguardar-pagamento ────────────────────────
+  Quando usar: quando o grupo pediu a conta mas ainda não pagou.
+  Transição: ABERTA → AGUARDANDO_PAGAMENTO
+  Efeito visual: mesa muda cor no mapa (laranja, por exemplo).
+  Nota: a mesa ainda aparece como OCUPADA — sessão ainda existe.
+
+  ── PUT /api/sessoes-consumo/{id}/fechar ────────────────────────────────────
+  Quando usar: pagamento confirmado, grupo de saída.
+  Transição: AGUARDANDO_PAGAMENTO (ou ABERTA) → ENCERRADA
+  Efeito: mesa torna-se DISPONIVEL AUTOMATICAMENTE.
+         fechadaEm é preenchido com o timestamp actual.
+
+  ── GET /api/sessoes-consumo/mesa/{mesaId}/ativa ────────────────────────────
+  Retorna a sessão com status ABERTA ou AGUARDANDO_PAGAMENTO da mesa.
+  Retorna 404 se a mesa estiver disponível.
+  Usar para: carregar o contexto da mesa ao clicar nela no mapa.
+
+  ── GET /api/sessoes-consumo/mesa/{mesaId}/historico ────────────────────────
+  Retorna TODAS as sessões passadas (incluindo ENCERRADAS) ordenadas por
+  data de abertura descendente. Usar para: histórico de uma mesa no painel admin.
+
+________________________________________________________________________________
+6. API — PEDIDOS: CAMPO ALTERADO
+________________________________________________________________________________
+
+  ⚠️  BREAKING CHANGE — campo renomeado no request e no response de Pedido.
+
+  ANTES:   unidadeConsumoId  (Long)
+  AGORA:   sessaoConsumoId   (Long)
+
+  POST /api/pedidos — body:
+    {
+      "sessaoConsumoId": 42,             // ← era unidadeConsumoId
+      "itens": [...],
+      "tipoPagamento": "FUNDO_CONSUMO"
+    }
+
+  GET /api/pedidos/{id} — response inclui agora:
+    {
+      "sessaoConsumoId": 42,             // ← era unidadeConsumoId
+      "mesaId": 7,                       // novo campo — mesa da sessão
+      "referenciaMesa": "Mesa 7",        // novo campo — nome legível da mesa
+      ...
+    }
+
+  IMPLICAÇÃO PARA O FRONTEND:
+    → Para criar um pedido, o frontend precisa primeiro ter o sessaoConsumoId.
+    → O fluxo correcto é: abrir sessão → obter sessaoConsumoId → criar pedido.
+    → Nunca usar mesaId directamente no request de pedido.
+
+________________________________________________________________________________
+7. API — QR CODE: CAMPO ALTERADO
+________________________________________________________________________________
+
+  ⚠️  BREAKING CHANGE — campos renomeados em request e response de QrCode.
+
+  POST /api/qrcode — body:
+    ANTES:   "unidadeDeConsumoId": 7
+    AGORA:   "mesaId": 7
+
+  Resposta:
+    ANTES:   "unidadeDeConsumoId", "unidadeDeConsumoNome"
+    AGORA:   "mesaId", "referenciaMesa"
+
+  Endpoint de busca por mesa:
+    ANTES:   GET /api/qrcode/unidade-consumo/{id}
+    AGORA:   GET /api/qrcode/mesa/{id}
+
+________________________________________________________________________________
+8. FLUXO COMPLETO DIA-A-DIA (passo a passo para UI)
+________________________________________________________________________________
+
+  ── SETUP INICIAL (feito pelo ADMIN, uma só vez) ────────────────────────────
+
+    1. Criar UnidadeAtendimento (ex: "Restaurante Principal")
+       POST /api/unidades-atendimento
+
+    2. Criar Mesas
+       POST /api/mesas  (uma por cada mesa física)
+       → sistema atribui qrCode automático se não for fornecido
+
+    3. Imprimir QR Codes das mesas
+       GET /api/qrcode/mesa/{mesaId}  → obter token
+       GET /api/qrcode/imagem/{token} → download do PNG para impressão
+
+  ── ABERTURA DE TURNO ────────────────────────────────────────────────────────
+
+    4. Atendente faz login
+       POST /api/auth/admin/login  ou  POST /api/jwt-auth/login
+       { "telefone": "+244923000002", "senha": "atendente123" }
+
+    5. Painel mostra mapa de mesas
+       GET /api/mesas/unidade-atendimento/{id}
+       → filtrar por status derivado: campo "status" em MesaResponse
+         "DISPONIVEL" → cor verde
+         "OCUPADA"    → cor vermelha/laranja
+
+  ── CLIENTE SENTA (abrir sessão) ─────────────────────────────────────────────
+
+    6. Garçom lê QR da mesa
+       GET /api/mesas/qrcode/{valorDoQr}
+       → resposta inclui: mesaId, status, sessaoAtivaId
+
+    7a. Se sessaoAtivaId == null (mesa disponível):
+       POST /api/sessoes-consumo
+       { "mesaId": 7, "telefoneCliente": "+244923456789" }
+       → retorna sessaoConsumoId
+
+    7b. Se sessaoAtivaId != null (mesa já ocupada):
+       → mostrar diálogo de aviso: "Mesa ocupada. Carregar sessão existente?"
+       → GET /api/sessoes-consumo/{sessaoAtivaId}
+
+  ── LANÇAMENTO DE PEDIDO ─────────────────────────────────────────────────────
+
+    8. Garçom selecciona produtos
+       GET /api/produtos/disponiveis  → listar cardápio
+
+    9. Criar pedido
+       POST /api/pedidos
+       { "sessaoConsumoId": 42, "itens": [...], "tipoPagamento": "POS_PAGO" }
+
+   10. Acompanhar pedido
+       GET /api/pedidos/ativos  ou  GET /api/subpedidos/cozinha/{id}/ativos
+       → a cozinha vê em tempo real via WebSocket (topic: /topic/cozinha/{id})
+
+  ── PAGAMENTO E ENCERRAMENTO ─────────────────────────────────────────────────
+
+   11. Garçom pede conta
+       PUT /api/sessoes-consumo/{sessaoId}/aguardar-pagamento
+       → status da sessão muda para AGUARDANDO_PAGAMENTO
+       → mesa muda cor (sugestão: laranja)
+
+   12. Pagamento processado (via AppyPay ou Fundo de Consumo)
+       → callback automático do AppyPay confirma pedido financeiramente
+         (nenhuma acção manual necessária)
+
+   13. Encerrar sessão
+       PUT /api/sessoes-consumo/{sessaoId}/fechar
+       → status da sessão → ENCERRADA
+       → mesa fica DISPONIVEL automaticamente
+       → mapa actualiza: mesa volta a verde
+
+  ── CONSULTAR HISTÓRICO ──────────────────────────────────────────────────────
+
+   14. Histórico de uma mesa
+       GET /api/sessoes-consumo/mesa/{mesaId}/historico
+       → lista todas as sessões passadas com totais e timestamps
+
+________________________________________________________________________________
+9. DTOs COMPLETOS — CAMPOS E TIPOS
+________________________________________________________________________________
+
+  MesaResponse
+  ─────────────────────────────────────────────────────────────────────────────
+    id                    Long
+    referencia            String          "Mesa 7"
+    tipo                  String          enum TipoUnidadeConsumo
+    numero                Integer         7 (pode ser null)
+    qrCode                String          identificador físico do QR
+    capacidade            Integer         nº de lugares (pode ser null)
+    ativa                 Boolean         true = em uso normal
+    status                String          "DISPONIVEL" | "OCUPADA"  ← DERIVADO
+    sessaoAtivaId         Long            null se DISPONIVEL
+    unidadeAtendimentoId  Long
+    unidadeAtendimentoNome String
+    createdAt             LocalDateTime
+    updatedAt             LocalDateTime
+
+  SessaoConsumoResponse
+  ─────────────────────────────────────────────────────────────────────────────
+    id                    Long
+    mesaId                Long
+    referenciaMesa        String          "Mesa 7"
+    status                String          "ABERTA" | "AGUARDANDO_PAGAMENTO" | "ENCERRADA"
+    modoAnonimo           Boolean
+    abertaEm              LocalDateTime
+    fechadaEm             LocalDateTime   null enquanto ABERTA
+    clienteId             Long            null se anónimo
+    nomeCliente           String          null se anónimo
+    telefoneCliente       String          null se anónimo
+    aberturaPorId         Long            ID do atendente (pode ser null)
+    nomeAtendente         String          nome do atendente (pode ser null)
+    totalConsumo          BigDecimal      soma de todos os pedidos da sessão
+    createdAt             LocalDateTime
+    updatedAt             LocalDateTime
+
+  CriarMesaRequest (body do POST /api/mesas)
+  ─────────────────────────────────────────────────────────────────────────────
+    referencia            String          obrigatório, @NotBlank
+    tipo                  TipoUnidadeConsumo  obrigatório
+    numero                Integer         opcional
+    qrCode                String          opcional (gerado automaticamente)
+    capacidade            Integer         opcional
+    unidadeAtendimentoId  Long            obrigatório, @NotNull
+
+  AbrirSessaoRequest (body do POST /api/sessoes-consumo)
+  ─────────────────────────────────────────────────────────────────────────────
+    mesaId                Long            obrigatório, @NotNull
+    telefoneCliente       String          opcional (null = modo anónimo)
+    modoAnonimo           Boolean         default false
+    atendenteId           Long            opcional
+
+________________________________________________________________________________
+10. TABELA COMPARATIVA ANTES / DEPOIS
+________________________________________________________________________________
+
+  ┌─────────────────────────────────┬────────────────────────────────────────┐
+  │ MODELO ANTIGO                   │ MODELO NOVO                            │
+  ├─────────────────────────────────┼────────────────────────────────────────┤
+  │ Entidade: UnidadeDeConsumo      │ Entidades: Mesa + SessaoConsumo        │
+  │ Endpoint: /api/unidades-consumo │ Endpoints: /api/mesas                  │
+  │                                 │            /api/sessoes-consumo        │
+  ├─────────────────────────────────┼────────────────────────────────────────┤
+  │ Pedido.unidadeConsumoId         │ Pedido.sessaoConsumoId                 │
+  ├─────────────────────────────────┼────────────────────────────────────────┤
+  │ QrCode.unidadeDeConsumoId       │ QrCode.mesaId                          │
+  │ QrCode.unidadeDeConsumoNome     │ QrCode.referenciaMesa                  │
+  │ GET /api/qrcode/unidade-consumo │ GET /api/qrcode/mesa/{id}              │
+  ├─────────────────────────────────┼────────────────────────────────────────┤
+  │ Mesa.status = FINALIZADA        │ SessaoConsumo.status = ENCERRADA       │
+  │ (mesa "morria" ao fechar conta) │ (mesa fica DISPONIVEL automaticamente) │
+  ├─────────────────────────────────┼────────────────────────────────────────┤
+  │ Status armazenado na mesa       │ Status DERIVADO (calculado em runtime) │
+  ├─────────────────────────────────┼────────────────────────────────────────┤
+  │ Sem histórico de sessões        │ Histórico completo por mesa            │
+  │                                 │ GET /sessoes-consumo/mesa/{id}/historico│
+  ├─────────────────────────────────┼────────────────────────────────────────┤
+  │ PUT /api/unidades-consumo/{id}  │ PUT /api/sessoes-consumo/{id}/fechar   │
+  │      /fechar                    │ (encerra sessão, não a mesa)           │
+  └─────────────────────────────────┴────────────────────────────────────────┘
+
+  NOTA: O controller /api/unidades-consumo ainda existe no backend por
+  compatibilidade temporária mas está DEPRECATED. Não integrar novos ecrãs
+  com esse endpoint. Prazo de remoção: sprint seguinte.
+
+________________________________________________________________________________
+11. ERROS ESPERADOS E COMO APRESENTÁ-LOS
+________________________________________________________________________________
+
+  409 Conflict — "Mesa já possui sessão de consumo aberta"
+  ─────────────────────────────────────────────────────────────────────────────
+  Quando: POST /api/sessoes-consumo para uma mesa já ocupada.
+  UI sugerida: "Esta mesa já está ocupada. Pretende ver a sessão activa?"
+               Botão "Ver Sessão" → GET /api/sessoes-consumo/mesa/{mesaId}/ativa
+
+  409 Conflict — "Cliente já possui sessão de consumo aberta em outra mesa"
+  ─────────────────────────────────────────────────────────────────────────────
+  Quando: POST /api/sessoes-consumo com telefoneCliente que já tem sessão.
+  UI sugerida: "Este cliente já está registado noutro local. Pretende continuar
+               em modo anónimo?" → repetir request com modoAnonimo: true
+
+  422 Unprocessable — "Mesa inativa"
+  ─────────────────────────────────────────────────────────────────────────────
+  Quando: tentar abrir sessão para mesa desativada.
+  UI sugerida: "Esta mesa está temporariamente fora de serviço."
+
+  404 Not Found — sessão não encontrada
+  ─────────────────────────────────────────────────────────────────────────────
+  GET /api/sessoes-consumo/mesa/{mesaId}/ativa quando mesa está disponível.
+  Tratamento correcto: não é um erro — significa que a mesa está livre.
+  UI sugerida: exibir botão "Abrir Nova Sessão".
+
+  422 — "Sessão já encerrada"
+  ─────────────────────────────────────────────────────────────────────────────
+  Quando: tentar fechar ou adicionar pedido a uma sessão ENCERRADA.
+  UI sugerida: "Esta sessão já foi encerrada em [fechadaEm]."
+
+________________________________________________________________________________
+12. CHECKLIST DE MIGRAÇÃO POR ECRÃ
+________________________________________________________________________________
+
+  MAPA DE MESAS (ecrã principal do salão)
+  ─────────────────────────────────────────────────────────────────────────────
+  [ ] Substituir GET /api/unidades-consumo por GET /api/mesas
+  [ ] Status da mesa lido de MesaResponse.status (não de campo local)
+  [ ] DISPONIVEL  → cor verde; OCUPADA → cor vermelha
+  [ ] Clicar em mesa ocupada → GET /api/sessoes-consumo/mesa/{id}/ativa
+  [ ] Clicar em mesa disponível → modal "Abrir Sessão" com AbrirSessaoRequest
+  [ ] Campo "cliente" no modal é opcional (suportar modo anónimo)
+
+  ABRIR SESSÃO (modal / ecrã do atendente)
+  ─────────────────────────────────────────────────────────────────────────────
+  [ ] Request: POST /api/sessoes-consumo com AbrirSessaoRequest
+  [ ] Guardar sessaoConsumoId retornado para usar ao criar pedidos
+  [ ] Tratar 409 (mesa ocupada) com opção de ver sessão existente
+  [ ] Tratar 409 (cliente com sessão) com opção de modo anónimo
+
+  CRIAR PEDIDO (ecrã de lançamento de itens)
+  ─────────────────────────────────────────────────────────────────────────────
+  [ ] Substituir unidadeConsumoId por sessaoConsumoId no body do POST
+  [ ] Garantir que sessaoConsumoId foi obtido ao abrir a sessão (não mesaId)
+  [ ] PedidoResponse.referenciaMesa exibe nome da mesa (era referenciaUnidadeConsumo)
+
+  FECHAR CONTA (checkout)
+  ─────────────────────────────────────────────────────────────────────────────
+  [ ] Fluxo: PUT /api/sessoes-consumo/{id}/aguardar-pagamento (opcional)
+  [ ] Após pagamento confirmado: PUT /api/sessoes-consumo/{id}/fechar
+  [ ] Após fechar: mapa actualiza automaticamente (mesa volta a verde)
+  [ ] Não chamar nenhum endpoint de "libertar mesa" — é automático
+
+  PAINEL ADMIN — GESTÃO DE MESAS
+  ─────────────────────────────────────────────────────────────────────────────
+  [ ] CRUD de mesas em GET / POST /api/mesas
+  [ ] Ativar / desativar: PUT /api/mesas/{id}/ativar|desativar
+  [ ] Não exibir campo editável de "status" — é derivado, não configurável
+  [ ] Histórico de sessões: GET /api/sessoes-consumo/mesa/{id}/historico
+
+  ECRÃ DE QR CODE (geração / leitura)
+  ─────────────────────────────────────────────────────────────────────────────
+  [ ] POST /api/qrcode — body: "mesaId" (era "unidadeDeConsumoId")
+  [ ] QrCodeResponse — usar "mesaId" e "referenciaMesa" (campos renomeados)
+  [ ] Endpoint de listagem: GET /api/qrcode/mesa/{id} (era /unidade-consumo/{id})
+
+================================================================================
+  Dúvidas: contactar Eng.ª Margarida (backend)
+  Versão deste documento: 1.0 — 02/03/2026
+  Próxima revisão: após implementação de PagamentoController e ClienteController
+================================================================================

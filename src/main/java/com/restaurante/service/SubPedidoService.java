@@ -281,9 +281,8 @@ public class SubPedidoService {
         // Enviar notificação SMS para o cliente
         try {
             Pedido pedido = subPedido.getPedido();
-            UnidadeDeConsumo unidadeConsumo = pedido.getUnidadeConsumo();
-            String telefoneCliente = unidadeConsumo.getCliente() != null 
-                ? unidadeConsumo.getCliente().getTelefone() 
+            String telefoneCliente = pedido.getSessaoConsumo().getCliente() != null
+                ? pedido.getSessaoConsumo().getCliente().getTelefone()
                 : null;
             
             if (telefoneCliente != null) {

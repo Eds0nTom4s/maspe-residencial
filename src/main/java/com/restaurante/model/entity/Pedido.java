@@ -18,7 +18,7 @@ import java.util.List;
  */
 @Entity
 @Table(name = "pedidos", indexes = {
-    @Index(name = "idx_pedido_unidade_consumo", columnList = "unidade_consumo_id"),
+    @Index(name = "idx_pedido_sessao_consumo", columnList = "sessao_consumo_id"),
     @Index(name = "idx_pedido_status", columnList = "status"),
     @Index(name = "idx_pedido_status_financeiro", columnList = "status_financeiro"),
     @Index(name = "idx_pedido_numero", columnList = "numero")
@@ -33,10 +33,11 @@ public class Pedido extends BaseEntity {
     @Column(nullable = false, unique = true)
     private String numero; // Ex: PED-20260208-001
 
-    // Relacionamento OBRIGATÓRIO com UnidadeDeConsumo
+    // Relacionamento OBRIGATÓRIO com SessaoConsumo
+    // Pedidos são vinculados à sessão, não diretamente à mesa.
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "unidade_consumo_id", nullable = false)
-    private UnidadeDeConsumo unidadeConsumo;
+    @JoinColumn(name = "sessao_consumo_id", nullable = false)
+    private SessaoConsumo sessaoConsumo;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

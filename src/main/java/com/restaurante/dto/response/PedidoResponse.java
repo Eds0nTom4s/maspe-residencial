@@ -24,8 +24,9 @@ public class PedidoResponse {
     private StatusPedido status;
     private String observacoes;
     private BigDecimal total;
-    private Long unidadeConsumoId;
-    private String referenciaUnidadeConsumo;
+    private Long sessaoConsumoId;
+    private Long mesaId;
+    private String referenciaMesa;
     private List<ItemPedidoResponse> itens;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

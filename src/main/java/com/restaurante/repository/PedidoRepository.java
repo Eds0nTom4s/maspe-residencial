@@ -39,11 +39,11 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     List<Pedido> findPedidosDeHojePorStatus(StatusPedido status);
 
     /**
-     * Busca pedidos pós-pago abertos (não pagos) por unidade de consumo
+     * Busca pedidos pós-pago abertos (não pagos) por sessão de consumo.
      */
-    List<Pedido> findByUnidadeConsumoIdAndTipoPagamentoAndStatusFinanceiro(
-        Long unidadeConsumoId, 
-        TipoPagamentoPedido tipoPagamento, 
+    List<Pedido> findBySessaoConsumoIdAndTipoPagamentoAndStatusFinanceiro(
+        Long sessaoConsumoId,
+        TipoPagamentoPedido tipoPagamento,
         StatusFinanceiroPedido statusFinanceiro
     );
 

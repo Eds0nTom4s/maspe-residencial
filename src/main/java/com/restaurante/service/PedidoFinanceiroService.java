@@ -121,7 +121,7 @@ public class PedidoFinanceiroService {
      */
     @Transactional(readOnly = true)
     public boolean validarEConfirmarSePermitido(
-            Long unidadeConsumoId,
+            Long sessaoConsumoId,
             BigDecimal valorTotal,
             TipoPagamentoPedido tipoPagamento,
             Set<String> roles) {
@@ -134,7 +134,7 @@ public class PedidoFinanceiroService {
 
         // POS_PAGO: verifica limite sem lançar exception
         try {
-            configuracaoFinanceiraService.validarCriacaoPosPago(unidadeConsumoId, valorTotal, roles);
+            configuracaoFinanceiraService.validarCriacaoPosPago(sessaoConsumoId, valorTotal, roles);
             log.info("✅ POS_PAGO: DENTRO DO LIMITE - Confirmado automaticamente");
             return true;
         } catch (LimitePosPagoExcedidoException e) {

@@ -89,8 +89,8 @@ public class ConfiguracaoFinanceiraService {
      * </ul>
      */
     @Transactional(readOnly = true)
-    public void validarCriacaoPosPago(Long unidadeConsumoId, BigDecimal valorNovo, Set<String> roles) {
-        log.info("Validando criação de pós-pago para unidade {} - valor {}", unidadeConsumoId, valorNovo);
+    public void validarCriacaoPosPago(Long sessaoConsumoId, BigDecimal valorNovo, Set<String> roles) {
+        log.info("Validando criação de pós-pago para sessão {} - valor {}", sessaoConsumoId, valorNovo);
 
         if (!isPosPagoAtivo()) {
             throw new PosPagoDesabilitadoException();
@@ -104,7 +104,7 @@ public class ConfiguracaoFinanceiraService {
 
         ConfiguracaoFinanceiraSistema config = buscarOuCriarConfiguracao();
         BigDecimal limitePosPago = config.getLimitePosPago();
-        BigDecimal totalAberto = calcularTotalPosPagoAberto(unidadeConsumoId);
+        BigDecimal totalAberto = calcularTotalPosPagoAberto(sessaoConsumoId);
         BigDecimal novoTotal = totalAberto.add(valorNovo);
 
         if (novoTotal.compareTo(limitePosPago) > 0) {
@@ -115,11 +115,11 @@ public class ConfiguracaoFinanceiraService {
                 novoTotal, limitePosPago);
     }
 
-    /** Calcula total de pós-pago aberto (NAO_PAGO) para unidade. */
-    private BigDecimal calcularTotalPosPagoAberto(Long unidadeConsumoId) {
+    /** Calcula total de pós-pago aberto (NAO_PAGO) para sessão. */
+    private BigDecimal calcularTotalPosPagoAberto(Long sessaoConsumoId) {
         List<Pedido> pedidosAbertos = pedidoRepository
-            .findByUnidadeConsumoIdAndTipoPagamentoAndStatusFinanceiro(
-                unidadeConsumoId,
+            .findBySessaoConsumoIdAndTipoPagamentoAndStatusFinanceiro(
+                sessaoConsumoId,
                 TipoPagamentoPedido.POS_PAGO,
                 StatusFinanceiroPedido.NAO_PAGO);
         return pedidosAbertos.stream()

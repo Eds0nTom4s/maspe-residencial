@@ -8,18 +8,19 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.ItemPedido;
+import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
-import com.restaurante.model.entity.UnidadeDeConsumo;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
+import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.PedidoRepository;
-import com.restaurante.repository.UnidadeDeConsumoRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -46,8 +47,7 @@ import java.util.stream.Collectors;
 public class PedidoService {
 
     private final PedidoRepository pedidoRepository;
-    private final UnidadeDeConsumoRepository unidadeDeConsumoRepository;
-    private final UnidadeDeConsumoService unidadeDeConsumoService;
+    private final SessaoConsumoRepository sessaoConsumoRepository;
     private final ProdutoService produtoService;
     private final WebSocketNotificacaoService webSocketNotificacaoService;
     private final SubPedidoService subPedidoService;
@@ -69,14 +69,18 @@ public class PedidoService {
     public PedidoResponse criar(CriarPedidoRequest request) {
         log.info("=".repeat(80));
         log.info("🆕 CRIANDO NOVO PEDIDO");
-        log.info("  ┣ Unidade de Consumo ID: {}", request.getUnidadeConsumoId());
+        log.info("  ┣ Sessão de Consumo ID: {}", request.getSessaoConsumoId());
         log.info("  ┣ Total de Itens: {}", request.getItens().size());
         log.info("  ┗ Tipo Pagamento: {}", request.getTipoPagamento());
         log.info("=".repeat(80));
 
-        // Buscar UnidadeDeConsumo completa do repositório
-        UnidadeDeConsumo unidadeConsumo = unidadeDeConsumoRepository.findById(request.getUnidadeConsumoId())
-                .orElseThrow(() -> new ResourceNotFoundException("Unidade de consumo não encontrada"));
+        // Buscar SessaoConsumo — obrigatório e deve estar ABERTA
+        SessaoConsumo sessaoConsumo = sessaoConsumoRepository.findById(request.getSessaoConsumoId())
+                .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada"));
+
+        if (!sessaoConsumo.isAberta()) {
+            throw new BusinessException("Sessão de consumo não está ABERTA. Status: " + sessaoConsumo.getStatus());
+        }
 
         // Determina tipo de pagamento (default: PRE_PAGO)
         TipoPagamentoPedido tipoPagamento = request.getTipoPagamento() != null 
@@ -100,10 +104,10 @@ public class PedidoService {
         log.info("  ┗ Roles Usuário: {}", roles);
 
         // Resolve portador: cliente identificado OU token do QR Code (anónimo)
-        Long clienteId = unidadeConsumo.getCliente() != null
-                ? unidadeConsumo.getCliente().getId()
+        Long clienteId = sessaoConsumo.getCliente() != null
+                ? sessaoConsumo.getCliente().getId()
                 : null;
-        String fundoToken = (clienteId == null) ? unidadeConsumo.getQrCode() : null;
+        String fundoToken = (clienteId == null) ? sessaoConsumo.getQrCodePortador() : null;
 
         log.info("  ┣ Portador: {}",
                 clienteId != null ? "cliente#" + clienteId : "anónimo (token:" + fundoToken + ")");
@@ -115,7 +119,7 @@ public class PedidoService {
         // Cria o pedido
         Pedido pedido = Pedido.builder()
                 .numero(gerarNumeroPedido())
-                .unidadeConsumo(unidadeConsumo)
+                .sessaoConsumo(sessaoConsumo)
                 .status(StatusPedido.CRIADO)
                 .statusFinanceiro(StatusFinanceiroPedido.NAO_PAGO)  // Default
                 .tipoPagamento(tipoPagamento)
@@ -142,12 +146,12 @@ public class PedidoService {
             }
 
             // Determinar cozinha responsável pelo item
-            Cozinha cozinha = subPedidoService.determinarCozinha(produto.getCategoria(), unidadeConsumo.getUnidadeAtendimento().getId());
+            Cozinha cozinha = subPedidoService.determinarCozinha(produto.getCategoria(), sessaoConsumo.getMesa().getUnidadeAtendimento().getId());
             
             // ✅ VALIDAÇÃO CRÍTICA: Cozinha deve estar ATIVA
             if (cozinha.getAtiva() == null || !cozinha.getAtiva()) {
                 throw new BusinessException(
-                    String.format("Produto '%s' não pode ser pedido: cozinha '%s' está inativa", 
+                    String.format("Produto '%s' não pode ser pedido: cozinha '%s' está inativa",
                         produto.getNome(), cozinha.getNome())
                 );
             }
@@ -169,7 +173,7 @@ public class PedidoService {
                     .numero(pedido.getNumero() + "-" + contadorSubPedido)
                     .pedido(pedido)
                     .cozinha(cozinha)
-                    .unidadeAtendimento(unidadeConsumo.getUnidadeAtendimento())
+                    .unidadeAtendimento(sessaoConsumo.getMesa().getUnidadeAtendimento())
                     .status(StatusSubPedido.CRIADO)  // ✅ Inicia em CRIADO, aguardando confirmação
                     .build();
             
@@ -222,10 +226,9 @@ public class PedidoService {
 
         // CONFIRMAÇÃO AUTOMÁTICA - transita CRIADO → PENDENTE se dentro do limite
         log.info("🤖 INICIANDO CONFIRMAÇÃO AUTOMÁTICA");
-        boolean confirmado = confirmarPedidoAutomaticamente(pedidoAtualizado, unidadeConsumo.getId(), tipoPagamento);
+        boolean confirmado = confirmarPedidoAutomaticamente(pedidoAtualizado, sessaoConsumo.getId(), tipoPagamento);
 
-        // Atualiza status da unidade de consumo
-        unidadeDeConsumoService.atualizarStatus(unidadeConsumo.getId());
+        // Status da mesa é derivado — não precisa ser atualizado manualmente
 
         log.info("=".repeat(80));
         log.info("✅ PEDIDO CRIADO COM SUCESSO");
@@ -240,8 +243,8 @@ public class PedidoService {
 
         // Enviar notificação SMS para o cliente (somente fluxo identificado)
         try {
-            String telefoneCliente = (unidadeConsumo.getCliente() != null)
-                ? unidadeConsumo.getCliente().getTelefone()
+            String telefoneCliente = (sessaoConsumo.getCliente() != null)
+                ? sessaoConsumo.getCliente().getTelefone()
                 : null;
 
             if (telefoneCliente != null) {
@@ -532,17 +535,9 @@ public class PedidoService {
             pedidoFinanceiroService.confirmarPagamentoPosPago(id);
         }
 
-        // Liberta a mesa / unidade de consumo
-        if (pedido.getUnidadeConsumo() != null) {
-            Long unidadeId = pedido.getUnidadeConsumo().getId();
-            try {
-                unidadeDeConsumoService.fechar(unidadeId);
-                log.info("Unidade de consumo {} libertada", unidadeId);
-            } catch (Exception e) {
-                // Não falha o checkout se a mesa já estiver no estado correcto
-                log.warn("Aviso ao fechar unidade {}: {}", unidadeId, e.getMessage());
-            }
-        }
+        // Nota: sessaoConsumo continua ABERTA; encerrá-la é responsabilidade do SessaoConsumoService
+        log.info("Conta fechada — pedido {}. Use PUT /sessoes-consumo/{}/fechar para liberar a mesa.",
+                pedido.getNumero(), pedido.getSessaoConsumo().getId());
 
         Pedido pedidoAtualizado = buscarPorId(id);
         log.info("Conta fechada — pedido {}, status financeiro: {}",
@@ -564,16 +559,6 @@ public class PedidoService {
             .map(GrantedAuthority::getAuthority)
             .map(role -> role.replace("ROLE_", ""))  // Remove prefixo "ROLE_"
             .collect(Collectors.toSet());
-    }
-
-    /**
-     * Obtém clienteId da unidade de consumo
-     * TODO: Implementar vínculo real com Cliente quando estiver disponível
-     */
-    private Long obterClienteId(com.restaurante.dto.response.UnidadeConsumoResponse unidadeConsumo) {
-        // PLACEHOLDER: retorna 1L temporariamente
-        // Em produção, UnidadeDeConsumo deve ter clienteId ou vincular via sessão/autenticação
-        return 1L;
     }
 
     /**
@@ -681,8 +666,9 @@ public class PedidoService {
                 .status(pedido.getStatus())
                 .observacoes(pedido.getObservacoes())
                 .total(pedido.getTotal())
-                .unidadeConsumoId(pedido.getUnidadeConsumo().getId())
-                .referenciaUnidadeConsumo(pedido.getUnidadeConsumo().getReferencia())
+                .sessaoConsumoId(pedido.getSessaoConsumo().getId())
+                .mesaId(pedido.getSessaoConsumo().getMesa().getId())
+                .referenciaMesa(pedido.getSessaoConsumo().getMesa().getReferencia())
                 .itens(pedido.getItens().stream()
                         .map(this::mapItemToResponse)
                         .collect(Collectors.toList()))

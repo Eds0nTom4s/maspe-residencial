@@ -24,16 +24,16 @@ public interface QrCodeTokenRepository extends JpaRepository<QrCodeToken, Long> 
     Optional<QrCodeToken> findByToken(String token);
 
     /**
-     * Busca QR Codes ativos por Unidade de Consumo
+     * Busca QR Codes ativos por Mesa
      */
-    List<QrCodeToken> findByUnidadeDeConsumoIdAndStatus(Long unidadeDeConsumoId, StatusQrCode status);
+    List<QrCodeToken> findByMesaIdAndStatus(Long mesaId, StatusQrCode status);
 
     /**
-     * Busca QR Code ativo de mesa por Unidade de Consumo
+     * Busca QR Code ativo de mesa por Mesa
      */
-    Optional<QrCodeToken> findByUnidadeDeConsumoIdAndTipoAndStatus(
-            Long unidadeDeConsumoId, 
-            TipoQrCode tipo, 
+    Optional<QrCodeToken> findByMesaIdAndTipoAndStatus(
+            Long mesaId,
+            TipoQrCode tipo,
             StatusQrCode status
     );
 
@@ -70,11 +70,11 @@ public interface QrCodeTokenRepository extends JpaRepository<QrCodeToken, Long> 
     long countByTipoAndStatus(TipoQrCode tipo, StatusQrCode status);
 
     /**
-     * Busca todos os QR Codes de uma Unidade de Atendimento
+     * Busca todos os QR Codes de uma Unidade de Atendimento (via Mesa)
      */
     @Query("SELECT q FROM QrCodeToken q " +
-           "JOIN q.unidadeDeConsumo uc " +
-           "WHERE uc.unidadeAtendimento.id = :unidadeAtendimentoId")
+           "JOIN q.mesa m " +
+           "WHERE m.unidadeAtendimento.id = :unidadeAtendimentoId")
     List<QrCodeToken> findByUnidadeAtendimentoId(@Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
 
     /**

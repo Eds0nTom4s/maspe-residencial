@@ -6,14 +6,14 @@ import com.restaurante.dto.response.QrCodeResponse;
 import com.restaurante.dto.response.QrCodeValidacaoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.QrCodeToken;
-import com.restaurante.model.entity.UnidadeDeConsumo;
 import com.restaurante.model.enums.StatusQrCode;
 import com.restaurante.model.enums.TipoQrCode;
+import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.QrCodeTokenRepository;
-import com.restaurante.repository.UnidadeDeConsumoRepository;
 import com.restaurante.util.QrCodeGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +38,7 @@ import java.util.Optional;
 public class QrCodeService {
 
     private final QrCodeTokenRepository qrCodeTokenRepository;
-    private final UnidadeDeConsumoRepository unidadeDeConsumoRepository;
+    private final MesaRepository mesaRepository;
     private final PedidoRepository pedidoRepository;
     private final QrCodeGenerator qrCodeGenerator;
 
@@ -56,12 +56,12 @@ public class QrCodeService {
         validarRequest(request);
 
         // Busca entidades relacionadas
-        UnidadeDeConsumo unidadeDeConsumo = null;
+        Mesa mesa = null;
         Pedido pedido = null;
 
-        if (request.getUnidadeDeConsumoId() != null) {
-            unidadeDeConsumo = unidadeDeConsumoRepository.findById(request.getUnidadeDeConsumoId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Unidade de Consumo não encontrada"));
+        if (request.getMesaId() != null) {
+            mesa = mesaRepository.findById(request.getMesaId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Mesa não encontrada"));
         }
 
         if (request.getPedidoId() != null) {
@@ -70,16 +70,16 @@ public class QrCodeService {
         }
 
         // Para QR Code de mesa, verifica se já existe um ativo
-        if (request.getTipo() == TipoQrCode.MESA && unidadeDeConsumo != null) {
+        if (request.getTipo() == TipoQrCode.MESA && mesa != null) {
             Optional<QrCodeToken> qrExistente = qrCodeTokenRepository
-                    .findByUnidadeDeConsumoIdAndTipoAndStatus(
-                            unidadeDeConsumo.getId(), 
-                            TipoQrCode.MESA, 
+                    .findByMesaIdAndTipoAndStatus(
+                            mesa.getId(),
+                            TipoQrCode.MESA,
                             StatusQrCode.ATIVO
                     );
             
             if (qrExistente.isPresent() && !qrExistente.get().isExpirado()) {
-                log.info("QR Code ativo já existe para mesa {}, renovando", unidadeDeConsumo.getId());
+                log.info("QR Code ativo já existe para mesa {}, renovando", mesa.getId());
                 QrCodeToken qr = qrExistente.get();
                 qr.renovar();
                 qr = qrCodeTokenRepository.save(qr);
@@ -99,7 +99,7 @@ public class QrCodeService {
                 .tipo(request.getTipo())
                 .status(StatusQrCode.ATIVO)
                 .expiraEm(expiraEm)
-                .unidadeDeConsumo(unidadeDeConsumo)
+                .mesa(mesa)
                 .pedido(pedido)
                 .metadados(request.getMetadados())
                 .build();
@@ -219,12 +219,12 @@ public class QrCodeService {
     }
 
     /**
-     * Busca QR Codes por Unidade de Consumo
+     * Busca QR Codes por Mesa
      */
     @Transactional(readOnly = true)
-    public List<QrCodeResponse> buscarPorUnidadeDeConsumo(Long unidadeDeConsumoId) {
+    public List<QrCodeResponse> buscarPorMesa(Long mesaId) {
         List<QrCodeToken> qrCodes = qrCodeTokenRepository
-                .findByUnidadeDeConsumoIdAndStatus(unidadeDeConsumoId, StatusQrCode.ATIVO);
+                .findByMesaIdAndStatus(mesaId, StatusQrCode.ATIVO);
         
         return qrCodes.stream().map(this::toResponse).toList();
     }
@@ -315,8 +315,8 @@ public class QrCodeService {
     // ========== Métodos auxiliares ==========
 
     private void validarRequest(GerarQrCodeRequest request) {
-        if (request.getTipo() == TipoQrCode.MESA && request.getUnidadeDeConsumoId() == null) {
-            throw new BusinessException("UnidadeDeConsumoId é obrigatório para QR Code de mesa");
+        if (request.getTipo() == TipoQrCode.MESA && request.getMesaId() == null) {
+            throw new BusinessException("MesaId é obrigatório para QR Code de mesa");
         }
 
         if ((request.getTipo() == TipoQrCode.ENTREGA || request.getTipo() == TipoQrCode.PAGAMENTO) 
@@ -337,8 +337,8 @@ public class QrCodeService {
                 .tipo(qr.getTipo())
                 .status(qr.getStatus())
                 .expiraEm(qr.getExpiraEm())
-                .unidadeDeConsumoId(qr.getUnidadeDeConsumo() != null ? qr.getUnidadeDeConsumo().getId() : null)
-                .unidadeDeConsumoNome(qr.getUnidadeDeConsumo() != null ? qr.getUnidadeDeConsumo().getIdentificador() : null)
+                .mesaId(qr.getMesa() != null ? qr.getMesa().getId() : null)
+                .referenciaMesa(qr.getMesa() != null ? qr.getMesa().getIdentificador() : null)
                 .pedidoId(qr.getPedido() != null ? qr.getPedido().getId() : null)
                 .usadoEm(qr.getUsadoEm())
                 .usadoPor(qr.getUsadoPor())

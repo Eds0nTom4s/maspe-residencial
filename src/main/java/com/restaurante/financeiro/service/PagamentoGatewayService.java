@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -318,6 +319,23 @@ public class PagamentoGatewayService {
         log.info("Pagamento recarga confirmado com sucesso. Novo saldo: {}", saldoNovo);
     }
     
+    /**
+     * Busca pagamento por ID.
+     */
+    @Transactional(readOnly = true)
+    public Pagamento buscarPorId(Long id) {
+        return pagamentoRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Pagamento não encontrado: " + id));
+    }
+
+    /**
+     * Lista pagamentos de um fundo de consumo (histórico de recargas AppyPay).
+     */
+    @Transactional(readOnly = true)
+    public List<Pagamento> listarPorFundo(Long fundoId) {
+        return pagamentoRepository.findByFundoConsumoIdOrderByCreatedAtDesc(fundoId);
+    }
+
     /**
      * Gera referência externa curta (<= 15 chars)
      * Formato: REC{timestamp_curto}{random}

@@ -10,6 +10,8 @@ import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.repository.ClienteRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -127,6 +129,40 @@ public class ClienteService {
         }
         
         return otp.toString();
+    }
+
+    /**
+     * Lista todos os clientes com paginação
+     */
+    @Transactional(readOnly = true)
+    public Page<ClienteResponse> listarTodos(Pageable pageable) {
+        return clienteRepository.findAll(pageable).map(this::mapToResponse);
+    }
+
+    /**
+     * Actualiza dados do cliente (nome)
+     */
+    @Transactional
+    public ClienteResponse atualizar(Long id, String nome) {
+        Cliente cliente = buscarPorId(id);
+        if (nome != null && !nome.isBlank()) {
+            cliente.setNome(nome.trim());
+        }
+        return mapToResponse(clienteRepository.save(cliente));
+    }
+
+    /**
+     * Desactiva cliente (soft delete)
+     */
+    @Transactional
+    public void desativar(Long id) {
+        Cliente cliente = buscarPorId(id);
+        if (!cliente.getAtivo()) {
+            throw new BusinessException("Cliente já está inativo");
+        }
+        cliente.setAtivo(false);
+        clienteRepository.save(cliente);
+        log.info("Cliente {} desativado com sucesso", id);
     }
 
     /**

@@ -495,13 +495,59 @@ public class PedidoService {
     @Transactional
     public PedidoResponse confirmarPagamento(Long id) {
         log.info("Confirmando pagamento do pedido ID: {}", id);
-        
+
         pedidoFinanceiroService.confirmarPagamentoPosPago(id);
-        
+
         Pedido pedido = buscarPorId(id);
-        
+
         log.info("Pagamento confirmado para pedido {}", pedido.getNumero());
         return mapToResponse(pedido);
+    }
+
+    /**
+     * Fecha a conta de um pedido:
+     * 1. Para POS_PAGO não pago: confirma o pagamento automaticamente.
+     * 2. Liberta a unidade de consumo (mesa/quarto) chamando fechar().
+     *
+     * <p>Para PRE_PAGO, o débito já foi efectuado na criação do pedido —
+     * esta operação apenas liberta a mesa.
+     *
+     * @param id ID do pedido a fechar
+     * @return PedidoResponse actualizado
+     */
+    @Transactional
+    public PedidoResponse fecharConta(Long id) {
+        log.info("Fechando conta do pedido ID: {}", id);
+
+        Pedido pedido = buscarPorId(id);
+
+        if (pedido.getStatus() == StatusPedido.CANCELADO) {
+            throw new BusinessException(
+                    "Pedido está cancelado. Não é possível fechar a conta.");
+        }
+
+        // POS_PAGO e ainda não pago: confirma agora
+        if (pedido.getTipoPagamento().isPosPago() && !pedido.isPago()) {
+            log.info("Pedido {} é POS_PAGO e não pago — confirmando pagamento", pedido.getNumero());
+            pedidoFinanceiroService.confirmarPagamentoPosPago(id);
+        }
+
+        // Liberta a mesa / unidade de consumo
+        if (pedido.getUnidadeConsumo() != null) {
+            Long unidadeId = pedido.getUnidadeConsumo().getId();
+            try {
+                unidadeDeConsumoService.fechar(unidadeId);
+                log.info("Unidade de consumo {} libertada", unidadeId);
+            } catch (Exception e) {
+                // Não falha o checkout se a mesa já estiver no estado correcto
+                log.warn("Aviso ao fechar unidade {}: {}", unidadeId, e.getMessage());
+            }
+        }
+
+        Pedido pedidoAtualizado = buscarPorId(id);
+        log.info("Conta fechada — pedido {}, status financeiro: {}",
+                pedidoAtualizado.getNumero(), pedidoAtualizado.getStatusFinanceiro());
+        return mapToResponse(pedidoAtualizado);
     }
 
     /**

@@ -87,7 +87,7 @@ public class PedidoController {
     /**
      * Cancela um pedido
      * PUT /api/pedidos/{id}/cancelar
-     * 
+     *
      * @param motivo Motivo obrigatório do cancelamento
      */
     @PutMapping("/{id}/cancelar")
@@ -98,5 +98,54 @@ public class PedidoController {
             @RequestParam String motivo) {
         PedidoResponse pedido = pedidoService.cancelar(id, motivo);
         return ResponseEntity.ok(ApiResponse.success("Pedido cancelado com sucesso", pedido));
+    }
+
+    /**
+     * Confirma o pedido — transita CRIADO → EM_ANDAMENTO, tornando os sub-pedidos
+     * visíveis para as cozinhas.
+     * PUT /api/pedidos/{id}/confirmar
+     */
+    @PutMapping("/{id}/confirmar")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    @Operation(
+        summary = "Confirmar pedido",
+        description = "Transita sub-pedidos de CRIADO para PENDENTE, tornando-os visíveis nas cozinhas."
+    )
+    public ResponseEntity<ApiResponse<PedidoResponse>> confirmar(@PathVariable Long id) {
+        PedidoResponse pedido = pedidoService.confirmar(id);
+        return ResponseEntity.ok(ApiResponse.success("Pedido confirmado", pedido));
+    }
+
+    /**
+     * Confirma manualmente o pagamento de um pedido pós-pago.
+     * Apenas GERENTE e ADMIN.
+     * PUT /api/pedidos/{id}/confirmar-pagamento
+     */
+    @PutMapping("/{id}/confirmar-pagamento")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
+    @Operation(
+        summary = "Confirmar pagamento pós-pago",
+        description = "Marca pedido POS_PAGO como PAGO. Usar quando cliente paga em dinheiro ou por outro meio."
+    )
+    public ResponseEntity<ApiResponse<PedidoResponse>> confirmarPagamento(@PathVariable Long id) {
+        PedidoResponse pedido = pedidoService.confirmarPagamento(id);
+        return ResponseEntity.ok(ApiResponse.success("Pagamento confirmado", pedido));
+    }
+
+    /**
+     * Fecha a conta de um pedido e liberta a mesa.
+     * Para POS_PAGO não pago: confirma o pagamento automaticamente.
+     * PUT /api/pedidos/{id}/fechar
+     */
+    @PutMapping("/{id}/fechar")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    @Operation(
+        summary = "Fechar conta (checkout)",
+        description = "Confirma pagamento (se POS_PAGO) e liberta a mesa. "
+                    + "Para PRE_PAGO, o débito já foi efectuado na criação do pedido."
+    )
+    public ResponseEntity<ApiResponse<PedidoResponse>> fecharConta(@PathVariable Long id) {
+        PedidoResponse pedido = pedidoService.fecharConta(id);
+        return ResponseEntity.ok(ApiResponse.success("Conta fechada. Mesa libertada.", pedido));
     }
 }

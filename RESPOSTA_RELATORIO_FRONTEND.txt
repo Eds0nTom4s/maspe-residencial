@@ -1,0 +1,384 @@
+================================================================================
+  RESPOSTA DO BACKEND — VALIDAÇÃO DO RELATÓRIO DE REVISÃO FRONTEND
+  Data: 03/03/2026
+  Versão: 1.0
+  Em resposta a: RELATORIO_REVISAO_FRONTEND_BACKEND.txt (03/03/2026)
+================================================================================
+
+Este documento responde ponto a ponto ao relatório submetido pela equipa de
+frontend. Para cada dúvida ou pedido de validação, o backend confirma, corrige
+ou orienta a integração correcta.
+
+────────────────────────────────────────────────────────────────────────────────
+PARTE 1 — CORRECÇÕES URGENTES (O FRONTEND ESTÁ ERRADO NESTES PONTOS)
+────────────────────────────────────────────────────────────────────────────────
+
+Estas correcções devem ser aplicadas antes de qualquer teste de integração,
+pois causarão falhas silenciosas ou dados incorrectos no painel.
+
+────────────────────
+CORRECÇÃO 1 (CRÍTICA) — Campos de /dashboard/top-products
+────────────────────
+
+A secção 1.1 do relatório indica que o frontend corrigiu os nomes dos campos
+"anteriormente usava quantidadeVendida e receitaTotal". Esta correcção foi
+feita na direcção ERRADA.
+
+Os nomes correctos e definitivos no DTO de resposta do backend são:
+
+  Campos CORRECTOS (manter):
+    nome              → string, nome do produto
+    quantidadeVendida → integer, total de unidades vendidas
+    valorTotal        → decimal, receita total gerada pelo produto
+    categoria         → string, categoria do produto
+    produtoId         → long, identificador interno
+
+  Campos INCORRECTOS (remover do template):
+    totalVendido   ← NÃO EXISTE no backend
+    receita        ← NÃO EXISTE no backend
+
+Acção necessária: reverter dashboardService.js e o template Vue para ler
+  quantidadeVendida e valorTotal.
+
+────────────────────
+CORRECÇÃO 2 (CRÍTICA) — Corpo do POST /fundos/{token}/recarregar
+────────────────────
+
+A secção 1.2 e a dúvida 3.3 perguntam sobre o formato do body de recarga.
+O campo de observação textual tem nome diferente do que o frontend envia.
+
+  Estrutura correcta do body:
+    valor       → decimal, obrigatório, valor a adicionar ao fundo
+    observacoes → string, opcional, nota sobre a recarga
+
+  Campo INCORRECTO enviado actualmente:
+    descricao   ← NÃO EXISTE no DTO de recarga do backend
+
+Acção necessária: renomear o campo descricao para observacoes em
+  fundoConsumoService.js antes de enviar o pedido.
+
+────────────────────
+CORRECÇÃO 3 (MÉDIA) — Roles de Produtos
+────────────────────
+
+A tabela da secção 2 lista as operações de escrita em Produtos com role mínima
+"ADMIN". Esta restrição foi alargada no backend. O estado actual é:
+
+  POST   /produtos             → GERENTE ou ADMIN
+  PUT    /produtos/{id}        → GERENTE ou ADMIN
+  PATCH  /produtos/{id}/disponibilidade → GERENTE ou ADMIN
+  DELETE /produtos/{id}        → GERENTE ou ADMIN
+
+Acção necessária: actualizar os guards de rota e os controlos de visibilidade
+  de botões para permitir que utilizadores com role GERENTE também realizem
+  estas operações, sem necessitar de role ADMIN.
+
+────────────────────────────────────────────────────────────────────────────────
+PARTE 2 — RESPOSTAS ÀS DÚVIDAS DA SECÇÃO 3
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────
+3.1 — ENDPOINT DE LOGIN (INCONSISTÊNCIA INTERNA)
+────────────────────
+
+CONFIRMADO: O único endpoint de autenticação para o Painel Administrativo é:
+
+  POST /api/auth/admin/login
+
+  Body esperado:
+    telefone → string, número de telefone do utilizador (ex: +244923000001)
+    senha    → string, palavra-passe
+
+  Resposta de sucesso inclui:
+    token     → string JWT para usar no header Authorization: Bearer {token}
+    tipo      → "Bearer"
+    usuario   → objecto com dados do utilizador autenticado
+
+O endpoint POST /api/auth/jwt/login é uma via alternativa de autenticação
+técnica (utilizador/palavra-passe no formato username/password). NÃO deve
+ser utilizado pelo Painel Administrativo.
+
+Acção necessária: remover ou desactivar /auth/jwt/login de authService.js.
+  O auth store que já usa /auth/admin/login está correcto.
+
+────────────────────
+3.2 — CAMPOS DE /dashboard/top-products
+────────────────────
+
+Ver Correcção 1 acima. Respondido em detalhe na Parte 1.
+
+────────────────────
+3.3 — CORPO DO POST /fundos/{token}/recarregar
+────────────────────
+
+Ver Correcção 2 acima. Respondido em detalhe na Parte 1.
+
+O body é enviado como JSON no corpo do pedido (não como query parameters).
+O campo valor é obrigatório e deve ser um número decimal positivo.
+
+────────────────────
+3.4 — EXPORTAÇÃO CSV/PDF DE AUDITORIA
+────────────────────
+
+Não está planeada a implementação de endpoints de exportação nesta versão do
+sistema. Não existe infraestrutura de geração de ficheiros no backend actual.
+
+O comportamento correcto no frontend é o que já foi implementado: os métodos
+exportarCSV() e exportarPDF() lançam erro descritivo ao utilizador, informando
+que a funcionalidade não está disponível.
+
+Não há URL de exportação a partilhar. Esta funcionalidade será avaliada numa
+fase futura quando houver requisitos claros sobre formato e volume de dados.
+
+────────────────────
+3.5 — ENDPOINTS /unidades-consumo/*
+────────────────────
+
+CONFIRMADO: Os endpoints /api/unidades-consumo/* continuam activos no backend
+mas foram marcados como DEPRECADOS.
+
+  Estado actual: funcionais, retornam dados, não foram removidos.
+  Estado futuro: serão removidos na próxima versão principal do sistema.
+
+A arquitectura actual usa Mesas e SessõesConsumo. O comportamento correcto do
+frontend — manter unidadesConsumoService.js marcado como @deprecated e delegar
+para mesasService e sessoesConsumoService — está correcto.
+
+Não há necessidade de chamar /unidades-consumo/* em nenhum fluxo novo.
+
+────────────────────
+3.6 — ENDPOINTS DE UTILIZADORES NÃO CONFIRMADOS
+────────────────────
+
+TODOS CONFIRMADOS E IMPLEMENTADOS. O conjunto completo de endpoints para a
+gestão de utilizadores está agora disponível:
+
+  GET    /api/usuarios                      listar com paginação
+  GET    /api/usuarios/{id}                 detalhes do utilizador
+  POST   /api/usuarios                      criar novo utilizador
+  PUT    /api/usuarios/{id}                 actualizar dados do utilizador
+  DELETE /api/usuarios/{id}                 desactivar utilizador (soft delete)
+  PATCH  /api/usuarios/{id}/ativar          reactivar utilizador
+  PATCH  /api/usuarios/{id}/desativar       desactivar utilizador
+  PATCH  /api/usuarios/{id}/senha           alterar senha (sem verificar a antiga)
+  GET    /api/usuarios/permissoes           listar roles disponíveis com descrições
+  GET    /api/usuarios/{id}/logs            histórico de acções (funcionalidade em expansão)
+  POST   /api/usuarios/reset-senha          reset simplificado (ver nota abaixo)
+  POST   /api/usuarios/reset-senha/confirmar retorna 501 (fluxo de email não configurado)
+
+Notas sobre endpoints de reset de senha:
+  O endpoint POST /usuarios/reset-senha aceita o pedido mas não envia email,
+  pois o servidor SMTP não está configurado neste ambiente. Para redefinição
+  administrativa de senha, usar PATCH /usuarios/{id}/senha que não exige
+  verificação da senha antiga.
+  O endpoint POST /usuarios/reset-senha/confirmar retorna erro HTTP 501
+  (Not Implemented) com mensagem explicativa. O frontend deve tratar este
+  retorno e apresentar ao utilizador a instrução de contactar o administrador.
+
+────────────────────────────────────────────────────────────────────────────────
+PARTE 3 — VALIDAÇÃO DAS ALTERAÇÕES DA SECÇÃO 1
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────
+1.1 dashboardService.js
+────────────────────
+
+PARCIALMENTE INVÁLIDO. A remoção dos mocks está correcta e aprovada.
+A correcção dos nomes dos campos foi na direcção errada — ver Correcção 1.
+Após corrigir quantidadeVendida e valorTotal, a integração estará completa.
+
+────────────────────
+1.2 fundoConsumoService.js
+────────────────────
+
+VÁLIDO, com uma correcção. A reescrita do serviço está correcta na estrutura
+e nos endpoints. A única correcção necessária é o campo descricao → observacoes
+no body de recarregar, conforme Correcção 2.
+
+Todos os demais endpoints do módulo de fundos estão correctos:
+  POST   /api/fundos/cliente/{clienteId}       ✓ activo
+  POST   /api/fundos/anonimo/{token}            ✓ activo
+  GET    /api/fundos/{token}                    ✓ activo
+  GET    /api/fundos/{token}/saldo              ✓ activo
+  GET    /api/fundos/cliente/{clienteId}        ✓ activo
+  POST   /api/fundos/{token}/recarregar         ✓ activo (corrigir campo)
+  GET    /api/fundos/{token}/historico          ✓ activo
+  DELETE /api/fundos/{token}                    ✓ activo
+
+────────────────────
+1.3 auditoriaService.js
+────────────────────
+
+VÁLIDO. Os três endpoints de auditoria estão correctos e activos:
+  GET /api/auditoria/acoes          ✓ activo, suporta paginação 0-based
+  GET /api/auditoria/estatisticas   ✓ activo
+  GET /api/auditoria/modulos        ✓ activo
+
+A conversão de paginação 1-based → 0-based está correcta. O backend recebe
+sempre page começando em 0.
+
+Os métodos listarAcoes() como constantes locais e exportarCSV()/exportarPDF()
+com erro descritivo estão correctos.
+
+────────────────────
+1.4 produtosService.js — getDisponiveis()
+────────────────────
+
+VÁLIDO. O endpoint GET /api/produtos/disponiveis não existe no backend.
+A solução de filtrar client-side via GET /api/produtos é a correcta.
+O critério de filtragem (disponivel === true && ativo === true) está correcto.
+
+────────────────────
+1.5 UsuariosView.vue
+────────────────────
+
+VÁLIDO. A remoção do modo mock é a abordagem correcta. Os endpoints de
+utilizadores estão todos implementados — ver Parte 2, secção 3.6.
+
+────────────────────
+1.6 AuditoriaView.vue
+────────────────────
+
+VÁLIDO. O padrão unificado de tratamento de erros com stacktrace no console
+é a abordagem correcta para diagnóstico de problemas de integração.
+
+────────────────────────────────────────────────────────────────────────────────
+PARTE 4 — VALIDAÇÃO DO MAPA DE ENDPOINTS (SECÇÃO 2)
+────────────────────────────────────────────────────────────────────────────────
+
+Verificação completa de cada módulo listado na tabela do frontend:
+
+MÓDULO           ESTADO
+───────────────────────────────────────────────────────────────────────────────
+AUTH             ✓ Correcto. Remover /auth/jwt/login — usar só /auth/admin/login
+DASHBOARD        ✓ Endpoints correctos. Corrigir campos top-products (Correcção 1)
+PRODUTOS         ✓ Endpoints correctos. Alargar roles de ADMIN → GERENTE ou ADMIN
+MESAS            ✓ Todos os endpoints listados estão activos e correctos
+SESSÕES          ✓ Todos os endpoints listados estão activos e correctos
+PEDIDOS          ✓ Correcto. GET /sessao-consumo/{id}/ativo agora existe (implementado)
+SUBPEDIDOS       ✓ Todos os endpoints listados estão activos e correctos
+FUNDOS           ✓ Correcto. Corrigir campo descricao → observacoes em recarregar
+AUDITORIA        ✓ Todos os endpoints listados estão activos e correctos
+CONFIG. FIN.     ✓ Todos os endpoints listados estão activos e correctos
+USUÁRIOS         ✓ Todos os 12 endpoints agora implementados (ver secção 3.6)
+QR CODE          ✓ Todos os endpoints listados estão activos e correctos
+
+Nota sobre QR Code: o backend tem adicionalmente POST /qrcode/usar/{token} que
+  não está listado no frontend — este endpoint é para uso do painel de cliente
+  (não administrativo), não é necessário no Painel Administrativo.
+
+────────────────────────────────────────────────────────────────────────────────
+PARTE 5 — PAYLOADS DE REFERÊNCIA PARA INTEGRAÇÃO
+────────────────────────────────────────────────────────────────────────────────
+
+Estruturas de payload para os pontos que geraram dúvidas ou correcções.
+
+────────────────────
+POST /api/auth/admin/login
+────────────────────
+  Body:
+    telefone → string, obrigatório
+    senha    → string, obrigatório
+
+  Resposta (data):
+    token       → string JWT
+    tipo        → "Bearer"
+    usuario     → objecto com id, username, nomeCompleto, telefone, roles
+
+  Utilização do token em chamadas subsequentes:
+    Header: Authorization com valor "Bearer " seguido do token
+
+────────────────────
+POST /api/usuarios (criar utilizador)
+────────────────────
+  Body:
+    username     → string, obrigatório, entre 3 e 50 caracteres, único no sistema
+    senha        → string, obrigatório, mínimo 6 caracteres
+    email        → string, formato email, opcional mas recomendado
+    nomeCompleto → string, opcional
+    telefone     → string, opcional
+    roles        → array de strings, obrigatório, mínimo um elemento
+
+  Valores válidos para roles:
+    Consultar GET /api/usuarios/permissoes para a lista completa e actualizada.
+    Exemplo de resposta: { "ADMIN": "Administrador", "GERENTE": "Gerente", ... }
+
+────────────────────
+PUT /api/usuarios/{id} (actualizar utilizador)
+────────────────────
+  Body (todos os campos são opcionais — enviar apenas o que se pretende alterar):
+    email        → string, formato email
+    nomeCompleto → string
+    telefone     → string
+    roles        → array de strings (se omitido, os roles não são alterados)
+
+────────────────────
+PATCH /api/usuarios/{id}/senha (alterar senha — administrativo)
+────────────────────
+  Body:
+    novaSenha → string, obrigatório, mínimo 6 caracteres
+
+  Nota: este endpoint não exige a senha actual. Destina-se a reset administrativo.
+
+────────────────────
+POST /api/fundos/{token}/recarregar
+────────────────────
+  Body:
+    valor       → decimal, obrigatório, valor a adicionar (deve ser positivo)
+    observacoes → string, opcional, nota descritiva sobre a recarga
+
+  Nota: o campo chama-se observacoes (não descricao).
+
+────────────────────
+GET /api/usuarios/permissoes
+────────────────────
+  Sem body nem parâmetros.
+
+  Resposta (data): objecto chave-valor onde a chave é o código da role e o
+    valor é a descrição em português.
+    Exemplo: { "ADMIN": "Administrador do Sistema", "GERENTE": "Gerente", ... }
+
+────────────────────
+GET /api/usuarios/{id}/logs
+────────────────────
+  Sem body. Parâmetros opcionais de paginação via query string.
+
+  Resposta (data): lista de eventos (actualmente retorna lista vazia).
+    A funcionalidade de auditoria por utilizador está em expansão.
+    Tratar lista vazia como estado válido, não como erro.
+
+────────────────────────────────────────────────────────────────────────────────
+PARTE 6 — RESUMO DAS ACÇÕES NECESSÁRIAS NO FRONTEND
+────────────────────────────────────────────────────────────────────────────────
+
+Prioridade ALTA — Correcções que causam dados errados ou falhas de autenticação:
+
+  [1] Reverter campos de top-products para quantidadeVendida e valorTotal
+      Ficheiros afectados: dashboardService.js e template do componente de dashboard
+
+  [2] Renomear o campo descricao para observacoes no body de recarregar fundo
+      Ficheiro afectado: fundoConsumoService.js
+
+  [3] Remover /auth/jwt/login de authService.js
+      Ficheiro afectado: authService.js
+
+Prioridade MÉDIA — Correcções de comportamento e permissões:
+
+  [4] Actualizar guards de rota e visibilidade de botões em Produtos para
+      aceitar role GERENTE além de ADMIN nas operações de escrita
+      Ficheiros afectados: ProdutosView.vue e/ou router com guards de role
+
+  [5] Tratar retorno HTTP 501 de POST /usuarios/reset-senha/confirmar como
+      funcionalidade não disponível, apresentando mensagem ao utilizador
+
+Prioridade BAIXA — Melhorias e limpeza:
+
+  [6] Tratar lista vazia no retorno de GET /usuarios/{id}/logs como estado
+      normal (não apresentar erro ao utilizador)
+
+  [7] Confirmar que exportarCSV() e exportarPDF() em auditoriaService.js
+      apresentam mensagem amigável ao utilizador (não apenas erro no console)
+
+────────────────────────────────────────────────────────────────────────────────
+FIM DO DOCUMENTO
+================================================================================

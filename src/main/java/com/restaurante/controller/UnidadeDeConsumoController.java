@@ -21,7 +21,9 @@ import java.util.List;
 @RequestMapping("/unidades-consumo")
 @RequiredArgsConstructor
 @Slf4j
-@Tag(name = "Unidades de Consumo", description = "Gerenciamento de unidades de consumo (mesas, quartos, áreas)")
+@Tag(name = "Unidades de Consumo", description = "[DEPRECADO] Este controller foi substituído por /api/mesas e /api/sessoes-consumo. " +
+        "Mantido temporariamente para retrocompatibilidade. Será removido na próxima versão.")
+@Deprecated
 public class UnidadeDeConsumoController {
 
     private final UnidadeDeConsumoService unidadeDeConsumoService;

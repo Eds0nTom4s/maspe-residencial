@@ -308,6 +308,31 @@ public class PedidoService {
     }
 
     /**
+     * Lista todos os pedidos de uma SessaoConsumo.
+     */
+    @Transactional(readOnly = true)
+    public List<PedidoResponse> listarPorSessaoConsumo(Long sessaoConsumoId) {
+        log.info("Listando pedidos da sessão de consumo ID: {}", sessaoConsumoId);
+        return pedidoRepository.findBySessaoConsumoIdOrderByCreatedAtAsc(sessaoConsumoId)
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Lista apenas pedidos activos (CRIADO ou EM_ANDAMENTO) de uma SessaoConsumo.
+     */
+    @Transactional(readOnly = true)
+    public List<PedidoResponse> listarAtivosPorSessaoConsumo(Long sessaoConsumoId) {
+        log.info("Listando pedidos activos da sessão de consumo ID: {}", sessaoConsumoId);
+        List<StatusPedido> statusAtivos = List.of(StatusPedido.CRIADO, StatusPedido.EM_ANDAMENTO);
+        return pedidoRepository.findBySessaoConsumoIdAndStatusInOrderByCreatedAtAsc(sessaoConsumoId, statusAtivos)
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Lista pedidos pendentes e recebidos (para painel do atendente)
      */
     @Transactional(readOnly = true)

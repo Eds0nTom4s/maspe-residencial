@@ -85,6 +85,30 @@ public class PedidoController {
     }
 
     /**
+     * Lista todos os pedidos de uma SessaoConsumo.
+     * GET /api/pedidos/sessao-consumo/{id}
+     */
+    @GetMapping("/sessao-consumo/{id}")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    @Operation(summary = "Listar pedidos por sessão", description = "Lista todos os pedidos de uma sessão de consumo")
+    public ResponseEntity<ApiResponse<List<PedidoResponse>>> listarPorSessaoConsumo(@PathVariable Long id) {
+        List<PedidoResponse> pedidos = pedidoService.listarPorSessaoConsumo(id);
+        return ResponseEntity.ok(ApiResponse.success("Pedidos da sessão listados", pedidos));
+    }
+
+    /**
+     * Lista apenas pedidos activos (CRIADO ou EM_ANDAMENTO) de uma SessaoConsumo.
+     * GET /api/pedidos/sessao-consumo/{id}/ativo
+     */
+    @GetMapping("/sessao-consumo/{id}/ativo")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    @Operation(summary = "Pedidos activos da sessão", description = "Lista pedidos CRIADO ou EM_ANDAMENTO de uma sessão")
+    public ResponseEntity<ApiResponse<List<PedidoResponse>>> listarAtivosPorSessaoConsumo(@PathVariable Long id) {
+        List<PedidoResponse> pedidos = pedidoService.listarAtivosPorSessaoConsumo(id);
+        return ResponseEntity.ok(ApiResponse.success("Pedidos activos da sessão listados", pedidos));
+    }
+
+    /**
      * Cancela um pedido
      * PUT /api/pedidos/{id}/cancelar
      *

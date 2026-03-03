@@ -32,7 +32,7 @@ public class ProdutoController {
      * POST /api/produtos
      */
     @PostMapping
-    @PreAuthorize("hasRole('GERENTE')")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
     @Operation(summary = "Criar produto", description = "Adiciona um novo item ao cardápio")
     public ResponseEntity<ApiResponse<ProdutoResponse>> criar(@Valid @RequestBody ProdutoRequest request) {
         ProdutoResponse produto = produtoService.criar(request);
@@ -45,7 +45,7 @@ public class ProdutoController {
      * PUT /api/produtos/{id}
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('GERENTE')")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
     @Operation(summary = "Atualizar produto", description = "Atualiza os dados de um produto existente")
     public ResponseEntity<ApiResponse<ProdutoResponse>> atualizar(
             @PathVariable Long id,
@@ -93,6 +93,7 @@ public class ProdutoController {
      * PATCH /api/produtos/{id}/disponibilidade
      */
     @PatchMapping("/{id}/disponibilidade")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
     @Operation(summary = "Alterar disponibilidade", description = "Liga/desliga a disponibilidade de um produto")
     public ResponseEntity<ApiResponse<ProdutoResponse>> alterarDisponibilidade(
             @PathVariable Long id,
@@ -106,6 +107,7 @@ public class ProdutoController {
      * DELETE /api/produtos/{id}
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
     @Operation(summary = "Desativar produto", description = "Remove produto do cardápio (soft delete)")
     public ResponseEntity<ApiResponse<Void>> desativar(@PathVariable Long id) {
         produtoService.desativar(id);

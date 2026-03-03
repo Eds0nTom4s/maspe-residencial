@@ -53,4 +53,15 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
      */
     @Query("SELECT p FROM Pedido p LEFT JOIN FETCH p.subPedidos WHERE p.id = :id")
     Optional<Pedido> findByIdComSubPedidos(Long id);
+
+    /**
+     * Lista todos os pedidos de uma SessaoConsumo, ordenados por criação.
+     */
+    List<Pedido> findBySessaoConsumoIdOrderByCreatedAtAsc(Long sessaoConsumoId);
+
+    /**
+     * Lista pedidos activos (CRIADO ou EM_ANDAMENTO) de uma SessaoConsumo.
+     */
+    List<Pedido> findBySessaoConsumoIdAndStatusInOrderByCreatedAtAsc(
+            Long sessaoConsumoId, List<StatusPedido> statuses);
 }

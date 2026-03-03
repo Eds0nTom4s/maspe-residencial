@@ -143,14 +143,14 @@ public class UnidadeDeConsumo extends BaseEntity {
     private LocalDateTime fechadaEm;
 
     /**
-     * Relacionamento com pedidos
+     * Lista de pedidos — mantida apenas para compatibilidade com código legado.
      *
      * @deprecated Pedido migrou para referenciar SessaoConsumo.
-     * Este mapeamento é mantido apenas para evitar erros de inicialização do Hibernate.
+     * Este campo não é persistido pelo Hibernate (transient).
      * Não usar em código novo — use SessaoConsumo.getPedidos().
      */
     @Deprecated
-    @OneToMany(mappedBy = "sessaoConsumo", fetch = FetchType.LAZY)
+    @Transient
     @Builder.Default
     private List<Pedido> pedidos = new ArrayList<>();
 

@@ -93,7 +93,7 @@ public class SessaoConsumoService {
             if (request.getTelefoneCliente() == null || request.getTelefoneCliente().isBlank()) {
                 throw new BusinessException("Telefone do cliente é obrigatório no fluxo identificado");
             }
-            Cliente cliente = clienteService.buscarPorTelefone(request.getTelefoneCliente());
+            Cliente cliente = clienteService.buscarOuCriarPorTelefone(request.getTelefoneCliente());
 
             // Impede cliente com sessão aberta em outra mesa
             sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())

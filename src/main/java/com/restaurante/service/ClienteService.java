@@ -105,6 +105,19 @@ public class ClienteService {
     }
 
     /**
+     * Retorna o cliente pelo telefone, criando-o automaticamente se não existir.
+     * Usado no fluxo de abertura de sessão — o cliente é registado na primeira visita.
+     */
+    @Transactional
+    public Cliente buscarOuCriarPorTelefone(String telefone) {
+        return clienteRepository.findByTelefone(telefone)
+                .orElseGet(() -> {
+                    log.info("Cliente não encontrado para telefone {}. Criando automaticamente.", telefone);
+                    return criarNovoCliente(telefone);
+                });
+    }
+
+    /**
      * Cria um novo cliente
      */
     private Cliente criarNovoCliente(String telefone) {

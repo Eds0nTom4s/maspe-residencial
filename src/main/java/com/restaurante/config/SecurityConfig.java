@@ -77,11 +77,11 @@ public class SecurityConfig {
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
-        // Permitir H2 Console (desenvolvimento) - desabilita CSRF e X-Frame-Options
+        // Permitir H2 Console (desenvolvimento) - desabilita frame protection e relaxa CSP
         http.headers(headers -> headers
-                .frameOptions(frame -> frame.disable())
+                .frameOptions(frame -> frame.sameOrigin())
                 .contentSecurityPolicy(csp -> csp
-                    .policyDirectives("default-src 'self'; frame-ancestors 'none'; form-action 'self';"))
+                    .policyDirectives("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'; form-action 'self';"))
                 .contentTypeOptions(contentType -> contentType.disable()));
 
         return http.build();

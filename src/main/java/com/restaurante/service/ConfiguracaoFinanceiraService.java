@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -87,8 +88,13 @@ public class ConfiguracaoFinanceiraService {
      *   <li>Usuário deve ter role GERENTE ou ADMIN</li>
      *   <li>Total aberto não pode exceder o limite configurado</li>
      * </ul>
+     *
+     * IMPORTANTE: REQUIRES_NEW para não contaminar a TX externa quando lança exceção.
+     * validarEConfirmarSePermitido() captura LimitePosPagoExcedidoException — se esta
+     * TX usasse REQUIRED (padrão), a exceção marcaria a TX pai como rollback-only
+     * causando UnexpectedRollbackException no commit.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
     public void validarCriacaoPosPago(Long sessaoConsumoId, BigDecimal valorNovo, Set<String> roles) {
         log.info("Validando criação de pós-pago para sessão {} - valor {}", sessaoConsumoId, valorNovo);
 

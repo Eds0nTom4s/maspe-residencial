@@ -1,0 +1,795 @@
+================================================================================
+  RESPOSTAS DO BACKEND ÀS PERGUNTAS DE ALINHAMENTO DO FRONTEND
+  Data: 2026-03  |  Base: código-fonte verificado linha a linha
+================================================================================
+
+NOTA METODOLÓGICA
+-----------------
+Cada resposta foi verificada directamente no código-fonte antes de ser escrita.
+Nenhuma resposta foi inferida ou inventada. Onde existe discrepância entre o que
+o frontend assumia e o que o backend realmente entrega, a discrepância está
+assinalada como ⚠️ ATENÇÃO.
+Onde há uma lacuna que requer trabalho no backend, está assinalada como 🔨 GAP.
+
+================================================================================
+SECÇÃO 1 — HISTÓRICO DE PEDIDOS
+================================================================================
+
+PERGUNTA 1.1 — Existe endpoint para listar todos os pedidos de uma sessão?
+---------------------------------------------------------------------------
+SIM. Endpoint verificado em PedidoController.java:
+
+  GET /api/pedidos/sessao-consumo/{sessaoConsumoId}
+  Segurança: ATENDENTE | GERENTE | ADMIN
+  Retorna: List<PedidoResponse> (todos os pedidos, incluindo FINALIZADO e CANCELADO)
+
+  Exemplo: GET /api/pedidos/sessao-consumo/7
+
+Existe também um segundo endpoint para apenas o pedido activo:
+  GET /api/pedidos/sessao-consumo/{sessaoConsumoId}/ativo
+  Retorna: PedidoResponse (pedido em estado != FINALIZADO e != CANCELADO)
+
+PERGUNTA 1.2 — A listagem é paginada?
+--------------------------------------
+NÃO. O endpoint retorna List<PedidoResponse> simples, sem paginação.
+Não existem query params ?page= ou ?size=.
+
+PERGUNTA 1.3 — O DTO PedidoResponse inclui statusFinanceiro, tipoPagamento e
+              subPedidos[]?
+---------------------------------------------------------------------------
+⚠️ ATENÇÃO — DISCREPÂNCIA CRÍTICA.
+
+O PedidoResponse real (verificado em PedidoResponse.java) contém:
+  - id
+  - numero
+  - status          (enum: ABERTO | FINALIZADO | CANCELADO)
+  - observacoes
+  - total
+  - sessaoConsumoId
+  - mesaId
+  - referenciaMesa
+  - itens[]         (lista plana de ItemPedidoResponse, SEM agrupamento por subpedido)
+  - createdAt
+  - updatedAt
+
+O DTO NÃO contém:
+  - statusFinanceiro   → campo inexistente no DTO
+  - tipoPagamento      → campo inexistente no DTO
+  - subPedidos[]       → campo inexistente no DTO
+
+Para obter os subpedidos de um pedido, o frontend deve chamar:
+  GET /api/subpedidos/pedido/{pedidoId}
+  Retorna: List<SubPedidoResponse>
+
+🔨 GAP: Se o frontend precisa de tipoPagamento e statusFinanceiro no histórico,
+esses campos terão de ser adicionados ao PedidoResponse pelo backend.
+
+================================================================================
+SECÇÃO 2 — CRIAÇÃO DE PEDIDO
+================================================================================
+
+PERGUNTA 2.1 — O campo observacoes é aceite tanto a nível do pedido como do item?
+----------------------------------------------------------------------------------
+SIM. Verificado em CriarPedidoRequest.java e CriarItemPedidoRequest.java:
+
+  Nível do pedido:
+  {
+    "sessaoConsumoId": 1,
+    "itens": [...],
+    "tipoPagamento": "PRE_PAGO",    (opcional)
+    "observacoes": "sem cebola geral"  (opcional)
+  }
+
+  Nível do item:
+  {
+    "produtoId": 3,
+    "quantidade": 2,
+    "observacoes": "sem cebola neste item"  (opcional)
+  }
+
+PERGUNTA 2.2 — Para PRE_PAGO, o frontend precisa de enviar fundoConsumoId?
+---------------------------------------------------------------------------
+NÃO. O frontend NÃO envia fundoConsumoId.
+O backend resolve o fundo automaticamente a partir do sessaoConsumoId:
+  - Lê a sessão → obtém qrCodePortador ou qrCode da mesa
+  - Localiza o fundo de consumo associado
+  - Debita automaticamente
+
+O payload para PRE_PAGO é o mesmo que para POS_PAGO — a diferença é apenas no
+campo tipoPagamento (ou na configuração default do sistema).
+
+PERGUNTA 2.3 — É possível criar pedido PRE_PAGO para cliente anónimo?
+----------------------------------------------------------------------
+SIM. O backend usa o token do QR Code da mesa para localizar o fundo anónimo.
+Desde que a sessão de consumo tenha um qrCode ou qrCodePortador associado,
+o débito PRE_PAGO funciona mesmo sem clienteId.
+
+PERGUNTA 2.4 — Qual o HTTP status quando saldo é insuficiente?
+--------------------------------------------------------------
+⚠️ ATENÇÃO — DISCREPÂNCIA.
+
+Retorna HTTP 400 (Bad Request), NÃO 422.
+SaldoInsuficienteException não está mapeada explicitamente no
+GlobalExceptionHandler — cai no handler genérico de BusinessException:
+
+  Resposta:
+  {
+    "status": 400,
+    "error": "Bad Request",
+    "message": "Saldo insuficiente para realizar esta operação",
+    "path": "/api/pedidos"
+  }
+
+O frontend deve verificar HTTP 400 + mensagem, não 422.
+
+================================================================================
+SECÇÃO 3 — SUBPEDIDOS
+================================================================================
+
+PERGUNTA 3.1 — Quais as roles necessárias para cada ação nos subpedidos?
+-------------------------------------------------------------------------
+Verificado em SubPedidoController.java:
+
+  POST /api/subpedidos/{id}/assumir          → ROLE_COZINHA | ROLE_GERENTE | ROLE_ADMIN
+  POST /api/subpedidos/{id}/marcar-pronto    → ROLE_COZINHA | ROLE_GERENTE | ROLE_ADMIN
+  POST /api/subpedidos/{id}/marcar-entregue  → ROLE_ATENDENTE | ROLE_GERENTE | ROLE_ADMIN
+  POST /api/subpedidos/{id}/cancelar         → ROLE_GERENTE | ROLE_ADMIN
+
+PERGUNTA 3.2 — Quais os nomes exactos dos campos de timestamp em SubPedidoResponse?
+------------------------------------------------------------------------------------
+⚠️ ATENÇÃO — NOMES DIFERENTES DOS ASSUMIDOS.
+
+Campos reais em SubPedidoResponse.java:
+  - recebidoEm   (não "criadoEm")
+  - iniciadoEm   (não "assumidoEm")
+  - prontoEm
+  - entreguEm
+  - canceladoEm
+  - createdAt
+  - updatedAt
+
+Outros campos do DTO:
+  - id
+  - numero
+  - status        (PENDENTE | RECEBIDO | EM_PREPARACAO | PRONTO | ENTREGUE | CANCELADO)
+  - cozinhaId
+  - nomeCozinha   (campo plano, NÃO objecto nested cozinha.tipo)
+  - pedidoId
+  - itens[]
+  - observacoes
+
+⚠️ NÃO existe campo cozinha.tipo como objecto nested.
+   Existe apenas cozinhaId (Long) e nomeCozinha (String) como campos planos.
+
+PERGUNTA 3.3 — GET /api/subpedidos/cozinha/{id}/ativos — quais estados inclui?
+-------------------------------------------------------------------------------
+Verificado em SubPedidoRepository.java (query JPQL):
+
+  Inclui: PENDENTE, RECEBIDO, EM_PREPARACAO, PRONTO
+
+⚠️ ATENÇÃO: inclui PRONTO (subpedido está pronto mas ainda não entregue).
+   Exclui: ENTREGUE e CANCELADO.
+
+PERGUNTA 3.4 — Como o utilizador de cozinha sabe a qual cozinha está associado?
+--------------------------------------------------------------------------------
+🔨 GAP ARQUITECTURAL.
+
+O endpoint de login (POST /api/auth/admin/login) retorna LoginAtendenteResponse
+com os campos: id, nome, telefone, email, tipoUsuario, token, expiresIn.
+
+NÃO retorna cozinhaId.
+
+A associação utilizador → cozinha não está modelada no User.
+Para obter as cozinhas existentes, o frontend pode chamar:
+  GET /api/cozinhas  (listar todas)
+  GET /api/cozinhas/{id}  (uma específica)
+
+O frontend terá de deixar o utilizador de cozinha seleccionar a sua cozinha
+no momento do login, ou implementar essa associação no perfil do utilizador.
+
+================================================================================
+SECÇÃO 4 — INTERFACE DA COZINHA
+================================================================================
+
+PERGUNTA 4.1 — Como os pedidos chegam à cozinha em tempo real?
+--------------------------------------------------------------
+Via WebSocket. Quando um novo subpedido é criado (estado PENDENTE), o backend
+publica automaticamente em:
+  /topic/cozinha/{cozinhaId}
+
+O frontend de cozinha deve subscrever esse tópico com o cozinhaId correcto.
+
+PERGUNTA 4.2 / 4.3 — Qual o formato das mensagens no tópico da cozinha?
+------------------------------------------------------------------------
+⚠️ ATENÇÃO — DOIS FORMATOS DIFERENTES no mesmo tópico /topic/cozinha/{id}.
+
+FORMATO 1 — NotificacaoSubPedidoDTO (para criação e mudanças de estado):
+{
+  "subPedidoId": 15,
+  "pedidoId": 8,
+  "cozinhaId": 2,
+  "nomeCozinha": "Cozinha Quente",
+  "status": "PENDENTE",
+  "tipoAcao": "CRIACAO",      (CRIACAO | MUDANCA_STATUS | CANCELAMENTO | OBSERVACAO_ADICIONADA)
+  "timestamp": "2026-03-01T10:30:00",
+  "itens": [
+    {
+      "produtoId": 3,
+      "nomeProduto": "Frango Grelhado",
+      "quantidade": 2,
+      "observacoes": "sem sal"
+    }
+  ],
+  "observacoes": "urgente"
+}
+
+FORMATO 2 — Map simples (evento especial PEDIDO_LIBERADO_AUTOMATICAMENTE):
+{
+  "tipo": "PEDIDO_LIBERADO_AUTOMATICAMENTE",
+  "pedidoId": 8,
+  "cozinhaId": 2,
+  "timestamp": "2026-03-01T10:30:00"
+}
+
+O frontend deve verificar a presença do campo "tipo" para distinguir os formatos.
+Se existir campo "tipo" com valor "PEDIDO_LIBERADO_AUTOMATICAMENTE" → Formato 2.
+Caso contrário → Formato 1 (usar campo "tipoAcao").
+
+PERGUNTA 4.4 — O backend emite sinal sonoro ou notificação push?
+----------------------------------------------------------------
+NÃO. O backend apenas envia a mensagem WebSocket.
+O sinal sonoro (beep, notificação push, etc.) é responsabilidade do frontend.
+
+PERGUNTA 4.5 — Existe associação explícita utilizador ↔ cozinha na base de dados?
+----------------------------------------------------------------------------------
+NÃO. Não existe campo cozinhaId no User nem tabela de associação.
+Ver GAP em 3.4 acima.
+
+================================================================================
+SECÇÃO 5 — WEBSOCKET
+================================================================================
+
+PERGUNTA 5.1 — Qual a URL de conexão WebSocket?
+------------------------------------------------
+  http://localhost:8080/api/ws
+  Usa SockJS (verificado em WebSocketConfig.java).
+
+  Exemplo com SockJS + STOMP:
+    const socket = new SockJS('http://localhost:8080/api/ws');
+    const stompClient = Stomp.over(socket);
+
+  Origins permitidos (configurados no servidor):
+    http://localhost:3000
+    http://localhost:4200
+
+  AVISO: Em produção o URL e os origins terão de ser actualizados.
+
+PERGUNTA 5.2 — É necessário enviar o JWT na conexão?
+----------------------------------------------------
+SIM. Enviar o token no cabeçalho CONNECT:
+
+  stompClient.connect(
+    { 'Authorization': 'Bearer ' + token },
+    function(frame) { ... }
+  );
+
+O backend valida o token JWT no handshake WebSocket.
+
+PERGUNTA 5.3 — O tópico do atendente inclui referenciaMesa e nomeProdutos?
+---------------------------------------------------------------------------
+⚠️ ATENÇÃO.
+
+O atendente recebe NotificacaoSubPedidoDTO (mesmo Formato 1 descrito em 4.2).
+O DTO NÃO contém:
+  - referenciaMesa   → NÃO existe no DTO
+  - nomeProdutos     → NÃO existe como campo; os produtos estão dentro do array itens[]
+
+Tópico do atendente: /topic/atendente/unidade/{unidadeId}
+(O unidadeId aqui refere-se à CozinhaId associada — verificar mapeamento)
+
+Outros tópicos disponíveis:
+  /topic/subpedido/{subPedidoId}  → actualizações de um subpedido específico
+  /topic/pedido/{pedidoId}        → actualizações de um pedido específico
+  /topic/gerente/pedidos          → todos os pedidos (para gerente)
+  /topic/gerente/alertas          → alertas financeiros
+
+PERGUNTA 5.4 — O backend envia o pedido completo actualizado em cada mudança?
+-----------------------------------------------------------------------------
+NÃO. O backend envia NotificacaoSubPedidoDTO (dados do subpedido, não do pedido completo).
+
+Se o frontend precisa do estado actualizado completo do pedido após uma mudança,
+deve fazer um novo GET:
+  GET /api/pedidos/{pedidoId}
+  ou
+  GET /api/subpedidos/pedido/{pedidoId}
+
+================================================================================
+SECÇÃO 6 — FUNDO DE CONSUMO
+================================================================================
+
+PERGUNTA 6.1 — Existe GET /api/fundos para listar todos os fundos?
+-------------------------------------------------------------------
+🔨 GAP — NÃO EXISTE.
+
+Verificado em FundoConsumoController.java. Os endpoints existentes são:
+  POST   /api/fundos/identificado          → criar fundo para cliente identificado
+  POST   /api/fundos/anonimo/{token}       → criar fundo anónimo por token de QR
+  GET    /api/fundos/{id}                  → obter fundo por ID
+  GET    /api/fundos/cliente/{clienteId}   → obter fundo de um cliente
+  GET    /api/fundos/{id}/historico        → histórico paginado de transacções
+  POST   /api/fundos/{id}/recarregar       → adicionar saldo
+  POST   /api/fundos/{id}/debitar          → debitar saldo manualmente
+  POST   /api/fundos/{id}/estornar/{transacaoId} → estornar transacção
+  PUT    /api/fundos/{id}/ativar           → activar fundo
+  PUT    /api/fundos/{id}/desativar        → desactivar fundo
+
+NÃO existe:
+  GET /api/fundos            → listagem geral (não implementado)
+
+PERGUNTA 6.2 — FundoConsumoResponse tem campo "tipo" (IDENTIFICADO/ANONIMO)?
+------------------------------------------------------------------------------
+⚠️ ATENÇÃO — NÃO EXISTE.
+
+Campos reais em FundoConsumoResponse.java:
+  - id
+  - saldoAtual
+  - ativo
+  - clienteId      (null se anónimo)
+  - tokenPortador
+  - createdAt
+  - updatedAt
+
+Para inferir o tipo:
+  - clienteId != null → IDENTIFICADO
+  - clienteId == null → ANONIMO
+
+🔨 GAP: O campo "tipo" terá de ser adicionado pelo backend, ou o frontend
+        terá de inferir pelo clienteId.
+
+PERGUNTA 6.3 — FundoConsumoResponse tem totalRecarregado e totalConsumido?
+---------------------------------------------------------------------------
+🔨 GAP — NÃO EXISTEM.
+
+Esses campos não estão em FundoConsumoResponse nem calculados no service.
+Para obter o histórico de recargas e consumos, use:
+  GET /api/fundos/{id}/historico?page=0&size=50
+
+A TransacaoFundoResponse tem campo "tipo" com valores:
+  CREDITO | DEBITO | ESTORNO
+
+O frontend pode somar os valores por tipo para calcular totais.
+
+PERGUNTA 6.4 — O histórico de transacções é paginado?
+------------------------------------------------------
+SIM. Endpoint:
+  GET /api/fundos/{id}/historico?page=0&size=20&sort=createdAt,desc
+  Retorna: Page<TransacaoFundoResponse>
+
+PERGUNTA 6.5 — POST /api/fundos/anonimo/{token} aceita saldoInicial no body?
+-----------------------------------------------------------------------------
+⚠️ ATENÇÃO — NÃO ACEITA.
+
+Este endpoint NÃO recebe body. Apenas o token no path.
+Cria um fundo com saldo zero e estado activo.
+
+Para adicionar saldo inicial, chamar logo depois:
+  POST /api/fundos/{id}/recarregar
+  Body: { "valor": 100.00, "observacoes": "Carga inicial" }
+
+PERGUNTA 6.6 — Quais os nomes dos campos de saldo em TransacaoFundoResponse?
+-----------------------------------------------------------------------------
+⚠️ ATENÇÃO — NOMES DIFERENTES DOS ASSUMIDOS.
+
+Campos reais em TransacaoFundoResponse.java:
+  - id
+  - tipo           (CREDITO | DEBITO | ESTORNO)
+  - valor
+  - saldoAnterior  (NÃO "saldoAntes")
+  - saldoNovo      (NÃO "saldoDepois")
+  - pedidoId       (pode ser null)
+  - observacoes
+  - createdAt
+
+Frontend deve usar "saldoAnterior" e "saldoNovo".
+
+================================================================================
+SECÇÃO 7 — QR CODE
+================================================================================
+
+PERGUNTA 7.1 — GET /api/qrcode/mesa/{mesaId} retorna array ou objecto único?
+------------------------------------------------------------------------------
+Retorna ARRAY (List<QrCodeResponse>).
+Uma mesa pode ter múltiplos QR codes (activo e histórico).
+O frontend deve filtrar o QR activo (ativo=true).
+
+PERGUNTA 7.2 — GET /api/qrcode/imagem/{token} pode ser usado como src de <img>?
+--------------------------------------------------------------------------------
+⚠️ ATENÇÃO — NÃO FUNCIONA DIRECTAMENTE COMO SRC.
+
+O endpoint /api/qrcode/imagem/{token} NÃO está na lista de URLs públicas
+(verificado em SecurityConfig.java — não aparece no permitAll).
+
+Isto significa que uma tag <img src="/api/qrcode/imagem/TOKEN"> falhará com
+HTTP 401, pois o browser não envia Authorization header em requisições <img>.
+
+Solução recomendada:
+  1. Usar fetch() com header Authorization, obter bytes da imagem,
+     criar Blob URL e atribuir ao src do <img>.
+  2. Ou pedir ao backend para adicionar /qrcode/imagem/** ao permitAll
+     (se acesso público for aceitável por design).
+
+Nota: o endpoint /qrcode/imagem/{token}/print requer role ATENDENTE|GERENTE|ADMIN
+e também não é público.
+
+PERGUNTA 7.3 — Existe endpoint /print para impressão 500×500?
+-------------------------------------------------------------
+SIM. Verificado em QrCodeController.java:
+  GET /api/qrcode/imagem/{token}/print
+  Retorna: imagem PNG 500×500 pixels
+  Segurança: ATENDENTE | GERENTE | ADMIN
+
+PERGUNTA 7.4 — POST /renovar usa POST ou PUT?
+--------------------------------------------
+Usa POST. Verificado em QrCodeController.java:
+  POST /api/qrcode/renovar/{token}
+  Segurança: GERENTE | ADMIN
+  Retorna: QrCodeResponse com novo token
+
+================================================================================
+SECÇÃO 8 — UTILIZADORES (CRUD)
+================================================================================
+
+PERGUNTA 8.1 — Todos os endpoints de CRUD de utilizadores existem?
+-------------------------------------------------------------------
+SIM. Verificados em UserController.java (todos requerem ROLE_ADMIN):
+  GET    /api/usuarios              → listar todos
+  GET    /api/usuarios/{id}         → obter por ID
+  POST   /api/usuarios              → criar utilizador
+  PUT    /api/usuarios/{id}         → actualizar utilizador
+  DELETE /api/usuarios/{id}         → eliminar utilizador
+  PATCH  /api/usuarios/{id}/senha   → alterar senha
+  PATCH  /api/usuarios/{id}/ativar  → activar utilizador
+  PATCH  /api/usuarios/{id}/desativar → desactivar utilizador
+
+PERGUNTA 8.2 — Qual o payload correcto para criar utilizador?
+-------------------------------------------------------------
+⚠️ ATENÇÃO — PAYLOAD DIFERENTE DO ASSUMIDO.
+
+Payload real (verificado em CriarUsuarioRequest.java):
+{
+  "username": "joao.silva",       (obrigatório, campo "username", NÃO "nome")
+  "senha": "senha123",            (obrigatório)
+  "email": "joao@email.com",      (OBRIGATÓRIO — validação @NotBlank)
+  "nomeCompleto": "João Silva",   (opcional)
+  "telefone": "244123456",        (opcional)
+  "roles": ["ROLE_ATENDENTE"]     (Set<Role> — usar prefixo ROLE_)
+}
+
+Roles válidas: ROLE_ADMIN, ROLE_GERENTE, ROLE_ATENDENTE, ROLE_COZINHA
+
+NÃO existem campos:
+  - nome               → usar "username" e/ou "nomeCompleto"
+  - role (singular)    → usar "roles" (plural, array)
+  - unidadeAtendimentoId → não existe
+
+PERGUNTA 8.3 — Como funciona um utilizador com ROLE_COZINHA?
+------------------------------------------------------------
+⚠️ ATENÇÃO — COMPORTAMENTO DIFERENTE DO ESPERADO.
+
+A role ROLE_COZINHA existe em Role.java e pode ser atribuída a um utilizador.
+O utilizador poderá fazer login normalmente via POST /api/auth/admin/login.
+
+PORÉM, o campo "tipoUsuario" na LoginAtendenteResponse (e UserResponse) usa
+o enum TipoUsuario que NÃO tem o valor COZINHA.
+Valores do TipoUsuario: CLIENTE | ATENDENTE | GERENTE | ADMIN
+
+Um utilizador com ROLE_COZINHA aparecerá com tipoUsuario=ATENDENTE.
+
+🔨 GAP: A interface de cozinha no frontend não tem rota/página própria baseada
+em tipoUsuario. O frontend terá de verificar o array "roles" no token JWT para
+detectar ROLE_COZINHA e redirigir para a interface de cozinha.
+
+PERGUNTA 8.4 — PATCH /api/usuarios/{id}/senha — qual o payload?
+---------------------------------------------------------------
+Payload: { "novaSenha": "novasenha123" }
+Segurança: ADMIN
+
+PERGUNTA 8.5 — Resetar senha por token de e-mail existe?
+---------------------------------------------------------
+NÃO implementado. O endpoint responde com HTTP 501 (Not Implemented).
+Usar PATCH /api/usuarios/{id}/senha por enquanto.
+
+PERGUNTA 8.6 — Os endpoints de ativar/desativar têm body?
+----------------------------------------------------------
+NÃO. São endpoints PATCH sem body.
+  PATCH /api/usuarios/{id}/ativar
+  PATCH /api/usuarios/{id}/desativar
+
+PERGUNTA 8.7 — Quais os campos em UserResponse?
+-----------------------------------------------
+⚠️ ATENÇÃO — CAMPOS DIFERENTES DOS ASSUMIDOS.
+
+Campos reais em UserResponse.java:
+  - id
+  - username         (NÃO "nome")
+  - email
+  - nomeCompleto     (NÃO "nome" — é separado do username)
+  - telefone
+  - roles            (Set<Role> — ex: ["ROLE_ATENDENTE"])  NÃO "tipoUsuario"
+  - ativo
+  - created_at
+  - updated_at
+  - ultimoAcesso
+
+Frontend que usa "nome" ou "tipoUsuario" receberá null.
+Usar "username" para o login name e "nomeCompleto" para o nome completo.
+
+================================================================================
+SECÇÃO 9 — AUTENTICAÇÃO E JWT
+================================================================================
+
+PERGUNTA 9.1 — As roles no JWT são array ou string?
+----------------------------------------------------
+⚠️ ATENÇÃO — É STRING, NÃO ARRAY.
+
+Verificado em JwtTokenProvider.java:
+  claims.put("roles", roles.stream()
+      .map(Role::name)
+      .collect(Collectors.joining(",")));
+
+Exemplo de claim "roles" no JWT:
+  "roles": "ROLE_ATENDENTE"              (uma role)
+  "roles": "ROLE_ATENDENTE,ROLE_COZINHA" (múltiplas roles)
+
+O frontend deve fazer split(",") para obter o array de roles.
+
+PERGUNTA 9.2 — O token está em data.token ou data.access_token?
+---------------------------------------------------------------
+⚠️ ATENÇÃO — ESTÁ EM data.token.
+
+Verificado em LoginAtendenteResponse.java:
+  campo: "token"   (NÃO "access_token")
+
+Estrutura da resposta de login:
+{
+  "success": true,
+  "message": "Login realizado com sucesso",
+  "data": {
+    "id": 1,
+    "nome": "João Admin",
+    "telefone": null,
+    "email": "admin@restaurante.com",
+    "tipoUsuario": "ADMIN",
+    "token": "eyJhbGci...",    ← AQUI
+    "expiresIn": 3600000
+  }
+}
+
+PERGUNTA 9.3 — Existe endpoint de refresh token?
+------------------------------------------------
+NÃO. Não existe endpoint /auth/refresh ou similar.
+Quando o token expirar, o utilizador deve fazer novo login.
+O frontend deve redirigir para a página de login ao receber HTTP 401.
+
+PERGUNTA 9.4 — Qual a duração do JWT?
+--------------------------------------
+1 hora = 3.600.000 milissegundos.
+Verificado em application.properties: jwt.expiration=3600000
+O campo "expiresIn" na resposta de login contém esse valor em ms.
+
+PERGUNTA 9.5 — Qual o endpoint de login?
+-----------------------------------------
+  POST /api/auth/admin/login
+  Body: { "username": "admin", "senha": "password123" }
+  Não requer autenticação.
+
+================================================================================
+SECÇÃO 10 — DASHBOARD
+================================================================================
+
+PERGUNTA 10.1 — Qual o nome do campo de nome do produto em DashboardTopProductResponse?
+----------------------------------------------------------------------------------------
+⚠️ ATENÇÃO — CAMPO É "nome", NÃO "nomeProduto".
+
+Campos reais em DashboardTopProductResponse.java:
+  - produtoId
+  - nome              (NÃO "nomeProduto")
+  - quantidadeVendida
+  - valorTotal
+  - categoria
+
+PERGUNTA 10.2 — Os endpoints de dashboard suportam filtro por período?
+----------------------------------------------------------------------
+NÃO. Verificado em DashboardController.java.
+
+Endpoints disponíveis:
+  GET /api/dashboard/stats
+    Retorna: totais gerais (sem filtro de data)
+
+  GET /api/dashboard/activity?limit=10
+    Retorna: últimas N actividades (limit é opcional, default 10)
+
+  GET /api/dashboard/top-products?limit=5
+    Retorna: top N produtos mais vendidos (limit é opcional, default 5)
+
+🔨 GAP: Não existem parâmetros ?dataInicio= ?dataFim= nem ?periodo=.
+        Para adicionar filtro por período, é necessário trabalho no backend.
+
+================================================================================
+SECÇÃO 11 — CONFIGURAÇÕES FINANCEIRAS
+================================================================================
+
+PERGUNTA 11.1 — O limite pós-pago é actualizado via query param ou body?
+-------------------------------------------------------------------------
+Via QUERY PARAM. Verificado em ConfiguracaoFinanceiraController.java:
+  PUT /api/configuracoes-financeiras/pos-pago/limite?novoLimite=5000.00&motivo=Revisao%20mensal
+
+  Segurança: ADMIN
+
+PERGUNTA 11.2 — O valorMinimoOperacao aplica-se a recargas ou a pedidos?
+------------------------------------------------------------------------
+Aplica-se a RECARGAS de fundo de consumo.
+Validado em FundoConsumoService antes de processar uma recarga.
+
+PERGUNTA 11.3 — Quais os campos reais em ConfiguracaoFinanceiraSistema?
+------------------------------------------------------------------------
+Verificado em ConfiguracaoFinanceiraSistema.java (entidade JPA):
+  - id
+  - posPagoAtivo          (Boolean)
+  - limitePosPago         (BigDecimal, default 500.00)
+  - valorMinimoOperacao   (BigDecimal, default 10.00)
+  - atualizadoPorNome     (String — nome do último utilizador que actualizou)
+  - atualizadoPorRole     (String — role do último utilizador que actualizou)
+  - motivoUltimaAlteracao (String)
+  - createdAt             (herdado da entidade base)
+  - updatedAt             (herdado da entidade base)
+
+GET /api/configuracoes-financeiras retorna esta entidade directamente.
+
+PERGUNTA 11.4 — É possível activar/desactivar pós-pago?
+--------------------------------------------------------
+SIM:
+  PUT /api/configuracoes-financeiras/pos-pago/ativar    → activa
+  PUT /api/configuracoes-financeiras/pos-pago/desativar → desactiva
+  Segurança: ADMIN
+
+================================================================================
+SECÇÃO 12 — MESAS E UNIDADES DE CONSUMO
+================================================================================
+
+PERGUNTA 12.1 — MesaResponse tem campo "ativa" (activo/inactivo)?
+------------------------------------------------------------------
+SIM. Campo "ativa" (Boolean) existe em MesaResponse.java.
+
+PERGUNTA 12.2 — Quais os valores possíveis do campo "status" em MesaResponse?
+------------------------------------------------------------------------------
+⚠️ ATENÇÃO — APENAS DOIS VALORES, NÃO TRÊS.
+
+O status é um campo DERIVADO (calculado no serviço, não guardado na BD).
+Valores possíveis:
+  "DISPONIVEL"  → sem sessão de consumo activa
+  "OCUPADA"     → tem sessão de consumo activa
+
+NÃO existe o valor "AGUARDANDO_PAGAMENTO" no MesaResponse.
+Se o frontend usa esse valor, o display estará sempre errado para mesas nesse estado.
+
+🔨 GAP: Se "AGUARDANDO_PAGAMENTO" for necessário, é preciso:
+        1. Adicionar lógica de detecção no backend (ex: sessão activa com pedido FINALIZADO mas não pago)
+        2. Adicionar esse valor ao status derivado
+
+PERGUNTA 12.3 — GET /api/mesas e GET /api/unidades-consumo são o mesmo recurso?
+--------------------------------------------------------------------------------
+NÃO. São recursos distintos:
+
+  GET /api/mesas
+    → Lista Mesa[], cada mesa tem: id, numero, referencia, descricao, ativa, status, qrCodes[]
+
+  GET /api/unidades-consumo
+    → Lista UnidadeDeConsumo[], que são as cozinhas (ex: "Cozinha Quente", "Bar", etc.)
+      Cada unidade tem: id, nome, tipo, ativa
+
+O frontend que usa "mesas" para listar as cozinhas está a usar o endpoint errado.
+
+================================================================================
+SECÇÃO 13 — SESSÃO DE CONSUMO
+================================================================================
+
+PERGUNTA 13.1 — Como abrir uma sessão de consumo?
+--------------------------------------------------
+  POST /api/sessoes-consumo/abrir
+  Body:
+  {
+    "mesaId": 1,
+    "telefoneCliente": "244900000001"  (opcional — se omitido, cria sessão anónima)
+  }
+  Segurança: ATENDENTE | GERENTE | ADMIN
+
+  Se telefoneCliente for fornecido, o sistema busca ou cria o cliente automaticamente.
+
+PERGUNTA 13.2 — Como fechar uma sessão?
+----------------------------------------
+  POST /api/sessoes-consumo/{id}/fechar
+  Segurança: ATENDENTE | GERENTE | ADMIN
+
+PERGUNTA 13.3 — Como listar sessões activas?
+---------------------------------------------
+  GET /api/sessoes-consumo/ativas
+  Segurança: ATENDENTE | GERENTE | ADMIN
+  Retorna: List<SessaoConsumoResponse>
+
+================================================================================
+SECÇÃO 14 — SWAGGER / AMBIENTES
+================================================================================
+
+PERGUNTA 14.1 — Swagger está disponível?
+-----------------------------------------
+SIM. URL:
+  http://localhost:8080/api/swagger-ui/index.html
+
+O Swagger está protegido por autenticação em produção?
+Em perfil dev: acessível (permitAll para /swagger-ui/** e /v3/api-docs/**)
+Em produção: verificar SecurityConfig — pode requerer autenticação dependendo da configuração.
+
+PERGUNTA 14.2 — Quais os ambientes disponíveis?
+------------------------------------------------
+  Desenvolvimento local:
+    API base: http://localhost:8080/api
+    H2 console: http://localhost:8080/api/h2-console
+    Perfil: dev (application-dev.properties)
+
+  Staging / Produção:
+    Não configurado. URL será definido quando o deploy for efectuado.
+    A configuração de produção usará PostgreSQL (datasource a ser configurada).
+
+PERGUNTA 14.3 — Como iniciar o servidor localmente?
+----------------------------------------------------
+  mvn spring-boot:run -Dspring-boot.run.profiles=dev -Dmaven.test.skip=true
+
+  Porta: 8080
+  Modo: H2 em memória, dados seed carregados via DataSeeder.java
+
+================================================================================
+RESUMO DAS DISCREPÂNCIAS CRÍTICAS (PRIORIDADE ALTA)
+================================================================================
+
+A tabela abaixo lista apenas as diferenças que causam bugs imediatos:
+
+  #  | Campo / Endpoint                    | Assumido pelo Frontend       | Realidade no Backend
+  ---|-------------------------------------|------------------------------|---------------------------
+  1  | Token no login                      | data.access_token            | data.token
+  2  | Roles no JWT                        | array ["ROLE_ADMIN"]         | string "ROLE_ADMIN"
+  3  | PedidoResponse.tipoPagamento        | existe                       | NÃO EXISTE no DTO
+  4  | PedidoResponse.statusFinanceiro     | existe                       | NÃO EXISTE no DTO
+  5  | PedidoResponse.subPedidos[]         | existe                       | NÃO EXISTE no DTO
+  6  | SubPedidoResponse.criadoEm          | usa "criadoEm"               | campo é "recebidoEm"
+  7  | SubPedidoResponse.assumidoEm        | usa "assumidoEm"             | campo é "iniciadoEm"
+  8  | TransacaoFundoResponse.saldoAntes   | usa "saldoAntes"             | campo é "saldoAnterior"
+  9  | TransacaoFundoResponse.saldoDepois  | usa "saldoDepois"            | campo é "saldoNovo"
+  10 | UserResponse.nome                   | usa "nome"                   | campos são "username" e "nomeCompleto"
+  11 | UserResponse.tipoUsuario            | usa "tipoUsuario"            | campo é "roles" (Set<Role>)
+  12 | DashboardTopProduct.nomeProduto     | usa "nomeProduto"            | campo é "nome"
+  13 | CriarUsuario.nome                   | envia "nome"                 | campo é "username"
+  14 | CriarUsuario.role (singular)        | envia "role": "ATENDENTE"    | campo é "roles": ["ROLE_ATENDENTE"]
+  15 | FundoConsumo.tipo                   | usa "tipo"                   | NÃO EXISTE no DTO
+  16 | SaldoInsuficiente HTTP status       | espera 422                   | retorna 400
+  17 | GET /api/fundos (listagem)          | chama endpoint               | endpoint NÃO EXISTE
+  18 | <img src=/qrcode/imagem/TOKEN>      | funciona                     | requer Auth header (401 sem token)
+  19 | MesaResponse.status AGUARDANDO_PAG  | valor aceite                 | valor NÃO EXISTE (só DISPONIVEL|OCUPADA)
+  20 | POST /fundos/anonimo/{token} body   | envia saldoInicial           | endpoint NÃO tem body
+
+================================================================================
+RESUMO DAS LACUNAS ARQUITECTURAIS (REQUEREM TRABALHO NO BACKEND)
+================================================================================
+
+  GAP-1  GET /api/fundos — listagem geral não implementada
+  GAP-2  FundoConsumoResponse — faltam campos: tipo, totalRecarregado, totalConsumido
+  GAP-3  PedidoResponse — faltam campos: tipoPagamento, statusFinanceiro, subPedidos[]
+  GAP-4  Utilizador ↔ Cozinha — sem associação: login não retorna cozinhaId
+  GAP-5  MesaResponse.status — valor AGUARDANDO_PAGAMENTO não implementado
+  GAP-6  Dashboard — sem filtro por período (dataInicio/dataFim)
+  GAP-7  Reset de senha por token de e-mail — 501 Not Implemented
+  GAP-8  /qrcode/imagem/{token} — não está em permitAll, bloqueia uso como <img src>
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================

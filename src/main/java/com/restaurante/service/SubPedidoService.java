@@ -164,7 +164,7 @@ public class SubPedidoService {
      */
     @Transactional(readOnly = true)
     public SubPedido buscarPorId(Long id) {
-        return subPedidoRepository.findById(id)
+        return subPedidoRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("SubPedido não encontrado"));
     }
 

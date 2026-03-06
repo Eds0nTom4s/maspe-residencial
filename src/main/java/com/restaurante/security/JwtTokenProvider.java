@@ -36,6 +36,10 @@ public class JwtTokenProvider {
     @Value("${jwt.refresh-expiration:604800000}") // 7 dias em ms
     private long jwtRefreshExpiration;
 
+    public long getExpirationMs() {
+        return jwtExpiration;
+    }
+
     /**
      * Gera token JWT a partir da autenticação
      */

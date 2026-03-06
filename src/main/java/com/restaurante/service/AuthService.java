@@ -9,6 +9,7 @@ import com.restaurante.dto.response.LoginAtendenteResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.Atendente;
 import com.restaurante.model.entity.User;
+import com.restaurante.model.enums.TipoUsuario;
 import com.restaurante.repository.AtendenteRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.JwtTokenProvider;
@@ -189,77 +190,120 @@ public class AuthService {
     }
     
     /**
-     * Login para Atendente/Gerente usando telefone + senha
+     * Login para Atendente/Gerente/Admin.
+     * Aceita username (User entity) ou telefone (Atendente entity — legado).
      */
     @Transactional(readOnly = true)
     public LoginAtendenteResponse loginAtendente(LoginAtendenteRequest request) {
-        log.info("=== SERVICE: Processando login Atendente ===");
-        log.info("Telefone recebido: {}", request.getTelefone());
-        log.info("Senha length: {}", request.getSenha() != null ? request.getSenha().length() : 0);
-        
+        log.info("=== SERVICE: Processando login ===");
+
+        // Validação mínima: username ou telefone é obrigatório
+        if ((request.getUsername() == null || request.getUsername().isBlank())
+                && (request.getTelefone() == null || request.getTelefone().isBlank())) {
+            throw new BusinessException("Informe username ou telefone para fazer login");
+        }
+
         try {
-            // Busca atendente por telefone
-            log.debug("Buscando atendente no banco de dados...");
-            
-            // Normaliza o telefone antes de buscar
-            String telefoneParaBuscar = request.getTelefone();
-            try {
-                telefoneParaBuscar = PhoneNumberUtil.normalize(request.getTelefone());
-                log.info("Telefone normalizado: {} -> {}", request.getTelefone(), telefoneParaBuscar);
-            } catch (IllegalArgumentException e) {
-                log.warn("Erro ao normalizar telefone: {} - {}", request.getTelefone(), e.getMessage());
+            // --- Autenticação via User (username) ---
+            if (request.getUsername() != null && !request.getUsername().isBlank()) {
+                return loginPorUsername(request);
             }
-            
-            final String telefoneNormalizado = telefoneParaBuscar;
-            
-            Atendente atendente = atendenteRepository.findByTelefoneAndAtivoTrue(telefoneNormalizado)
-                .orElseThrow(() -> {
-                    log.warn("Telefone não encontrado ou atendente inativo: {} (normalizado: {})", 
-                             request.getTelefone(), telefoneNormalizado);
-                    return new BusinessException("Telefone ou senha inválidos");
-                });
-            
-            log.info("Atendente encontrado: ID={}, Nome={}, Tipo={}", 
-                     atendente.getId(), atendente.getNome(), atendente.getTipoUsuario());
-        
-            // Valida senha
-            log.debug("Validando senha...");
-            if (!passwordEncoder.matches(request.getSenha(), atendente.getSenha())) {
-                log.warn("Senha incorreta para telefone: {}", request.getTelefone());
-                throw new BusinessException("Telefone ou senha inválidos");
-            }
-            log.info("Senha validada com sucesso");
-            
-            // Gera token JWT com role
-            log.debug("Gerando token JWT...");
-            String role = "ROLE_" + atendente.getTipoUsuario().name();
-            log.info("Role atribuída: {}", role);
-            
-            String token = jwtTokenProvider.generateToken(
-                atendente.getTelefone(),
-                role
-            );
-            
-            log.info("Login atendente concluído com sucesso: {} ({})", atendente.getNome(), atendente.getTipoUsuario());
-            log.info("Token gerado com sucesso (length: {})", token != null ? token.length() : 0);
-            
-            return LoginAtendenteResponse.builder()
-                .id(atendente.getId())
-                .nome(atendente.getNome())
-                .telefone(atendente.getTelefone())
-                .email(atendente.getEmail())
-                .tipoUsuario(atendente.getTipoUsuario())
-                .token(token)
-                .expiresIn(86400L) // 24 horas em segundos
-                .build();
+            // --- Autenticação via Atendente (telefone) — modo legado ---
+            return loginPorTelefone(request);
+
         } catch (BusinessException e) {
-            log.error("Erro de negócio no login atendente: {}", e.getMessage());
+            log.error("Erro de negócio no login: {}", e.getMessage());
             throw e;
         } catch (Exception e) {
-            log.error("Erro inesperado no login atendente para telefone: {}", request.getTelefone(), e);
-            log.error("Tipo de erro: {}", e.getClass().getName());
+            log.error("Erro inesperado no login: {}", e.getMessage(), e);
             throw new BusinessException("Erro ao processar login");
         }
+    }
+
+    private LoginAtendenteResponse loginPorUsername(LoginAtendenteRequest request) {
+        log.info("Autenticando via username: {}", request.getUsername());
+
+        User user = userRepository.findByUsername(request.getUsername())
+            .filter(u -> Boolean.TRUE.equals(u.getAtivo()))
+            .orElseThrow(() -> {
+                log.warn("Username não encontrado ou inactivo: {}", request.getUsername());
+                return new BusinessException("Credenciais inválidas");
+            });
+
+        if (!passwordEncoder.matches(request.getSenha(), user.getPassword())) {
+            log.warn("Senha incorrecta para username: {}", request.getUsername());
+            throw new BusinessException("Credenciais inválidas");
+        }
+
+        // Roles separadas por vírgula para o JWT
+        String rolesStr = user.getRoles().stream()
+            .map(Enum::name)
+            .reduce((a, b) -> a + "," + b)
+            .orElse("ROLE_ATENDENTE");
+
+        String token = jwtTokenProvider.generateToken(user.getUsername(), rolesStr);
+
+        // Deriva TipoUsuario da role principal
+        TipoUsuario tipoUsuario = user.getRoles().stream()
+            .map(role -> {
+                switch (role.name()) {
+                    case "ROLE_ADMIN":     return TipoUsuario.ADMIN;
+                    case "ROLE_GERENTE":   return TipoUsuario.GERENTE;
+                    default:               return TipoUsuario.ATENDENTE;
+                }
+            })
+            .findFirst()
+            .orElse(TipoUsuario.ATENDENTE);
+
+        log.info("Login por username concluído: {} ({})", user.getUsername(), tipoUsuario);
+
+        return LoginAtendenteResponse.builder()
+            .id(user.getId())
+            .nome(user.getNomeCompleto() != null ? user.getNomeCompleto() : user.getUsername())
+            .telefone(user.getTelefone())
+            .email(user.getEmail())
+            .tipoUsuario(tipoUsuario)
+            .token(token)
+            .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
+            .build();
+    }
+
+    private LoginAtendenteResponse loginPorTelefone(LoginAtendenteRequest request) {
+        log.info("Autenticando via telefone: {}", request.getTelefone());
+
+        String telefoneParaBuscar = request.getTelefone();
+        try {
+            telefoneParaBuscar = PhoneNumberUtil.normalize(request.getTelefone());
+        } catch (IllegalArgumentException e) {
+            log.warn("Erro ao normalizar telefone: {}", e.getMessage());
+        }
+        final String telefoneNorm = telefoneParaBuscar;
+
+        Atendente atendente = atendenteRepository.findByTelefoneAndAtivoTrue(telefoneNorm)
+            .orElseThrow(() -> {
+                log.warn("Telefone não encontrado ou atendente inactivo: {}", telefoneNorm);
+                return new BusinessException("Credenciais inválidas");
+            });
+
+        if (!passwordEncoder.matches(request.getSenha(), atendente.getSenha())) {
+            log.warn("Senha incorrecta para telefone: {}", request.getTelefone());
+            throw new BusinessException("Credenciais inválidas");
+        }
+
+        String role = "ROLE_" + atendente.getTipoUsuario().name();
+        String token = jwtTokenProvider.generateToken(atendente.getTelefone(), role);
+
+        log.info("Login por telefone concluído: {} ({})", atendente.getNome(), atendente.getTipoUsuario());
+
+        return LoginAtendenteResponse.builder()
+            .id(atendente.getId())
+            .nome(atendente.getNome())
+            .telefone(atendente.getTelefone())
+            .email(atendente.getEmail())
+            .tipoUsuario(atendente.getTipoUsuario())
+            .token(token)
+            .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
+            .build();
     }
 }
 

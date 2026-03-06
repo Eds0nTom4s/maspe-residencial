@@ -1,0 +1,121 @@
+================================================================================
+  ⚠️  CORREÇÃO URGENTE — PAYLOAD DE LOGIN INCORRETO NO FRONTEND
+  Data: 06/03/2026 | Prioridade: CRÍTICA
+================================================================================
+
+PROBLEMA IDENTIFICADO
+---------------------
+O frontend está a enviar o campo ERRADO no payload de login.
+
+Payload actual (ERRADO):
+  {
+    "telefone": "cozinha",
+    "senha": "cozinha123"
+  }
+
+Erro no backend:
+  HTTP 400 - "Credenciais inválidas"
+
+CAUSA RAIZ
+----------
+"cozinha" é um USERNAME, NÃO um telefone.
+
+O backend agora aceita DOIS campos diferentes no LoginAtendenteRequest:
+  1. username (String) — para autenticação via User entity
+  2. telefone (String) — para autenticação via Atendente entity (modo legado)
+
+Quando o frontend envia `telefone: "cozinha"`, o backend tenta fazer:
+  → buscar Atendente com telefone="cozinha"
+  → não encontra (porque "cozinha" não é um número de telefone válido)
+  → retorna "Credenciais inválidas"
+
+CORREÇÃO NECESSÁRIA NO FRONTEND
+--------------------------------
+
+FICHEIRO: api.js (ou onde o login é chamado)
+
+ANTES (errado):
+  axios.post('/api/auth/admin/login', {
+    telefone: formData.username,  // ❌ campo errado
+    senha: formData.senha
+  })
+
+DEPOIS (correcto):
+  axios.post('/api/auth/admin/login', {
+    username: formData.username,  // ✅ campo correcto
+    senha: formData.senha
+  })
+
+OU se o formulário já usa "telefone" como variável:
+
+  // Se o valor for um username (texto sem +244), usar "username"
+  // Se o valor for um telefone (começa com +244 ou é numérico), usar "telefone"
+  
+  const payload = {};
+  if (formData.telefone.startsWith('+244') || /^\d+$/.test(formData.telefone)) {
+    payload.telefone = formData.telefone;
+  } else {
+    payload.username = formData.telefone;
+  }
+  payload.senha = formData.senha;
+  
+  axios.post('/api/auth/admin/login', payload)
+
+CREDENCIAIS CORRECTAS
+----------------------
+Para testar após a correcção:
+
+Utilizadores via username (User entity):
+  { "username": "admin",      "senha": "admin123" }      → ROLE_ADMIN
+  { "username": "gerente",    "senha": "gerente123" }    → ROLE_GERENTE
+  { "username": "atendente",  "senha": "atendente123" }  → ROLE_ATENDENTE
+  { "username": "cozinha",    "senha": "cozinha123" }    → ROLE_COZINHA
+
+Utilizadores via telefone (Atendente entity — legado):
+  { "telefone": "900000001",  "senha": "admin123" }      → ADMIN
+  { "telefone": "900000002",  "senha": "gerente123" }    → GERENTE
+  { "telefone": "900000003",  "senha": "atendente123" }  → ATENDENTE
+
+TESTE RÁPIDO
+------------
+Após aplicar a correcção, testar no browser console:
+
+fetch('http://localhost:8080/api/auth/admin/login', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ username: 'cozinha', senha: 'cozinha123' })
+})
+.then(r => r.json())
+.then(console.log)
+
+Resposta esperada:
+{
+  "success": true,
+  "message": "Login realizado com sucesso",
+  "data": {
+    "id": 4,
+    "nome": "Utilizador Cozinha",
+    "telefone": "+244945678901",
+    "email": "cozinha@restaurante.ao",
+    "tipoUsuario": "ATENDENTE",  ← nota: COZINHA usa tipoUsuario ATENDENTE
+    "token": "eyJhbGci...",
+    "expiresIn": 3600
+  }
+}
+
+NOTA IMPORTANTE
+---------------
+A role ROLE_COZINHA existe e está no JWT (campo "roles" como string).
+O campo "tipoUsuario" na resposta será "ATENDENTE" porque o enum TipoUsuario
+não tem valor COZINHA (apenas CLIENTE, ATENDENTE, GERENTE, ADMIN).
+
+Para detectar utilizadores de cozinha no frontend:
+  1. Fazer decode do JWT token
+  2. Verificar se roles.includes('ROLE_COZINHA')
+  3. Redirigir para interface de cozinha
+
+NÃO usar tipoUsuario === 'COZINHA' (não existe).
+
+================================================================================
+FIM
+================================================================================

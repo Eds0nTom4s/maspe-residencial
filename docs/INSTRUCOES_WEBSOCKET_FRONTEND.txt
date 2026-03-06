@@ -1,0 +1,243 @@
+================================================================================
+  ⚠️  CORREÇÃO — URL DO WEBSOCKET COM SOCKJS
+  Data: 06/03/2026 | Prioridade: ALTA
+================================================================================
+
+ERRO ACTUAL NO FRONTEND
+------------------------
+Erro ao carregar pedidos: SyntaxError: The URL's scheme must be either 
+'http:' or 'https:'. 'ws:' is not allowed.
+    SockJS main.js:73
+
+CAUSA RAIZ
+----------
+O frontend está a tentar conectar ao WebSocket usando:
+  ws://localhost:8080/api/ws    ❌ ERRADO
+
+SockJS não aceita URLs com scheme ws:// ou wss:// directamente.
+SockJS espera um URL HTTP/HTTPS e faz o upgrade para WebSocket internamente.
+
+CORREÇÃO NECESSÁRIA
+--------------------
+
+FICHEIRO: websocket.js (ou onde a conexão WebSocket é criada)
+
+ANTES (errado):
+  const socket = new SockJS('ws://localhost:8080/api/ws');
+  const stompClient = Stomp.over(socket);
+
+DEPOIS (correcto):
+  const socket = new SockJS('http://localhost:8080/api/ws');  // ← HTTP, não WS
+  const stompClient = Stomp.over(socket);
+
+IMPORTANTE:
+  - Use http:// em desenvolvimento
+  - Use https:// em produção
+  - SockJS faz o upgrade para ws:// ou wss:// automaticamente
+
+CONFIGURAÇÃO COMPLETA DO WEBSOCKET PARA COZINHA
+------------------------------------------------
+
+import SockJS from 'sockjs-client';
+import { Stomp } from '@stomp/stompjs';
+
+export function connectWebSocket(cozinhaId, token) {
+  // 1. Criar socket SockJS com URL HTTP (não WS)
+  const socket = new SockJS('http://localhost:8080/api/ws');
+  
+  // 2. Criar cliente STOMP sobre o socket
+  const stompClient = Stomp.over(socket);
+  
+  // 3. Desabilitar logs de debug (opcional)
+  stompClient.debug = () => {};
+  
+  // 4. Conectar com token JWT no header
+  stompClient.connect(
+    { 'Authorization': 'Bearer ' + token },
+    
+    // Callback de sucesso
+    (frame) => {
+      console.log('✅ WebSocket conectado:', frame);
+      
+      // 5. Subscrever ao tópico da cozinha
+      stompClient.subscribe(
+        `/topic/cozinha/${cozinhaId}`,
+        (message) => {
+          const data = JSON.parse(message.body);
+          console.log('📩 Nova mensagem da cozinha:', data);
+          
+          // Verificar formato da mensagem
+          if (data.tipo === 'PEDIDO_LIBERADO_AUTOMATICAMENTE') {
+            // Formato 2: evento especial
+            handlePedidoLiberado(data);
+          } else if (data.tipoAcao) {
+            // Formato 1: NotificacaoSubPedidoDTO
+            handleNotificacaoSubPedido(data);
+          }
+        },
+        { 'Authorization': 'Bearer ' + token }
+      );
+    },
+    
+    // Callback de erro
+    (error) => {
+      console.error('❌ Erro na conexão WebSocket:', error);
+    }
+  );
+  
+  return stompClient;
+}
+
+function handleNotificacaoSubPedido(notificacao) {
+  // Formato 1: criação, mudança de status, cancelamento
+  console.log('SubPedido ID:', notificacao.subPedidoId);
+  console.log('Tipo Ação:', notificacao.tipoAcao);
+  console.log('Status:', notificacao.status);
+  console.log('Itens:', notificacao.itens);
+  
+  // Adicionar ou atualizar subpedido na lista
+  // ...
+}
+
+function handlePedidoLiberado(evento) {
+  // Formato 2: pedido liberado automaticamente
+  console.log('Pedido ID:', evento.pedidoId);
+  console.log('Cozinha ID:', evento.cozinhaId);
+  
+  // Mostrar notificação
+  // ...
+}
+
+TÓPICOS DISPONÍVEIS NO BACKEND
+-------------------------------
+
+Para COZINHA:
+  /topic/cozinha/{cozinhaId}
+  → recebe NotificacaoSubPedidoDTO quando novos subpedidos chegam
+  → recebe eventos de PEDIDO_LIBERADO_AUTOMATICAMENTE
+
+Para ATENDENTE:
+  /topic/atendente/unidade/{unidadeId}
+  → recebe notificações de mudanças de status dos subpedidos
+
+Para GERENTE:
+  /topic/gerente/pedidos
+  /topic/gerente/alertas
+  → recebe todos os pedidos e alertas financeiros
+
+Para acompanhar UM subpedido específico:
+  /topic/subpedido/{subPedidoId}
+  → notificações só desse subpedido
+
+Para acompanhar UM pedido específico:
+  /topic/pedido/{pedidoId}
+  → notificações só desse pedido
+
+ESTRUTURA DAS MENSAGENS
+------------------------
+
+FORMATO 1 — NotificacaoSubPedidoDTO (normal):
+{
+  "subPedidoId": 15,
+  "pedidoId": 8,
+  "cozinhaId": 2,
+  "nomeCozinha": "Cozinha Quente",
+  "status": "PENDENTE",
+  "tipoAcao": "CRIACAO",     // CRIACAO | MUDANCA_STATUS | CANCELAMENTO | OBSERVACAO_ADICIONADA
+  "timestamp": "2026-03-06T10:30:00",
+  "itens": [
+    {
+      "produtoId": 3,
+      "nomeProduto": "Frango Grelhado",
+      "quantidade": 2,
+      "observacoes": "sem sal"
+    }
+  ],
+  "observacoes": "urgente"
+}
+
+FORMATO 2 — Evento especial:
+{
+  "tipo": "PEDIDO_LIBERADO_AUTOMATICAMENTE",
+  "pedidoId": 8,
+  "cozinhaId": 2,
+  "timestamp": "2026-03-06T10:30:00"
+}
+
+VALORES POSSÍVEIS DE STATUS (SubPedido):
+  - PENDENTE
+  - RECEBIDO
+  - EM_PREPARACAO
+  - PRONTO
+  - ENTREGUE
+  - CANCELADO
+
+VALORES POSSÍVEIS DE tipoAcao:
+  - CRIACAO              → novo subpedido criado
+  - MUDANCA_STATUS       → status mudou (ex: PENDENTE → EM_PREPARACAO)
+  - CANCELAMENTO         → subpedido cancelado
+  - OBSERVACAO_ADICIONADA → nova observação adicionada
+
+DESCONEXÃO LIMPA
+----------------
+
+Quando o componente for desmontado:
+
+onUnmounted(() => {
+  if (stompClient && stompClient.connected) {
+    stompClient.disconnect(() => {
+      console.log('🔌 WebSocket desconectado');
+    });
+  }
+});
+
+TRATAMENTO DE RECONEXÃO
+------------------------
+
+Se a conexão cair, reconectar automaticamente:
+
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+
+function connectWithRetry() {
+  connectWebSocket(cozinhaId, token)
+    .catch((error) => {
+      reconnectAttempts++;
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        console.log(`⏳ Tentando reconectar (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+        setTimeout(connectWithRetry, 3000 * reconnectAttempts); // backoff exponencial
+      } else {
+        console.error('❌ Falha ao conectar após múltiplas tentativas');
+      }
+    });
+}
+
+TESTE RÁPIDO NO BROWSER CONSOLE
+--------------------------------
+
+Para testar a conexão WebSocket no console:
+
+const socket = new SockJS('http://localhost:8080/api/ws');
+const stomp = Stomp.over(socket);
+stomp.connect(
+  { 'Authorization': 'Bearer SEU_TOKEN_AQUI' },
+  () => {
+    console.log('Conectado!');
+    stomp.subscribe('/topic/cozinha/1', (msg) => console.log(JSON.parse(msg.body)));
+  }
+);
+
+CONFIGURAÇÃO PARA PRODUÇÃO
+---------------------------
+
+Em produção, usar HTTPS e obter o URL base do ambiente:
+
+const WS_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+const socket = new SockJS(`${WS_BASE_URL}/api/ws`);
+
+Exemplo .env.production:
+  VITE_API_BASE_URL=https://api.restaurante.ao
+
+================================================================================
+FIM
+================================================================================

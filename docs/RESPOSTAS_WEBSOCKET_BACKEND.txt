@@ -1,0 +1,428 @@
+================================================================================
+  RESPOSTAS ÀS QUESTÕES DA EQUIPA DO PAINEL DA COZINHA — WEBSOCKET
+  Data: 06/03/2026 | Verificado no código-fonte
+================================================================================
+
+DIAGNÓSTICO COMPLETO DO PROBLEMA HTTP 401 NO WEBSOCKET
+-------------------------------------------------------
+
+Após análise do código backend, foram identificados QUATRO problemas que causam
+o erro HTTP 401 no handshake do SockJS:
+
+  1. ❌ Endpoint WebSocket NÃO está em permitAll() no SecurityConfig
+  2. ❌ URL mismatch: backend registra /ws, frontend chama /api/ws
+  3. ❌ Origin http://localhost:3001 não está na lista de allowed origins
+  4. ❌ NÃO existe interceptor STOMP para validar JWT após o handshake
+
+================================================================================
+RESPOSTA QUESTÃO 1 — Configuração do Endpoint WebSocket
+================================================================================
+
+PERGUNTA:
+  O endpoint /api/ws está configurado para permitir o handshake do SockJS
+  sem autenticação?
+
+RESPOSTA: ❌ NÃO
+
+SITUAÇÃO ACTUAL (SecurityConfig.java, linhas 57-74):
+  .authorizeHttpRequests(auth -> auth
+      .requestMatchers("/api/auth/**", "/auth/**").permitAll()
+      .requestMatchers("/api/debug/**", "/debug/**").permitAll()
+      .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+      .requestMatchers("/actuator/**").permitAll()
+      .requestMatchers("/h2-console/**", "/api/h2-console/**").permitAll()
+      .requestMatchers("/error").permitAll()
+      .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+      .requestMatchers("/api/pagamentos/callback").permitAll()
+      .requestMatchers("/pagamentos/webhook").permitAll()
+      // ⚠️ FALTA: .requestMatchers("/ws/**", "/api/ws/**").permitAll()
+      .anyRequest().authenticated()
+  )
+
+❗ PROBLEMA PRINCIPAL:
+   O endpoint WebSocket NÃO está na lista de URLs públicas.
+   Qualquer requisição para /ws ou /api/ws requer autenticação JWT.
+   O handshake SockJS (GET /ws/info) não pode enviar header Authorization,
+   portanto falha com HTTP 401.
+
+✅ CORRECÇÃO NECESSÁRIA:
+   Adicionar ao SecurityConfig.java, ANTES de .anyRequest().authenticated():
+
+   .requestMatchers("/ws/**", "/api/ws/**").permitAll()
+
+   Isto permite o handshake HTTP do SockJS sem autenticação.
+   A autenticação será feita na camada STOMP (ver questão 3).
+
+================================================================================
+RESPOSTA QUESTÃO 2 — Configuração do WebSocketMessageBrokerConfigurer
+================================================================================
+
+PERGUNTA:
+  Como está configurado o registro do endpoint STOMP?
+  - O endpoint está registrado como /api/ws?
+  - O withSockJS() está habilitado?
+  - O CORS está permitindo http://localhost:3001?
+
+RESPOSTA (WebSocketConfig.java, linhas 30-37):
+
+  @Override
+  public void registerStompEndpoints(StompEndpointRegistry registry) {
+      registry.addEndpoint("/ws")    // ← registrado como /ws (SEM /api)
+              .setAllowedOrigins("http://localhost:3000", "http://localhost:4200")
+              .withSockJS();         // ← SockJS habilitado ✅
+  }
+
+ANÁLISE:
+
+  ✅ withSockJS() está habilitado
+
+  ❌ URL mismatch:
+     Backend registra:  /ws
+     Frontend chama:    /api/ws
+     Resultado: 404 Not Found (após resolver o 401)
+
+  ❌ Origin http://localhost:3001 NÃO está na lista:
+     Allowed origins actuais: ["http://localhost:3000", "http://localhost:4200"]
+     Frontend corre em:       http://localhost:3001
+     Resultado: CORS bloqueará a conexão
+
+✅ CORRECÇÃO NECESSÁRIA:
+
+  OPÇÃO A — Adicionar /api ao endpoint (RECOMENDADO):
+    registry.addEndpoint("/api/ws")
+            .setAllowedOrigins(
+                "http://localhost:3000",
+                "http://localhost:3001",   // ← adicionar
+                "http://localhost:4200",
+                "http://localhost:5173"    // ← adicionar Vue/Vite
+            )
+            .withSockJS();
+
+  OPÇÃO B — Frontend usar /ws em vez de /api/ws:
+    // frontend
+    const socket = new SockJS('http://localhost:8080/ws');  // sem /api
+
+  RECOMENDAÇÃO: usar OPÇÃO A para manter consistência (/api/* para todos os endpoints).
+
+================================================================================
+RESPOSTA QUESTÃO 3 — Autenticação no Nível STOMP
+================================================================================
+
+PERGUNTA:
+  Como o backend autentica as conexões STOMP após o handshake?
+  Existe um interceptor para validar o token JWT enviado no header CONNECT?
+
+RESPOSTA: ❌ NÃO EXISTE
+
+SITUAÇÃO ACTUAL:
+  Não existe classe que implemente ChannelInterceptor.
+  Não existe configuração de configureClientInboundChannel() no WebSocketConfig.
+
+  Resultado: Mesmo que o handshake funcione, o backend NÃO valida o JWT
+             enviado pelo cliente no CONNECT. Qualquer cliente pode subscrever
+             aos tópicos sem autenticação.
+
+⚠️ RISCO DE SEGURANÇA:
+   Sem validação JWT, qualquer usuário pode:
+   - Conectar ao WebSocket
+   - Subscrever /topic/cozinha/{id} de qualquer cozinha
+   - Receber pedidos de outras cozinhas
+   - Subscrever /topic/gerente/pedidos sem ser gerente
+
+✅ CORRECÇÃO NECESSÁRIA:
+
+   1. Criar classe JwtChannelInterceptor:
+
+   package com.restaurante.security;
+
+   import com.restaurante.exception.BusinessException;
+   import lombok.RequiredArgsConstructor;
+   import lombok.extern.slf4j.Slf4j;
+   import org.springframework.messaging.Message;
+   import org.springframework.messaging.MessageChannel;
+   import org.springframework.messaging.simp.stomp.StompCommand;
+   import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+   import org.springframework.messaging.support.ChannelInterceptor;
+   import org.springframework.messaging.support.MessageHeaderAccessor;
+   import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+   import org.springframework.security.core.Authentication;
+   import org.springframework.security.core.authority.SimpleGrantedAuthority;
+   import org.springframework.stereotype.Component;
+
+   import java.util.Arrays;
+   import java.util.List;
+   import java.util.stream.Collectors;
+
+   @Component
+   @RequiredArgsConstructor
+   @Slf4j
+   public class JwtChannelInterceptor implements ChannelInterceptor {
+
+       private final JwtTokenProvider jwtTokenProvider;
+
+       @Override
+       public Message<?> preSend(Message<?> message, MessageChannel channel) {
+           StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(
+               message, StompHeaderAccessor.class
+           );
+
+           if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
+               String authHeader = accessor.getFirstNativeHeader("Authorization");
+               
+               if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                   log.warn("WebSocket CONNECT sem token JWT");
+                   throw new BusinessException("Token JWT ausente ou inválido");
+               }
+
+               String token = authHeader.substring(7);
+               
+               if (!jwtTokenProvider.validateToken(token)) {
+                   log.warn("WebSocket CONNECT com token JWT inválido");
+                   throw new BusinessException("Token JWT inválido ou expirado");
+               }
+
+               String username = jwtTokenProvider.getUsernameFromToken(token);
+               String rolesStr = jwtTokenProvider.getRolesFromToken(token);
+               
+               List<SimpleGrantedAuthority> authorities = Arrays.stream(rolesStr.split(","))
+                   .map(SimpleGrantedAuthority::new)
+                   .collect(Collectors.toList());
+
+               Authentication auth = new UsernamePasswordAuthenticationToken(
+                   username, null, authorities
+               );
+               
+               accessor.setUser(auth);
+               log.info("WebSocket autenticado: {} | roles: {}", username, rolesStr);
+           }
+
+           return message;
+       }
+   }
+
+   2. Registrar o interceptor no WebSocketConfig:
+
+   @Configuration
+   @EnableWebSocketMessageBroker
+   @RequiredArgsConstructor
+   public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+
+       private final JwtChannelInterceptor jwtChannelInterceptor;
+
+       @Override
+       public void configureClientInboundChannel(ChannelRegistration registration) {
+           registration.interceptors(jwtChannelInterceptor);
+       }
+
+       // ... resto da configuração
+   }
+
+   3. Adicionar métodos ao JwtTokenProvider (se não existirem):
+
+   public String getRolesFromToken(String token) {
+       Claims claims = Jwts.parserBuilder()
+           .setSigningKey(getSigningKey())
+           .build()
+           .parseClaimsJws(token)
+           .getBody();
+       return claims.get("roles", String.class);
+   }
+
+================================================================================
+RESPOSTA QUESTÃO 4 — Token via Query Parameter
+================================================================================
+
+PERGUNTA:
+  Se não for possível permitir o handshake sem autenticação, o backend
+  suporta receber o token via query parameter?
+
+RESPOSTA: ❌ NÃO IMPLEMENTADO
+
+SITUAÇÃO ACTUAL:
+  Não existe HandshakeHandler customizado no WebSocketConfig.
+
+RECOMENDAÇÃO:
+  ❌ NÃO IMPLEMENTAR esta abordagem.
+  
+  RAZÃO: Passar token JWT no query parameter é má prática de segurança:
+    - Token aparece nos logs do servidor
+    - Token aparece no histórico do browser
+    - Token pode vazar via Referer header
+    - Viola princípios de segurança REST
+
+  ✅ SOLUÇÃO CORRECTA:
+     Permitir handshake sem autenticação + autenticar no CONNECT STOMP
+     (ver respostas questões 1 e 3)
+
+================================================================================
+RESPOSTA QUESTÃO 5 — Logs do Backend
+================================================================================
+
+PERGUNTA:
+  Podem partilhar os logs do backend quando a requisição /api/ws/info chega?
+
+RESPOSTA:
+  Verificando logs/startup.log (ficheiro binário, usando grep -a):
+
+  2026-03-06T17:28:17.450+01:00  WARN 149332 --- [nio-8080-exec-1] 
+  c.r.s.JwtSecurityExceptionHandlers : 
+  Tentativa de acesso não autorizado: GET /api/ws/info - IP: 0:0:0:0:0:0:0:1
+
+  Este log confirma que:
+  1. A requisição chega ao backend
+  2. É bloqueada pelo Spring Security (401)
+  3. É capturada pelo JwtAuthenticationEntryPoint
+
+  Stack trace implícito:
+    → JwtAuthenticationFilter verifica Authorization header
+    → Header não existe (SockJS não pode enviar headers customizados no GET)
+    → Filter rejeita com 401
+    → JwtAuthenticationEntryPoint loga e retorna erro
+
+================================================================================
+RESPOSTA QUESTÃO 6 — Versões e Dependências
+================================================================================
+
+VERSÕES (pom.xml):
+  - Spring Boot: 3.2.2
+  - Spring Security: 6.2.x (vem com spring-boot-starter-security)
+  - Spring WebSocket: 6.1.x (vem com spring-boot-starter-websocket)
+  - Java: 21
+
+DEPENDÊNCIAS PRESENTES:
+  ✅ spring-boot-starter-websocket (linha 46 do pom.xml)
+  ✅ spring-boot-starter-security
+  ✅ jjwt (JWT handling)
+
+DEPENDÊNCIAS AUSENTES:
+  ❌ spring-security-messaging — NÃO ESTÁ NO POM.XML
+
+  Esta dependência é NECESSÁRIA para usar @PreAuthorize e controlo de
+  acesso granular nos tópicos WebSocket (ex: apenas ROLE_COZINHA pode
+  subscrever /topic/cozinha/{id}).
+
+  ✅ ADICIONAR AO POM.XML:
+
+  <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-messaging</artifactId>
+  </dependency>
+
+  (A versão será gerida pelo spring-boot-starter-parent)
+
+================================================================================
+CHECKLIST DE CORRECÇÕES NECESSÁRIAS
+================================================================================
+
+NO BACKEND:
+
+  [ ] 1. SecurityConfig.java
+         Adicionar: .requestMatchers("/ws/**", "/api/ws/**").permitAll()
+         Antes de: .anyRequest().authenticated()
+
+  [ ] 2. WebSocketConfig.java — registerStompEndpoints()
+         Alterar: .addEndpoint("/ws")
+         Para:    .addEndpoint("/api/ws")
+         
+         Alterar: .setAllowedOrigins("http://localhost:3000", "http://localhost:4200")
+         Para:    .setAllowedOrigins(
+                      "http://localhost:3000",
+                      "http://localhost:3001",
+                      "http://localhost:4200",
+                      "http://localhost:5173",
+                      "http://localhost:5174",
+                      "http://127.0.0.1:3001",
+                      "http://127.0.0.1:5173"
+                  )
+
+  [ ] 3. pom.xml
+         Adicionar dependência spring-security-messaging
+
+  [ ] 4. Criar JwtChannelInterceptor.java
+         (código completo na resposta questão 3)
+
+  [ ] 5. WebSocketConfig.java — adicionar configureClientInboundChannel()
+         Registrar JwtChannelInterceptor
+         (código na resposta questão 3)
+
+  [ ] 6. JwtTokenProvider.java
+         Adicionar método getRolesFromToken(String token)
+         (se não existir — código na resposta questão 3)
+
+  [ ] 7. Reiniciar servidor após alterações
+
+NO FRONTEND (JÁ CORRIGIDO):
+
+  ✅ URL corrigida para http://localhost:8080/api/ws (não ws://)
+  ✅ Token JWT sendo enviado no header Authorization do CONNECT
+
+================================================================================
+TESTE DE VALIDAÇÃO
+================================================================================
+
+Após aplicar todas as correcções, testar:
+
+1. Handshake SockJS (deve retornar 200, não 401):
+
+   curl -v http://localhost:8080/api/ws/info
+
+   Resposta esperada:
+   HTTP/1.1 200 OK
+   Content-Type: application/json
+   {
+     "entropy": "...",
+     "origins": ["*:*"],
+     "cookie_needed": false,
+     "websocket": true
+   }
+
+2. Conexão STOMP com token inválido (deve falhar):
+
+   // frontend
+   const socket = new SockJS('http://localhost:8080/api/ws');
+   const stomp = Stomp.over(socket);
+   stomp.connect({ Authorization: 'Bearer token_invalido' }, ...);
+
+   Resultado esperado: erro "Token JWT inválido ou expirado"
+
+3. Conexão STOMP com token válido (deve funcionar):
+
+   stomp.connect({ Authorization: 'Bearer ' + tokenValido }, (frame) => {
+     console.log('✅ Conectado:', frame);
+     stomp.subscribe('/topic/cozinha/1', (msg) => {
+       console.log('Mensagem:', JSON.parse(msg.body));
+     });
+   });
+
+   Resultado esperado: log "WebSocket autenticado: cozinha | roles: ROLE_COZINHA"
+
+================================================================================
+RESUMO EXECUTIVO
+================================================================================
+
+PROBLEMA RAIZ:
+  O endpoint WebSocket /ws (e /api/ws) NÃO está configurado como público
+  no Spring Security, causando HTTP 401 no handshake SockJS.
+
+CAUSA SECUNDÁRIA:
+  - URL mismatch: backend usa /ws, frontend chama /api/ws
+  - Origin localhost:3001 não está na whitelist
+  - Falta autenticação JWT na camada STOMP (risco de segurança)
+
+IMPACTO:
+  Frontend não consegue estabelecer conexão WebSocket.
+  Painel da cozinha não recebe notificações em tempo real.
+
+SOLUÇÃO:
+  6 alterações no backend (ver checklist) + reiniciar servidor.
+  Frontend já está correcto (após fix anterior).
+
+TEMPO ESTIMADO:
+  30-45 minutos para implementar + testar.
+
+PRIORIDADE:
+  🔴 CRÍTICA — funcionalidade core do sistema está bloqueada.
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================

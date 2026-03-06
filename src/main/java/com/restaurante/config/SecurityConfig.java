@@ -73,6 +73,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/pagamentos/callback").permitAll()
                         .requestMatchers("/pagamentos/webhook").permitAll()
                         
+                        // WebSocket endpoints (SockJS handshake deve ser permitido)
+                        .requestMatchers("/ws/**", "/api/ws/**").permitAll()
+                        
                         // Qualquer outra requisição requer autenticação
                         .anyRequest().authenticated()
                 )

@@ -93,4 +93,94 @@ public class SubPedidoEventLog {
     public boolean isTransicaoCritica() {
         return statusNovo == StatusSubPedido.PRONTO || statusNovo == StatusSubPedido.ENTREGUE;
     }
+
+    // Getters and Setters manually added
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public SubPedido getSubPedido() {
+        return subPedido;
+    }
+
+    public void setSubPedido(SubPedido subPedido) {
+        this.subPedido = subPedido;
+    }
+
+    public Cozinha getCozinha() {
+        return cozinha;
+    }
+
+    public void setCozinha(Cozinha cozinha) {
+        this.cozinha = cozinha;
+    }
+
+    public StatusSubPedido getStatusAnterior() {
+        return statusAnterior;
+    }
+
+    public void setStatusAnterior(StatusSubPedido statusAnterior) {
+        this.statusAnterior = statusAnterior;
+    }
+
+    public StatusSubPedido getStatusNovo() {
+        return statusNovo;
+    }
+
+    public void setStatusNovo(StatusSubPedido statusNovo) {
+        this.statusNovo = statusNovo;
+    }
+
+    public String getUsuario() {
+        return usuario;
+    }
+
+    public void setUsuario(String usuario) {
+        this.usuario = usuario;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(LocalDateTime timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public String getObservacoes() {
+        return observacoes;
+    }
+
+    public void setObservacoes(String observacoes) {
+        this.observacoes = observacoes;
+    }
+
+    public Long getTempoTransacaoMs() {
+        return tempoTransacaoMs;
+    }
+
+    public void setTempoTransacaoMs(Long tempoTransacaoMs) {
+        this.tempoTransacaoMs = tempoTransacaoMs;
+    }
+
+    public String getIpOrigem() {
+        return ipOrigem;
+    }
+
+    public void setIpOrigem(String ipOrigem) {
+        this.ipOrigem = ipOrigem;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
 }

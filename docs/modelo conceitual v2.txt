@@ -1,0 +1,337 @@
+MODELO CONCEITUAL – SISTEMA DE RESTAURAÇÃO
+Versão: Sessão de Consumo como núcleo operacional
+
+--------------------------------------------------
+1. PRINCÍPIO CENTRAL DO MODELO
+--------------------------------------------------
+
+O núcleo do sistema é a Sessão de Consumo.
+
+Toda operação do sistema gira em torno da Sessão de Consumo:
+- pedidos
+- saldo
+- pagamentos
+- identificação via QR Code
+- associação opcional a mesas
+
+Mesa não é conta.
+Mesa não é responsável pelo consumo.
+Mesa é apenas um contexto físico opcional.
+
+O QR Code representa a Sessão de Consumo.
+
+--------------------------------------------------
+2. ENTIDADES PRINCIPAIS
+--------------------------------------------------
+
+SessaoConsumo
+Representa a identidade operacional do consumo.
+
+Campos principais:
+
+id
+qrCode
+status
+clienteId (opcional)
+mesaId (opcional)
+dataAbertura
+dataEncerramento
+
+Regras:
+
+- Toda sessão possui um QR Code único
+- Toda sessão possui um Fundo de Consumo
+- Uma sessão pode existir sem mesa
+- Uma sessão pode ser associada a uma mesa
+- Uma mesa pode ter várias sessões
+
+
+--------------------------------------------------
+
+FundoConsumo
+Representa o saldo financeiro associado à sessão.
+
+Campos:
+
+id
+sessaoId
+saldoAtual
+dataCriacao
+
+Regras:
+
+- Toda SessaoConsumo possui obrigatoriamente um FundoConsumo
+- O saldo inicial pode ser zero
+- O fundo pode receber recargas
+- O fundo pode ser debitado por pedidos
+- Todas as transações devem ser auditadas
+
+
+--------------------------------------------------
+
+TransacaoFundo
+Registra todas as movimentações financeiras.
+
+Campos:
+
+id
+fundoId
+tipoTransacao
+valor
+data
+referencia
+
+Tipos de transação:
+
+RECARGA
+DEBITO_PEDIDO
+ESTORNO
+AJUSTE
+
+
+--------------------------------------------------
+
+Pedido
+Representa um pedido feito por uma sessão.
+
+Campos:
+
+id
+sessaoId
+status
+valorTotal
+dataCriacao
+
+Regras:
+
+- Todo pedido pertence a uma SessaoConsumo
+- Um pedido pode conter itens de múltiplas cozinhas
+- Um pedido pode gerar múltiplos SubPedidos
+
+
+--------------------------------------------------
+
+SubPedido
+Representa a divisão operacional de um pedido por unidade de produção.
+
+Campos:
+
+id
+pedidoId
+cozinhaId
+status
+
+Estados possíveis:
+
+CRIADO
+PENDENTE
+EM_PREPARACAO
+PRONTO
+ENTREGUE
+CANCELADO
+
+
+--------------------------------------------------
+
+Produto
+Representa um item do catálogo.
+
+Campos:
+
+id
+nome
+preco
+categoriaId
+disponivel
+
+
+--------------------------------------------------
+
+CategoriaProduto
+Define agrupamento e roteamento operacional.
+
+Campos:
+
+id
+nome
+cozinhaId
+
+
+--------------------------------------------------
+
+Cozinha
+Representa uma unidade de produção.
+
+Campos:
+
+id
+nome
+ativa
+
+Exemplos:
+
+Cozinha
+Bar
+Cafetaria
+Pizzaria
+
+
+--------------------------------------------------
+
+Mesa
+Representa apenas um contexto físico dentro do estabelecimento.
+
+Campos:
+
+id
+codigo
+ativa
+
+Regras:
+
+- Mesa não controla consumo
+- Mesa não possui fundo
+- Mesa pode ter múltiplas sessões associadas
+- Sessão pode existir sem mesa
+
+
+--------------------------------------------------
+
+Cliente (opcional)
+Representa identificação do utilizador.
+
+Campos:
+
+id
+telefone
+nome
+
+Regras:
+
+- Sessão pode ser anónima
+- Sessão pode ser associada a cliente
+
+
+--------------------------------------------------
+3. RELAÇÕES ENTRE ENTIDADES
+--------------------------------------------------
+
+SessaoConsumo 1 --- 1 FundoConsumo
+
+SessaoConsumo 1 --- N Pedido
+
+Pedido 1 --- N SubPedido
+
+Produto N --- 1 CategoriaProduto
+
+CategoriaProduto N --- 1 Cozinha
+
+SessaoConsumo N --- 1 Mesa (opcional)
+
+SessaoConsumo N --- 1 Cliente (opcional)
+
+FundoConsumo 1 --- N TransacaoFundo
+
+
+--------------------------------------------------
+4. FLUXOS OPERACIONAIS
+--------------------------------------------------
+
+Abertura de Sessão
+
+1. operador cria sessão no POS
+2. sistema gera SessaoConsumo
+3. sistema gera FundoConsumo com saldo 0
+4. sistema gera QR Code único
+5. QR pode ser impresso ou enviado digitalmente
+
+
+--------------------------------------------------
+
+Recarga de Fundo
+
+1. operador seleciona sessão
+2. adiciona valor
+3. sistema registra TransacaoFundo tipo RECARGA
+4. saldo atualizado
+
+
+--------------------------------------------------
+
+Criação de Pedido
+
+1. operador escaneia QR da sessão
+2. adiciona produtos
+3. sistema cria Pedido
+4. sistema divide automaticamente em SubPedidos por cozinha
+
+
+--------------------------------------------------
+
+Produção
+
+1. cozinha recebe SubPedido
+2. altera estados até PRONTO
+3. pedido é entregue
+
+
+--------------------------------------------------
+
+Débito do Fundo
+
+1. pedido confirmado
+2. sistema debita valor do FundoConsumo
+3. sistema registra TransacaoFundo tipo DEBITO_PEDIDO
+
+
+--------------------------------------------------
+
+Associação de Mesa
+
+1. operador escaneia QR da sessão
+2. seleciona mesa
+3. sistema associa sessao.mesaId
+
+
+--------------------------------------------------
+
+Encerramento de Sessão
+
+1. saldo zerado ou encerramento manual
+2. sessão encerrada
+3. mesa liberada automaticamente se não houver outras sessões
+
+
+--------------------------------------------------
+5. PRINCÍPIOS DE DESIGN DO SISTEMA
+--------------------------------------------------
+
+Sessão é o núcleo do sistema.
+
+Fundo sempre existe para cada sessão.
+
+Mesa é apenas contexto físico.
+
+QR Code representa a sessão.
+
+Sessões podem ser anónimas.
+
+Sistema deve funcionar em:
+
+restaurantes
+bares
+discotecas
+eventos
+festivais
+
+
+--------------------------------------------------
+6. OBJETIVO DO MODELO
+--------------------------------------------------
+
+Criar um sistema operacional flexível capaz de funcionar
+em qualquer cenário de consumo, sem depender rigidamente
+de mesas ou estruturas físicas.
+
+A Sessão de Consumo representa a unidade central de
+identidade e transação do sistema.

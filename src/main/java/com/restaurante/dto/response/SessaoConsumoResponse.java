@@ -40,10 +40,17 @@ public class SessaoConsumoResponse {
     private LocalDateTime abertaEm;
     private LocalDateTime fechadaEm;
     private StatusSessaoConsumo status;
+    private com.restaurante.model.enums.TipoSessao tipoSessao;
 
     // Modo anônimo
     private Boolean modoAnonimo;
-    private String qrCodePortador;
+
+    // Token público da sessão (identidade do QR Code)
+    private String qrCodeSessao;
+
+    // Fundo de consumo associado
+    private Long fundoId;
+    private BigDecimal saldoFundo;
 
     // Totalizador do consumo (calculado a partir dos pedidos)
     private BigDecimal totalConsumo;

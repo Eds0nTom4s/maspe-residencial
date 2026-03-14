@@ -25,17 +25,11 @@ public class FundoConsumoResponse {
     /** true = pode receber débitos; false = encerrado */
     private Boolean ativo;
 
-    /**
-     * Fluxo identificado: ID do cliente proprietário.
-     * Nulo no fluxo anónimo.
-     */
-    private Long clienteId;
+    /** ID da sessão de consumo à qual este fundo pertence. */
+    private Long sessaoId;
 
-    /**
-     * Fluxo anónimo: token UUID do QR Code portador.
-     * Nulo no fluxo identificado.
-     */
-    private String tokenPortador;
+    /** Token público UUID da sessão — identificador externo do fundo. */
+    private String qrCodeSessao;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

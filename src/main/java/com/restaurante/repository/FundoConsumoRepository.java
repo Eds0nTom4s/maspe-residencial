@@ -10,46 +10,57 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
+/**
+ * Repository para FundoConsumo.
+ *
+ * <p>O fundo é acessado sempre através da SessaoConsumo.
+ * O token de acesso externo é o {@code qrCodeSessao} da sessão.
+ */
 @Repository
 public interface FundoConsumoRepository extends JpaRepository<FundoConsumo, Long> {
 
     /**
-     * Busca fundo ativo por cliente
+     * Busca fundo ativo pela sessão de consumo.
      */
-    @Query("SELECT f FROM FundoConsumo f WHERE f.cliente.id = :clienteId AND f.ativo = true")
-    Optional<FundoConsumo> findByClienteIdAndAtivoTrue(Long clienteId);
+    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.id = :sessaoId AND f.ativo = true")
+    Optional<FundoConsumo> findBySessaoConsumoIdAndAtivoTrue(@Param("sessaoId") Long sessaoId);
 
     /**
-     * Busca fundo ativo por cliente com lock pessimista (operações concorrentes)
+     * Busca fundo (activo ou não) pela sessão de consumo.
      */
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT f FROM FundoConsumo f WHERE f.cliente.id = :clienteId AND f.ativo = true")
-    Optional<FundoConsumo> findByClienteIdWithLock(@Param("clienteId") Long clienteId);
+    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.id = :sessaoId")
+    Optional<FundoConsumo> findBySessaoConsumoId(@Param("sessaoId") Long sessaoId);
 
     /**
-     * Verifica se cliente já tem fundo ativo
+     * Busca fundo ativo pela sessão com finalidade de escrita/lock.
+     * Agora utiliza implicitamente Optimistic Locking via @Version na entidade,
+     * não necessitando do @Lock pessimista aqui.
      */
-    boolean existsByClienteIdAndAtivoTrue(Long clienteId);
-
-    // ──────────────────────────────────────────────────────────────────────
-    // FLUXO ANÓNIMO – busca por token portador (QR Code UUID)
-    // ──────────────────────────────────────────────────────────────────────
-
-    /**
-     * Busca fundo ativo pelo token do portador anónimo.
-     */
-    @Query("SELECT f FROM FundoConsumo f WHERE f.tokenPortador = :token AND f.ativo = true")
-    Optional<FundoConsumo> findByTokenPortadorAndAtivoTrue(@Param("token") String token);
+    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.id = :sessaoId AND f.ativo = true")
+    Optional<FundoConsumo> findBySessaoConsumoIdWithLock(@Param("sessaoId") Long sessaoId);
 
     /**
-     * Busca fundo anónimo com lock pessimista (para operações concorrentes).
+     * Verifica se sessão já tem fundo ativo.
      */
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT f FROM FundoConsumo f WHERE f.tokenPortador = :token AND f.ativo = true")
-    Optional<FundoConsumo> findByTokenPortadorWithLock(@Param("token") String token);
+    @Query("SELECT COUNT(f) > 0 FROM FundoConsumo f WHERE f.sessaoConsumo.id = :sessaoId AND f.ativo = true")
+    boolean existsBySessaoConsumoIdAndAtivoTrue(@Param("sessaoId") Long sessaoId);
 
     /**
-     * Verifica se token já tem fundo ativo.
+     * Busca fundo pelo QR Code da sessão (token de acesso externo).
+     * O qrCodeSessao da SessaoConsumo é o identificador público do fundo.
      */
-    boolean existsByTokenPortadorAndAtivoTrue(String tokenPortador);
+    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.qrCodeSessao = :qrCode AND f.ativo = true")
+    Optional<FundoConsumo> findByQrCodeSessaoAndAtivoTrue(@Param("qrCode") String qrCode);
+
+    /**
+     * Busca fundo pelo QR Code da sessão com finalidade de escrita/lock optimista.
+     */
+    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.qrCodeSessao = :qrCode AND f.ativo = true")
+    Optional<FundoConsumo> findByQrCodeSessaoWithLock(@Param("qrCode") String qrCode);
+
+    /**
+     * Verifica se existe fundo ativo para o QR Code da sessão.
+     */
+    @Query("SELECT COUNT(f) > 0 FROM FundoConsumo f WHERE f.sessaoConsumo.qrCodeSessao = :qrCode AND f.ativo = true")
+    boolean existsByQrCodeSessaoAndAtivoTrue(@Param("qrCode") String qrCode);
 }

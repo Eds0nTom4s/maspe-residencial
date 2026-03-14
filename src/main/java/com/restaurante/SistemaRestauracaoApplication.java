@@ -3,6 +3,7 @@ package com.restaurante;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.retry.annotation.EnableRetry;
 
 /**
  * Classe principal da aplicação
@@ -16,6 +17,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @SpringBootApplication
 @EnableScheduling
+@EnableRetry
 public class SistemaRestauracaoApplication {
 
     public static void main(String[] args) {

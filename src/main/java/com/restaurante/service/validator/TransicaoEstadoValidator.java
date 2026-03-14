@@ -3,8 +3,8 @@ package com.restaurante.service.validator;
 import com.restaurante.exception.PermissaoNegadaException;
 import com.restaurante.exception.TransicaoInvalidaException;
 import com.restaurante.model.enums.StatusSubPedido;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
@@ -26,11 +26,15 @@ import java.util.Set;
  * - Atualizar @Version
  */
 @Component
-@Slf4j
-@RequiredArgsConstructor
 public class TransicaoEstadoValidator {
 
+    private static final Logger log = LoggerFactory.getLogger(TransicaoEstadoValidator.class);
+
     private final Environment environment;
+
+    public TransicaoEstadoValidator(Environment environment) {
+        this.environment = environment;
+    }
 
     // Roles com permissão para marcar EM_PREPARACAO
     private static final Set<String> ROLES_COZINHA = Set.of("ROLE_COZINHA", "ROLE_GERENTE", "ROLE_ADMIN");

@@ -20,8 +20,9 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class ProdutoService {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ProdutoService.class);
 
     private final ProdutoRepository produtoRepository;
 
@@ -36,17 +37,16 @@ public class ProdutoService {
             throw new BusinessException("Já existe um produto com o código: " + request.getCodigo());
         }
 
-        Produto produto = Produto.builder()
-                .codigo(request.getCodigo())
-                .nome(request.getNome())
-                .descricao(request.getDescricao())
-                .preco(request.getPreco())
-                .categoria(request.getCategoria())
-                .urlImagem(request.getUrlImagem())
-                .tempoPreparoMinutos(request.getTempoPreparoMinutos())
-                .disponivel(request.getDisponivel() != null ? request.getDisponivel() : true)
-                .ativo(true)
-                .build();
+        Produto produto = new Produto();
+        produto.setCodigo(request.getCodigo());
+        produto.setNome(request.getNome());
+        produto.setDescricao(request.getDescricao());
+        produto.setPreco(request.getPreco());
+        produto.setCategoria(request.getCategoria());
+        produto.setUrlImagem(request.getUrlImagem());
+        produto.setTempoPreparoMinutos(request.getTempoPreparoMinutos());
+        produto.setDisponivel(request.getDisponivel() != null ? request.getDisponivel() : true);
+        produto.setAtivo(true);
 
         produto = produtoRepository.save(produto);
         log.info("Produto criado com sucesso - ID: {}", produto.getId());
@@ -165,19 +165,19 @@ public class ProdutoService {
      * Mapeia Produto para ProdutoResponse
      */
     private ProdutoResponse mapToResponse(Produto produto) {
-        return ProdutoResponse.builder()
-                .id(produto.getId())
-                .codigo(produto.getCodigo())
-                .nome(produto.getNome())
-                .descricao(produto.getDescricao())
-                .preco(produto.getPreco())
-                .categoria(produto.getCategoria())
-                .urlImagem(produto.getUrlImagem())
-                .tempoPreparoMinutos(produto.getTempoPreparoMinutos())
-                .disponivel(produto.getDisponivel())
-                .ativo(produto.getAtivo())
-                .createdAt(produto.getCreatedAt())
-                .updatedAt(produto.getUpdatedAt())
-                .build();
+        ProdutoResponse response = new ProdutoResponse();
+        response.setId(produto.getId());
+        response.setCodigo(produto.getCodigo());
+        response.setNome(produto.getNome());
+        response.setDescricao(produto.getDescricao());
+        response.setPreco(produto.getPreco());
+        response.setCategoria(produto.getCategoria());
+        response.setUrlImagem(produto.getUrlImagem());
+        response.setTempoPreparoMinutos(produto.getTempoPreparoMinutos());
+        response.setDisponivel(produto.getDisponivel());
+        response.setAtivo(produto.getAtivo());
+        response.setCreatedAt(produto.getCreatedAt());
+        response.setUpdatedAt(produto.getUpdatedAt());
+        return response;
     }
 }

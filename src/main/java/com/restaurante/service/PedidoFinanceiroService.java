@@ -7,11 +7,12 @@ import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.exception.SaldoInsuficienteException;
 import com.restaurante.model.entity.FundoConsumo;
 import com.restaurante.model.entity.Pedido;
+import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.repository.PedidoRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -44,75 +45,65 @@ import java.util.stream.Collectors;
  * </ul>
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class PedidoFinanceiroService {
+
+    private static final Logger log = LoggerFactory.getLogger(PedidoFinanceiroService.class);
 
     private final FundoConsumoService fundoConsumoService;
     private final PedidoRepository pedidoRepository;
     private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
     private final AuditoriaFinanceiraService auditoriaFinanceiraService;
 
+    public PedidoFinanceiroService(FundoConsumoService fundoConsumoService,
+                                   PedidoRepository pedidoRepository,
+                                   ConfiguracaoFinanceiraService configuracaoFinanceiraService,
+                                   AuditoriaFinanceiraService auditoriaFinanceiraService) {
+        this.fundoConsumoService = fundoConsumoService;
+        this.pedidoRepository = pedidoRepository;
+        this.configuracaoFinanceiraService = configuracaoFinanceiraService;
+        this.auditoriaFinanceiraService = auditoriaFinanceiraService;
+    }
+
     // Roles com permissão para autorizar pós-pago
     private static final Set<String> ROLES_AUTORIZAM_POS_PAGO = Set.of("GERENTE", "ADMIN");
 
     /**
-     * Valida se pedido pode ser criado.
+     * Valida se pedido pode ser criado a partir de uma sessão.
      *
-     * @param clienteId    ID do cliente (nulo no fluxo anónimo)
-     * @param fundoToken   Token QR Code do portador anónimo (nulo no fluxo identificado)
-     * @param valorTotal   valor total do pedido
+     * @param sessao        sessão de consumo dona do pedido
+     * @param valorTotal    valor total do pedido
      * @param tipoPagamento PRE_PAGO ou POS_PAGO
-     * @param roles        roles do usuário autenticado
+     * @param roles         roles do usuário autenticado
      */
     public void validarCriacaoPedido(
-            Long clienteId,
-            String fundoToken,
+            SessaoConsumo sessao,
             BigDecimal valorTotal,
             TipoPagamentoPedido tipoPagamento,
             Set<String> roles) {
 
-        log.info("Validando criação de pedido: clienteId={}, fundoToken={}, valor={}, tipo={}, roles={}",
-                clienteId, fundoToken != null ? "[TOKEN]" : "null", valorTotal, tipoPagamento, roles);
+        log.info("Validando criação de pedido: sessãoId={}, valor={}, tipo={}, roles={}",
+                sessao.getId(), valorTotal, tipoPagamento, roles);
 
         if (tipoPagamento.isPosPago()) {
-            // Consumo anónimo NUNCA pode usar pós-pago
-            if (clienteId == null) {
+            // Modo anónimo NUNCA pode usar pós-pago
+            if (Boolean.TRUE.equals(sessao.getModoAnonimo())) {
                 throw new BusinessException(
                         "Consumo anónimo não suporta pós-pago. Use o fundo de consumo pré-pago.");
             }
             autorizarPosPago(roles);
-            configuracaoFinanceiraService.validarCriacaoPosPago(clienteId, valorTotal, roles);
+            configuracaoFinanceiraService.validarCriacaoPosPago(sessao.getId(), valorTotal, roles);
         }
 
         if (tipoPagamento.isPrePago()) {
-            if (clienteId != null) {
-                validarSaldoSuficiente(clienteId, valorTotal);
-            } else {
-                // Fluxo anónimo: valida pelo token QR
-                if (fundoToken == null || fundoToken.isBlank()) {
-                    throw new BusinessException(
-                            "Token do QR Code é obrigatório para pagamento pré-pago anónimo");
-                }
-                fundoConsumoService.validarSaldoSuficientePorToken(fundoToken, valorTotal);
-            }
+            fundoConsumoService.validarSaldoSuficiente(sessao.getId(), valorTotal);
         }
     }
 
     /**
-     * Valida se cliente identificado tem saldo suficiente no Fundo de Consumo.
+     * Valida se a sessão tem saldo suficiente no Fundo de Consumo.
      */
-    public void validarSaldoSuficiente(Long clienteId, BigDecimal valorTotal) {
-        log.info("Validando saldo suficiente para cliente {} - valor {}", clienteId, valorTotal);
-        try {
-            FundoConsumo fundo = fundoConsumoService.buscarPorCliente(clienteId);
-            if (!fundo.temSaldoSuficiente(valorTotal)) {
-                throw new SaldoInsuficienteException(fundo.getSaldoAtual(), valorTotal);
-            }
-        } catch (ResourceNotFoundException e) {
-            throw new SaldoInsuficienteException(
-                    "Fundo de Consumo não encontrado. Recarregue seu saldo antes de fazer pedidos.");
-        }
+    public void validarSaldoSuficiente(Long sessaoId, BigDecimal valorTotal) {
+        fundoConsumoService.validarSaldoSuficiente(sessaoId, valorTotal);
     }
 
     /**
@@ -156,16 +147,14 @@ public class PedidoFinanceiroService {
     /**
      * Processa pagamento de pedido.
      * <ul>
-     *   <li>PRE_PAGO identificado: debita Fundo de Consumo pelo clienteId</li>
-     *   <li>PRE_PAGO anónimo: debita Fundo de Consumo pelo fundoToken</li>
+     *   <li>PRE_PAGO: debita directamente do FundoConsumo da sessão</li>
      *   <li>POS_PAGO: apenas marca como NAO_PAGO (pagamento posterior)</li>
      * </ul>
      */
     @Transactional
     public void processarPagamentoPedido(
             Long pedidoId,
-            Long clienteId,
-            String fundoToken,
+            SessaoConsumo sessao,
             BigDecimal valorTotal,
             TipoPagamentoPedido tipoPagamento) {
 
@@ -181,11 +170,12 @@ public class PedidoFinanceiroService {
         }
 
         if (tipoPagamento.isPrePago()) {
-            if (clienteId != null) {
-                fundoConsumoService.debitar(clienteId, pedidoId, valorTotal);
-            } else {
-                fundoConsumoService.debitarPorToken(fundoToken, pedidoId, valorTotal);
+            // Obtém fundo directamente da sessão
+            FundoConsumo fundo = sessao.getFundoConsumo();
+            if (fundo == null) {
+                throw new BusinessException("Sessão ID=" + sessao.getId() + " não possui fundo de consumo ativo");
             }
+            fundoConsumoService.debitarDireto(fundo, pedidoId, valorTotal);
             pedido.marcarComoPago();
         } else {
             // POS_PAGO: fica NAO_PAGO até confirmação manual

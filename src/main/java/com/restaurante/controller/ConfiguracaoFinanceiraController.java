@@ -13,6 +13,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.math.BigDecimal;
 import java.util.stream.Collectors;
 
@@ -27,10 +30,11 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/configuracoes-financeiras")
 @RequiredArgsConstructor
-@Slf4j
 @Tag(name = "Configurações Financeiras", description = "Gerenciamento de políticas financeiras do sistema")
 @PreAuthorize("hasRole('ADMIN')")
 public class ConfiguracaoFinanceiraController {
+
+    private static final Logger log = LoggerFactory.getLogger(ConfiguracaoFinanceiraController.class);
 
     private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
 

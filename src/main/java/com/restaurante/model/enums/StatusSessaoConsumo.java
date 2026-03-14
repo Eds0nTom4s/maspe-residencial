@@ -6,10 +6,12 @@ package com.restaurante.model.enums;
  * ABERTA              → Mesa em uso; pedidos podem ser criados.
  * AGUARDANDO_PAGAMENTO → Consumo encerrado pelo cliente/atendente; aguardando quitação.
  * ENCERRADA           → Pagamento confirmado; sessão auditável, imutável.
+ * EXPIRADA            → Sessão abandonada (sem consumo válido) e encerrada pelo sistema.
  *
  * Ciclo de vida:
  *   ABERTA → AGUARDANDO_PAGAMENTO → ENCERRADA
  *   ABERTA →                      → ENCERRADA  (fechamento direto)
+ *   ABERTA →                      → EXPIRADA   (pelo sistema)
  *
  * ⚠️  O STATUS DA MESA (DISPONÍVEL/OCUPADA) É DERIVADO — nunca persistido.
  *     Mesa OCUPADA  ≡ EXISTS SessaoConsumo WHERE mesa = :mesa AND status = ABERTA
@@ -19,7 +21,8 @@ public enum StatusSessaoConsumo {
 
     ABERTA("Aberta"),
     AGUARDANDO_PAGAMENTO("Aguardando Pagamento"),
-    ENCERRADA("Encerrada");
+    ENCERRADA("Encerrada"),
+    EXPIRADA("Expirada");
 
     private final String descricao;
 

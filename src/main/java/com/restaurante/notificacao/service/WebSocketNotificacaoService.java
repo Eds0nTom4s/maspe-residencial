@@ -4,7 +4,8 @@ import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.notificacao.dto.NotificacaoSubPedidoDTO;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
@@ -25,11 +26,15 @@ import java.time.LocalDateTime;
  * - /topic/pedido/{id} → Notificações para Pedido específico
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class WebSocketNotificacaoService {
 
+    private static final Logger log = LoggerFactory.getLogger(WebSocketNotificacaoService.class);
+
     private final SimpMessagingTemplate messagingTemplate;
+
+    public WebSocketNotificacaoService(SimpMessagingTemplate messagingTemplate) {
+        this.messagingTemplate = messagingTemplate;
+    }
 
     /**
      * Notifica mudança de status de SubPedido para TODOS os canais relevantes

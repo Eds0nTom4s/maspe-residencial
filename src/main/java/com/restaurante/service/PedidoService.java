@@ -21,8 +21,8 @@ import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -42,9 +42,9 @@ import java.util.stream.Collectors;
  * Service para operações de negócio com Pedido
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class PedidoService {
+
+    private static final Logger log = LoggerFactory.getLogger(PedidoService.class);
 
     private final PedidoRepository pedidoRepository;
     private final SessaoConsumoRepository sessaoConsumoRepository;
@@ -54,6 +54,24 @@ public class PedidoService {
     private final EventLogService eventLogService;
     private final PedidoFinanceiroService pedidoFinanceiroService;
     private final NotificacaoService notificacaoService;
+
+    public PedidoService(PedidoRepository pedidoRepository,
+                         SessaoConsumoRepository sessaoConsumoRepository,
+                         ProdutoService produtoService,
+                         WebSocketNotificacaoService webSocketNotificacaoService,
+                         SubPedidoService subPedidoService,
+                         EventLogService eventLogService,
+                         PedidoFinanceiroService pedidoFinanceiroService,
+                         NotificacaoService notificacaoService) {
+        this.pedidoRepository = pedidoRepository;
+        this.sessaoConsumoRepository = sessaoConsumoRepository;
+        this.produtoService = produtoService;
+        this.webSocketNotificacaoService = webSocketNotificacaoService;
+        this.subPedidoService = subPedidoService;
+        this.eventLogService = eventLogService;
+        this.pedidoFinanceiroService = pedidoFinanceiroService;
+        this.notificacaoService = notificacaoService;
+    }
 
     /**
      * Cria um novo pedido para uma unidade de consumo
@@ -103,17 +121,11 @@ public class PedidoService {
         log.info("  ┣ Tipo Pagamento: {}", tipoPagamento);
         log.info("  ┗ Roles Usuário: {}", roles);
 
-        // Resolve portador: cliente identificado OU token do QR Code (anónimo)
-        Long clienteId = sessaoConsumo.getCliente() != null
-                ? sessaoConsumo.getCliente().getId()
-                : null;
-        String fundoToken = (clienteId == null) ? sessaoConsumo.getQrCodePortador() : null;
+        log.info("  ┗ Portador: sessão#{} ({})",
+                sessaoConsumo.getId(), Boolean.TRUE.equals(sessaoConsumo.getModoAnonimo()) ? "anónimo" : "identificado");
 
-        log.info("  ┣ Portador: {}",
-                clienteId != null ? "cliente#" + clienteId : "anónimo (token:" + fundoToken + ")");
-
-        // VALIDAÇÃO FINANCEIRA - antes de criar pedido
-        pedidoFinanceiroService.validarCriacaoPedido(clienteId, fundoToken, totalPreliminar, tipoPagamento, roles);
+        // VALIDAÇÃO FINANCEIRA via sessão
+        pedidoFinanceiroService.validarCriacaoPedido(sessaoConsumo, totalPreliminar, tipoPagamento, roles);
         log.info("✅ Validação financeira APROVADA");
 
         // Cria o pedido
@@ -146,7 +158,11 @@ public class PedidoService {
             }
 
             // Determinar cozinha responsável pelo item
-            Cozinha cozinha = subPedidoService.determinarCozinha(produto.getCategoria(), sessaoConsumo.getMesa().getUnidadeAtendimento().getId());
+            com.restaurante.model.entity.UnidadeAtendimento ua = sessaoConsumo.getUnidadeAtendimentoEfetiva();
+            if (ua == null) {
+                throw new BusinessException("Sessão ID=" + sessaoConsumo.getId() + " não possui unidade de atendimento configurada");
+            }
+            Cozinha cozinha = subPedidoService.determinarCozinha(produto.getCategoria(), ua.getId());
             
             // ✅ VALIDAÇÃO CRÍTICA: Cozinha deve estar ATIVA
             if (cozinha.getAtiva() == null || !cozinha.getAtiva()) {
@@ -173,7 +189,7 @@ public class PedidoService {
                     .numero(pedido.getNumero() + "-" + contadorSubPedido)
                     .pedido(pedido)
                     .cozinha(cozinha)
-                    .unidadeAtendimento(sessaoConsumo.getMesa().getUnidadeAtendimento())
+                    .unidadeAtendimento(sessaoConsumo.getUnidadeAtendimentoEfetiva())
                     .status(StatusSubPedido.CRIADO)  // ✅ Inicia em CRIADO, aguardando confirmação
                     .build();
             
@@ -215,7 +231,7 @@ public class PedidoService {
 
         // PROCESSAMENTO FINANCEIRO - depois de criar pedido e calcular total
         log.info("💳 PROCESSANDO PAGAMENTO");
-        pedidoFinanceiroService.processarPagamentoPedido(pedido.getId(), clienteId, fundoToken, pedido.getTotal(), tipoPagamento);
+        pedidoFinanceiroService.processarPagamentoPedido(pedido.getId(), sessaoConsumo, pedido.getTotal(), tipoPagamento);
         log.info("✅ Pagamento processado - Status: {}", pedido.getStatusFinanceiro());
 
         // ⚠️ RECARREGAR PEDIDO DO BANCO - com JOIN FETCH para carregar SubPedidos

@@ -2,7 +2,8 @@ package com.restaurante.financeiro.config;
 
 import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,8 +22,9 @@ import java.time.Duration;
  */
 @Configuration
 @RequiredArgsConstructor
-@Slf4j
 public class FinanceiroConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(FinanceiroConfig.class);
     
     private final AppyPayProperties appyPayProperties;
     

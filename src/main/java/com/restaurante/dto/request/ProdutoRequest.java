@@ -41,4 +41,36 @@ public class ProdutoRequest {
     private Integer tempoPreparoMinutos;
 
     private Boolean disponivel;
+
+    public String getCodigo() {
+        return codigo;
+    }
+
+    public String getNome() {
+        return nome;
+    }
+    
+    public String getDescricao() {
+        return descricao;
+    }
+    
+    public BigDecimal getPreco() {
+        return preco;
+    }
+    
+    public CategoriaProduto getCategoria() {
+        return categoria;
+    }
+    
+    public String getUrlImagem() {
+        return urlImagem;
+    }
+    
+    public Integer getTempoPreparoMinutos() {
+        return tempoPreparoMinutos;
+    }
+    
+    public Boolean getDisponivel() {
+        return disponivel;
+    }
 }

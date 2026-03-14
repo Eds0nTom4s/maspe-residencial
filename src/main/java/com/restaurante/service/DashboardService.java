@@ -3,8 +3,8 @@ package com.restaurante.service;
 import com.restaurante.dto.response.DashboardActivityResponse;
 import com.restaurante.dto.response.DashboardStatsResponse;
 import com.restaurante.dto.response.DashboardTopProductResponse;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,13 +16,9 @@ import java.util.*;
  * Service para operações de dashboard
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class DashboardService {
 
-    /**
-     * Retorna estatísticas gerais do dashboard
-     */
+    private static final Logger log = LoggerFactory.getLogger(DashboardService.class);
     @Transactional(readOnly = true)
     public DashboardStatsResponse getStats() {
         log.debug("Buscando estatísticas gerais do dashboard");

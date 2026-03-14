@@ -10,6 +10,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -21,8 +24,9 @@ import java.util.stream.Stream;
  */
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class EventLogService {
+
+    private static final Logger log = LoggerFactory.getLogger(EventLogService.class);
 
     private final PedidoEventLogRepository pedidoEventLogRepository;
     private final SubPedidoEventLogRepository subPedidoEventLogRepository;
@@ -43,14 +47,13 @@ public class EventLogService {
         log.debug("Registrando evento de Pedido {} - {} -> {}", 
             pedido.getNumero(), statusAnterior, statusNovo);
 
-        PedidoEventLog evento = PedidoEventLog.builder()
-                .pedido(pedido)
-                .statusAnterior(statusAnterior)
-                .statusNovo(statusNovo)
-                .usuario(usuario != null ? usuario : "system")
-                .timestamp(LocalDateTime.now())
-                .observacoes(observacoes)
-                .build();
+        PedidoEventLog evento = new PedidoEventLog();
+        evento.setPedido(pedido);
+        evento.setStatusAnterior(statusAnterior);
+        evento.setStatusNovo(statusNovo);
+        evento.setUsuario(usuario != null ? usuario : "system");
+        evento.setTimestamp(LocalDateTime.now());
+        evento.setObservacoes(observacoes);
 
         return pedidoEventLogRepository.save(evento);
     }
@@ -116,16 +119,15 @@ public class EventLogService {
         log.debug("Registrando evento de SubPedido {} - {} -> {}", 
             subPedido.getId(), statusAnterior, statusNovo);
 
-        SubPedidoEventLog evento = SubPedidoEventLog.builder()
-                .subPedido(subPedido)
-                .cozinha(subPedido.getCozinha())
-                .statusAnterior(statusAnterior)
-                .statusNovo(statusNovo)
-                .usuario(usuario != null ? usuario : "system")
-                .timestamp(LocalDateTime.now())
-                .observacoes(observacoes)
-                .tempoTransacaoMs(tempoTransacaoMs)
-                .build();
+        SubPedidoEventLog evento = new SubPedidoEventLog();
+        evento.setSubPedido(subPedido);
+        evento.setCozinha(subPedido.getCozinha());
+        evento.setStatusAnterior(statusAnterior);
+        evento.setStatusNovo(statusNovo);
+        evento.setUsuario(usuario != null ? usuario : "system");
+        evento.setTimestamp(LocalDateTime.now());
+        evento.setObservacoes(observacoes);
+        evento.setTempoTransacaoMs(tempoTransacaoMs);
 
         SubPedidoEventLog eventoSalvo = subPedidoEventLogRepository.save(evento);
 

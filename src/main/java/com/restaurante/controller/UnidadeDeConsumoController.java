@@ -20,11 +20,12 @@ import java.util.List;
 @RestController
 @RequestMapping("/unidades-consumo")
 @RequiredArgsConstructor
-@Slf4j
 @Tag(name = "Unidades de Consumo", description = "[DEPRECADO] Este controller foi substituído por /api/mesas e /api/sessoes-consumo. " +
         "Mantido temporariamente para retrocompatibilidade. Será removido na próxima versão.")
 @Deprecated
 public class UnidadeDeConsumoController {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(UnidadeDeConsumoController.class);
 
     private final UnidadeDeConsumoService unidadeDeConsumoService;
 

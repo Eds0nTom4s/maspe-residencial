@@ -3,13 +3,8 @@ package com.restaurante.model.entity;
 import com.restaurante.model.enums.StatusQrCode;
 import com.restaurante.model.enums.TipoQrCode;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
-
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -22,12 +17,22 @@ import java.util.UUID;
     @Index(name = "idx_qrcode_status", columnList = "status"),
     @Index(name = "idx_qrcode_expiracao", columnList = "expiraEm")
 })
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
 public class QrCodeToken extends BaseEntity {
+
+    public QrCodeToken() {
+    }
+
+    public QrCodeToken(String token, TipoQrCode tipo, StatusQrCode status, LocalDateTime expiraEm, Mesa mesa, Pedido pedido, LocalDateTime usadoEm, String usadoPor, String metadados) {
+        this.token = token;
+        this.tipo = tipo;
+        this.status = status;
+        this.expiraEm = expiraEm;
+        this.mesa = mesa;
+        this.pedido = pedido;
+        this.usadoEm = usadoEm;
+        this.usadoPor = usadoPor;
+        this.metadados = metadados;
+    }
 
     /**
      * Token único (UUID) do QR Code
@@ -155,5 +160,155 @@ public class QrCodeToken extends BaseEntity {
      */
     public String getUrl(String baseUrl) {
         return String.format("%s/qrcode/validar/%s", baseUrl, token);
+    }
+
+    public String getToken() {
+        return token;
+    }
+
+    public void setToken(String token) {
+        this.token = token;
+    }
+
+    public TipoQrCode getTipo() {
+        return tipo;
+    }
+
+    public void setTipo(TipoQrCode tipo) {
+        this.tipo = tipo;
+    }
+
+    public StatusQrCode getStatus() {
+        return status;
+    }
+
+    public void setStatus(StatusQrCode status) {
+        this.status = status;
+    }
+
+    public LocalDateTime getExpiraEm() {
+        return expiraEm;
+    }
+
+    public void setExpiraEm(LocalDateTime expiraEm) {
+        this.expiraEm = expiraEm;
+    }
+
+    public Mesa getMesa() {
+        return mesa;
+    }
+
+    public void setMesa(Mesa mesa) {
+        this.mesa = mesa;
+    }
+
+    public Pedido getPedido() {
+        return pedido;
+    }
+
+    public void setPedido(Pedido pedido) {
+        this.pedido = pedido;
+    }
+
+    public LocalDateTime getUsadoEm() {
+        return usadoEm;
+    }
+
+    public void setUsadoEm(LocalDateTime usadoEm) {
+        this.usadoEm = usadoEm;
+    }
+
+    public String getUsadoPor() {
+        return usadoPor;
+    }
+
+    public void setUsadoPor(String usadoPor) {
+        this.usadoPor = usadoPor;
+    }
+
+    public String getMetadados() {
+        return metadados;
+    }
+
+    public void setMetadados(String metadados) {
+        this.metadados = metadados;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        QrCodeToken that = (QrCodeToken) o;
+        return Objects.equals(token, that.token);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(token);
+    }
+
+    public static QrCodeTokenBuilder builder() {
+        return new QrCodeTokenBuilder();
+    }
+
+    public static class QrCodeTokenBuilder {
+        private String token;
+        private TipoQrCode tipo;
+        private StatusQrCode status;
+        private LocalDateTime expiraEm;
+        private Mesa mesa;
+        private Pedido pedido;
+        private LocalDateTime usadoEm;
+        private String usadoPor;
+        private String metadados;
+
+        public QrCodeTokenBuilder token(String token) {
+            this.token = token;
+            return this;
+        }
+
+        public QrCodeTokenBuilder tipo(TipoQrCode tipo) {
+            this.tipo = tipo;
+            return this;
+        }
+
+        public QrCodeTokenBuilder status(StatusQrCode status) {
+            this.status = status;
+            return this;
+        }
+
+        public QrCodeTokenBuilder expiraEm(LocalDateTime expiraEm) {
+            this.expiraEm = expiraEm;
+            return this;
+        }
+
+        public QrCodeTokenBuilder mesa(Mesa mesa) {
+            this.mesa = mesa;
+            return this;
+        }
+
+        public QrCodeTokenBuilder pedido(Pedido pedido) {
+            this.pedido = pedido;
+            return this;
+        }
+
+        public QrCodeTokenBuilder usadoEm(LocalDateTime usadoEm) {
+            this.usadoEm = usadoEm;
+            return this;
+        }
+
+        public QrCodeTokenBuilder usadoPor(String usadoPor) {
+            this.usadoPor = usadoPor;
+            return this;
+        }
+
+        public QrCodeTokenBuilder metadados(String metadados) {
+            this.metadados = metadados;
+            return this;
+        }
+
+        public QrCodeToken build() {
+            return new QrCodeToken(token, tipo, status, expiraEm, mesa, pedido, usadoEm, usadoPor, metadados);
+        }
     }
 }

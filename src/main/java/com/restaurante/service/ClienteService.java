@@ -15,6 +15,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 
@@ -24,8 +27,9 @@ import java.time.LocalDateTime;
  */
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class ClienteService {
+
+    private static final Logger log = LoggerFactory.getLogger(ClienteService.class);
 
     private final ClienteRepository clienteRepository;
     private final NotificacaoService notificacaoService;
@@ -182,13 +186,13 @@ public class ClienteService {
      * Mapeia Cliente para ClienteResponse
      */
     private ClienteResponse mapToResponse(Cliente cliente) {
-        return ClienteResponse.builder()
-                .id(cliente.getId())
-                .telefone(cliente.getTelefone())
-                .nome(cliente.getNome())
-                .telefoneVerificado(cliente.getTelefoneVerificado())
-                .ativo(cliente.getAtivo())
-                .createdAt(cliente.getCreatedAt())
-                .build();
+        ClienteResponse response = new ClienteResponse();
+        response.setId(cliente.getId());
+        response.setTelefone(cliente.getTelefone());
+        response.setNome(cliente.getNome());
+        response.setTelefoneVerificado(cliente.getTelefoneVerificado());
+        response.setAtivo(cliente.getAtivo());
+        response.setCreatedAt(cliente.getCreatedAt());
+        return response;
     }
 }

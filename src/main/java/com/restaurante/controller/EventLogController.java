@@ -17,6 +17,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -24,10 +27,11 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/event-logs")
 @RequiredArgsConstructor
-@Slf4j
 @Tag(name = "Event Logs", description = "Auditoria e histórico de eventos")
 @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
 public class EventLogController {
+
+    private static final Logger log = LoggerFactory.getLogger(EventLogController.class);
 
     private final EventLogService eventLogService;
 
@@ -269,35 +273,35 @@ public class EventLogController {
     // ========== CONVERSORES ==========
 
     private PedidoEventLogResponse converterPedidoEventLog(PedidoEventLog evento) {
-        return PedidoEventLogResponse.builder()
-                .id(evento.getId())
-                .pedidoId(evento.getPedido().getId())
-                .numeroPedido(evento.getPedido().getNumero())
-                .statusAnterior(evento.getStatusAnterior())
-                .statusNovo(evento.getStatusNovo())
-                .usuario(evento.getUsuario())
-                .timestamp(evento.getTimestamp())
-                .observacoes(evento.getObservacoes())
-                .descricao(evento.getDescricao())
-                .build();
+        PedidoEventLogResponse response = new PedidoEventLogResponse();
+        response.setId(evento.getId());
+        response.setPedidoId(evento.getPedido().getId());
+        response.setNumeroPedido(evento.getPedido().getNumero());
+        response.setStatusAnterior(evento.getStatusAnterior());
+        response.setStatusNovo(evento.getStatusNovo());
+        response.setUsuario(evento.getUsuario());
+        response.setTimestamp(evento.getTimestamp());
+        response.setObservacoes(evento.getObservacoes());
+        response.setDescricao(evento.getDescricao());
+        return response;
     }
 
     private SubPedidoEventLogResponse converterSubPedidoEventLog(SubPedidoEventLog evento) {
-        return SubPedidoEventLogResponse.builder()
-                .id(evento.getId())
-                .subPedidoId(evento.getSubPedido().getId())
-                .pedidoId(evento.getSubPedido().getPedido().getId())
-                .numeroPedido(evento.getSubPedido().getPedido().getNumero())
-                .cozinhaId(evento.getCozinha().getId())
-                .nomeCozinha(evento.getCozinha().getNome())
-                .statusAnterior(evento.getStatusAnterior())
-                .statusNovo(evento.getStatusNovo())
-                .usuario(evento.getUsuario())
-                .timestamp(evento.getTimestamp())
-                .observacoes(evento.getObservacoes())
-                .tempoTransacaoMs(evento.getTempoTransacaoMs())
-                .descricao(evento.getDescricao())
-                .transicaoCritica(evento.isTransicaoCritica())
-                .build();
+        SubPedidoEventLogResponse response = new SubPedidoEventLogResponse();
+        response.setId(evento.getId());
+        response.setSubPedidoId(evento.getSubPedido().getId());
+        response.setPedidoId(evento.getSubPedido().getPedido().getId());
+        response.setNumeroPedido(evento.getSubPedido().getPedido().getNumero());
+        response.setCozinhaId(evento.getCozinha().getId());
+        response.setNomeCozinha(evento.getCozinha().getNome());
+        response.setStatusAnterior(evento.getStatusAnterior());
+        response.setStatusNovo(evento.getStatusNovo());
+        response.setUsuario(evento.getUsuario());
+        response.setTimestamp(evento.getTimestamp());
+        response.setObservacoes(evento.getObservacoes());
+        response.setTempoTransacaoMs(evento.getTempoTransacaoMs());
+        response.setDescricao(evento.getDescricao());
+        response.setTransicaoCritica(evento.isTransicaoCritica());
+        return response;
     }
 }

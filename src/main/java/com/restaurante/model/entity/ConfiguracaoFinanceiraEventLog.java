@@ -103,4 +103,52 @@ public class ConfiguracaoFinanceiraEventLog {
      */
     @Column(name = "detalhe", length = 500)
     private String detalhe;
+
+    public void setTipoEvento(String tipoEvento) {
+        this.tipoEvento = tipoEvento;
+    }
+
+    public void setEntidadeId(Long entidadeId) {
+        this.entidadeId = entidadeId;
+    }
+
+    public void setEntidadeTipo(String entidadeTipo) {
+        this.entidadeTipo = entidadeTipo;
+    }
+
+    public void setUsuarioNome(String usuarioNome) {
+        this.usuarioNome = usuarioNome;
+    }
+
+    public void setUsuarioRole(String usuarioRole) {
+        this.usuarioRole = usuarioRole;
+    }
+
+    public void setTimestamp(LocalDateTime timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public void setValorAnterior(BigDecimal valorAnterior) {
+        this.valorAnterior = valorAnterior;
+    }
+
+    public void setValorNovo(BigDecimal valorNovo) {
+        this.valorNovo = valorNovo;
+    }
+
+    public void setFlagAnterior(Boolean flagAnterior) {
+        this.flagAnterior = flagAnterior;
+    }
+
+    public void setFlagNovo(Boolean flagNovo) {
+        this.flagNovo = flagNovo;
+    }
+
+    public void setMotivo(String motivo) {
+        this.motivo = motivo;
+    }
+
+    public void setDetalhe(String detalhe) {
+        this.detalhe = detalhe;
+    }
 }

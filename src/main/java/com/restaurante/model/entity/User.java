@@ -2,11 +2,7 @@ package com.restaurante.model.entity;
 
 import com.restaurante.model.enums.Role;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
+
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -26,11 +22,6 @@ import java.util.stream.Collectors;
     @Index(name = "idx_user_username", columnList = "username", unique = true),
     @Index(name = "idx_user_email", columnList = "email", unique = true)
 })
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
 public class User extends BaseEntity implements UserDetails {
 
     @Column(name = "username", nullable = false, unique = true, length = 50)
@@ -52,15 +43,102 @@ public class User extends BaseEntity implements UserDetails {
     @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
     @Enumerated(EnumType.STRING)
     @Column(name = "role")
-    @Builder.Default
     private Set<Role> roles = new HashSet<>();
 
     @Column(name = "ativo", nullable = false)
-    @Builder.Default
     private Boolean ativo = true;
 
     @Column(name = "ultimo_acesso")
     private LocalDateTime ultimoAcesso;
+
+    public User() {}
+
+    public User(String username, String password, String email, String nomeCompleto, String telefone, Set<Role> roles, Boolean ativo, LocalDateTime ultimoAcesso) {
+        this.username = username;
+        this.password = password;
+        this.email = email;
+        this.nomeCompleto = nomeCompleto;
+        this.telefone = telefone;
+        this.roles = roles != null ? roles : new HashSet<>();
+        this.ativo = ativo != null ? ativo : true;
+        this.ultimoAcesso = ultimoAcesso;
+    }
+
+    public void setUsername(String username) { this.username = username; }
+    public void setPassword(String password) { this.password = password; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public String getNomeCompleto() { return nomeCompleto; }
+    public void setNomeCompleto(String nomeCompleto) { this.nomeCompleto = nomeCompleto; }
+    public String getTelefone() { return telefone; }
+    public void setTelefone(String telefone) { this.telefone = telefone; }
+    public Set<Role> getRoles() { return roles; }
+    public void setRoles(Set<Role> roles) { this.roles = roles; }
+    public Boolean getAtivo() { return ativo; }
+    public void setAtivo(Boolean ativo) { this.ativo = ativo; }
+    public LocalDateTime getUltimoAcesso() { return ultimoAcesso; }
+    public void setUltimoAcesso(LocalDateTime ultimoAcesso) { this.ultimoAcesso = ultimoAcesso; }
+
+    public static UserBuilder builder() {
+        return new UserBuilder();
+    }
+
+    public static class UserBuilder {
+        private String username;
+        private String password;
+        private String email;
+        private String nomeCompleto;
+        private String telefone;
+        private Set<Role> roles;
+        private Boolean ativo;
+        private LocalDateTime ultimoAcesso;
+
+        UserBuilder() {}
+
+        public UserBuilder username(String username) {
+            this.username = username;
+            return this;
+        }
+
+        public UserBuilder password(String password) {
+            this.password = password;
+            return this;
+        }
+
+        public UserBuilder email(String email) {
+            this.email = email;
+            return this;
+        }
+
+        public UserBuilder nomeCompleto(String nomeCompleto) {
+            this.nomeCompleto = nomeCompleto;
+            return this;
+        }
+
+        public UserBuilder telefone(String telefone) {
+            this.telefone = telefone;
+            return this;
+        }
+
+        public UserBuilder roles(Set<Role> roles) {
+            this.roles = roles;
+            return this;
+        }
+
+        public UserBuilder ativo(Boolean ativo) {
+            this.ativo = ativo;
+            return this;
+        }
+
+        public UserBuilder ultimoAcesso(LocalDateTime ultimoAcesso) {
+            this.ultimoAcesso = ultimoAcesso;
+            return this;
+        }
+
+        public User build() {
+            return new User(this.username, this.password, this.email, this.nomeCompleto, this.telefone, this.roles, this.ativo, this.ultimoAcesso);
+        }
+    }
 
     /**
      * Relacionamento opcional com Cliente

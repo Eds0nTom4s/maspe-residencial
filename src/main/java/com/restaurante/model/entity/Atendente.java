@@ -5,7 +5,7 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import lombok.*;
+import java.util.Objects;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,11 +20,6 @@ import java.util.List;
     @Index(name = "idx_atendente_email", columnList = "email", unique = true),
     @Index(name = "idx_atendente_telefone", columnList = "telefone")
 })
-@Data
-@EqualsAndHashCode(callSuper = true)
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
 public class Atendente extends BaseEntity {
 
     @NotBlank(message = "Nome é obrigatório")
@@ -47,15 +42,80 @@ public class Atendente extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "tipo_usuario", nullable = false)
-    @Builder.Default
     private TipoUsuario tipoUsuario = TipoUsuario.ATENDENTE;
 
     @Column(name = "ativo", nullable = false)
-    @Builder.Default
     private Boolean ativo = true;
 
     // Sessões de consumo abertas por este atendente
     @OneToMany(mappedBy = "aberturaPor", fetch = FetchType.LAZY)
-    @Builder.Default
     private List<SessaoConsumo> sessoesAbertas = new ArrayList<>();
+
+    public Atendente() {
+    }
+
+    public Atendente(String nome, String email, String telefone, String senha, TipoUsuario tipoUsuario, Boolean ativo, List<SessaoConsumo> sessoesAbertas) {
+        this.nome = nome;
+        this.email = email;
+        this.telefone = telefone;
+        this.senha = senha;
+        if (tipoUsuario != null) this.tipoUsuario = tipoUsuario;
+        if (ativo != null) this.ativo = ativo;
+        if (sessoesAbertas != null) this.sessoesAbertas = sessoesAbertas;
+    }
+
+    public String getNome() { return nome; }
+    public void setNome(String nome) { this.nome = nome; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public String getTelefone() { return telefone; }
+    public void setTelefone(String telefone) { this.telefone = telefone; }
+    public String getSenha() { return senha; }
+    public void setSenha(String senha) { this.senha = senha; }
+    public TipoUsuario getTipoUsuario() { return tipoUsuario; }
+    public void setTipoUsuario(TipoUsuario tipoUsuario) { this.tipoUsuario = tipoUsuario; }
+    public Boolean getAtivo() { return ativo; }
+    public void setAtivo(Boolean ativo) { this.ativo = ativo; }
+    public List<SessaoConsumo> getSessoesAbertas() { return sessoesAbertas; }
+    public void setSessoesAbertas(List<SessaoConsumo> sessoesAbertas) { this.sessoesAbertas = sessoesAbertas; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Atendente)) return false;
+        if (!super.equals(o)) return false;
+        Atendente atendente = (Atendente) o;
+        return Objects.equals(nome, atendente.nome) && Objects.equals(email, atendente.email) && Objects.equals(telefone, atendente.telefone) && Objects.equals(senha, atendente.senha) && tipoUsuario == atendente.tipoUsuario && Objects.equals(ativo, atendente.ativo) && Objects.equals(sessoesAbertas, atendente.sessoesAbertas);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), nome, email, telefone, senha, tipoUsuario, ativo, sessoesAbertas);
+    }
+
+    public static AtendenteBuilder builder() {
+        return new AtendenteBuilder();
+    }
+
+    public static class AtendenteBuilder {
+        private String nome;
+        private String email;
+        private String telefone;
+        private String senha;
+        private TipoUsuario tipoUsuario = TipoUsuario.ATENDENTE;
+        private Boolean ativo = true;
+        private List<SessaoConsumo> sessoesAbertas = new ArrayList<>();
+
+        public AtendenteBuilder nome(String nome) { this.nome = nome; return this; }
+        public AtendenteBuilder email(String email) { this.email = email; return this; }
+        public AtendenteBuilder telefone(String telefone) { this.telefone = telefone; return this; }
+        public AtendenteBuilder senha(String senha) { this.senha = senha; return this; }
+        public AtendenteBuilder tipoUsuario(TipoUsuario tipoUsuario) { this.tipoUsuario = tipoUsuario; return this; }
+        public AtendenteBuilder ativo(Boolean ativo) { this.ativo = ativo; return this; }
+        public AtendenteBuilder sessoesAbertas(List<SessaoConsumo> sessoesAbertas) { this.sessoesAbertas = sessoesAbertas; return this; }
+
+        public Atendente build() {
+            return new Atendente(nome, email, telefone, senha, tipoUsuario, ativo, sessoesAbertas);
+        }
+    }
 }

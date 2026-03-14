@@ -1,0 +1,42 @@
+RELATÓRIO TÉCNICO: ANÁLISE E DIRETRIZES PARA O SISTEMA DE RESTAURAÇÃO
+
+1. Visão Geral e Avaliação do Modelo Atual
+A arquitetura proposta, sustentada pela "Sessão de Consumo" como conceito raiz agregador, demonstra elevada maturidade. Esta decisão é excelente pois cria uma fronteira transacional e de contexto fechado, conseguindo tratar de forma homogénea operações tradicionalmente dispersas (mesas, vendas de balcão, eventos em massa com QR Code).
+A separação taxativa entre o lado financeiro (FundoConsumo, TransacoesFundo) e o lado operacional (Pedido, SubPedido, Cozinha) espelha padrões validados de Domain-Driven Design (DDD). O particionamento dos pedidos em SubPedidos regidos por uma máquina de estados finita é essencial para a robustez de sistemas de produção onde a operação cozinha (KDS) precisa de total independência.
+
+2. Identificação de Inconsistências Conceituais ou Pontos de Atenção
+- Saldo Mínimo vs. Contas Livres: A premissa de "impossibilidade de saldo negativo" é excelente para fluxos pré-pagos e festivais. Todavia, para restaurantes de mesa clássicos (pós-pagos), o saldo funcionará como um registo debito recorrente até ao pagamento final. É preciso alinhar se o domínio terá um "Limite de Crédito" (plafond) ou se a flag de saldo não-negativo será contextual (variável conforme o tipo de abertura da Sessão).
+- Cancelamentos e Fator Humano: Se um prato (SubPedido) estiver "EM_PREPARACAO" e for cancelado, o sistema requer um fluxo claro de autorizações que faça o trigger de compensação/estorno na conta FundoConsumo que é imutável. Devemos prever um fluxo transacional "compensatório", evitando simples deletes.
+- Sessões Físmas ("Zombies"): Sessões abertas via QR Code sem nenhuma operação (abandonos) precisam de varredura assíncrona (cron/scheduler) eficiente para expirarem conforme o ciclo de vida definido (EXPIRADA), limpando recursos sem degradar a base de dados em horas de pico.
+
+3. Riscos Operacionais e Financeiros
+- Concorrência de Operações no FundoConsumo (Race Conditions): Em eventos caóticos (ex.: múltiplos pedidos ou pagamentos na mesma mesa usando telemóveis do cliente e POS simultaneamente). O manuseamento apropriado do *Optimistic Locking* nas transações (com versionamento ex: `@Version`) é crítico, além de implementar retries automáticos no backend para não gerar erro "seco" ao utilizador.
+- Comunicação de Gateways de Pagamento (AppyPay): Webhooks de pagamentos externos não são conﬁáveis quanto à sincronia nem à unicidade. É vital ter uma tabela de Registo Idempotente das chaves de pagamento, impedindo categoricamente um "duplo crédito" num Fundo de Consumo sob alto delay de rede externa.
+- Falha na Camada de WebSockets (Resiliência): Em festivais, as redes WiFi sofrem congestionamento abismal. O frontend (POS ou cliente) não pode suspender a operação se o WebSocket cair — tem de prever fallbacks imediatos e informar o operador da contingência ("Modo Offline"). 
+
+4. Sugestões de Melhorias Arquiteturais e Técnicas
+Sugerem-se as seguintes abordagens como salvaguarda da operação, equiparável a sistemas bancários (Core Banking):
+- Transactional Outbox Pattern: Nenhuma mensagem WebSocket (como `pedido_criado` ou `subpedido_pronto`) deveria ser emitida na thread principal do processo que salva a bd. Salvar o evento na própria base de dados atrelado à transação ACID, e despachar (assincronamente via um relay) aos utilizadores, garantindo "At-Least-Once Delivery".
+- Contabilidade "Double-Entry" e Event Sourcing Parcial: O Fundo de Consumo nunca se edita como um número mutável (ex.: saldo = saldo - X). O saldo é uma derivação matemática segura baseada na leitura pura da tabela/coleção de TransacoesFundo (que opera sob "Append-Only" garantindo máxima auditabilidade).
+- Modelagem baseada em Portos e Adaptadores (Hexagonal): Devido à forte necessidade de não corrompermos o negócio com a infraestrutura, o domínio (core) da Sessão e Máquina de Estados não deverá possuir anotações de base de dados, estando tudo mantido em isolamento transacional agnóstico.
+
+5. Sequência Recomendada para o Projeto (Próximos Passos)
+Dada a criticidade descrita, a orientação para desenvolvimento seguro seria:
+
+- FASE 1: O Núcleo Transacional (Wallet)
+  Criar estrita e exclusivamente o Domínio Base Financeiro: `SessaoConsumo`, `FundoConsumo` e `TransacaoFundo`. 
+  Criação de bateria pesada de Testes de Concorrência e Unitários focado em operações Concorrentes (Depósitos, Retiradas, Extratos) simulando milhoes de transações simultâneas.
+
+- FASE 2: Motor Operacional (Order & Routing)
+  Desenvolvimento das agregações `Pedido`, `SubPedido`, e sua máquina de estados. 
+  Integração deste motor com O Motor Financeiro da FASE 1 — O Pedido debitando e gerando o devido histórico.
+  Implementação de Sagas/Workflows de Compensação no caso de cancelamentos geridos no KDS.
+
+- FASE 3: Camada de Comunicação Assíncrona e APIs
+  Aperfeiçoar a emissão de WebSockets baseando na reatividade ou eventos do Domínio.
+  Fecho das APIs perimetrais e Segurança/Validação JWT.
+
+- FASE 4: Integrações e Gateways (Production Boundaries)
+  Conexões concretas com API AppyPay, processamento rigoroso de callbacks e tratamento de cenários caóticos de rede local/exuberante.
+
+Estou completamente alinhado com o documento de contexto. O rigor exigido requer implementações defensivas, com design guiado por testes (TDD). Aguardo validações se concorda com esta visão ou se quer iniciar a infraestrutura base pela Fase 1 descrita.

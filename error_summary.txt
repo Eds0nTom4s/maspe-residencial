@@ -1,0 +1,10 @@
+      1 com/restaurante/service/UnidadeDeConsumoService.java
+      1 com/restaurante/service/ProdutoService.java
+      1 com/restaurante/service/ConfiguracaoFinanceiraService.java
+      1 com/restaurante/service/ClienteService.java
+      1 com/restaurante/security/JwtTokenProvider.java
+      1 com/restaurante/security/JwtChannelInterceptor.java
+      1 com/restaurante/model/entity/SessaoConsumo.java
+      1 com/restaurante/controller/EventLogController.java
+      1 com/restaurante/controller/ConfiguracaoFinanceiraController.java
+      1 com/restaurante/controller/AuditoriaController.java

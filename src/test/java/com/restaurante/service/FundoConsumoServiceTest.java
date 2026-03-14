@@ -2,12 +2,12 @@ package com.restaurante.service;
 
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.SaldoInsuficienteException;
-import com.restaurante.model.entity.Cliente;
+import com.restaurante.model.entity.ConfiguracaoFinanceiraSistema;
 import com.restaurante.model.entity.FundoConsumo;
 import com.restaurante.model.entity.Pedido;
+import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.TransacaoFundo;
 import com.restaurante.model.enums.TipoTransacaoFundo;
-import com.restaurante.repository.ClienteRepository;
 import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
 /**
  * Testes unitários para FundoConsumoService
  *
- * Cobre crédito, débito, estorno e idempotência básica.
+ * Cobre recarga, débito, estorno e idempotência básica.
  * Testes de concorrência real ficam em ConcurrencyChaosTest.
  */
 @ExtendWith(MockitoExtension.class)
@@ -41,27 +41,25 @@ class FundoConsumoServiceTest {
     private TransacaoFundoRepository transacaoFundoRepository;
 
     @Mock
-    private ClienteRepository clienteRepository;
+    private PedidoRepository pedidoRepository;
 
     @Mock
-    private PedidoRepository pedidoRepository;
+    private ConfiguracaoFinanceiraService configuracaoFinanceiraService;
 
     @InjectMocks
     private FundoConsumoService fundoConsumoService;
 
-    private Cliente cliente;
+    private SessaoConsumo sessao;
     private FundoConsumo fundo;
     private Pedido pedido;
 
     @BeforeEach
     void setUp() {
-        cliente = Cliente.builder()
-                .telefone("+244900000000")
-                .build();
-        cliente.setId(1L);
+        sessao = SessaoConsumo.builder().build();
+        sessao.setId(1L);
 
         fundo = FundoConsumo.builder()
-                .cliente(cliente)
+                .sessaoConsumo(sessao)
                 .saldoAtual(new BigDecimal("50000.00"))
                 .ativo(true)
                 .build();
@@ -76,21 +74,21 @@ class FundoConsumoServiceTest {
 
     @Test
     void deveCreditarFundoComSucesso() {
-        when(clienteRepository.findById(cliente.getId())).thenReturn(Optional.of(cliente));
-        when(fundoConsumoRepository.existsByClienteIdAndAtivoTrue(cliente.getId())).thenReturn(false);
-        when(fundoConsumoRepository.save(any(FundoConsumo.class))).thenReturn(fundo);
+        ConfiguracaoFinanceiraSistema config = mock(ConfiguracaoFinanceiraSistema.class);
+        when(config.getValorMinimoOperacao()).thenReturn(BigDecimal.ONE);
+        when(configuracaoFinanceiraService.buscarOuCriarConfiguracao()).thenReturn(config);
 
-        fundoConsumoService.criarFundo(cliente.getId());
-
-        when(fundoConsumoRepository.findByClienteIdAndAtivoTrue(cliente.getId())).thenReturn(Optional.of(fundo));
-        when(fundoConsumoRepository.save(any(FundoConsumo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fundoConsumoRepository.findBySessaoConsumoIdAndAtivoTrue(sessao.getId()))
+                .thenReturn(Optional.of(fundo));
+        when(fundoConsumoRepository.save(any(FundoConsumo.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(transacaoFundoRepository.save(any(TransacaoFundo.class))).thenAnswer(invocation -> {
             TransacaoFundo t = invocation.getArgument(0);
             t.setId(1L);
             return t;
         });
 
-        var transacao = fundoConsumoService.recarregar(cliente.getId(), new BigDecimal("50000.00"), "Carga inicial");
+        var transacao = fundoConsumoService.recarregar(sessao.getId(), new BigDecimal("50000.00"), "Carga inicial");
 
         assertNotNull(transacao.getId());
         assertEquals(TipoTransacaoFundo.CREDITO, transacao.getTipo());
@@ -100,18 +98,20 @@ class FundoConsumoServiceTest {
 
     @Test
     void deveDebitarPedidoComSaldoSuficienteEMarcarTransacaoDebito() {
-        when(fundoConsumoRepository.findByClienteIdAndAtivoTrue(cliente.getId())).thenReturn(Optional.of(fundo));
+        when(fundoConsumoRepository.findBySessaoConsumoIdAndAtivoTrue(sessao.getId()))
+                .thenReturn(Optional.of(fundo));
         when(pedidoRepository.findById(pedido.getId())).thenReturn(Optional.of(pedido));
         when(transacaoFundoRepository.findByPedidoIdAndTipo(pedido.getId(), TipoTransacaoFundo.DEBITO))
                 .thenReturn(Optional.empty());
-        when(fundoConsumoRepository.save(any(FundoConsumo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fundoConsumoRepository.save(any(FundoConsumo.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(transacaoFundoRepository.save(any(TransacaoFundo.class))).thenAnswer(invocation -> {
             TransacaoFundo t = invocation.getArgument(0);
             t.setId(2L);
             return t;
         });
 
-        var transacao = fundoConsumoService.debitar(cliente.getId(), pedido.getId(), pedido.getTotal());
+        var transacao = fundoConsumoService.debitar(sessao.getId(), pedido.getId(), pedido.getTotal());
 
         assertNotNull(transacao.getId());
         assertEquals(TipoTransacaoFundo.DEBITO, transacao.getTipo());
@@ -121,17 +121,28 @@ class FundoConsumoServiceTest {
 
     @Test
     void deveLancarSaldoInsuficienteAoDebitar() {
-        fundo.setSaldoAtual(new BigDecimal("10000.00"));
-        when(fundoConsumoRepository.findByClienteIdAndAtivoTrue(cliente.getId())).thenReturn(Optional.of(fundo));
+        // Reduzindo o saldo usando um novo objeto ou manipulando as transações na vida real
+        // Para o teste, recriamos o fundo com saldo menor
+        FundoConsumo fundoComSaldoBaixo = FundoConsumo.builder()
+                .sessaoConsumo(sessao)
+                .saldoAtual(new BigDecimal("10000.00"))
+                .ativo(true)
+                .build();
+        fundoComSaldoBaixo.setId(10L);
+        
+        when(fundoConsumoRepository.findBySessaoConsumoIdAndAtivoTrue(sessao.getId()))
+                .thenReturn(Optional.of(fundoComSaldoBaixo));
+        when(transacaoFundoRepository.findByPedidoIdAndTipo(pedido.getId(), TipoTransacaoFundo.DEBITO))
+                .thenReturn(Optional.empty());
 
         assertThrows(SaldoInsuficienteException.class,
-                () -> fundoConsumoService.debitar(cliente.getId(), pedido.getId(), new BigDecimal("25000.00")));
+                () -> fundoConsumoService.debitar(sessao.getId(), pedido.getId(), new BigDecimal("25000.00")));
     }
 
     @Test
     void debitoDeveSerIdempotentePorPedido() {
-        lenient().when(fundoConsumoRepository.findByClienteIdAndAtivoTrue(cliente.getId())).thenReturn(Optional.of(fundo));
-        lenient().when(pedidoRepository.findById(pedido.getId())).thenReturn(Optional.of(pedido));
+        lenient().when(fundoConsumoRepository.findBySessaoConsumoIdAndAtivoTrue(sessao.getId()))
+                .thenReturn(Optional.of(fundo));
 
         TransacaoFundo existente = TransacaoFundo.builder()
                 .fundoConsumo(fundo)
@@ -146,7 +157,7 @@ class FundoConsumoServiceTest {
         when(transacaoFundoRepository.findByPedidoIdAndTipo(pedido.getId(), TipoTransacaoFundo.DEBITO))
                 .thenReturn(Optional.of(existente));
 
-        var transacao = fundoConsumoService.debitar(cliente.getId(), pedido.getId(), pedido.getTotal());
+        var transacao = fundoConsumoService.debitar(sessao.getId(), pedido.getId(), pedido.getTotal());
 
         assertSame(existente, transacao);
         verify(fundoConsumoRepository, never()).save(any(FundoConsumo.class));
@@ -155,7 +166,6 @@ class FundoConsumoServiceTest {
 
     @Test
     void estornoDeveRetornarSaldoESerIdempotente() {
-        // Débito original
         TransacaoFundo debito = TransacaoFundo.builder()
                 .fundoConsumo(fundo)
                 .pedido(pedido)
@@ -166,8 +176,6 @@ class FundoConsumoServiceTest {
                 .build();
         debito.setId(6L);
 
-        when(transacaoFundoRepository.findByPedidoIdAndTipo(pedido.getId(), TipoTransacaoFundo.DEBITO))
-                .thenReturn(Optional.of(debito));
         TransacaoFundo estornoExistente = TransacaoFundo.builder()
                 .fundoConsumo(fundo)
                 .pedido(pedido)
@@ -178,11 +186,13 @@ class FundoConsumoServiceTest {
                 .build();
         estornoExistente.setId(7L);
 
+        when(transacaoFundoRepository.findByPedidoIdAndTipo(pedido.getId(), TipoTransacaoFundo.DEBITO))
+                .thenReturn(Optional.of(debito));
         when(transacaoFundoRepository.findByPedidoIdAndTipo(pedido.getId(), TipoTransacaoFundo.ESTORNO))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(estornoExistente));
-
-        when(fundoConsumoRepository.save(any(FundoConsumo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fundoConsumoRepository.save(any(FundoConsumo.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(pedidoRepository.findById(pedido.getId())).thenReturn(Optional.of(pedido));
         when(transacaoFundoRepository.save(any(TransacaoFundo.class))).thenAnswer(invocation -> {
             TransacaoFundo t = invocation.getArgument(0);
@@ -190,13 +200,9 @@ class FundoConsumoServiceTest {
             return t;
         });
 
-        // Primeiro estorno: efetivo
         var estorno1 = fundoConsumoService.estornar(pedido.getId());
         assertEquals(TipoTransacaoFundo.ESTORNO, estorno1.getTipo());
-        // Saldo é restaurado: 25000 + 25000 = 50000, mas retornamos o existente mock que tem 75000
-        // Na segunda chamada, o estorno já existe então retorna o mesmo objeto
 
-        // Segundo estorno: deve ser idempotente e apenas retornar existente
         var estorno2 = fundoConsumoService.estornar(pedido.getId());
         assertEquals(TipoTransacaoFundo.ESTORNO, estorno2.getTipo());
         assertEquals(new BigDecimal("50000.00"), estorno2.getSaldoNovo());
@@ -204,10 +210,15 @@ class FundoConsumoServiceTest {
 
     @Test
     void naoDevePermitirRecarregarFundoInativo() {
+        ConfiguracaoFinanceiraSistema config = mock(ConfiguracaoFinanceiraSistema.class);
+        when(config.getValorMinimoOperacao()).thenReturn(BigDecimal.ONE);
+        when(configuracaoFinanceiraService.buscarOuCriarConfiguracao()).thenReturn(config);
+
         fundo.setAtivo(false);
-        when(fundoConsumoRepository.findByClienteIdAndAtivoTrue(cliente.getId())).thenReturn(Optional.of(fundo));
+        when(fundoConsumoRepository.findBySessaoConsumoIdAndAtivoTrue(sessao.getId()))
+                .thenReturn(Optional.of(fundo));
 
         assertThrows(BusinessException.class,
-                () -> fundoConsumoService.recarregar(cliente.getId(), new BigDecimal("100.00"), "recarregar"));
+                () -> fundoConsumoService.recarregar(sessao.getId(), new BigDecimal("100.00"), "recarregar"));
     }
 }

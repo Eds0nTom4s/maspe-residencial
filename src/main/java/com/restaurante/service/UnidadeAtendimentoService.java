@@ -7,8 +7,8 @@ import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,13 +21,18 @@ import java.util.List;
  * Coordena atendimento e vincula cozinhas responsáveis
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class UnidadeAtendimentoService {
+
+    private static final Logger log = LoggerFactory.getLogger(UnidadeAtendimentoService.class);
 
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final CozinhaRepository cozinhaRepository;
 
+    public UnidadeAtendimentoService(UnidadeAtendimentoRepository unidadeAtendimentoRepository,
+                                     CozinhaRepository cozinhaRepository) {
+        this.unidadeAtendimentoRepository = unidadeAtendimentoRepository;
+        this.cozinhaRepository = cozinhaRepository;
+    }
     /**
      * Cria nova unidade de atendimento
      */

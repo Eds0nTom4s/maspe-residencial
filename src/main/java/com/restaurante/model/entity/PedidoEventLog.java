@@ -76,4 +76,78 @@ public class PedidoEventLog {
         }
         return String.format("Status alterado de %s para %s", statusAnterior, statusNovo);
     }
+
+    // Getters and Setters manually added
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public Pedido getPedido() {
+        return pedido;
+    }
+
+    public void setPedido(Pedido pedido) {
+        this.pedido = pedido;
+    }
+
+    public StatusPedido getStatusAnterior() {
+        return statusAnterior;
+    }
+
+    public void setStatusAnterior(StatusPedido statusAnterior) {
+        this.statusAnterior = statusAnterior;
+    }
+
+    public StatusPedido getStatusNovo() {
+        return statusNovo;
+    }
+
+    public void setStatusNovo(StatusPedido statusNovo) {
+        this.statusNovo = statusNovo;
+    }
+
+    public String getUsuario() {
+        return usuario;
+    }
+
+    public void setUsuario(String usuario) {
+        this.usuario = usuario;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(LocalDateTime timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public String getObservacoes() {
+        return observacoes;
+    }
+
+    public void setObservacoes(String observacoes) {
+        this.observacoes = observacoes;
+    }
+
+    public String getIpOrigem() {
+        return ipOrigem;
+    }
+
+    public void setIpOrigem(String ipOrigem) {
+        this.ipOrigem = ipOrigem;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
 }

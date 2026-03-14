@@ -2,8 +2,8 @@ package com.restaurante.financeiro.gateway.appypay;
 
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeRequest;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
@@ -22,13 +22,19 @@ import org.springframework.web.client.RestTemplate;
  * BASEADO EM ARENATICKET (VALIDADO EM PRODUÇÃO)
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class AppyPayClient {
-    
+
+    private static final Logger log = LoggerFactory.getLogger(AppyPayClient.class);
+
     private final AppyPayProperties properties;
     private final AppyPayAuthService authService;
     private final RestTemplate restTemplate;
+
+    public AppyPayClient(AppyPayProperties properties, AppyPayAuthService authService, RestTemplate restTemplate) {
+        this.properties = properties;
+        this.authService = authService;
+        this.restTemplate = restTemplate;
+    }
     
     /**
      * Cria cobrança na AppyPay
@@ -167,7 +173,7 @@ public class AppyPayClient {
     private AppyPayChargeResponse criarChargeMock(AppyPayChargeRequest request) {
         String chargeId = "MOCK_CHARGE_" + System.currentTimeMillis();
         
-        AppyPayChargeResponse.AppyPayChargeResponseBuilder builder = AppyPayChargeResponse.builder()
+        AppyPayChargeResponse.Builder builder = AppyPayChargeResponse.builder()
             .chargeId(chargeId)
             .merchantTransactionId(request.getMerchantTransactionId())
             .amount(request.getAmount())

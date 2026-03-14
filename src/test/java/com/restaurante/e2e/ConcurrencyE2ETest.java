@@ -78,7 +78,10 @@ class ConcurrencyE2ETest {
     private ClienteRepository clienteRepository;
 
     @Autowired
-    private UnidadeDeConsumoRepository unidadeDeConsumoRepository;
+    private MesaRepository mesaRepository;
+
+    @Autowired
+    private SessaoConsumoRepository sessaoConsumoRepository;
 
     @Autowired
     private UnidadeAtendimentoRepository unidadeAtendimentoRepository;
@@ -102,7 +105,8 @@ class ConcurrencyE2ETest {
         subPedidoRepository.deleteAll();
         pedidoRepository.deleteAll();
         fundoConsumoRepository.deleteAll();
-        unidadeDeConsumoRepository.deleteAll();
+        sessaoConsumoRepository.deleteAll();
+        mesaRepository.deleteAll();
         clienteRepository.deleteAll();
         
         // Criar estrutura base
@@ -272,16 +276,20 @@ class ConcurrencyE2ETest {
     }
 
     private Pedido criarPedido(Cliente cliente, BigDecimal valor) {
-        UnidadeDeConsumo unidade = UnidadeDeConsumo.builder()
+        Mesa mesa = mesaRepository.save(Mesa.builder()
                 .referencia("E2E-" + System.nanoTime())
                 .unidadeAtendimento(unidadeAtendimento)
+                .ativa(true)
+                .build());
+
+        SessaoConsumo sessao = sessaoConsumoRepository.save(SessaoConsumo.builder()
+                .mesa(mesa)
                 .cliente(cliente)
-                .build();
-        unidade = unidadeDeConsumoRepository.save(unidade);
+                .build());
 
         Pedido pedido = Pedido.builder()
                 .numero("PED-E2E-" + System.currentTimeMillis())
-                .unidadeConsumo(unidade)
+                .sessaoConsumo(sessao)
                 .status(StatusPedido.CRIADO)
                 .total(valor)
                 .build();

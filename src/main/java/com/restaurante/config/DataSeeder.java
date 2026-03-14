@@ -4,7 +4,8 @@ import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.*;
 import com.restaurante.repository.*;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Profile;
 import org.springframework.context.event.EventListener;
@@ -18,35 +19,15 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * DataSeeder — única fonte de dados de desenvolvimento.
- *
- * RESPONSABILIDADES:
- *   - Usuários Spring Security (login username/senha)
- *   - Atendentes (login telefone/senha)
- *   - Clientes de teste
- *   - Cozinhas + relacionamento com Unidades de Atendimento
- *   - Unidades de Atendimento (Salão, Bar, Esplanada)
- *   - Cardápio completo (produtos)
- *   - Mesas físicas permanentes distribuídas pelas unidades
- *
- * REGRAS:
- *   - Executado APENAS em perfil 'dev'  (@Profile("dev"))
- *   - Executado APÓS InicializacaoFinanceiraConfig (Order 100)
- *   - Idempotente: verifica count() antes de inserir
- *   - data.sql está DESABILITADO — este seeder é a única fonte de dados dev
- *
- * CREDENCIAIS DE TESTE:
- *   Admin    username=admin       / senha=admin123    |  tel=+244923000001
- *   Atendente username=atendente  / senha=atendente123|  tel=+244923000002
- *   Cozinha  username=cozinha     / senha=cozinha123
- *   Gerente  username=gerente     / senha=gerente123  |  tel=+244923000003
+ * DataSeeder
  */
 @Component
 @Profile("dev")
 @Order(100)
 @RequiredArgsConstructor
-@Slf4j
 public class DataSeeder {
+
+    private static final Logger log = LoggerFactory.getLogger(DataSeeder.class);
 
     private final UserRepository userRepository;
     private final AtendenteRepository atendenteRepository;

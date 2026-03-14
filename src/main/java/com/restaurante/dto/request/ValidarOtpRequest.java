@@ -3,19 +3,12 @@ package com.restaurante.dto.request;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+
 
 /**
  * DTO para validação de OTP
  * Usado para autenticar o cliente após receber o código
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
 public class ValidarOtpRequest {
 
     @NotBlank(message = "Telefone é obrigatório")
@@ -26,4 +19,38 @@ public class ValidarOtpRequest {
     @Size(min = 4, max = 4, message = "Código OTP deve ter 4 dígitos")
     @Pattern(regexp = "^\\d{4}$", message = "Código OTP deve conter apenas números")
     private String codigo;
+
+    public ValidarOtpRequest() {}
+
+    public String getTelefone() { return telefone; }
+    public void setTelefone(String telefone) { this.telefone = telefone; }
+
+    public String getCodigo() { return codigo; }
+    public void setCodigo(String codigo) { this.codigo = codigo; }
+
+    public static ValidarOtpRequestBuilder builder() {
+        return new ValidarOtpRequestBuilder();
+    }
+
+    public static class ValidarOtpRequestBuilder {
+        private String telefone;
+        private String codigo;
+
+        public ValidarOtpRequestBuilder telefone(String telefone) {
+            this.telefone = telefone;
+            return this;
+        }
+
+        public ValidarOtpRequestBuilder codigo(String codigo) {
+            this.codigo = codigo;
+            return this;
+        }
+
+        public ValidarOtpRequest build() {
+            ValidarOtpRequest request = new ValidarOtpRequest();
+            request.setTelefone(this.telefone);
+            request.setCodigo(this.codigo);
+            return request;
+        }
+    }
 }

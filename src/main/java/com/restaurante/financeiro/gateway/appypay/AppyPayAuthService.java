@@ -1,8 +1,8 @@
 package com.restaurante.financeiro.gateway.appypay;
 
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayTokenResponse;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
@@ -23,12 +23,17 @@ import java.time.Instant;
  * BASEADO EM ARENATICKET (VALIDADO EM PRODUÇÃO)
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class AppyPayAuthService {
-    
+
+    private static final Logger log = LoggerFactory.getLogger(AppyPayAuthService.class);
+
     private final AppyPayProperties properties;
     private final RestTemplate restTemplate;
+
+    public AppyPayAuthService(AppyPayProperties properties, RestTemplate restTemplate) {
+        this.properties = properties;
+        this.restTemplate = restTemplate;
+    }
     
     // Cache do token
     private String cachedToken;

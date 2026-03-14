@@ -3,7 +3,7 @@ package com.restaurante.model.entity;
 import com.restaurante.model.enums.StatusSubPedido;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
+import java.util.Objects;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -32,11 +32,6 @@ import java.util.List;
     @Index(name = "idx_subpedido_status", columnList = "status"),
     @Index(name = "idx_subpedido_unidade", columnList = "unidade_atendimento_id")
 })
-@Data
-@EqualsAndHashCode(callSuper = true)
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
 public class SubPedido extends BaseEntity {
 
     /**
@@ -77,7 +72,6 @@ public class SubPedido extends BaseEntity {
      */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    @Builder.Default
     private StatusSubPedido status = StatusSubPedido.PENDENTE;
 
     /**
@@ -90,7 +84,6 @@ public class SubPedido extends BaseEntity {
      * Relacionamento com itens do SubPedido
      */
     @OneToMany(mappedBy = "subPedido", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    @Builder.Default
     private List<ItemPedido> itens = new ArrayList<>();
 
     /**
@@ -187,5 +180,132 @@ public class SubPedido extends BaseEntity {
             return java.time.Duration.between(iniciadoEm, prontoEm).toMinutes();
         }
         return null;
+    }
+
+    // ========== Construtores ==========
+
+    public SubPedido() {}
+
+    public SubPedido(String numero, Pedido pedido, UnidadeAtendimento unidadeAtendimento,
+                     Cozinha cozinha, StatusSubPedido status, String observacoes,
+                     List<ItemPedido> itens, BigDecimal total,
+                     LocalDateTime recebidoEm, LocalDateTime iniciadoEm,
+                     LocalDateTime prontoEm, LocalDateTime entregueEm,
+                     String responsavelPreparo, String responsavelEntrega) {
+        this.numero = numero;
+        this.pedido = pedido;
+        this.unidadeAtendimento = unidadeAtendimento;
+        this.cozinha = cozinha;
+        this.status = status != null ? status : StatusSubPedido.PENDENTE;
+        this.observacoes = observacoes;
+        this.itens = itens != null ? itens : new ArrayList<>();
+        this.total = total;
+        this.recebidoEm = recebidoEm;
+        this.iniciadoEm = iniciadoEm;
+        this.prontoEm = prontoEm;
+        this.entregueEm = entregueEm;
+        this.responsavelPreparo = responsavelPreparo;
+        this.responsavelEntrega = responsavelEntrega;
+    }
+
+    // ========== Getters / Setters ==========
+
+    public String getNumero() { return numero; }
+    public void setNumero(String numero) { this.numero = numero; }
+
+    public Pedido getPedido() { return pedido; }
+    public void setPedido(Pedido pedido) { this.pedido = pedido; }
+
+    public UnidadeAtendimento getUnidadeAtendimento() { return unidadeAtendimento; }
+    public void setUnidadeAtendimento(UnidadeAtendimento u) { this.unidadeAtendimento = u; }
+
+    public Cozinha getCozinha() { return cozinha; }
+    public void setCozinha(Cozinha cozinha) { this.cozinha = cozinha; }
+
+    public StatusSubPedido getStatus() { return status; }
+    public void setStatus(StatusSubPedido status) { this.status = status; }
+
+    public String getObservacoes() { return observacoes; }
+    public void setObservacoes(String observacoes) { this.observacoes = observacoes; }
+
+    public List<ItemPedido> getItens() { return itens; }
+    public void setItens(List<ItemPedido> itens) { this.itens = itens; }
+
+    public BigDecimal getTotal() { return total; }
+    public void setTotal(BigDecimal total) { this.total = total; }
+
+    public LocalDateTime getRecebidoEm() { return recebidoEm; }
+    public void setRecebidoEm(LocalDateTime recebidoEm) { this.recebidoEm = recebidoEm; }
+
+    public LocalDateTime getIniciadoEm() { return iniciadoEm; }
+    public void setIniciadoEm(LocalDateTime iniciadoEm) { this.iniciadoEm = iniciadoEm; }
+
+    public LocalDateTime getProntoEm() { return prontoEm; }
+    public void setProntoEm(LocalDateTime prontoEm) { this.prontoEm = prontoEm; }
+
+    public LocalDateTime getEntregueEm() { return entregueEm; }
+    public void setEntregueEm(LocalDateTime entregueEm) { this.entregueEm = entregueEm; }
+
+    public String getResponsavelPreparo() { return responsavelPreparo; }
+    public void setResponsavelPreparo(String responsavelPreparo) { this.responsavelPreparo = responsavelPreparo; }
+
+    public String getResponsavelEntrega() { return responsavelEntrega; }
+    public void setResponsavelEntrega(String responsavelEntrega) { this.responsavelEntrega = responsavelEntrega; }
+
+    // ========== equals / hashCode ==========
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof SubPedido)) return false;
+        SubPedido other = (SubPedido) o;
+        return Objects.equals(getId(), other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(getId());
+    }
+
+    // ========== Builder estático ==========
+
+    public static Builder builder() { return new Builder(); }
+
+    public static class Builder {
+        private String numero;
+        private Pedido pedido;
+        private UnidadeAtendimento unidadeAtendimento;
+        private Cozinha cozinha;
+        private StatusSubPedido status = StatusSubPedido.PENDENTE;
+        private String observacoes;
+        private List<ItemPedido> itens = new ArrayList<>();
+        private BigDecimal total;
+        private LocalDateTime recebidoEm;
+        private LocalDateTime iniciadoEm;
+        private LocalDateTime prontoEm;
+        private LocalDateTime entregueEm;
+        private String responsavelPreparo;
+        private String responsavelEntrega;
+
+        public Builder numero(String numero) { this.numero = numero; return this; }
+        public Builder pedido(Pedido pedido) { this.pedido = pedido; return this; }
+        public Builder unidadeAtendimento(UnidadeAtendimento u) { this.unidadeAtendimento = u; return this; }
+        public Builder cozinha(Cozinha cozinha) { this.cozinha = cozinha; return this; }
+        public Builder status(StatusSubPedido status) { this.status = status; return this; }
+        public Builder observacoes(String observacoes) { this.observacoes = observacoes; return this; }
+        public Builder itens(List<ItemPedido> itens) { this.itens = itens; return this; }
+        public Builder total(BigDecimal total) { this.total = total; return this; }
+        public Builder recebidoEm(LocalDateTime v) { this.recebidoEm = v; return this; }
+        public Builder iniciadoEm(LocalDateTime v) { this.iniciadoEm = v; return this; }
+        public Builder prontoEm(LocalDateTime v) { this.prontoEm = v; return this; }
+        public Builder entregueEm(LocalDateTime v) { this.entregueEm = v; return this; }
+        public Builder responsavelPreparo(String v) { this.responsavelPreparo = v; return this; }
+        public Builder responsavelEntrega(String v) { this.responsavelEntrega = v; return this; }
+
+        public SubPedido build() {
+            return new SubPedido(numero, pedido, unidadeAtendimento, cozinha, status,
+                    observacoes, itens, total, recebidoEm, iniciadoEm,
+                    prontoEm, entregueEm, responsavelPreparo, responsavelEntrega);
+        }
     }
 }

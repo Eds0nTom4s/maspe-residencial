@@ -15,7 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -26,20 +25,10 @@ import java.math.BigDecimal;
  * Controller REST para Fundo de Consumo (pré-pago)
  *
  * <h2>Modelo de negócio</h2>
- * O Fundo de Consumo é um método de pagamento pré-pago identificado por
- * um QR Code único. O <b>token do QR Code é o identificador universal</b>
+ * O Fundo de Consumo é criado <b>automaticamente</b> quando uma SessaoConsumo é aberta.
+ * O <b>qrCodeSessao</b> (UUID gerado na sessão) é o identificador universal
  * de qualquer operação — o garçom lê o QR Code e usa o token resultante
- * para carregar, debitar ou consultar o fundo, independentemente de o fundo
- * pertencer a um cliente identificado ou ser anónimo.
- *
- * <h2>Dois tipos de fundo — mesma API operacional</h2>
- * <ul>
- *   <li><b>Identificado</b> — associado a um {@code clienteId}. O sistema
- *       gera automaticamente um token QR único no momento da criação.</li>
- *   <li><b>Anónimo</b>     — sem cliente. O token é o QR Code da própria
- *       mesa ({@code UnidadeConsumo.qrCode}).</li>
- * </ul>
- * Após a criação, <b>ambos operam exclusivamente pelo token</b>.
+ * para carregar, consultar ou encerrar o fundo.
  *
  * <h2>Base URL</h2>
  * {@code /api/fundos}
@@ -54,59 +43,7 @@ public class FundoConsumoController {
     private final FundoConsumoService fundoConsumoService;
 
     // ═══════════════════════════════════════════════════════════════════════
-    // CRIAÇÃO — dois pontos de entrada, depois tudo opera pelo token
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /**
-     * Cria fundo pré-pago para um cliente identificado.
-     * O backend gera automaticamente o tokenPortador (UUID).
-     * O admin imprime esse token como QR Code e entrega ao cliente.
-     * Restrição: um cliente só pode ter 1 fundo ativo.
-     *
-     * POST /api/fundos/cliente/{clienteId}
-     */
-    @PostMapping("/cliente/{clienteId}")
-    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
-    @Operation(
-        summary = "Criar fundo para cliente",
-        description = "Cria fundo pré-pago com saldo zero e gera token QR único automaticamente."
-    )
-    public ResponseEntity<ApiResponse<FundoConsumoResponse>> criarFundoCliente(
-            @PathVariable Long clienteId) {
-
-        log.info("Criando fundo de consumo para cliente {}", clienteId);
-        FundoConsumo fundo = fundoConsumoService.criarFundo(clienteId);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(
-                        "Fundo criado. Token QR: " + fundo.getTokenPortador(),
-                        toResponse(fundo)));
-    }
-
-    /**
-     * Cria fundo pré-pago anónimo vinculado ao QR Code da mesa.
-     * O {@code token} deve ser o {@code qrCode} da UnidadeConsumo.
-     * Esse mesmo token identifica o fundo em todas as operações seguintes.
-     *
-     * POST /api/fundos/anonimo/{token}
-     */
-    @PostMapping("/anonimo/{token}")
-    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
-    @Operation(
-        summary = "Criar fundo anónimo (QR Code da mesa)",
-        description = "Cria fundo sem cliente. O token do QR Code da mesa torna-se o identificador do fundo."
-    )
-    public ResponseEntity<ApiResponse<FundoConsumoResponse>> criarFundoAnonimo(
-            @PathVariable String token) {
-
-        log.info("Criando fundo anónimo para token: {}", token);
-        FundoConsumo fundo = fundoConsumoService.criarFundoAnonimo(token);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Fundo anónimo criado", toResponse(fundo)));
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // OPERAÇÕES UNIVERSAIS — garçom lê QR → token → usa estes endpoints
-    // Funcionam igualmente para fundos de clientes e anónimos
+    // OPERAÇÕES — QR Code da sessão (qrCodeSessao) como identificador
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
@@ -216,27 +153,27 @@ public class FundoConsumoController {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // LOOKUP ADMINISTRATIVO — busca por clienteId, retorna token para usar
+    // LOOKUP ADMINISTRATIVO — busca por sessaoId, retorna qrCodeSessao
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Busca o fundo de um cliente pelo ID do cliente.
-     * Uso administrativo — a resposta inclui o tokenPortador
+     * Busca o fundo associado a uma sessão de consumo.
+     * Uso administrativo — a resposta inclui o qrCodeSessao
      * que o garçom deve usar nas operações de recarga/débito.
      *
-     * GET /api/fundos/cliente/{clienteId}
+     * GET /api/fundos/sessao/{sessaoId}
      */
-    @GetMapping("/cliente/{clienteId}")
+    @GetMapping("/sessao/{sessaoId}")
     @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
     @Operation(
-        summary = "Buscar fundo por clienteId (admin)",
-        description = "Retorna o fundo do cliente, incluindo o tokenPortador (QR Code) a usar nas operações."
+        summary = "Buscar fundo por sessãoId (admin)",
+        description = "Retorna o fundo da sessão, incluindo o qrCodeSessao a usar nas operações."
     )
-    public ResponseEntity<ApiResponse<FundoConsumoResponse>> buscarPorCliente(
-            @PathVariable Long clienteId) {
+    public ResponseEntity<ApiResponse<FundoConsumoResponse>> buscarPorSessao(
+            @PathVariable Long sessaoId) {
 
-        log.info("Buscando fundo do cliente {}", clienteId);
-        FundoConsumo fundo = fundoConsumoService.buscarPorCliente(clienteId);
+        log.info("Buscando fundo da sessão {}", sessaoId);
+        FundoConsumo fundo = fundoConsumoService.buscarPorSessaoId(sessaoId);
         return ResponseEntity.ok(ApiResponse.success("Fundo encontrado", toResponse(fundo)));
     }
 
@@ -249,8 +186,8 @@ public class FundoConsumoController {
                 .id(fundo.getId())
                 .saldoAtual(fundo.getSaldoAtual())
                 .ativo(fundo.getAtivo())
-                .clienteId(fundo.getCliente() != null ? fundo.getCliente().getId() : null)
-                .tokenPortador(fundo.getTokenPortador())
+                .sessaoId(fundo.getSessaoConsumo().getId())
+                .qrCodeSessao(fundo.getSessaoConsumo().getQrCodeSessao())
                 .createdAt(fundo.getCreatedAt())
                 .updatedAt(fundo.getUpdatedAt())
                 .build();

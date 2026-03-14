@@ -1,22 +1,31 @@
 package com.restaurante.dto.response;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.time.LocalDateTime;
 
 /**
  * DTO para resposta de atividades do dashboard
  */
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
 public class DashboardActivityResponse {
-    private String tipo; // PEDIDO_CRIADO, PEDIDO_CONFIRMADO, PAGAMENTO_RECEBIDO, etc.
+    private String tipo;
     private String descricao;
     private LocalDateTime timestamp;
-    private String detalhes; // Informações adicionais (número pedido, valor, etc.)
+    private String detalhes;
+
+    public DashboardActivityResponse() {}
+
+    public DashboardActivityResponse(String tipo, String descricao, LocalDateTime timestamp, String detalhes) {
+        this.tipo = tipo;
+        this.descricao = descricao;
+        this.timestamp = timestamp;
+        this.detalhes = detalhes;
+    }
+
+    public String getTipo() { return tipo; }
+    public void setTipo(String tipo) { this.tipo = tipo; }
+    public String getDescricao() { return descricao; }
+    public void setDescricao(String descricao) { this.descricao = descricao; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+    public String getDetalhes() { return detalhes; }
+    public void setDetalhes(String detalhes) { this.detalhes = detalhes; }
 }

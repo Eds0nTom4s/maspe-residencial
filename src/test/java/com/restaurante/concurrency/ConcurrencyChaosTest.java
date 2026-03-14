@@ -70,7 +70,10 @@ class ConcurrencyChaosTest {
     private UnidadeAtendimentoRepository unidadeAtendimentoRepository;
 
     @Autowired
-    private UnidadeDeConsumoRepository unidadeDeConsumoRepository;
+    private MesaRepository mesaRepository;
+
+    @Autowired
+    private SessaoConsumoRepository sessaoConsumoRepository;
 
     @Autowired
     private PedidoRepository pedidoRepository;
@@ -95,7 +98,8 @@ class ConcurrencyChaosTest {
         // Limpar dados anteriores (respeitar FKs)
         subPedidoRepository.deleteAll();
         pedidoRepository.deleteAll();
-        unidadeDeConsumoRepository.deleteAll(); // antes de cliente
+        sessaoConsumoRepository.deleteAll(); // antes de cliente
+        mesaRepository.deleteAll();
         transacaoFundoRepository.deleteAll();
         fundoConsumoRepository.deleteAll();
         clienteRepository.deleteAll(); // depois de unidadeConsumo e fundos
@@ -196,15 +200,22 @@ class ConcurrencyChaosTest {
     @Test
     @DisplayName("2 processos debitando o mesmo fundo simultaneamente - saldo deve ser consistente")
     void doisProcessosDebitandoMesmoFundo() throws Exception {
-        // Arrange: Cliente com fundo de R$ 100
+        // Arrange: Sessão com fundo de R$ 100
         Cliente cliente = Cliente.builder()
                 .nome("Cliente Concorrência")
                 .telefone("+55119" + String.format("%08d", System.nanoTime() % 100000000))
                 .build();
         cliente = clienteRepository.save(cliente);
 
-        FundoConsumo fundo = FundoConsumo.builder()
+        SessaoConsumo sessao = sessaoConsumoRepository.save(SessaoConsumo.builder()
                 .cliente(cliente)
+                .unidadeAtendimento(unidadeAtendimento)
+                .modoAnonimo(false)
+                .status(com.restaurante.model.enums.StatusSessaoConsumo.ABERTA)
+                .build());
+
+        FundoConsumo fundo = FundoConsumo.builder()
+                .sessaoConsumo(sessao)
                 .saldoAtual(new BigDecimal("100.00"))
                 .ativo(true)
                 .build();
@@ -219,12 +230,12 @@ class ConcurrencyChaosTest {
         AtomicInteger sucessos = new AtomicInteger(0);
         AtomicInteger falhasSaldo = new AtomicInteger(0);
 
-        final Long clienteId = cliente.getId();
+        final Long sessaoId = sessao.getId();
 
         // Act: 2 processos tentam debitar simultaneamente
         executor.submit(() -> {
             try {
-                fundoConsumoService.debitar(clienteId, pedido1.getId(), pedido1.getTotal());
+                fundoConsumoService.debitar(sessaoId, pedido1.getId(), pedido1.getTotal());
                 sucessos.incrementAndGet();
             } catch (SaldoInsuficienteException e) {
                 falhasSaldo.incrementAndGet();
@@ -237,7 +248,7 @@ class ConcurrencyChaosTest {
 
         executor.submit(() -> {
             try {
-                fundoConsumoService.debitar(clienteId, pedido2.getId(), pedido2.getTotal());
+                fundoConsumoService.debitar(sessaoId, pedido2.getId(), pedido2.getTotal());
                 sucessos.incrementAndGet();
             } catch (SaldoInsuficienteException e) {
                 falhasSaldo.incrementAndGet();
@@ -299,12 +310,16 @@ class ConcurrencyChaosTest {
                 .build();
         cliente = clienteRepository.save(cliente);
         
-        UnidadeDeConsumo unidadeConsumo = UnidadeDeConsumo.builder()
+        Mesa mesa = mesaRepository.save(Mesa.builder()
                 .referencia("MESA-" + numero)
                 .unidadeAtendimento(unidadeAtendimento)
+                .ativa(true)
+                .build());
+
+        SessaoConsumo sessaoConsumo = sessaoConsumoRepository.save(SessaoConsumo.builder()
+                .mesa(mesa)
                 .cliente(cliente)
-                .build();
-        unidadeConsumo = unidadeDeConsumoRepository.save(unidadeConsumo);
+                .build());
 
         Pedido pedido = Pedido.builder()
                 .numero(numero)
@@ -312,7 +327,7 @@ class ConcurrencyChaosTest {
                 .statusFinanceiro(StatusFinanceiroPedido.NAO_PAGO)
                 .tipoPagamento(TipoPagamentoPedido.PRE_PAGO)
                 .total(valor)
-                .unidadeConsumo(unidadeConsumo)
+                .sessaoConsumo(sessaoConsumo)
                 .build();
 
         return pedidoRepository.save(pedido);

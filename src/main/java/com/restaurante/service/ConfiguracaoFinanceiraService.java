@@ -16,6 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
@@ -35,8 +38,9 @@ import java.util.Set;
  */
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class ConfiguracaoFinanceiraService {
+
+    private static final Logger log = LoggerFactory.getLogger(ConfiguracaoFinanceiraService.class);
 
     private final ConfiguracaoFinanceiraSistemaRepository configuracaoRepository;
     private final PedidoRepository pedidoRepository;
@@ -62,14 +66,13 @@ public class ConfiguracaoFinanceiraService {
                 log.info("Criando configuração financeira inicial com valores de bootstrap: " +
                          "limitePosPago={} AOA, valorMinimo={} AOA",
                          limitePosPageSemente, valorMinimoSemente);
-                ConfiguracaoFinanceiraSistema config = ConfiguracaoFinanceiraSistema.builder()
-                    .posPagoAtivo(true)
-                    .limitePosPago(limitePosPageSemente)
-                    .valorMinimoOperacao(valorMinimoSemente)
-                    .atualizadoPorNome("Sistema")
-                    .atualizadoPorRole("ADMIN")
-                    .motivoUltimaAlteracao("Inicialização automática (bootstrap)")
-                    .build();
+                ConfiguracaoFinanceiraSistema config = new ConfiguracaoFinanceiraSistema();
+                config.setPosPagoAtivo(true);
+                config.setLimitePosPago(limitePosPageSemente);
+                config.setValorMinimoOperacao(valorMinimoSemente);
+                config.setAtualizadoPorNome("Sistema");
+                config.setAtualizadoPorRole("ADMIN");
+                config.setMotivoUltimaAlteracao("Inicialização automática (bootstrap)");
                 return configuracaoRepository.save(config);
             });
     }

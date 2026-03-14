@@ -47,4 +47,31 @@ public class CriarUnidadeConsumoRequest {
     private Integer capacidade;
 
     private Long atendenteId; // Opcional - se foi criada manualmente
+
+    public String getReferencia() { return referencia; }
+    public void setReferencia(String referencia) { this.referencia = referencia; }
+
+    public TipoUnidadeConsumo getTipo() { return tipo; }
+    public void setTipo(TipoUnidadeConsumo tipo) { this.tipo = tipo; }
+
+    public Integer getNumero() { return numero; }
+    public void setNumero(Integer numero) { this.numero = numero; }
+
+    public String getTelefoneCliente() { return telefoneCliente; }
+    public void setTelefoneCliente(String telefoneCliente) { this.telefoneCliente = telefoneCliente; }
+
+    public boolean isModoAnonimo() { return modoAnonimo; }
+    public void setModoAnonimo(boolean modoAnonimo) { this.modoAnonimo = modoAnonimo; }
+
+    public Long getUnidadeAtendimentoId() { return unidadeAtendimentoId; }
+    public void setUnidadeAtendimentoId(Long unidadeAtendimentoId) { this.unidadeAtendimentoId = unidadeAtendimentoId; }
+
+    public String getQrCode() { return qrCode; }
+    public void setQrCode(String qrCode) { this.qrCode = qrCode; }
+
+    public Integer getCapacidade() { return capacidade; }
+    public void setCapacidade(Integer capacidade) { this.capacidade = capacidade; }
+
+    public Long getAtendenteId() { return atendenteId; }
+    public void setAtendenteId(Long atendenteId) { this.atendenteId = atendenteId; }
 }

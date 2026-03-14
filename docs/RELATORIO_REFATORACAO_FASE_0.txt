@@ -1,0 +1,407 @@
+================================================================================
+RELATÓRIO DE REFATORAÇÃO — FASE 0
+Sistema de Restauração · Backend Spring Boot
+Data: 2026-03-07
+================================================================================
+
+OBJETIVO
+--------
+Alinhar completamente a implementação do backend com o Modelo Conceitual
+Definitivo baseado em SessaoConsumo como núcleo do sistema.
+Referência: docs/ARQUITETURA_CONGELADA_FASE_0.md
+
+RESULTADO FINAL
+---------------
+✅ BUILD SUCCESS — mvn clean compile sem erros após todas as alterações.
+
+Pontos de Atenção resolvidos nesta fase:
+  PA-01 (CRÍTICO) — FundoConsumo vinculado a SessaoConsumo            ✅
+  PA-02 (CRÍTICO) — Mesa opcional em SessaoConsumo                    ✅
+  PA-04           — QR Code único e não ambíguo (qrCodeSessao)        ✅
+  PA-05           — Remoção de tokenPortador / qrCodePortador          ✅
+
+================================================================================
+1. ENTIDADES MODIFICADAS
+================================================================================
+
+1.1  FundoConsumo  (model/entity/FundoConsumo.java)
+─────────────────────────────────────────────────────
+PROBLEMA
+  FundoConsumo era vinculado ao Cliente (ou era "anónimo" via tokenPortador).
+  Não havia relação directa com SessaoConsumo — exigia pesquisas indirectas
+  e tornava impossível garantir a invariante 1 Sessão : 1 Fundo.
+
+ALTERAÇÕES
+  REMOVIDOS:
+    - @OneToOne Cliente cliente
+    - @Column String tokenPortador
+    - @Index idx_fundo_cliente (sobre cliente_id)
+
+  ADICIONADOS:
+    - @OneToOne(fetch=LAZY, cascade=ALL)
+      @JoinColumn(name="sessao_consumo_id", nullable=false, unique=true)
+      SessaoConsumo sessaoConsumo
+    - @Index idx_fundo_sessao (sobre sessao_consumo_id)
+
+INVARIANTE GARANTIDA
+  Um FundoConsumo pertence sempre a exactamente uma SessaoConsumo.
+  A relação é @OneToOne unique → não pode existir mais de um fundo por sessão.
+
+────────────────────────────────────────────────────────────────────────────────
+
+1.2  SessaoConsumo  (model/entity/SessaoConsumo.java)
+──────────────────────────────────────────────────────
+PROBLEMA
+  Mesa era obrigatória (nullable=false) — impossibilitava sessões sem mesa
+  (consumo ao balcão, delivery, self-service via QR Code).
+  O campo qrCodePortador era semanticamente ambíguo.
+  Não havia referência inversa ao FundoConsumo.
+  Não havia suporte a UnidadeAtendimento directa (sem mesa).
+
+ALTERAÇÕES
+  MODIFICADOS:
+    - @JoinColumn(name="mesa_id", nullable=false) → nullable=true
+
+  REMOVIDOS:
+    - String qrCodePortador
+
+  ADICIONADOS:
+    - @Column(name="qr_code_sessao", unique=true, length=36, nullable=false)
+      @Builder.Default String qrCodeSessao = UUID.randomUUID().toString()
+      → Gerado automaticamente na construção; imutável; identidade pública da sessão
+    - @Index idx_sessao_qr_code (sobre qr_code_sessao)
+
+    - @OneToOne(mappedBy="sessaoConsumo", cascade=ALL, fetch=LAZY)
+      FundoConsumo fundoConsumo
+      → Referência inversa para acesso lazy ao fundo sem query adicional
+
+    - @ManyToOne(fetch=LAZY)
+      @JoinColumn(name="unidade_atendimento_id", nullable=true)
+      UnidadeAtendimento unidadeAtendimento
+      → Suporte a sessões sem mesa com unidade explícita
+
+  MÉTODOS ADICIONADOS:
+    - getUnidadeAtendimentoEfetiva()
+        if (unidadeAtendimento != null) return unidadeAtendimento;
+        if (mesa != null) return mesa.getUnidadeAtendimento();
+        return null;
+      → Null-safety universal; elimina chamadas directas a getMesa().getUnidadeAtendimento()
+
+  MÉTODO ACTUALIZADO:
+    - encerrar(): agora também chama fundoConsumo.encerrar() se presente
+      → Encerramento atómico: sessão fecha → fundo fecha
+
+================================================================================
+2. REPOSITÓRIOS MODIFICADOS
+================================================================================
+
+2.1  FundoConsumoRepository  (repository/FundoConsumoRepository.java)
+──────────────────────────────────────────────────────────────────────
+REMOVIDOS (todos os métodos baseados em clienteId / tokenPortador):
+  - findByClienteIdAndAtivoTrue(Long clienteId)
+  - findByTokenPortador(String token)
+  - findByTokenPortadorAndAtivoTrue(String token)
+  - existsByClienteIdAndAtivoTrue(Long clienteId)
+
+ADICIONADOS:
+  - findBySessaoConsumoIdAndAtivoTrue(Long sessaoId)
+  - findBySessaoConsumoId(Long sessaoId)
+  - findBySessaoConsumoIdWithLock(Long sessaoId)    — @Lock(PESSIMISTIC_WRITE)
+  - existsBySessaoConsumoIdAndAtivoTrue(Long sessaoId)
+  - findByQrCodeSessaoAndAtivoTrue(String qrCode)   — lookup público por UUID
+  - findByQrCodeSessaoWithLock(String qrCode)        — @Lock(PESSIMISTIC_WRITE)
+  - existsByQrCodeSessaoAndAtivoTrue(String qrCode)
+
+────────────────────────────────────────────────────────────────────────────────
+
+2.2  SessaoConsumoRepository  (repository/SessaoConsumoRepository.java)
+────────────────────────────────────────────────────────────────────────
+ADICIONADO:
+  - findByQrCodeSessao(String qrCodeSessao)
+    → Lookup primário pelo UUID público da sessão; substituição directa de
+      findByQrCodePortador
+
+================================================================================
+3. SERVIÇOS MODIFICADOS
+================================================================================
+
+3.1  FundoConsumoService  (service/FundoConsumoService.java)
+─────────────────────────────────────────────────────────────
+DEPENDÊNCIAS REMOVIDAS:
+  - ClienteRepository (sem referência a cliente no fundo)
+
+MÉTODOS REMOVIDOS:
+  - criarFundo(Long clienteId)
+  - criarFundoAnonimo(String token)
+  - buscarPorCliente(Long clienteId)
+  - buscarPorToken(String tokenPortador)  [semântica antiga]
+
+MÉTODOS ADICIONADOS / ACTUALIZADOS:
+  criarFundoParaSessao(SessaoConsumo sessao)
+    → Auto-invocado por SessaoConsumoService.abrir()
+    → Garante a criação imediata do fundo ao abrir sessão
+    → Valida que não existe fundo activo duplicado para a sessão
+
+  buscarPorSessaoId(Long sessaoId)
+  buscarPorToken(String qrCodeSessao)   — agora via qrCodeSessao
+  consultarSaldoPorToken(String qrCodeSessao)
+  consultarSaldo(Long sessaoId)
+  recarregarPorToken(String qrCodeSessao, BigDecimal valor, String obs)
+  recarregar(Long sessaoId, BigDecimal valor, String obs)
+
+  debitarDireto(FundoConsumo fundo, Long pedidoId, BigDecimal valor)
+    → NOVO — aceita referência directa ao fundo (zero queries extras)
+    → Usado por PedidoFinanceiroService após obter fundo via sessao.getFundoConsumo()
+
+  debitarPorToken(String qrCodeSessao, Long pedidoId, BigDecimal valor)
+  debitar(Long sessaoId, Long pedidoId, BigDecimal valor)
+  estornar(Long pedidoId)                           — semântica preservada
+  encerrarFundoPorToken(String qrCodeSessao)
+  encerrarFundo(Long sessaoId)
+  validarSaldoSuficiente(Long sessaoId, BigDecimal)
+  validarSaldoSuficientePorToken(String, BigDecimal)
+  buscarHistoricoPorFundo(Long fundoId, Pageable)
+  buscarHistorico(Long sessaoId, Pageable)
+  buscarHistoricoPeriodo(Long sessaoId, LocalDateTime, LocalDateTime)
+
+────────────────────────────────────────────────────────────────────────────────
+
+3.2  SessaoConsumoService  (service/SessaoConsumoService.java)
+────────────────────────────────────────────────────────────────
+DEPENDÊNCIAS ADICIONADAS:
+  - UnidadeAtendimentoRepository
+  - FundoConsumoService
+
+MÉTODO abrir() — ALTERAÇÕES:
+  - Mesa agora opcional: if (request.getMesaId() != null) { /* validação mesa */ }
+  - UnidadeAtendimento derivada da mesa OU obtida via request.unidadeAtendimentoId
+  - Após gravar sessão: fundoConsumoService.criarFundoParaSessao(sessaoSalva) chamado
+    automaticamente → FundoConsumo criado em cada abertura de sessão
+  - qrCodeSessao gerado via @Builder.Default na entidade (sem código explícito)
+  - Verificação de sessão duplicada do cliente adaptada para mesa nula
+
+MÉTODO converterParaResponse(SessaoConsumo, FundoConsumo):
+  - Inclui qrCodeSessao, fundoId, saldoFundo no response
+  - Trata mesa nula (mesaId e referenciaMesa nulos quando sem mesa)
+  - Remove qrCodePortador do output
+
+────────────────────────────────────────────────────────────────────────────────
+
+3.3  PedidoFinanceiroService  (service/PedidoFinanceiroService.java)
+─────────────────────────────────────────────────────────────────────
+ASSINATURAS ALTERADAS:
+  ANTES:  validarCriacaoPedido(Long clienteId, String fundoToken, ...)
+  DEPOIS: validarCriacaoPedido(SessaoConsumo sessao, ...)
+
+  ANTES:  validarSaldoSuficiente(Long clienteId, BigDecimal)
+  DEPOIS: validarSaldoSuficiente(Long sessaoId, BigDecimal)
+
+  ANTES:  processarPagamentoPedido(Long pedidoId, Long clienteId, String fundoToken, ...)
+  DEPOIS: processarPagamentoPedido(Long pedidoId, SessaoConsumo sessao, ...)
+
+LÓGICA INTERNA:
+  - verificação anónima: clienteId==null → Boolean.TRUE.equals(sessao.getModoAnonimo())
+  - validação saldo: délégua a fundoConsumoService.validarSaldoSuficiente(sessao.getId(), ...)
+  - processamento PRE_PAGO: fundo = sessao.getFundoConsumo() →
+    fundoConsumoService.debitarDireto(fundo, pedidoId, valorTotal)
+    (elimina queries extras de lookup de fundo)
+
+────────────────────────────────────────────────────────────────────────────────
+
+3.4  PedidoService  (service/PedidoService.java)
+─────────────────────────────────────────────────
+CÓDIGO REMOVIDO:
+  - Bloco de resolução de portador:
+      Long clienteId = sessaoConsumo.getCliente()...
+      String fundoToken = sessaoConsumo.getQrCodePortador()...
+    → Era o único ponto que expunha qrCodePortador ao exterior
+
+SUBSTITUIÇÕES:
+  - validarCriacaoPedido(clienteId, fundoToken, ...) →
+    validarCriacaoPedido(sessaoConsumo, ...)
+
+  - sessaoConsumo.getMesa().getUnidadeAtendimento().getId() →
+    sessaoConsumo.getUnidadeAtendimentoEfetiva().getId()
+    + guarda de null com BusinessException descritiva
+
+  - sessaoConsumo.getMesa().getUnidadeAtendimento() (SubPedido builder) →
+    sessaoConsumo.getUnidadeAtendimentoEfetiva()
+
+  - processarPagamentoPedido(pedidoId, clienteId, fundoToken, ...) →
+    processarPagamentoPedido(pedidoId, sessaoConsumo, ...)
+
+────────────────────────────────────────────────────────────────────────────────
+
+3.5  PagamentoGatewayService  (financeiro/service/PagamentoGatewayService.java)
+────────────────────────────────────────────────────────────────────────────────
+PROBLEMA: Chamava fundo.getCliente() para obter telefone do cliente nas notificações.
+
+SUBSTITUIÇÃO:
+  fundo.getCliente() → fundo.getSessaoConsumo().getCliente()
+  (dois locais: notificação de referência bancária + notificação de recarga confirmada)
+
+================================================================================
+4. DTOs MODIFICADOS
+================================================================================
+
+4.1  FundoConsumoResponse  (dto/response/FundoConsumoResponse.java)
+────────────────────────────────────────────────────────────────────
+  REMOVIDOS:  Long clienteId, String tokenPortador
+  ADICIONADOS: Long sessaoId, String qrCodeSessao
+
+4.2  SessaoConsumoResponse  (dto/response/SessaoConsumoResponse.java)
+──────────────────────────────────────────────────────────────────────
+  REMOVIDO:   String qrCodePortador
+  ADICIONADOS: String qrCodeSessao, Long fundoId, BigDecimal saldoFundo
+
+4.3  AbrirSessaoRequest  (dto/request/AbrirSessaoRequest.java)
+───────────────────────────────────────────────────────────────
+  MODIFICADO: @NotNull removido de mesaId (mesa agora opcional)
+  ADICIONADO: Long unidadeAtendimentoId (obrigatório quando mesaId é nulo)
+  JAVADOC:    Actualizado para reflectir sessões com e sem mesa
+
+================================================================================
+5. CONTROLLER MODIFICADO
+================================================================================
+
+5.1  FundoConsumoController  (controller/FundoConsumoController.java)
+──────────────────────────────────────────────────────────────────────
+ENDPOINTS REMOVIDOS:
+  POST /fundos/cliente/{clienteId}   — fundo agora auto-criado na abertura de sessão
+  POST /fundos/anonimo/{token}       — idem
+
+ENDPOINT MODIFICADO:
+  ANTES:  GET /fundos/cliente/{clienteId}  → fundoConsumoService.buscarPorCliente(clienteId)
+  DEPOIS: GET /fundos/sessao/{sessaoId}    → fundoConsumoService.buscarPorSessaoId(sessaoId)
+
+MAPPER toResponse() CORRIGIDO:
+  ANTES:  .clienteId(fundo.getCliente()!=null ? ...) .tokenPortador(fundo.getTokenPortador())
+  DEPOIS: .sessaoId(fundo.getSessaoConsumo().getId())
+          .qrCodeSessao(fundo.getSessaoConsumo().getQrCodeSessao())
+
+ENDPOINTS PRESERVADOS (sem alteração de URL):
+  GET    /fundos/{token}              — consulta por qrCodeSessao
+  GET    /fundos/{token}/saldo        — saldo por qrCodeSessao
+  POST   /fundos/{token}/recarregar   — recarga por qrCodeSessao
+  GET    /fundos/{token}/historico    — histórico por qrCodeSessao
+  DELETE /fundos/{token}              — encerrar por qrCodeSessao
+
+================================================================================
+6. DIAGRAMA DE DOMÍNIO APÓS REFATORAÇÃO
+================================================================================
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  NÚCLEO: SessaoConsumo                                               │
+  │  ─────────────────────────────────────────────────────────────────  │
+  │  id                    PK                                            │
+  │  qrCodeSessao          UUID único — identidade pública              │
+  │  mesa                  FK → Mesa (NULLABLE — mesa opcional)          │
+  │  unidadeAtendimento    FK → UnidadeAtendimento (NULLABLE)            │
+  │  cliente               FK → Cliente (NULLABLE — modo anónimo)        │
+  │  modoAnonimo           Boolean                                       │
+  │  status                ABERTA | FECHADA                              │
+  │  fundoConsumo          @OneToOne inversa (lazy)                      │
+  └────────────────────┬─────────────────────────────────────────────────┘
+                       │ 1
+                       │ @OneToOne (cascade ALL)
+                       │ 1
+  ┌────────────────────▼─────────────────────────────────────────────────┐
+  │  FundoConsumo                                                        │
+  │  ─────────────────────────────────────────────────────────────────  │
+  │  id                    PK                                            │
+  │  sessaoConsumo         FK UNIQUE NOT NULL → SessaoConsumo            │
+  │  saldoAtual            BigDecimal                                    │
+  │  ativo                 Boolean                                       │
+  │  transacoes            @OneToMany → TransacaoFundo                   │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  Acesso externo ao fundo:
+    QR Code lido → qrCodeSessao (UUID da sessão)
+                ↓
+    FundoConsumoRepository.findByQrCodeSessaoAndAtivoTrue(qrCode)
+    OU
+    SessaoConsumoRepository.findByQrCodeSessao(qrCode)
+                ↓
+    Operação no FundoConsumo
+
+================================================================================
+7. FICHEIROS MODIFICADOS — RESUMO
+================================================================================
+
+  Entidades:
+    src/main/java/com/restaurante/model/entity/FundoConsumo.java
+    src/main/java/com/restaurante/model/entity/SessaoConsumo.java
+
+  Repositórios:
+    src/main/java/com/restaurante/repository/FundoConsumoRepository.java
+    src/main/java/com/restaurante/repository/SessaoConsumoRepository.java
+
+  Serviços:
+    src/main/java/com/restaurante/service/FundoConsumoService.java
+    src/main/java/com/restaurante/service/SessaoConsumoService.java
+    src/main/java/com/restaurante/service/PedidoFinanceiroService.java
+    src/main/java/com/restaurante/service/PedidoService.java
+    src/main/java/com/restaurante/financeiro/service/PagamentoGatewayService.java
+
+  DTOs:
+    src/main/java/com/restaurante/dto/response/FundoConsumoResponse.java
+    src/main/java/com/restaurante/dto/response/SessaoConsumoResponse.java
+    src/main/java/com/restaurante/dto/request/AbrirSessaoRequest.java
+
+  Controllers:
+    src/main/java/com/restaurante/controller/FundoConsumoController.java
+
+  Total de ficheiros modificados: 13
+
+================================================================================
+8. IMPACTO NA API EXTERNA
+================================================================================
+
+  ENDPOINTS REMOVIDOS (breaking change — criação explícita de fundo):
+    POST /api/fundos/cliente/{clienteId}
+    POST /api/fundos/anonimo/{token}
+
+  ENDPOINT RENOMEADO (breaking change — lookup administrativo):
+    GET  /api/fundos/cliente/{clienteId}  →  GET /api/fundos/sessao/{sessaoId}
+
+  ENDPOINTS PRESERVADOS (sem quebra de contrato):
+    GET    /api/fundos/{token}
+    GET    /api/fundos/{token}/saldo
+    POST   /api/fundos/{token}/recarregar
+    GET    /api/fundos/{token}/historico
+    DELETE /api/fundos/{token}
+
+  CAMPOS ALTERADOS NA RESPOSTA:
+    FundoConsumoResponse:
+      Removidos: clienteId, tokenPortador
+      Adicionados: sessaoId, qrCodeSessao
+
+    SessaoConsumoResponse:
+      Removido: qrCodePortador
+      Adicionados: qrCodeSessao, fundoId, saldoFundo
+
+  CAMPO ALTERADO NO REQUEST:
+    AbrirSessaoRequest:
+      mesaId: @NotNull removido (campo agora opcional)
+      unidadeAtendimentoId: novo campo opcional
+
+================================================================================
+9. COMPORTAMENTOS AUTOMÁTICOS INTRODUZIDOS
+================================================================================
+
+  1. FUNDO AUTO-CRIADO
+     SessaoConsumoService.abrir() → fundoConsumoService.criarFundoParaSessao()
+     Todo POST /api/sessoes resulta num FundoConsumo com saldo=0.00 criado
+     automaticamente. Não é necessária chamada adicional da API para criar fundo.
+
+  2. FUNDO AUTO-ENCERRADO
+     SessaoConsumo.encerrar() → fundoConsumo.encerrar() (se presente)
+     Fechar a sessão encerra o fundo atomicamente.
+
+  3. QR CODE GERADO NA ENTIDADE
+     @Builder.Default qrCodeSessao = UUID.randomUUID().toString()
+     Gerado no momento da construção do objecto Java — antes mesmo do PERSIST.
+
+================================================================================
+FIM DO RELATÓRIO
+================================================================================

@@ -3,7 +3,8 @@ package com.restaurante.service;
 import com.restaurante.model.entity.ConfiguracaoFinanceiraEventLog;
 import com.restaurante.repository.ConfiguracaoFinanceiraEventLogRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,8 +35,9 @@ import java.util.List;
  */
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class AuditoriaFinanceiraService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuditoriaFinanceiraService.class);
 
     private final ConfiguracaoFinanceiraEventLogRepository auditRepo;
 
@@ -64,17 +66,16 @@ public class AuditoriaFinanceiraService {
 
         String tipoEvento = valorNovo ? "ATIVOU_POS_PAGO" : "DESATIVOU_POS_PAGO";
 
-        ConfiguracaoFinanceiraEventLog evento = ConfiguracaoFinanceiraEventLog.builder()
-                .tipoEvento(tipoEvento)
-                .entidadeId(configId)
-                .entidadeTipo("ConfiguracaoFinanceiraSistema")
-                .usuarioNome(usuarioNome)
-                .usuarioRole(usuarioRole)
-                .flagAnterior(valorAnterior)
-                .flagNovo(valorNovo)
-                .motivo(motivo)
-                .timestamp(LocalDateTime.now())
-                .build();
+        ConfiguracaoFinanceiraEventLog evento = new ConfiguracaoFinanceiraEventLog();
+        evento.setTipoEvento(tipoEvento);
+        evento.setEntidadeId(configId);
+        evento.setEntidadeTipo("ConfiguracaoFinanceiraSistema");
+        evento.setUsuarioNome(usuarioNome);
+        evento.setUsuarioRole(usuarioRole);
+        evento.setFlagAnterior(valorAnterior);
+        evento.setFlagNovo(valorNovo);
+        evento.setMotivo(motivo);
+        evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
         log.info("🔐 AUDITORIA [{}] | posPagoAtivo: {} → {} | por {} ({}) | motivo: {}",
@@ -93,17 +94,16 @@ public class AuditoriaFinanceiraService {
             String usuarioRole,
             String motivo) {
 
-        ConfiguracaoFinanceiraEventLog evento = ConfiguracaoFinanceiraEventLog.builder()
-                .tipoEvento("ALTEROU_LIMITE_POS_PAGO")
-                .entidadeId(configId)
-                .entidadeTipo("ConfiguracaoFinanceiraSistema")
-                .usuarioNome(usuarioNome)
-                .usuarioRole(usuarioRole)
-                .valorAnterior(limiteAnterior)
-                .valorNovo(limiteNovo)
-                .motivo(motivo)
-                .timestamp(LocalDateTime.now())
-                .build();
+        ConfiguracaoFinanceiraEventLog evento = new ConfiguracaoFinanceiraEventLog();
+        evento.setTipoEvento("ALTEROU_LIMITE_POS_PAGO");
+        evento.setEntidadeId(configId);
+        evento.setEntidadeTipo("ConfiguracaoFinanceiraSistema");
+        evento.setUsuarioNome(usuarioNome);
+        evento.setUsuarioRole(usuarioRole);
+        evento.setValorAnterior(limiteAnterior);
+        evento.setValorNovo(limiteNovo);
+        evento.setMotivo(motivo);
+        evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
         log.info("🔐 AUDITORIA [ALTEROU_LIMITE_POS_PAGO] | {} AOA → {} AOA | por {} ({}) | motivo: {}",
@@ -122,17 +122,16 @@ public class AuditoriaFinanceiraService {
             String usuarioRole,
             String motivo) {
 
-        ConfiguracaoFinanceiraEventLog evento = ConfiguracaoFinanceiraEventLog.builder()
-                .tipoEvento("ALTEROU_VALOR_MINIMO")
-                .entidadeId(configId)
-                .entidadeTipo("ConfiguracaoFinanceiraSistema")
-                .usuarioNome(usuarioNome)
-                .usuarioRole(usuarioRole)
-                .valorAnterior(valorAnterior)
-                .valorNovo(valorNovo)
-                .motivo(motivo)
-                .timestamp(LocalDateTime.now())
-                .build();
+        ConfiguracaoFinanceiraEventLog evento = new ConfiguracaoFinanceiraEventLog();
+        evento.setTipoEvento("ALTEROU_VALOR_MINIMO");
+        evento.setEntidadeId(configId);
+        evento.setEntidadeTipo("ConfiguracaoFinanceiraSistema");
+        evento.setUsuarioNome(usuarioNome);
+        evento.setUsuarioRole(usuarioRole);
+        evento.setValorAnterior(valorAnterior);
+        evento.setValorNovo(valorNovo);
+        evento.setMotivo(motivo);
+        evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
         log.info("🔐 AUDITORIA [ALTEROU_VALOR_MINIMO] | {} AOA → {} AOA | por {} ({}) | motivo: {}",
@@ -160,16 +159,15 @@ public class AuditoriaFinanceiraService {
             String usuarioNome,
             String usuarioRole) {
 
-        ConfiguracaoFinanceiraEventLog evento = ConfiguracaoFinanceiraEventLog.builder()
-                .tipoEvento("CONFIRMOU_PAGAMENTO_POS_PAGO")
-                .entidadeId(pedidoId)
-                .entidadeTipo("Pedido")
-                .usuarioNome(usuarioNome)
-                .usuarioRole(usuarioRole)
-                .valorNovo(valor)
-                .detalhe("Pedido: " + numeroPedido)
-                .timestamp(LocalDateTime.now())
-                .build();
+        ConfiguracaoFinanceiraEventLog evento = new ConfiguracaoFinanceiraEventLog();
+        evento.setTipoEvento("CONFIRMOU_PAGAMENTO_POS_PAGO");
+        evento.setEntidadeId(pedidoId);
+        evento.setEntidadeTipo("Pedido");
+        evento.setUsuarioNome(usuarioNome);
+        evento.setUsuarioRole(usuarioRole);
+        evento.setValorNovo(valor);
+        evento.setDetalhe("Pedido: " + numeroPedido);
+        evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
         log.info("🔐 AUDITORIA [CONFIRMOU_PAGAMENTO_POS_PAGO] | Pedido {} ({} AOA) | por {} ({})",
@@ -195,17 +193,16 @@ public class AuditoriaFinanceiraService {
             String usuarioRole,
             String motivo) {
 
-        ConfiguracaoFinanceiraEventLog evento = ConfiguracaoFinanceiraEventLog.builder()
-                .tipoEvento("ESTORNOU_PEDIDO")
-                .entidadeId(pedidoId)
-                .entidadeTipo("Pedido")
-                .usuarioNome(usuarioNome)
-                .usuarioRole(usuarioRole)
-                .valorAnterior(valor)
-                .motivo(motivo)
-                .detalhe("Pedido: " + numeroPedido)
-                .timestamp(LocalDateTime.now())
-                .build();
+        ConfiguracaoFinanceiraEventLog evento = new ConfiguracaoFinanceiraEventLog();
+        evento.setTipoEvento("ESTORNOU_PEDIDO");
+        evento.setEntidadeId(pedidoId);
+        evento.setEntidadeTipo("Pedido");
+        evento.setUsuarioNome(usuarioNome);
+        evento.setUsuarioRole(usuarioRole);
+        evento.setValorAnterior(valor);
+        evento.setMotivo(motivo);
+        evento.setDetalhe("Pedido: " + numeroPedido);
+        evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
         log.info("🔐 AUDITORIA [ESTORNOU_PEDIDO] | Pedido {} ({} AOA) | por {} ({}) | motivo: {}",
@@ -232,16 +229,15 @@ public class AuditoriaFinanceiraService {
             String usuarioNome,
             String usuarioRole) {
 
-        ConfiguracaoFinanceiraEventLog evento = ConfiguracaoFinanceiraEventLog.builder()
-                .tipoEvento("AUTORIZOU_POS_PAGO")
-                .entidadeId(pedidoId)
-                .entidadeTipo("Pedido")
-                .usuarioNome(usuarioNome != null ? usuarioNome : "system")
-                .usuarioRole(usuarioRole != null ? usuarioRole : "SYSTEM")
-                .valorNovo(valor)
-                .detalhe(String.format("Pedido: %s | UnidadeConsumo: %d", numeroPedido, unidadeConsumoId))
-                .timestamp(LocalDateTime.now())
-                .build();
+        ConfiguracaoFinanceiraEventLog evento = new ConfiguracaoFinanceiraEventLog();
+        evento.setTipoEvento("AUTORIZOU_POS_PAGO");
+        evento.setEntidadeId(pedidoId);
+        evento.setEntidadeTipo("Pedido");
+        evento.setUsuarioNome(usuarioNome != null ? usuarioNome : "system");
+        evento.setUsuarioRole(usuarioRole != null ? usuarioRole : "SYSTEM");
+        evento.setValorNovo(valor);
+        evento.setDetalhe(String.format("Pedido: %s | UnidadeConsumo: %d", numeroPedido, unidadeConsumoId));
+        evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
         log.info("🔐 AUDITORIA [AUTORIZOU_POS_PAGO] | Pedido {} ({} AOA) | UnidadeConsumo {}",

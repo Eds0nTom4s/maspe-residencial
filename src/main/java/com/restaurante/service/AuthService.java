@@ -14,8 +14,8 @@ import com.restaurante.repository.AtendenteRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.util.PhoneNumberUtil;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -28,15 +28,27 @@ import org.springframework.transaction.annotation.Transactional;
  * Service para autenticação e autorização
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
     private final AtendenteRepository atendenteRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+
+    public AuthService(AuthenticationManager authenticationManager,
+                       UserRepository userRepository,
+                       AtendenteRepository atendenteRepository,
+                       PasswordEncoder passwordEncoder,
+                       JwtTokenProvider jwtTokenProvider) {
+        this.authenticationManager = authenticationManager;
+        this.userRepository = userRepository;
+        this.atendenteRepository = atendenteRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtTokenProvider = jwtTokenProvider;
+    }
 
     /**
      * Realiza login

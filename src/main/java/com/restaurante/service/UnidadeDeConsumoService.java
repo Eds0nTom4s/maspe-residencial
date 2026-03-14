@@ -20,6 +20,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -39,8 +42,9 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class UnidadeDeConsumoService {
+
+    private static final Logger log = LoggerFactory.getLogger(UnidadeDeConsumoService.class);
 
     private final UnidadeDeConsumoRepository unidadeDeConsumoRepository;
     private final ClienteService clienteService;
@@ -220,38 +224,40 @@ public class UnidadeDeConsumoService {
     private UnidadeConsumoResponse converterParaResponse(UnidadeDeConsumo unidade) {
         ClienteResponse clienteResponse = null;
         if (unidade.getCliente() != null) {
-            clienteResponse = ClienteResponse.builder()
-                    .id(unidade.getCliente().getId())
-                    .telefone(unidade.getCliente().getTelefone())
-                    .nome(unidade.getCliente().getNome())
-                    .build();
+            clienteResponse = new ClienteResponse();
+            clienteResponse.setId(unidade.getCliente().getId());
+            clienteResponse.setTelefone(unidade.getCliente().getTelefone());
+            clienteResponse.setNome(unidade.getCliente().getNome());
         }
 
         List<PedidoResumoResponse> pedidosResponse = unidade.getPedidos().stream()
-                .map(pedido -> PedidoResumoResponse.builder()
-                        .id(pedido.getId())
-                        .numero(pedido.getNumero())
-                        .status(pedido.getStatus())
-                        .total(pedido.getTotal())
-                        .build())
+                .map(pedido -> {
+                    PedidoResumoResponse response = new PedidoResumoResponse();
+                    response.setId(pedido.getId());
+                    response.setNumero(pedido.getNumero());
+                    response.setStatus(pedido.getStatus());
+                    response.setTotal(pedido.getTotal());
+                    return response;
+                })
                 .collect(Collectors.toList());
 
         BigDecimal totalUnidade = unidade.calcularTotal();
 
-        return UnidadeConsumoResponse.builder()
-                .id(unidade.getId())
-                .referencia(unidade.getReferencia())
-                .modoAnonimo(unidade.getModoAnonimo())
-                .tipo(unidade.getTipo())
-                .numero(unidade.getNumero())
-                .qrCode(unidade.getQrCode())
-                .status(unidade.getStatus())
-                .capacidade(unidade.getCapacidade())
-                .cliente(clienteResponse)
-                .pedidos(pedidosResponse)
-                .total(totalUnidade)
-                .abertaEm(unidade.getAbertaEm())
-                .fechadaEm(unidade.getFechadaEm())
-                .build();
+        UnidadeConsumoResponse response = new UnidadeConsumoResponse();
+        response.setId(unidade.getId());
+        response.setReferencia(unidade.getReferencia());
+        response.setModoAnonimo(unidade.getModoAnonimo());
+        response.setTipo(unidade.getTipo());
+        response.setNumero(unidade.getNumero());
+        response.setQrCode(unidade.getQrCode());
+        response.setStatus(unidade.getStatus());
+        response.setCapacidade(unidade.getCapacidade());
+        response.setCliente(clienteResponse);
+        response.setPedidos(pedidosResponse);
+        response.setTotal(totalUnidade);
+        response.setAbertaEm(unidade.getAbertaEm());
+        response.setFechadaEm(unidade.getFechadaEm());
+        
+        return response;
     }
 }

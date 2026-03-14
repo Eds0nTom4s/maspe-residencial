@@ -15,8 +15,8 @@ import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.QrCodeTokenRepository;
 import com.restaurante.util.QrCodeGenerator;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.Authentication;
@@ -33,14 +33,21 @@ import java.util.Optional;
  * Service para gerenciamento de QR Codes
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class QrCodeService {
+
+    private static final Logger log = LoggerFactory.getLogger(QrCodeService.class);
 
     private final QrCodeTokenRepository qrCodeTokenRepository;
     private final MesaRepository mesaRepository;
     private final PedidoRepository pedidoRepository;
     private final QrCodeGenerator qrCodeGenerator;
+
+    public QrCodeService(QrCodeTokenRepository qrCodeTokenRepository, MesaRepository mesaRepository, PedidoRepository pedidoRepository, QrCodeGenerator qrCodeGenerator) {
+        this.qrCodeTokenRepository = qrCodeTokenRepository;
+        this.mesaRepository = mesaRepository;
+        this.pedidoRepository = pedidoRepository;
+        this.qrCodeGenerator = qrCodeGenerator;
+    }
 
     @Value("${app.base-url:http://localhost:8080/api}")
     private String baseUrl;

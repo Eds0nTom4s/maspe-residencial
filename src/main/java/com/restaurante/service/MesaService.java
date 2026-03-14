@@ -12,8 +12,8 @@ import com.restaurante.model.enums.TipoUnidadeConsumo;
 import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,13 +34,21 @@ import java.util.stream.Collectors;
  * Para isso, use {@link SessaoConsumoService}.
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class MesaService {
+
+    private static final Logger log = LoggerFactory.getLogger(MesaService.class);
 
     private final MesaRepository mesaRepository;
     private final SessaoConsumoRepository sessaoConsumoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+
+    public MesaService(MesaRepository mesaRepository,
+                       SessaoConsumoRepository sessaoConsumoRepository,
+                       UnidadeAtendimentoRepository unidadeAtendimentoRepository) {
+        this.mesaRepository = mesaRepository;
+        this.sessaoConsumoRepository = sessaoConsumoRepository;
+        this.unidadeAtendimentoRepository = unidadeAtendimentoRepository;
+    }
 
     // ──────────────────────────────────────────────────────────────────────────
     // Operações administrativas (ADMIN)

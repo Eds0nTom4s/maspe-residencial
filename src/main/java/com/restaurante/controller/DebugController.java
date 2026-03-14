@@ -4,6 +4,8 @@ import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.Role;
 import com.restaurante.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,12 +16,16 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * TEMPORÁRIO: Controller de debug para verificar autenticação
- * ⚠️ REMOVER EM PRODUÇÃO
+ * Controller de debug para suporte em ambientes não-produtivos.
+ *
+ * <p>Apenas acessível com perfil ativo diferente de "prod" e por utilizadores ADMIN.
+ * Nunca deve ser deployado sem estas restrições.
  */
 @RestController
 @RequestMapping("/debug")
 @RequiredArgsConstructor
+@Profile("!prod")
+@PreAuthorize("hasRole('ADMIN')")
 public class DebugController {
 
     private final UserRepository userRepository;
@@ -36,7 +42,7 @@ public class DebugController {
                     map.put("email", user.getEmail());
                     map.put("roles", user.getRoles());
                     map.put("ativo", user.getAtivo());
-                    map.put("passwordHash", user.getPassword());
+                    // passwordHash removido: nunca expor hashes em respostas HTTP
                     return map;
                 })
                 .collect(Collectors.toList());
@@ -61,8 +67,7 @@ public class DebugController {
             result.put("username", user.getUsername());
             result.put("telefone", user.getTelefone());
             result.put("passwordMatch", matches);
-            result.put("passwordProvided", password);
-            result.put("passwordHashStored", user.getPassword());
+            // passwordProvided e passwordHashStored removidos: não expor credenciais em respostas HTTP
         }
         return result;
     }
@@ -93,7 +98,7 @@ public class DebugController {
         result.put("message", "Admin criado com sucesso");
         result.put("username", "admin");
         result.put("telefone", "+244923456789");
-        result.put("password", "admin123");
+        // senha em texto simples removida da resposta HTTP
         return result;
     }
 }

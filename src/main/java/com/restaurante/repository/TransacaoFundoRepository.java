@@ -37,4 +37,21 @@ public interface TransacaoFundoRepository extends JpaRepository<TransacaoFundo, 
      * Verifica se pedido já foi debitado
      */
     boolean existsByPedidoIdAndTipo(Long pedidoId, TipoTransacaoFundo tipo);
+    
+    /**
+     * Verifica a existência de uma transação externa pelo ID de Gateway.
+     * Usado para garantir IDEMPOTÊNCIA em webhooks (ex: AppyPay).
+     */
+    boolean existsByMerchantTransactionId(String merchantTransactionId);
+    
+    /**
+     * Soma todas as transações que AUMENTAM o saldo (CRÉDITO, ESTORNO) 
+     * menos as que DIMINUEM o saldo (DÉBITO) para obter a verdade absoluta.
+     * Tratamento de AJUSTE: depende do sinal do valor (presumindo positivo=aumenta, negativo=diminui).
+     */
+    @Query("SELECT COALESCE(SUM(CASE WHEN t.tipo IN ('CREDITO', 'ESTORNO') THEN t.valor " +
+           "WHEN t.tipo = 'DEBITO' THEN -t.valor " +
+           "WHEN t.tipo = 'AJUSTE' THEN t.valor ELSE 0 END), 0) " +
+           "FROM TransacaoFundo t WHERE t.fundoConsumo.id = :fundoConsumoId")
+    java.math.BigDecimal calcularSaldoAgregado(Long fundoConsumoId);
 }

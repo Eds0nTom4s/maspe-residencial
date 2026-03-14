@@ -61,7 +61,10 @@ public class ConcurrenciaRealE2ETest {
     private ClienteRepository clienteRepository;
 
     @Autowired
-    private UnidadeDeConsumoRepository unidadeDeConsumoRepository;
+    private MesaRepository mesaRepository;
+
+    @Autowired
+    private SessaoConsumoRepository sessaoConsumoRepository;
 
     @Autowired
     private ProdutoRepository produtoRepository;
@@ -111,8 +114,9 @@ public class ConcurrenciaRealE2ETest {
         pedidoEventLogRepository.deleteAll();     // DELETE PRIMEIRO (tem FK para Pedido)
         subPedidoRepository.deleteAll();
         pedidoRepository.deleteAll();
-        unidadeDeConsumoRepository.deleteAll();
+        sessaoConsumoRepository.deleteAll();
         clienteRepository.deleteAll();
+        mesaRepository.deleteAll();
         produtoRepository.deleteAll();
         cozinhaRepository.deleteAll();
         unidadeAtendimentoRepository.deleteAll();
@@ -368,14 +372,14 @@ public class ConcurrenciaRealE2ETest {
 
     private SubPedido criarSubPedidoPronto() {
         Cliente cliente = criarCliente();
-        UnidadeDeConsumo unidade = criarUnidadeDeConsumo(cliente);
+        SessaoConsumo sessaoConsumo = criarSessaoConsumo(cliente);
         Produto produto = criarProduto();
         Cozinha cozinha = criarCozinha();
         UnidadeAtendimento unidadeAtendimento = criarUnidadeAtendimento();
 
         Pedido pedido = Pedido.builder()
                 .numero("PED-TEST-001-" + System.currentTimeMillis())
-                .unidadeConsumo(unidade)
+                .sessaoConsumo(sessaoConsumo)
                 .status(StatusPedido.CRIADO)
                 .total(BigDecimal.valueOf(10.0))
                 .build();
@@ -394,14 +398,14 @@ public class ConcurrenciaRealE2ETest {
 
     private SubPedido criarSubPedidoPendente() {
         Cliente cliente = criarCliente();
-        UnidadeDeConsumo unidade = criarUnidadeDeConsumo(cliente);
+        SessaoConsumo sessaoConsumo = criarSessaoConsumo(cliente);
         Produto produto = criarProduto();
         Cozinha cozinha = criarCozinha();
         UnidadeAtendimento unidadeAtendimento = criarUnidadeAtendimento();
 
         Pedido pedido = Pedido.builder()
                 .numero("PED-TEST-002-" + System.currentTimeMillis())
-                .unidadeConsumo(unidade)
+                .sessaoConsumo(sessaoConsumo)
                 .status(StatusPedido.CRIADO)
                 .total(BigDecimal.valueOf(10.0))
                 .build();
@@ -427,24 +431,28 @@ public class ConcurrenciaRealE2ETest {
         );
     }
 
-    private UnidadeDeConsumo criarUnidadeDeConsumo(Cliente cliente) {
-        // Cria UnidadeAtendimento primeiro (obrigatória)
+    private SessaoConsumo criarSessaoConsumo(Cliente cliente) {
         UnidadeAtendimento unidadeAtendimento = unidadeAtendimentoRepository.save(
             UnidadeAtendimento.builder()
                 .nome("Salão Principal")
-                .tipo(TipoUnidadeAtendimento.RESTAURANTE)  // Campo obrigatório!
+                .tipo(TipoUnidadeAtendimento.RESTAURANTE)
                 .descricao("Área de atendimento geral")
                 .ativa(true)
                 .build()
         );
-        
-        return unidadeDeConsumoRepository.save(
-            UnidadeDeConsumo.builder()
+
+        Mesa mesa = mesaRepository.save(
+            Mesa.builder()
                 .referencia("Mesa " + System.currentTimeMillis())
-                .tipo(TipoUnidadeConsumo.MESA_FISICA)
-                .status(StatusUnidadeConsumo.OCUPADA)
+                .unidadeAtendimento(unidadeAtendimento)
+                .ativa(true)
+                .build()
+        );
+
+        return sessaoConsumoRepository.save(
+            SessaoConsumo.builder()
+                .mesa(mesa)
                 .cliente(cliente)
-                .unidadeAtendimento(unidadeAtendimento)  // Campo obrigatório!
                 .build()
         );
     }

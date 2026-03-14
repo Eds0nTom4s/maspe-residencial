@@ -1,0 +1,633 @@
+[[1;34mINFO[m] Scanning for projects...
+[[1;33mWARNING[m] 
+[[1;33mWARNING[m] Some problems were encountered while building the effective model for com.restaurante:sistema-restauracao:jar:1.0.0
+[[1;33mWARNING[m] 'dependencies.dependency.(groupId:artifactId:type:classifier)' must be unique: org.projectlombok:lombok:jar -> version 1.18.30 vs ${lombok.version} @ line 139, column 21
+[[1;33mWARNING[m] 
+[[1;33mWARNING[m] It is highly recommended to fix these problems because they threaten the stability of your build.
+[[1;33mWARNING[m] 
+[[1;33mWARNING[m] For this reason, future Maven versions might no longer support building such malformed projects.
+[[1;33mWARNING[m] 
+[[1;34mINFO[m] 
+[[1;34mINFO[m] [1m----------------< [0;36mcom.restaurante:sistema-restauracao[0;1m >-----------------[m
+[[1;34mINFO[m] [1mBuilding Sistema de Restauração 1.0.0[m
+[[1;34mINFO[m] [1m--------------------------------[ jar ]---------------------------------[m
+[[1;34mINFO[m] 
+[[1;34mINFO[m] [1m--- [0;32mmaven-clean-plugin:3.3.2:clean[m [1m(default-clean)[m @ [36msistema-restauracao[0;1m ---[m
+[[1;34mINFO[m] Deleting /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/target
+[[1;34mINFO[m] 
+[[1;34mINFO[m] [1m--- [0;32mmaven-resources-plugin:3.3.1:resources[m [1m(default-resources)[m @ [36msistema-restauracao[0;1m ---[m
+[[1;34mINFO[m] Copying 2 resources from src/main/resources to target/classes
+[[1;34mINFO[m] Copying 2 resources from src/main/resources to target/classes
+[[1;34mINFO[m] 
+[[1;34mINFO[m] [1m--- [0;32mmaven-compiler-plugin:3.11.0:compile[m [1m(default-compile)[m @ [36msistema-restauracao[0;1m ---[m
+[[1;34mINFO[m] Changes detected - recompiling the module! :source
+[[1;34mINFO[m] Compiling 203 source files with javac [debug release 21] to target/classes
+[[1;34mINFO[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/security/JwtTokenProvider.java: /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/security/JwtTokenProvider.java uses or overrides a deprecated API.
+[[1;34mINFO[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/security/JwtTokenProvider.java: Recompile with -Xlint:deprecation for details.
+[[1;34mINFO[m] -------------------------------------------------------------
+[[1;31mERROR[m] COMPILATION ERROR : 
+[[1;34mINFO[m] -------------------------------------------------------------
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[10,13] cannot find symbol
+  symbol:   class BigDecimal
+  location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[16,13] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[17,13] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[33,12] cannot find symbol
+  symbol:   class BigDecimal
+  location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[34,26] cannot find symbol
+  symbol:   class BigDecimal
+  location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[51,12] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[52,30] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[54,12] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[55,30] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/SubPedidoEventLogResponse.java:[16,13] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.SubPedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/SubPedidoEventLogResponse.java:[42,12] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.SubPedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/SubPedidoEventLogResponse.java:[43,30] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.SubPedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/PedidoEventLogResponse.java:[13,13] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.PedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/PedidoEventLogResponse.java:[31,12] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.PedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/PedidoEventLogResponse.java:[32,30] cannot find symbol
+  symbol:   class LocalDateTime
+  location: class com.restaurante.dto.response.PedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/repository/FundoConsumoRepository.java:[38,28] method findBySessaoConsumoIdAndAtivoTrue(java.lang.Long) is already defined in interface com.restaurante.repository.FundoConsumoRepository
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/PedidoFinanceiroService.java:[48,1] org.springframework.stereotype.Service is not a repeatable annotation interface
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/FundoConsumoService.java:[40,1] org.springframework.stereotype.Service is not a repeatable annotation interface
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[71,25] cannot find symbol
+  symbol:   class UnidadeDeConsumoBuilder
+  location: class com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[71,76] cannot find symbol
+  symbol:   method builder()
+  location: class com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[93,82] cannot find symbol
+  symbol:   method getReferencia()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[111,20] cannot find symbol
+  symbol:   method setAtendente(com.restaurante.model.entity.Atendente)
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[116,51] cannot find symbol
+  symbol:   method getModoAnonimo()
+  location: variable unidadeSalva of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[191,20] cannot find symbol
+  symbol:   method getStatus()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[226,20] cannot find symbol
+  symbol:   method getCliente()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[228,42] cannot find symbol
+  symbol:   method getCliente()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[229,48] cannot find symbol
+  symbol:   method getCliente()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[230,44] cannot find symbol
+  symbol:   method getCliente()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[233,61] cannot find symbol
+  symbol:   method getPedidos()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[248,39] cannot find symbol
+  symbol:   method getReferencia()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[249,40] cannot find symbol
+  symbol:   method getModoAnonimo()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[250,33] cannot find symbol
+  symbol:   method getTipo()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[251,35] cannot find symbol
+  symbol:   method getNumero()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[252,35] cannot find symbol
+  symbol:   method getQrCode()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[253,35] cannot find symbol
+  symbol:   method getStatus()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[254,39] cannot find symbol
+  symbol:   method getCapacidade()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[258,37] cannot find symbol
+  symbol:   method getAbertaEm()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[259,38] cannot find symbol
+  symbol:   method getFechadaEm()
+  location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[52,16] cannot find symbol
+  symbol:   method setOtpCode(java.lang.String)
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[53,16] cannot find symbol
+  symbol:   method setOtpExpiration(java.time.LocalDateTime)
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[84,16] cannot find symbol
+  symbol:   method setTelefoneVerificado(boolean)
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[85,16] cannot find symbol
+  symbol:   method setOtpCode(<nulltype>)
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[86,16] cannot find symbol
+  symbol:   method setOtpExpiration(<nulltype>)
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[128,34] cannot find symbol
+  symbol:   method builder()
+  location: class com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[166,20] cannot find symbol
+  symbol:   method setNome(java.lang.String)
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[177,21] cannot find symbol
+  symbol:   method getAtivo()
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[180,16] cannot find symbol
+  symbol:   method setAtivo(boolean)
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[191,37] cannot find symbol
+  symbol:   method getTelefone()
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[192,33] cannot find symbol
+  symbol:   method getNome()
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[193,47] cannot find symbol
+  symbol:   method getTelefoneVerificado()
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[194,34] cannot find symbol
+  symbol:   method getAtivo()
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuditoriaController.java:[87,39] cannot find symbol
+  symbol:   method getTipoEvento()
+  location: variable e of type com.restaurante.model.entity.ConfiguracaoFinanceiraEventLog
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuditoriaController.java:[92,39] cannot find symbol
+  symbol:   method getUsuarioNome()
+  location: variable e of type com.restaurante.model.entity.ConfiguracaoFinanceiraEventLog
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[28,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.DashboardService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[31,38] cannot find symbol
+  symbol:   method builder()
+  location: class com.restaurante.dto.response.DashboardStatsResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[44,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.DashboardService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[51,21] cannot find symbol
+  symbol:   method setTipo(java.lang.String)
+  location: variable activity of type com.restaurante.dto.response.DashboardActivityResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[52,21] cannot find symbol
+  symbol:   method setDescricao(java.lang.String)
+  location: variable activity of type com.restaurante.dto.response.DashboardActivityResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[53,21] cannot find symbol
+  symbol:   method setTimestamp(java.time.LocalDateTime)
+  location: variable activity of type com.restaurante.dto.response.DashboardActivityResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[54,21] cannot find symbol
+  symbol:   method setDetalhes(java.lang.String)
+  location: variable activity of type com.restaurante.dto.response.DashboardActivityResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[66,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.DashboardService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[73,20] cannot find symbol
+  symbol:   method setProdutoId(long)
+  location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[74,20] cannot find symbol
+  symbol:   method setNome(java.lang.String)
+  location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[75,20] cannot find symbol
+  symbol:   method setQuantidadeVendida(int)
+  location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[76,20] cannot find symbol
+  symbol:   method setValorTotal(java.math.BigDecimal)
+  location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[77,20] cannot find symbol
+  symbol:   method setCategoria(java.lang.String)
+  location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuthController.java:[86,26] cannot find symbol
+  symbol:   method getId()
+  location: variable response of type com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuthController.java:[86,44] cannot find symbol
+  symbol:   method getNome()
+  location: variable response of type com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuthController.java:[86,64] cannot find symbol
+  symbol:   method getTipoUsuario()
+  location: variable response of type com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/AuthService.java:[272,38] cannot find symbol
+  symbol:   method builder()
+  location: class com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/AuthService.java:[310,38] cannot find symbol
+  symbol:   method builder()
+  location: class com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/util/QrCodeGenerator.java:[50,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.util.QrCodeGenerator
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/util/QrCodeGenerator.java:[66,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.util.QrCodeGenerator
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/SessaoConsumoService.java:[144,54] cannot find symbol
+  symbol:   method getNome()
+  location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/SessaoConsumoService.java:[265,37] cannot find symbol
+  symbol:   method builder()
+  location: class com.restaurante.dto.response.SessaoConsumoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/SessaoConsumoService.java:[271,79] cannot find symbol
+  symbol:   method getNome()
+  location: class com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/SessaoConsumoService.java:[272,83] cannot find symbol
+  symbol:   method getTelefone()
+  location: class com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[35,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[41,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[64,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[75,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[102,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[105,20] cannot find symbol
+  symbol:   method getEmail()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[105,51] cannot find symbol
+  symbol:   method getEmail()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[106,53] cannot find symbol
+  symbol:   method getEmail()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[107,79] cannot find symbol
+  symbol:   method getEmail()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[109,34] cannot find symbol
+  symbol:   method getEmail()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[111,20] cannot find symbol
+  symbol:   method getNomeCompleto()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[112,41] cannot find symbol
+  symbol:   method getNomeCompleto()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[114,20] cannot find symbol
+  symbol:   method getTelefone()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[115,37] cannot find symbol
+  symbol:   method getTelefone()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[117,20] cannot find symbol
+  symbol:   method getRoles()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[117,51] cannot find symbol
+  symbol:   method getRoles()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[119,43] cannot find symbol
+  symbol:   method getRoles()
+  location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[130,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[141,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[152,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[154,56] cannot find symbol
+  symbol:   method getNovaSenha()
+  location: variable request of type com.restaurante.dto.request.AlterarSenhaAdminRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[166,28] cannot find symbol
+  symbol:   method builder()
+  location: class com.restaurante.dto.response.UserResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/config/DataSeeder.java:[67,9] cannot find symbol
+  symbol:   variable log
+  location: class com.restaurante.config.DataSeeder
+[[1;34mINFO[m] 100 errors 
+[[1;34mINFO[m] -------------------------------------------------------------
+[[1;34mINFO[m] [1m------------------------------------------------------------------------[m
+[[1;34mINFO[m] [1;31mBUILD FAILURE[m
+[[1;34mINFO[m] [1m------------------------------------------------------------------------[m
+[[1;34mINFO[m] Total time:  8.966 s
+[[1;34mINFO[m] Finished at: 2026-03-14T02:07:51+01:00
+[[1;34mINFO[m] [1m------------------------------------------------------------------------[m
+[[1;31mERROR[m] Failed to execute goal [32morg.apache.maven.plugins:maven-compiler-plugin:3.11.0:compile[m [1m(default-compile)[m on project [36msistema-restauracao[m: [1;31mCompilation failure[m: Compilation failure: 
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[10,13] cannot find symbol
+[[1;31mERROR[m]   symbol:   class BigDecimal
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[16,13] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[17,13] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[33,12] cannot find symbol
+[[1;31mERROR[m]   symbol:   class BigDecimal
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[34,26] cannot find symbol
+[[1;31mERROR[m]   symbol:   class BigDecimal
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[51,12] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[52,30] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[54,12] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/ProdutoResponse.java:[55,30] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.ProdutoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/SubPedidoEventLogResponse.java:[16,13] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.SubPedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/SubPedidoEventLogResponse.java:[42,12] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.SubPedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/SubPedidoEventLogResponse.java:[43,30] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.SubPedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/PedidoEventLogResponse.java:[13,13] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.PedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/PedidoEventLogResponse.java:[31,12] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.PedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/dto/response/PedidoEventLogResponse.java:[32,30] cannot find symbol
+[[1;31mERROR[m]   symbol:   class LocalDateTime
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.PedidoEventLogResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/repository/FundoConsumoRepository.java:[38,28] method findBySessaoConsumoIdAndAtivoTrue(java.lang.Long) is already defined in interface com.restaurante.repository.FundoConsumoRepository
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/PedidoFinanceiroService.java:[48,1] org.springframework.stereotype.Service is not a repeatable annotation interface
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/FundoConsumoService.java:[40,1] org.springframework.stereotype.Service is not a repeatable annotation interface
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[71,25] cannot find symbol
+[[1;31mERROR[m]   symbol:   class UnidadeDeConsumoBuilder
+[[1;31mERROR[m]   location: class com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[71,76] cannot find symbol
+[[1;31mERROR[m]   symbol:   method builder()
+[[1;31mERROR[m]   location: class com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[93,82] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getReferencia()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[111,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setAtendente(com.restaurante.model.entity.Atendente)
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[116,51] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getModoAnonimo()
+[[1;31mERROR[m]   location: variable unidadeSalva of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[191,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getStatus()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[226,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getCliente()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[228,42] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getCliente()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[229,48] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getCliente()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[230,44] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getCliente()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[233,61] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getPedidos()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[248,39] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getReferencia()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[249,40] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getModoAnonimo()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[250,33] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getTipo()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[251,35] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getNumero()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[252,35] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getQrCode()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[253,35] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getStatus()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[254,39] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getCapacidade()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[258,37] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getAbertaEm()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java:[259,38] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getFechadaEm()
+[[1;31mERROR[m]   location: variable unidade of type com.restaurante.model.entity.UnidadeDeConsumo
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[52,16] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setOtpCode(java.lang.String)
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[53,16] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setOtpExpiration(java.time.LocalDateTime)
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[84,16] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setTelefoneVerificado(boolean)
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[85,16] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setOtpCode(<nulltype>)
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[86,16] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setOtpExpiration(<nulltype>)
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[128,34] cannot find symbol
+[[1;31mERROR[m]   symbol:   method builder()
+[[1;31mERROR[m]   location: class com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[166,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setNome(java.lang.String)
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[177,21] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getAtivo()
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[180,16] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setAtivo(boolean)
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[191,37] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getTelefone()
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[192,33] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getNome()
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[193,47] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getTelefoneVerificado()
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java:[194,34] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getAtivo()
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuditoriaController.java:[87,39] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getTipoEvento()
+[[1;31mERROR[m]   location: variable e of type com.restaurante.model.entity.ConfiguracaoFinanceiraEventLog
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuditoriaController.java:[92,39] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getUsuarioNome()
+[[1;31mERROR[m]   location: variable e of type com.restaurante.model.entity.ConfiguracaoFinanceiraEventLog
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[28,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.DashboardService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[31,38] cannot find symbol
+[[1;31mERROR[m]   symbol:   method builder()
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.DashboardStatsResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[44,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.DashboardService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[51,21] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setTipo(java.lang.String)
+[[1;31mERROR[m]   location: variable activity of type com.restaurante.dto.response.DashboardActivityResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[52,21] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setDescricao(java.lang.String)
+[[1;31mERROR[m]   location: variable activity of type com.restaurante.dto.response.DashboardActivityResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[53,21] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setTimestamp(java.time.LocalDateTime)
+[[1;31mERROR[m]   location: variable activity of type com.restaurante.dto.response.DashboardActivityResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[54,21] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setDetalhes(java.lang.String)
+[[1;31mERROR[m]   location: variable activity of type com.restaurante.dto.response.DashboardActivityResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[66,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.DashboardService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[73,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setProdutoId(long)
+[[1;31mERROR[m]   location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[74,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setNome(java.lang.String)
+[[1;31mERROR[m]   location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[75,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setQuantidadeVendida(int)
+[[1;31mERROR[m]   location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[76,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setValorTotal(java.math.BigDecimal)
+[[1;31mERROR[m]   location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/DashboardService.java:[77,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method setCategoria(java.lang.String)
+[[1;31mERROR[m]   location: variable product of type com.restaurante.dto.response.DashboardTopProductResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuthController.java:[86,26] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getId()
+[[1;31mERROR[m]   location: variable response of type com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuthController.java:[86,44] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getNome()
+[[1;31mERROR[m]   location: variable response of type com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuthController.java:[86,64] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getTipoUsuario()
+[[1;31mERROR[m]   location: variable response of type com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/AuthService.java:[272,38] cannot find symbol
+[[1;31mERROR[m]   symbol:   method builder()
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/AuthService.java:[310,38] cannot find symbol
+[[1;31mERROR[m]   symbol:   method builder()
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.LoginAtendenteResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/util/QrCodeGenerator.java:[50,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.util.QrCodeGenerator
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/util/QrCodeGenerator.java:[66,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.util.QrCodeGenerator
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/SessaoConsumoService.java:[144,54] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getNome()
+[[1;31mERROR[m]   location: variable cliente of type com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/SessaoConsumoService.java:[265,37] cannot find symbol
+[[1;31mERROR[m]   symbol:   method builder()
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.SessaoConsumoResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/SessaoConsumoService.java:[271,79] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getNome()
+[[1;31mERROR[m]   location: class com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/SessaoConsumoService.java:[272,83] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getTelefone()
+[[1;31mERROR[m]   location: class com.restaurante.model.entity.Cliente
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[35,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[41,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[64,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[75,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[102,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[105,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getEmail()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[105,51] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getEmail()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[106,53] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getEmail()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[107,79] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getEmail()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[109,34] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getEmail()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[111,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getNomeCompleto()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[112,41] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getNomeCompleto()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[114,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getTelefone()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[115,37] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getTelefone()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[117,20] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getRoles()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[117,51] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getRoles()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[119,43] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getRoles()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AtualizarUsuarioRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[130,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[141,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[152,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.service.UserService
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[154,56] cannot find symbol
+[[1;31mERROR[m]   symbol:   method getNovaSenha()
+[[1;31mERROR[m]   location: variable request of type com.restaurante.dto.request.AlterarSenhaAdminRequest
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UserService.java:[166,28] cannot find symbol
+[[1;31mERROR[m]   symbol:   method builder()
+[[1;31mERROR[m]   location: class com.restaurante.dto.response.UserResponse
+[[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/config/DataSeeder.java:[67,9] cannot find symbol
+[[1;31mERROR[m]   symbol:   variable log
+[[1;31mERROR[m]   location: class com.restaurante.config.DataSeeder
+[[1;31mERROR[m] -> [1m[Help 1][m
+[[1;31mERROR[m] 
+[[1;31mERROR[m] To see the full stack trace of the errors, re-run Maven with the [1m-e[m switch.
+[[1;31mERROR[m] Re-run Maven using the [1m-X[m switch to enable full debug logging.
+[[1;31mERROR[m] 
+[[1;31mERROR[m] For more information about the errors and possible solutions, please read the following articles:
+[[1;31mERROR[m] [1m[Help 1][m http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

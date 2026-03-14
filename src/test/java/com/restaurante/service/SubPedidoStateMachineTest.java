@@ -7,7 +7,8 @@ import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.UnidadeAtendimento;
-import com.restaurante.model.entity.UnidadeDeConsumo;
+import com.restaurante.model.entity.Mesa;
+import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoCozinha;
@@ -72,6 +73,9 @@ class SubPedidoStateMachineTest {
     @Mock
     private com.restaurante.notificacao.service.NotificacaoService notificacaoService;
 
+    @Mock
+    private com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService;
+
     private SubPedidoService subPedidoService;
 
     private Cozinha cozinha;
@@ -91,7 +95,8 @@ class SubPedidoStateMachineTest {
                 eventLogService,
                 transicaoEstadoValidator,
                 pedidoService,
-                notificacaoService
+                notificacaoService,
+                webSocketNotificacaoService
         );
 
         cozinha = Cozinha.builder()
@@ -106,22 +111,26 @@ class SubPedidoStateMachineTest {
                 .build();
         unidadeAtendimento.setId(1L);
 
-        // Mock Cliente e UnidadeDeConsumo para evitar NullPointerException nas notificações
+        // Mock Cliente e SessaoConsumo para evitar NullPointerException nas notificações
         Cliente cliente = Cliente.builder()
                 .telefone("+244925813939")
                 .telefoneVerificado(true)
                 .build();
-        
-        UnidadeDeConsumo unidadeConsumo = UnidadeDeConsumo.builder()
+
+        Mesa mesa = Mesa.builder()
+                .referencia("Mesa 1")
+                .ativa(true)
+                .build();
+
+        SessaoConsumo sessaoConsumo = SessaoConsumo.builder()
+                .mesa(mesa)
                 .cliente(cliente)
-                .unidadeAtendimento(unidadeAtendimento)
-                .status(com.restaurante.model.enums.StatusUnidadeConsumo.OCUPADA)
                 .build();
 
         pedido = Pedido.builder()
                 .numero("PED-TEST-001")
                 .status(StatusPedido.CRIADO)
-                .unidadeConsumo(unidadeConsumo)
+                .sessaoConsumo(sessaoConsumo)
                 .build();
         pedido.setId(10L);
 

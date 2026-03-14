@@ -7,12 +7,13 @@ import com.restaurante.model.enums.CategoriaProduto;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.notificacao.service.NotificacaoService;
+import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.validator.TransicaoEstadoValidator;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -40,8 +41,9 @@ import java.util.stream.Collectors;
  * - Registrar eventos de auditoria
  */
 @Service
-@Slf4j
 public class SubPedidoService {
+
+    private static final Logger log = LoggerFactory.getLogger(SubPedidoService.class);
 
     private final SubPedidoRepository subPedidoRepository;
     private final CozinhaRepository cozinhaRepository;
@@ -50,6 +52,7 @@ public class SubPedidoService {
     private final TransicaoEstadoValidator transicaoValidator;
     private final PedidoService pedidoService; // Injeção lazy para evitar circular dependency
     private final NotificacaoService notificacaoService;
+    private final WebSocketNotificacaoService webSocketNotificacaoService;
 
     public SubPedidoService(
         SubPedidoRepository subPedidoRepository,
@@ -58,7 +61,8 @@ public class SubPedidoService {
         EventLogService eventLogService,
         TransicaoEstadoValidator transicaoValidator,
         @Lazy PedidoService pedidoService, // LAZY: evita dependência circular
-        NotificacaoService notificacaoService
+        NotificacaoService notificacaoService,
+        WebSocketNotificacaoService webSocketNotificacaoService
     ) {
         this.subPedidoRepository = subPedidoRepository;
         this.cozinhaRepository = cozinhaRepository;
@@ -67,6 +71,7 @@ public class SubPedidoService {
         this.transicaoValidator = transicaoValidator;
         this.pedidoService = pedidoService;
         this.notificacaoService = notificacaoService;
+        this.webSocketNotificacaoService = webSocketNotificacaoService;
     }
 
     /**
@@ -155,6 +160,13 @@ public class SubPedidoService {
             subPedidoSalvo, null, StatusSubPedido.CRIADO, 
             null, "SubPedido criado", 0L);
         
+        // Notifica WebSocket (novo item na fila da cozinha)
+        try {
+            webSocketNotificacaoService.notificarNovoSubPedido(subPedidoSalvo, "system");
+        } catch (Exception e) {
+            log.error("Falha ao notificar novo subpedido via WebSocket: {}", e.getMessage());
+        }
+        
         log.info("SubPedido criado - ID: {} (Status: CRIADO)", subPedidoSalvo.getId());
         return subPedidoSalvo;
     }
@@ -241,6 +253,21 @@ public class SubPedidoService {
             subPedidoSalvo, estadoAtual, novoStatus, 
             null, motivo != null ? motivo : "Transição de estado", 
             tempoTransacao);
+            
+        // NOTIFICAR MUDANÇA (WebSocket)
+        try {
+            if (novoStatus == StatusSubPedido.CANCELADO) {
+                webSocketNotificacaoService.notificarCancelamentoSubPedido(
+                    subPedidoSalvo, estadoAtual, "system", motivo != null ? motivo : "Cancelado"
+                );
+            } else {
+                webSocketNotificacaoService.notificarMudancaStatusSubPedido(
+                    subPedidoSalvo, estadoAtual, "system", motivo != null ? motivo : "Mudança de status"
+                );
+            }
+        } catch (Exception e) {
+            log.error("Erro ao notificar mudança de status via WebSocket: {}", e.getMessage());
+        }
         
         log.info("SubPedido {} atualizado: {} → {} ({}ms)", id, estadoAtual, novoStatus, tempoTransacao);
         
@@ -277,6 +304,13 @@ public class SubPedidoService {
     public SubPedido marcarPronto(Long id) {
         log.info("Marcando SubPedido {} como PRONTO", id);
         SubPedido subPedido = alterarStatus(id, StatusSubPedido.PRONTO, "Preparação finalizada");
+        
+        // Notifica WebSocket com prioridade ALTA
+        try {
+            webSocketNotificacaoService.notificarSubPedidoPronto(subPedido, "cozinha");
+        } catch (Exception e) {
+            log.error("Erro ao notificar subpedido PRONTO via WebSocket: {}", e.getMessage());
+        }
         
         // Enviar notificação SMS para o cliente
         try {

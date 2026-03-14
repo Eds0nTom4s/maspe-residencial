@@ -6,11 +6,13 @@ package com.restaurante.model.enums;
  * CREDITO: Recarga de saldo
  * DEBITO: Pagamento de pedido
  * ESTORNO: Devolução por cancelamento
+ * AJUSTE: Correção excecional administrativa
  */
 public enum TipoTransacaoFundo {
     CREDITO("Crédito (Recarga)"),
     DEBITO("Débito (Pedido)"),
-    ESTORNO("Estorno (Cancelamento)");
+    ESTORNO("Estorno (Cancelamento)"),
+    AJUSTE("Ajuste (Administrativo)");
 
     private final String descricao;
 
@@ -23,14 +25,15 @@ public enum TipoTransacaoFundo {
     }
 
     /**
-     * Verifica se aumenta saldo
+     * Verifica se aumenta saldo (Crédito ou Estorno)
+     * Ajuste pode ser positivo ou negativo, portanto não é definido universalmente aqui.
      */
     public boolean aumentaSaldo() {
         return this == CREDITO || this == ESTORNO;
     }
 
     /**
-     * Verifica se diminui saldo
+     * Verifica se diminui saldo (Débito)
      */
     public boolean diminuiSaldo() {
         return this == DEBITO;

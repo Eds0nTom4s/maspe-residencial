@@ -3,7 +3,7 @@ package com.restaurante.model.entity;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
-import lombok.*;
+import java.util.Objects;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,11 +31,6 @@ import java.util.List;
     @Index(name = "idx_mesa_ativa", columnList = "ativa"),
     @Index(name = "idx_mesa_unidade_atendimento", columnList = "unidade_atendimento_id")
 })
-@Data
-@EqualsAndHashCode(callSuper = true)
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
 public class Mesa extends BaseEntity {
 
     /**
@@ -70,7 +65,6 @@ public class Mesa extends BaseEntity {
      * Mesas inativas não podem receber novas sessões.
      */
     @Column(name = "ativa", nullable = false)
-    @Builder.Default
     private Boolean ativa = true;
 
     /**
@@ -78,7 +72,6 @@ public class Mesa extends BaseEntity {
      */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
-    @Builder.Default
     private TipoUnidadeConsumo tipo = TipoUnidadeConsumo.MESA_FISICA;
 
     /**
@@ -93,7 +86,6 @@ public class Mesa extends BaseEntity {
      * Apenas leitura — gerenciado pelo lado proprietário (SessaoConsumo).
      */
     @OneToMany(mappedBy = "mesa", fetch = FetchType.LAZY)
-    @Builder.Default
     private List<SessaoConsumo> sessoes = new ArrayList<>();
 
     /**
@@ -101,5 +93,124 @@ public class Mesa extends BaseEntity {
      */
     public String getIdentificador() {
         return numero != null ? numero.toString() : referencia;
+    }
+
+    public Mesa() {}
+
+    public Mesa(String referencia, Integer numero, String qrCode, Integer capacidade, Boolean ativa, TipoUnidadeConsumo tipo, UnidadeAtendimento unidadeAtendimento, List<SessaoConsumo> sessoes) {
+        this.referencia = referencia;
+        this.numero = numero;
+        this.qrCode = qrCode;
+        this.capacidade = capacidade;
+        this.ativa = ativa != null ? ativa : true;
+        this.tipo = tipo != null ? tipo : TipoUnidadeConsumo.MESA_FISICA;
+        this.unidadeAtendimento = unidadeAtendimento;
+        this.sessoes = sessoes != null ? sessoes : new ArrayList<>();
+    }
+
+    public String getReferencia() { return referencia; }
+    public void setReferencia(String referencia) { this.referencia = referencia; }
+
+    public Integer getNumero() { return numero; }
+    public void setNumero(Integer numero) { this.numero = numero; }
+
+    public String getQrCode() { return qrCode; }
+    public void setQrCode(String qrCode) { this.qrCode = qrCode; }
+
+    public Integer getCapacidade() { return capacidade; }
+    public void setCapacidade(Integer capacidade) { this.capacidade = capacidade; }
+
+    public Boolean getAtiva() { return ativa; }
+    public void setAtiva(Boolean ativa) { this.ativa = ativa; }
+
+    public TipoUnidadeConsumo getTipo() { return tipo; }
+    public void setTipo(TipoUnidadeConsumo tipo) { this.tipo = tipo; }
+
+    public UnidadeAtendimento getUnidadeAtendimento() { return unidadeAtendimento; }
+    public void setUnidadeAtendimento(UnidadeAtendimento unidadeAtendimento) { this.unidadeAtendimento = unidadeAtendimento; }
+
+    public List<SessaoConsumo> getSessoes() { return sessoes; }
+    public void setSessoes(List<SessaoConsumo> sessoes) { this.sessoes = sessoes; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        if (!super.equals(o)) return false;
+        Mesa mesa = (Mesa) o;
+        return Objects.equals(referencia, mesa.referencia) &&
+               Objects.equals(numero, mesa.numero) &&
+               Objects.equals(qrCode, mesa.qrCode) &&
+               Objects.equals(capacidade, mesa.capacidade) &&
+               Objects.equals(ativa, mesa.ativa) &&
+               tipo == mesa.tipo &&
+               Objects.equals(unidadeAtendimento, mesa.unidadeAtendimento) &&
+               Objects.equals(sessoes, mesa.sessoes);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), referencia, numero, qrCode, capacidade, ativa, tipo, unidadeAtendimento, sessoes);
+    }
+
+    public static MesaBuilder builder() {
+        return new MesaBuilder();
+    }
+
+    public static class MesaBuilder {
+        private String referencia;
+        private Integer numero;
+        private String qrCode;
+        private Integer capacidade;
+        private Boolean ativa;
+        private TipoUnidadeConsumo tipo;
+        private UnidadeAtendimento unidadeAtendimento;
+        private List<SessaoConsumo> sessoes;
+
+        MesaBuilder() {}
+
+        public MesaBuilder referencia(String referencia) {
+            this.referencia = referencia;
+            return this;
+        }
+
+        public MesaBuilder numero(Integer numero) {
+            this.numero = numero;
+            return this;
+        }
+
+        public MesaBuilder qrCode(String qrCode) {
+            this.qrCode = qrCode;
+            return this;
+        }
+
+        public MesaBuilder capacidade(Integer capacidade) {
+            this.capacidade = capacidade;
+            return this;
+        }
+
+        public MesaBuilder ativa(Boolean ativa) {
+            this.ativa = ativa;
+            return this;
+        }
+
+        public MesaBuilder tipo(TipoUnidadeConsumo tipo) {
+            this.tipo = tipo;
+            return this;
+        }
+
+        public MesaBuilder unidadeAtendimento(UnidadeAtendimento unidadeAtendimento) {
+            this.unidadeAtendimento = unidadeAtendimento;
+            return this;
+        }
+
+        public MesaBuilder sessoes(List<SessaoConsumo> sessoes) {
+            this.sessoes = sessoes;
+            return this;
+        }
+
+        public Mesa build() {
+            return new Mesa(this.referencia, this.numero, this.qrCode, this.capacidade, this.ativa, this.tipo, this.unidadeAtendimento, this.sessoes);
+        }
     }
 }

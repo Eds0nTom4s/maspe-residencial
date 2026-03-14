@@ -1,0 +1,243 @@
+SISTEMA DE RESTAURAÇÃO — DIRETRIZ OFICIAL DE DESENVOLVIMENTO
+Autorização para Avançar para FASE 1
+
+Contexto
+
+Após análise completa do relatório técnico apresentado, confirmamos que o entendimento do domínio está correto e alinhado com a visão arquitetural do sistema.
+
+O sistema de restauração não é um simples CRUD de pedidos.
+
+Trata-se de uma plataforma transacional com impacto financeiro e operacional real, operando em ambientes potencialmente caóticos como:
+
+- restaurantes
+- bares
+- discotecas
+- eventos
+- festivais
+- ambientes de alto volume de pedidos
+
+O modelo central baseado em **Sessão de Consumo** foi validado e permanece como conceito raiz do sistema.
+
+Todas as operações da aplicação ocorrem dentro de uma Sessão de Consumo.
+
+------------------------------------------------------------
+
+DECISÕES ARQUITETURAIS OFICIAIS
+
+Estas decisões devem ser consideradas **definitivas para o domínio**.
+
+1) Fundo de Consumo pertence à Sessão de Consumo
+
+Relação oficial:
+
+SessaoConsumo 1 —— 1 FundoConsumo
+
+Isso permite:
+
+- múltiplas sessões por cliente
+- isolamento financeiro por sessão
+- auditoria completa de consumo
+- controle de ciclo de vida da sessão
+
+O Fundo não pertence diretamente ao Cliente.
+
+------------------------------------------------------------
+
+2) Tipos de Sessão
+
+Sessões podem operar em dois modos:
+
+PRE_PAGO  
+POS_PAGO
+
+PRE_PAGO
+- saldo nunca pode ficar negativo
+- operações são bloqueadas quando saldo é insuficiente
+
+POS_PAGO
+- saldo pode ficar negativo
+- pagamento ocorre no fechamento da sessão
+- fluxo típico de restaurantes tradicionais
+
+Essa regra deve ser aplicada no domínio.
+
+------------------------------------------------------------
+
+3) Contabilidade do Fundo de Consumo
+
+O FundoConsumo não deve ser tratado como um saldo mutável simples.
+
+O saldo deve ser derivado exclusivamente da tabela de transações.
+
+Tabela base:
+
+TransacaoFundo
+
+Tipos de transação:
+
+CREDITO
+DEBITO
+ESTORNO
+AJUSTE
+
+Cada transação é append-only.
+
+Nunca modificar saldo diretamente.
+
+Saldo atual = soma de transações.
+
+Esse modelo garante:
+
+- auditabilidade
+- consistência financeira
+- rastreabilidade completa
+
+------------------------------------------------------------
+
+4) Concorrência
+
+Operações no FundoConsumo devem ser protegidas contra race conditions.
+
+Implementar:
+
+Optimistic Locking
+
+Usando versionamento:
+
+@Version
+
+O sistema deve lidar com concorrência através de retry automático quando necessário.
+
+------------------------------------------------------------
+
+5) Idempotência de Pagamentos
+
+Integrações externas (ex.: AppyPay) devem ser idempotentes.
+
+Cada pagamento deve possuir um identificador único:
+
+merchantTransactionId
+
+Antes de aplicar crédito no fundo:
+
+verificar se já existe transação registrada.
+
+Se existir:
+
+ignorar operação.
+
+Isso evita crédito duplicado.
+
+------------------------------------------------------------
+
+6) Ciclo de Vida da Sessão
+
+SessaoConsumo pode ter os estados:
+
+ABERTA
+AGUARDANDO_PAGAMENTO
+ENCERRADA
+EXPIRADA
+
+Sessões abertas sem operações devem expirar automaticamente conforme configuração do sistema.
+
+Implementar mecanismo de varredura assíncrona (scheduler).
+
+------------------------------------------------------------
+
+AUTORIZAÇÃO PARA FASE 1
+
+Com base no relatório técnico e nas decisões arquiteturais acima, está autorizada a execução da:
+
+FASE 1 — Núcleo Transacional (Wallet)
+
+Objetivo da fase:
+
+Construir o núcleo financeiro completamente robusto antes de qualquer funcionalidade operacional.
+
+Entidades foco desta fase:
+
+SessaoConsumo
+FundoConsumo
+TransacaoFundo
+
+Responsabilidades desta fase:
+
+1) Implementar domínio financeiro completo
+2) Garantir consistência transacional
+3) Implementar regras de PRE_PAGO e POS_PAGO
+4) Implementar proteção contra concorrência
+5) Implementar ledger financeiro append-only
+6) Criar serviços de:
+
+- criar sessão
+- carregar fundo
+- debitar fundo
+- estornar operação
+- consultar extrato
+- calcular saldo
+
+------------------------------------------------------------
+
+TESTES OBRIGATÓRIOS
+
+Esta fase exige bateria de testes robusta.
+
+Devem existir testes para:
+
+- depósitos concorrentes
+- débitos concorrentes
+- estornos
+- cálculo de saldo
+- idempotência de transações
+- cenários de falha
+
+Simular cenários de alta concorrência.
+
+------------------------------------------------------------
+
+RESTRIÇÕES
+
+Durante esta fase não implementar:
+
+Pedidos
+SubPedidos
+Cozinhas
+WebSockets
+Integrações externas
+
+Esses elementos pertencem a fases posteriores.
+
+FASE 1 deve focar exclusivamente no núcleo financeiro.
+
+------------------------------------------------------------
+
+RELATÓRIO DE CONCLUSÃO
+
+Ao final da implementação, gerar relatório técnico contendo:
+
+1) Estado da implementação do núcleo financeiro
+2) Validação das regras de domínio
+3) Resultados dos testes de concorrência
+4) Avaliação de robustez do modelo
+
+O relatório final deve também indicar explicitamente:
+
+- qual será a próxima fase recomendada
+- quais pré-condições estão satisfeitas
+- se o núcleo financeiro está pronto para integração com pedidos
+
+------------------------------------------------------------
+
+IMPORTANTE
+
+Este projeto exige rigor de engenharia comparável a sistemas de pagamentos ou sistemas POS profissionais.
+
+Priorizar:
+
+consistência
+auditabilidade
+segurança transacional
+clareza do domínio
+
+Somente após a conclusão e validação da FASE 1 o sistema poderá avançar para a próxima fase.

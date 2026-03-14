@@ -7,7 +7,8 @@ import com.restaurante.service.AuditoriaFinanceiraService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -33,10 +34,11 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/auditoria")
 @RequiredArgsConstructor
-@Slf4j
 @Tag(name = "Auditoria", description = "Consulta de logs financeiros e operacionais")
 @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
 public class AuditoriaController {
+
+    private static final Logger log = LoggerFactory.getLogger(AuditoriaController.class);
 
     private final AuditoriaFinanceiraService auditoriaService;
     private final ConfiguracaoFinanceiraEventLogRepository auditRepo;

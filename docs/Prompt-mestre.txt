@@ -1,0 +1,160 @@
+SISTEMA DE RESTAURAÇÃO — PROMPT MESTRE DE ALINHAMENTO DE BACKEND
+Contexto
+Este projeto corresponde ao desenvolvimento de um sistema profissional de gestão de restauração, concebido para operação real em ambientes como:
+
+    restaurantes
+    bares
+    discotecas
+    eventos
+    festivais
+    unidades de consumo híbridas
+
+O sistema encontra-se numa fase avançada de maturidade arquitetural e já passou por múltiplas revisões conceituais profundas.
+Este não é um projeto experimental.
+Trata-se de um sistema projetado para produção, com impacto direto em:
+
+    transações financeiras
+    operações de consumo
+    fluxo operacional de estabelecimentos
+    integridade de dados
+    gestão de pagamentos
+    risco operacional real
+
+Portanto, qualquer decisão arquitetural ou alteração estrutural deve ser tratada com extremo rigor técnico.
+Antes de qualquer avanço no desenvolvimento, é obrigatório realizar uma revisão profunda do modelo de domínio, arquitetura e fluxos operacionais.
+Este prompt tem como objetivo alinhar completamente o agente com o estado atual do projeto.
+--------------------------------------------------------------------------------
+Princípio Arquitetural Central
+O sistema é construído sobre o conceito central de:
+SESSÃO DE CONSUMO
+A Sessão de Consumo representa um contexto isolado de consumo dentro do estabelecimento.
+Tudo no sistema acontece dentro de uma sessão.
+Entidades centrais do domínio:
+SessaoConsumo FundoConsumo Pedido SubPedido ItemPedido Produto Cozinha Mesa Cliente
+A Sessão é o núcleo do domínio.
+Relacionamentos principais:
+SessaoConsumo ├── 1 FundoConsumo ├── N Pedidos ├── 0..1 Mesa └── 0..1 Cliente
+FundoConsumo └── N TransacoesFundo
+Pedido └── N SubPedidos
+SubPedido └── N ItemPedido
+Produto └── CategoriaProduto
+CategoriaProduto └── Unidade de Produção (Cozinha)
+--------------------------------------------------------------------------------
+Objetivo Operacional do Sistema
+O sistema foi desenhado para resolver os seguintes problemas reais:
+
+    gestão de pedidos distribuídos por múltiplas cozinhas
+    gestão de consumo em ambientes caóticos (bares / eventos)
+    controle de saldo pré-pago
+    gestão de pós-pago controlado
+    auditoria financeira completa
+    comunicação em tempo real entre operadores e produção
+
+O sistema deve funcionar em cenários como:
+Cliente com mesa Cliente sem mesa Cliente com QR Code Cliente anónimo Eventos de alto volume Operação com POS Android Pagamentos híbridos
+--------------------------------------------------------------------------------
+Modelo de Sessão de Consumo
+A Sessão de Consumo é o elemento agregador do sistema.
+Características:
+
+    possui identificador único
+    possui QR Code único
+    possui FundoConsumo obrigatório
+    pode estar associada a mesa (opcional)
+    pode estar associada a cliente (opcional)
+
+Uma sessão pode ser aberta por:
+
+    scan de QR
+    POS
+    operador
+
+A sessão só é criada quando ocorre uma operação real:
+
+    carregamento de fundo
+    pagamento direto
+    criação via POS
+
+Sessões possuem ciclo de vida:
+ABERTA AGUARDANDO_PAGAMENTO ENCERRADA EXPIRADA
+--------------------------------------------------------------------------------
+Fundo de Consumo
+Cada SessaoConsumo possui exatamente um FundoConsumo.
+O fundo representa o saldo financeiro da sessão.
+Operações permitidas:
+CREDITO DEBITO ESTORNO AJUSTE
+Todas as operações financeiras devem gerar:
+TransacaoFundo
+O sistema deve garantir:
+
+    consistência financeira
+    idempotência
+    impossibilidade de saldo negativo
+    rastreabilidade total
+
+--------------------------------------------------------------------------------
+Pedidos
+Pedidos pertencem obrigatoriamente a uma SessaoConsumo.
+Pedidos podem conter produtos de múltiplas cozinhas.
+Ao criar um pedido, o sistema deve dividir automaticamente em:
+SubPedidos
+Cada SubPedido pertence a uma cozinha.
+Estados do SubPedido:
+CRIADO PENDENTE EM_PREPARACAO PRONTO ENTREGUE CANCELADO
+Esses estados são geridos por uma máquina de estados.
+Nenhuma alteração de estado pode ocorrer fora do motor de transição.
+--------------------------------------------------------------------------------
+Comunicação em Tempo Real
+O sistema utiliza WebSocket para comunicação em tempo real.
+Eventos emitidos:
+pedido_criado subpedido_em_preparacao subpedido_pronto pedido_entregue saldo_atualizado
+A interface do operador depende desses eventos.
+Polling deve ser evitado.
+--------------------------------------------------------------------------------
+Integração de Pagamentos
+O sistema integra com gateways de pagamento (ex: AppyPay).
+Métodos suportados:
+GPO REF POS CASH (via operador)
+Todas as operações devem ser idempotentes.
+Callbacks do gateway devem ser tratados de forma resiliente.
+--------------------------------------------------------------------------------
+Concorrência e Integridade
+O sistema deve garantir segurança contra:
+
+    race conditions
+    concorrência simultânea
+    duplicação de transações
+    inconsistência de saldo
+
+Mecanismos utilizados:
+Optimistic Locking Transações com isolamento adequado Idempotência financeira Auditoria de eventos
+--------------------------------------------------------------------------------
+Objetivo desta Sessão
+Antes de avançar qualquer desenvolvimento, o agente deve realizar:
+
+    Revisão profunda do modelo de domínio
+    Revisão das entidades e relacionamentos
+    Revisão das regras operacionais
+    Revisão da arquitetura de serviços
+    Revisão das regras financeiras
+    Identificação de inconsistências conceituais
+    Identificação de riscos operacionais
+    Identificação de riscos financeiros
+
+O agente NÃO deve iniciar implementação imediatamente.
+Primeiro deve produzir um relatório técnico contendo:
+
+    avaliação do modelo atual
+    inconsistências encontradas
+    possíveis melhorias arquiteturais
+    pontos de atenção para produção
+
+Somente após essa auditoria será autorizado avançar para novas implementações.
+--------------------------------------------------------------------------------
+Importante
+Este sistema não é um protótipo.
+É um sistema que será utilizado em ambientes reais com impacto direto em:
+dinheiro operações experiência do cliente
+Portanto, o rigor técnico deve ser equivalente ao de sistemas financeiros ou sistemas de pagamentos.
+Todas as decisões devem privilegiar:
+consistência segurança auditabilidade simplicidade operacional resiliência

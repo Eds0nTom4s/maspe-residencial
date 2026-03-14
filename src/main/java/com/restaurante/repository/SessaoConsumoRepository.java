@@ -7,17 +7,24 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 /**
  * Repository para SessaoConsumo.
  *
- * <p>Regra fundamental: cada mesa pode ter no máximo UMA sessão com status ABERTA.
+ * <p>Regra fundamental: quando mesa presente, apenas UMA sessão ABERTA por mesa.
  * Use {@link #existsByMesaIdAndStatus} para validar antes de abrir nova sessão.
  */
 @Repository
 public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Long> {
+
+    /**
+     * Busca sessão pelo QR Code único da sessão.
+     * Principal ponto de entrada por token externo.
+     */
+    Optional<SessaoConsumo> findByQrCodeSessao(String qrCodeSessao);
 
     /**
      * Busca a sessão de uma mesa com determinado status.
@@ -59,4 +66,10 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
     @Query("SELECT COUNT(s) FROM SessaoConsumo s " +
            "WHERE s.mesa.unidadeAtendimento.id = :unidadeAtendimentoId AND s.status = 'ABERTA'")
     long countAbertasByUnidadeAtendimento(@Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
+
+    /**
+     * Busca sessões com status específico que foram abertas ANTES de determinada data.
+     * Utilizado pelo Scheduler para inativar (EXPIRAR) sessões zumbi.
+     */
+    List<SessaoConsumo> findByStatusAndAbertaEmBefore(StatusSessaoConsumo status, LocalDateTime data);
 }

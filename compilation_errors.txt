@@ -1,0 +1,10 @@
+     10 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/AuditoriaController.java
+     10 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/ConfiguracaoFinanceiraController.java
+      2 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/controller/EventLogController.java
+      4 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/model/entity/SessaoConsumo.java
+     10 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/security/JwtChannelInterceptor.java
+     10 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/security/JwtTokenProvider.java
+     62 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ClienteService.java
+     30 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ConfiguracaoFinanceiraService.java
+      2 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/ProdutoService.java
+     58 [[1;31mERROR[m] /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração/src/main/java/com/restaurante/service/UnidadeDeConsumoService.java

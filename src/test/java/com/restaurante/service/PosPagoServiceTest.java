@@ -112,7 +112,7 @@ class PosPagoServiceTest {
                 .build();
         aberto2.setId(3L);
 
-        when(pedidoRepository.findByUnidadeConsumoIdAndTipoPagamentoAndStatusFinanceiro(
+        when(pedidoRepository.findBySessaoConsumoIdAndTipoPagamentoAndStatusFinanceiro(
                 eq(1L), eq(TipoPagamentoPedido.POS_PAGO), eq(StatusFinanceiroPedido.NAO_PAGO)))
                 .thenReturn(List.of(aberto1, aberto2));
 

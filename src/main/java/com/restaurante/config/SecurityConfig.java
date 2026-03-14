@@ -56,13 +56,18 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Endpoints públicos de autenticação
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
-                        
-                        // Debug endpoint (⚠️ REMOVER EM PRODUÇÃO)
-                        .requestMatchers("/api/debug/**", "/debug/**").permitAll()
-                        
-                        // Documentação e monitoramento
+
+                        // Debug endpoints: restritos por @Profile("!prod") + @PreAuthorize("ADMIN") no controller
+                        // Sem regra de permitAll aqui — autenticação obrigatória
+
+                        // Documentação (apenas em não-prod; considere bloquear em produção)
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers("/actuator/**").permitAll()
+
+                        // Actuator: apenas /health é público (load balancers); o resto requer ADMIN
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
+
+                        // H2 Console (apenas perfil dev)
                         .requestMatchers("/h2-console/**", "/api/h2-console/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         

@@ -1,6 +1,5 @@
 package com.restaurante.financeiro.gateway.appypay;
 
-import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
@@ -14,7 +13,6 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @ConfigurationProperties(prefix = "app.payment.appypay")
-@Data
 public class AppyPayProperties {
     
     /**
@@ -71,14 +69,55 @@ public class AppyPayProperties {
     private boolean mock = false;
     
     /**
+     * Segredo partilhado para validação HMAC-SHA256 dos callbacks AppyPay.
+     *
+     * <p>Fornecido pela AppyPay no painel de merchant.
+     * Definir via variável de ambiente {@code APPYPAY_WEBHOOK_SECRET}.
+     * Se vazio, a validação HMAC é ignorada (apenas em modo mock/desenvolvimento).
+     */
+    private String webhookSecret;
+
+    /**
      * Métodos de pagamento com IDs específicos
      */
     private Methods methods = new Methods();
+
+    public String getBaseUrl() { return baseUrl; }
+    public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+
+    public String getTokenUrl() { return tokenUrl; }
+    public void setTokenUrl(String tokenUrl) { this.tokenUrl = tokenUrl; }
+
+    public String getClientId() { return clientId; }
+    public void setClientId(String clientId) { this.clientId = clientId; }
+
+    public String getClientSecret() { return clientSecret; }
+    public void setClientSecret(String clientSecret) { this.clientSecret = clientSecret; }
+
+    public String getResource() { return resource; }
+    public void setResource(String resource) { this.resource = resource; }
+
+    public String getCallbackUrl() { return callbackUrl; }
+    public void setCallbackUrl(String callbackUrl) { this.callbackUrl = callbackUrl; }
+
+    public int getTimeoutMs() { return timeoutMs; }
+    public void setTimeoutMs(int timeoutMs) { this.timeoutMs = timeoutMs; }
+
+    public boolean isDebug() { return debug; }
+    public void setDebug(boolean debug) { this.debug = debug; }
+
+    public boolean isMock() { return mock; }
+    public void setMock(boolean mock) { this.mock = mock; }
+
+    public String getWebhookSecret() { return webhookSecret; }
+    public void setWebhookSecret(String webhookSecret) { this.webhookSecret = webhookSecret; }
+
+    public Methods getMethods() { return methods; }
+    public void setMethods(Methods methods) { this.methods = methods; }
     
     /**
      * Classe interna para métodos de pagamento
      */
-    @Data
     public static class Methods {
         /**
          * ID do método GPO (pagamento instantâneo)
@@ -91,6 +130,12 @@ public class AppyPayProperties {
          * Formato: REF_{uuid}
          */
         private String ref;
+
+        public String getGpo() { return gpo; }
+        public void setGpo(String gpo) { this.gpo = gpo; }
+
+        public String getRef() { return ref; }
+        public void setRef(String ref) { this.ref = ref; }
     }
     
     /**

@@ -21,8 +21,9 @@ import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
 import com.restaurante.service.PedidoService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,10 +53,9 @@ import java.util.UUID;
  * BASEADO EM ARENATICKET (VALIDADO EM PRODUÇÃO)
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class PagamentoGatewayService {
-    
+
+    private static final Logger log = LoggerFactory.getLogger(PagamentoGatewayService.class);
     private final PagamentoGatewayRepository pagamentoRepository;
     private final PagamentoEventLogRepository eventLogRepository;
     private final FundoConsumoRepository fundoConsumoRepository;
@@ -65,7 +65,29 @@ public class PagamentoGatewayService {
     private final PedidoService pedidoService;
     private final ObjectMapper objectMapper;
     private final NotificacaoService notificacaoService;
-    
+
+    @Autowired
+    public PagamentoGatewayService(
+        PagamentoGatewayRepository pagamentoRepository,
+        PagamentoEventLogRepository eventLogRepository,
+        FundoConsumoRepository fundoConsumoRepository,
+        TransacaoFundoRepository transacaoFundoRepository,
+        PedidoRepository pedidoRepository,
+        AppyPayClient appyPayClient,
+        PedidoService pedidoService,
+        ObjectMapper objectMapper,
+        NotificacaoService notificacaoService
+    ) {
+        this.pagamentoRepository = pagamentoRepository;
+        this.eventLogRepository = eventLogRepository;
+        this.fundoConsumoRepository = fundoConsumoRepository;
+        this.transacaoFundoRepository = transacaoFundoRepository;
+        this.pedidoRepository = pedidoRepository;
+        this.appyPayClient = appyPayClient;
+        this.pedidoService = pedidoService;
+        this.objectMapper = objectMapper;
+        this.notificacaoService = notificacaoService;
+    }
     /**
      * Cria pagamento para recarga de fundo (PRÉ-PAGO)
      * 
@@ -159,8 +181,8 @@ public class PagamentoGatewayService {
                 
                 // Notificar cliente com referência bancária
                 try {
-                    String telefoneCliente = fundo.getCliente() != null 
-                        ? fundo.getCliente().getTelefone() 
+                    String telefoneCliente = fundo.getSessaoConsumo().getCliente() != null 
+                        ? fundo.getSessaoConsumo().getCliente().getTelefone() 
                         : null;
                     
                     if (telefoneCliente != null) {
@@ -265,8 +287,8 @@ public class PagamentoGatewayService {
         
         // Registra TransacaoFundo (CREDITO)
         BigDecimal saldoAnterior = fundo.getSaldoAtual();
-        fundo.creditar(pagamento.getAmount());
-        BigDecimal saldoNovo = fundo.getSaldoAtual();
+        BigDecimal saldoNovo = saldoAnterior.add(pagamento.getAmount());
+        fundo.atualizarSaldoCache(saldoNovo);
         
         fundoConsumoRepository.save(fundo);
         
@@ -296,8 +318,8 @@ public class PagamentoGatewayService {
         
         // Notificar cliente sobre recarga confirmada
         try {
-            String telefoneCliente = fundo.getCliente() != null 
-                ? fundo.getCliente().getTelefone() 
+            String telefoneCliente = fundo.getSessaoConsumo().getCliente() != null 
+                ? fundo.getSessaoConsumo().getCliente().getTelefone() 
                 : null;
             
             if (telefoneCliente != null) {

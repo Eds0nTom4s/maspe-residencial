@@ -11,8 +11,8 @@ import com.restaurante.service.UnidadeAtendimentoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -22,13 +22,16 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/unidades-atendimento")
-@RequiredArgsConstructor
-@Slf4j
 @Tag(name = "Unidades de Atendimento", description = "Gerenciamento de unidades de atendimento")
 public class UnidadeAtendimentoController {
 
+    private static final Logger log = LoggerFactory.getLogger(UnidadeAtendimentoController.class);
+
     private final UnidadeAtendimentoService unidadeAtendimentoService;
 
+    public UnidadeAtendimentoController(UnidadeAtendimentoService unidadeAtendimentoService) {
+        this.unidadeAtendimentoService = unidadeAtendimentoService;
+    }
     @PostMapping
     @Operation(summary = "Criar nova unidade de atendimento")
     public ResponseEntity<ApiResponse<UnidadeAtendimentoResponse>> criar(@Valid @RequestBody CriarUnidadeAtendimentoRequest request) {

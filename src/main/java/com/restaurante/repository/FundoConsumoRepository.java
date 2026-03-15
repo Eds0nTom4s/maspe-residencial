@@ -63,4 +63,10 @@ public interface FundoConsumoRepository extends JpaRepository<FundoConsumo, Long
      */
     @Query("SELECT COUNT(f) > 0 FROM FundoConsumo f WHERE f.sessaoConsumo.qrCodeSessao = :qrCode AND f.ativo = true")
     boolean existsByQrCodeSessaoAndAtivoTrue(@Param("qrCode") String qrCode);
+
+    /**
+     * Busca fundo ativo pela Sessão do Cliente que está ABERTA, pesquisando pelo telefone (principal).
+     */
+    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.cliente.telefone = :telefone AND f.sessaoConsumo.status = :status AND f.ativo = true")
+    Optional<FundoConsumo> findBySessaoConsumoClienteTelefoneAndSessaoConsumoStatusAndAtivoTrue(@Param("telefone") String telefone, @Param("status") com.restaurante.model.enums.StatusSessaoConsumo status);
 }

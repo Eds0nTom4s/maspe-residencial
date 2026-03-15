@@ -128,10 +128,10 @@ public class FundoConsumoController {
             @Valid @RequestBody RecarregarFundoRequest request) {
 
         log.info("Cliente solicitou auto-recarga — {}", com.restaurante.util.MoneyFormatter.format(request.getValor()));
-        Long clienteId = com.restaurante.security.SecurityUtils.getUsuarioLogadoId();
+        String telefone = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
         
         TransacaoFundo transacao = fundoConsumoService.recarregarCliente(
-                clienteId, request.getValor(), request.getObservacoes());
+                telefone, request.getValor(), request.getObservacoes());
                 
         return ResponseEntity.ok(ApiResponse.success(
                 "Recarga concluída com sucesso. Novo saldo: " + com.restaurante.util.MoneyFormatter.format(transacao.getSaldoNovo()),

@@ -139,7 +139,7 @@ public class FundoConsumoService {
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Recarrega o saldo para o cliente logado, buscando a sua sessão ativa.
+     * Recarrega o saldo para o cliente logado, buscando a sua sessão ativa pelo número de telefone (principal).
      * Esta simplificação permite que o frontend não precise de passar o token na URL 
      * da recarga na área logada.
      */
@@ -149,16 +149,14 @@ public class FundoConsumoService {
         backoff = @Backoff(delay = 100, maxDelay = 500)
     )
     @Transactional(isolation = Isolation.SERIALIZABLE)
-    public TransacaoFundo recarregarCliente(Long clienteId, BigDecimal valor, String observacoes) {
-        log.info("Cliente ID={} solicitou recarga de {}", clienteId, com.restaurante.util.MoneyFormatter.format(valor));
+    public TransacaoFundo recarregarCliente(String telefoneCliente, BigDecimal valor, String observacoes) {
+        log.info("Cliente telefone={} solicitou recarga de {}", telefoneCliente, com.restaurante.util.MoneyFormatter.format(valor));
         validarValorPositivo(valor);
         validarValorMinimo(valor);
         
-        // Dependência com o repository de sessão para encontrar a sessão aberta do cliente
-        // Vamos usar um atalho para carregar o fundo baseado no clienteId
-        FundoConsumo fundo = fundoConsumoRepository.findBySessaoConsumoClienteIdAndSessaoConsumoStatusAndAtivoTrue(
-                clienteId, com.restaurante.model.enums.StatusSessaoConsumo.ABERTA)
-            .orElseThrow(() -> new BusinessException("Nenhuma sessão de consumo ativa encontrada para o cliente ID: " + clienteId));
+        FundoConsumo fundo = fundoConsumoRepository.findBySessaoConsumoClienteTelefoneAndSessaoConsumoStatusAndAtivoTrue(
+                telefoneCliente, com.restaurante.model.enums.StatusSessaoConsumo.ABERTA)
+            .orElseThrow(() -> new BusinessException("Nenhuma sessão de consumo ativa encontrada para o cliente: " + telefoneCliente));
 
         return executarCredito(fundo, valor, observacoes != null ? observacoes : "Recarga efetuada pelo cliente");
     }

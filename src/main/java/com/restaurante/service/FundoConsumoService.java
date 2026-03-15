@@ -152,7 +152,7 @@ public class FundoConsumoService {
     )
     @Transactional(isolation = Isolation.SERIALIZABLE)
     public TransacaoFundo recarregarPorToken(String qrCodeSessao, BigDecimal valor, String observacoes) {
-        log.info("Recarregando {} AOA no fundo da sessão QR={}", valor, qrCodeSessao);
+        log.info("Recarregando {} no fundo da sessão QR={}", com.restaurante.util.MoneyFormatter.format(valor), qrCodeSessao);
         validarValorPositivo(valor);
         validarValorMinimo(valor);
         FundoConsumo fundo = buscarPorToken(qrCodeSessao);
@@ -169,7 +169,7 @@ public class FundoConsumoService {
     )
     @Transactional(isolation = Isolation.SERIALIZABLE)
     public TransacaoFundo recarregar(Long sessaoId, BigDecimal valor, String observacoes) {
-        log.info("Recarregando {} AOA no fundo da sessão ID={}", valor, sessaoId);
+        log.info("Recarregando {} no fundo da sessão ID={}", com.restaurante.util.MoneyFormatter.format(valor), sessaoId);
         validarValorPositivo(valor);
         validarValorMinimo(valor);
         FundoConsumo fundo = buscarPorSessaoId(sessaoId);
@@ -195,7 +195,7 @@ public class FundoConsumoService {
     )
     @Transactional(isolation = Isolation.SERIALIZABLE)
     public TransacaoFundo debitarDireto(FundoConsumo fundo, Long pedidoId, BigDecimal valor) {
-        log.info("Debitando {} AOA do fundo ID={} para pedido {}", valor, fundo.getId(), pedidoId);
+        log.info("Debitando {} do fundo ID={} para pedido {}", com.restaurante.util.MoneyFormatter.format(valor), fundo.getId(), pedidoId);
 
         // IDEMPOTÊNCIA
         var existente = transacaoFundoRepository.findByPedidoIdAndTipo(pedidoId, TipoTransacaoFundo.DEBITO);
@@ -254,7 +254,7 @@ public class FundoConsumoService {
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
         
-        log.info("Débito concluído. Saldo anterior: {} AOA, Saldo novo: {} AOA", saldoAnterior, fundo.getSaldoAtual());
+        log.info("Débito concluído. Saldo anterior: {}, Saldo novo: {}", com.restaurante.util.MoneyFormatter.format(saldoAnterior), com.restaurante.util.MoneyFormatter.format(fundo.getSaldoAtual()));
         return transacao;
     }
 
@@ -339,8 +339,8 @@ public class FundoConsumoService {
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
         
-        log.info("Estorno concluído. Valor: {} AOA, Saldo anterior: {} AOA, Saldo novo: {} AOA",
-                 valorEstorno, saldoAnterior, fundo.getSaldoAtual());
+        log.info("Estorno concluído. Valor: {}, Saldo anterior: {}, Saldo novo: {}",
+                 com.restaurante.util.MoneyFormatter.format(valorEstorno), com.restaurante.util.MoneyFormatter.format(saldoAnterior), com.restaurante.util.MoneyFormatter.format(fundo.getSaldoAtual()));
         return transacao;
     }
 
@@ -391,7 +391,7 @@ public class FundoConsumoService {
                 com.restaurante.model.enums.TipoSessao.POS_PAGO.equals(sessao.getTipoSessao());
         if (!isPosPago && saldoNovo.compareTo(java.math.BigDecimal.ZERO) < 0) {
             throw new BusinessException(
-                String.format("Ajuste resultaria em saldo negativo (%.2f AOA) numa sessão PRE_PAGO", saldoNovo));
+                String.format("Ajuste resultaria em saldo negativo (%s) numa sessão PRE_PAGO", com.restaurante.util.MoneyFormatter.format(saldoNovo)));
         }
 
         // Valor absoluto para a transação de ajuste
@@ -410,7 +410,7 @@ public class FundoConsumoService {
         fundo.atualizarSaldoCache(saldoNovo);
         fundoConsumoRepository.save(fundo);
 
-        log.warn("Ajuste concluído. Saldo anterior: {} AOA → Saldo novo: {} AOA", saldoAnterior, saldoNovo);
+        log.warn("Ajuste concluído. Saldo anterior: {} → Saldo novo: {}", com.restaurante.util.MoneyFormatter.format(saldoAnterior), com.restaurante.util.MoneyFormatter.format(saldoNovo));
         return transacao;
     }
 
@@ -538,7 +538,7 @@ public class FundoConsumoService {
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
         
-        log.info("Recarga concluída. Saldo anterior: {} AOA, Saldo novo: {} AOA", saldoAnterior, fundo.getSaldoAtual());
+        log.info("Recarga concluída. Saldo anterior: {}, Saldo novo: {}", com.restaurante.util.MoneyFormatter.format(saldoAnterior), com.restaurante.util.MoneyFormatter.format(fundo.getSaldoAtual()));
         return transacao;
     }
 
@@ -552,7 +552,7 @@ public class FundoConsumoService {
         BigDecimal valorMinimo = configuracaoFinanceiraService.buscarOuCriarConfiguracao().getValorMinimoOperacao();
         if (valor.compareTo(valorMinimo) < 0) {
             throw new BusinessException(String.format(
-                "Valor (%s AOA) abaixo do mínimo permitido (%s AOA)", valor, valorMinimo));
+                "Valor (%s) abaixo do mínimo permitido (%s)", com.restaurante.util.MoneyFormatter.format(valor), com.restaurante.util.MoneyFormatter.format(valorMinimo)));
         }
     }
 }

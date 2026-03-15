@@ -100,7 +100,7 @@ public class PagamentoController {
                 ? "Pagamento GPO confirmado. Saldo creditado."
                 : "Referência gerada. Entidade: " + pagamento.getEntidade()
                   + " | Ref: " + pagamento.getReferencia()
-                  + " | Valor: " + pagamento.getAmount() + " AOA";
+                  + " | Valor: " + com.restaurante.util.MoneyFormatter.format(pagamento.getAmount());
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(mensagem, resposta));

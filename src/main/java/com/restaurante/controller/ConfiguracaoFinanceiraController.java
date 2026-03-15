@@ -101,7 +101,7 @@ public class ConfiguracaoFinanceiraController {
      * Altera limite de pós-pago
      * PUT /api/configuracoes-financeiras/pos-pago/limite
      *
-     * @param novoLimite Novo limite em AOA (mínimo 100.00)
+     * @param novoLimite Novo limite na moeda configurada (mínimo 100.00)
      * @param motivo     Motivo da alteração (opcional)
      */
     @PutMapping("/pos-pago/limite")
@@ -116,25 +116,25 @@ public class ConfiguracaoFinanceiraController {
                 .map(GrantedAuthority::getAuthority)
                 .collect(Collectors.joining(","));
 
-        log.warn("🔐 OPERAÇÃO CRÍTICA: Alterando limite de pós-pago para {} AOA - Usuário: {} | Roles: {}",
-                novoLimite, username, roles);
+        log.warn("🔐 OPERAÇÃO CRÍTICA: Alterando limite de pós-pago para {} - Usuário: {} | Roles: {}",
+                com.restaurante.util.MoneyFormatter.format(novoLimite), username, roles);
 
         if (novoLimite.compareTo(new BigDecimal("100.00")) < 0) {
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Limite mínimo é 100.00 AOA"));
+                    .body(ApiResponse.error("Limite mínimo é " + com.restaurante.util.MoneyFormatter.format(new BigDecimal("100.00"))));
         }
 
         configuracaoFinanceiraService.alterarLimitePosPago(novoLimite, username, roles, motivo);
 
         return ResponseEntity.ok(
-                ApiResponse.success("Limite de pós-pago alterado para " + novoLimite + " AOA", null));
+                ApiResponse.success("Limite de pós-pago alterado para " + com.restaurante.util.MoneyFormatter.format(novoLimite), null));
     }
 
     /**
      * Altera valor mínimo de operação financeira
      * PUT /api/configuracoes-financeiras/valor-minimo
      *
-     * @param novoValor Novo valor mínimo em AOA
+     * @param novoValor Novo valor mínimo na moeda configurada
      * @param motivo    Motivo da alteração (opcional)
      */
     @PutMapping("/valor-minimo")
@@ -150,10 +150,10 @@ public class ConfiguracaoFinanceiraController {
                 .map(GrantedAuthority::getAuthority)
                 .collect(Collectors.joining(","));
 
-        log.warn("🔐 OPERAÇÃO CRÍTICA: Alterando valor mínimo para {} AOA - Usuário: {}", novoValor, username);
+        log.warn("🔐 OPERAÇÃO CRÍTICA: Alterando valor mínimo para {} - Usuário: {}", com.restaurante.util.MoneyFormatter.format(novoValor), username);
         configuracaoFinanceiraService.alterarValorMinimo(novoValor, username, roles, motivo);
         return ResponseEntity.ok(
-                ApiResponse.success("Valor mínimo alterado para " + novoValor + " AOA", null));
+                ApiResponse.success("Valor mínimo alterado para " + com.restaurante.util.MoneyFormatter.format(novoValor), null));
     }
 
     /**

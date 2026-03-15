@@ -150,7 +150,7 @@ class SubPedidoStateMachineTest {
     }
 
     private void mockBuscarESalvar(SubPedido subPedidoAtual, SubPedido subPedidoSalvo) {
-        when(subPedidoRepository.findById(subPedidoAtual.getId())).thenReturn(java.util.Optional.of(subPedidoAtual));
+        when(subPedidoRepository.findByIdWithDetails(subPedidoAtual.getId())).thenReturn(java.util.Optional.of(subPedidoAtual));
         when(subPedidoRepository.save(any(SubPedido.class))).thenReturn(subPedidoSalvo);
     }
 
@@ -243,7 +243,7 @@ class SubPedidoStateMachineTest {
     void naoDevePermitirProntoParaEmPreparacao() {
         autenticarComo("ROLE_COZINHA");
         SubPedido atual = criarSubPedidoComStatus(StatusSubPedido.PRONTO);
-        when(subPedidoRepository.findById(atual.getId())).thenReturn(java.util.Optional.of(atual));
+        when(subPedidoRepository.findByIdWithDetails(atual.getId())).thenReturn(java.util.Optional.of(atual));
 
         assertThrows(TransicaoInvalidaException.class,
                 () -> subPedidoService.alterarStatus(atual.getId(), StatusSubPedido.EM_PREPARACAO, "retornar"));
@@ -256,7 +256,7 @@ class SubPedidoStateMachineTest {
     void naoDevePermitirAlterarEstadoQuandoEntregue() {
         autenticarComo("ROLE_ATENDENTE");
         SubPedido atual = criarSubPedidoComStatus(StatusSubPedido.ENTREGUE);
-        when(subPedidoRepository.findById(atual.getId())).thenReturn(java.util.Optional.of(atual));
+        when(subPedidoRepository.findByIdWithDetails(atual.getId())).thenReturn(java.util.Optional.of(atual));
 
         assertThrows(TransicaoInvalidaException.class,
                 () -> subPedidoService.alterarStatus(atual.getId(), StatusSubPedido.PRONTO, "invalido"));
@@ -266,7 +266,7 @@ class SubPedidoStateMachineTest {
     void naoDevePermitirAlterarEstadoQuandoCancelado() {
         autenticarComo("ROLE_GERENTE");
         SubPedido atual = criarSubPedidoComStatus(StatusSubPedido.CANCELADO);
-        when(subPedidoRepository.findById(atual.getId())).thenReturn(java.util.Optional.of(atual));
+        when(subPedidoRepository.findByIdWithDetails(atual.getId())).thenReturn(java.util.Optional.of(atual));
 
         assertThrows(TransicaoInvalidaException.class,
                 () -> subPedidoService.alterarStatus(atual.getId(), StatusSubPedido.PENDENTE, "invalido"));
@@ -278,7 +278,7 @@ class SubPedidoStateMachineTest {
     void clienteNaoPodeAlterarEstado() {
         autenticarComo("ROLE_CLIENTE");
         SubPedido atual = criarSubPedidoComStatus(StatusSubPedido.PENDENTE);
-        when(subPedidoRepository.findById(atual.getId())).thenReturn(java.util.Optional.of(atual));
+        when(subPedidoRepository.findByIdWithDetails(atual.getId())).thenReturn(java.util.Optional.of(atual));
 
         assertThrows(PermissaoNegadaException.class,
                 () -> subPedidoService.assumir(atual.getId()));
@@ -288,7 +288,7 @@ class SubPedidoStateMachineTest {
     void cozinhaNaoPodeMarcarEntregue() {
         autenticarComo("ROLE_COZINHA");
         SubPedido atual = criarSubPedidoComStatus(StatusSubPedido.PRONTO);
-        when(subPedidoRepository.findById(atual.getId())).thenReturn(java.util.Optional.of(atual));
+        when(subPedidoRepository.findByIdWithDetails(atual.getId())).thenReturn(java.util.Optional.of(atual));
 
         assertThrows(PermissaoNegadaException.class,
                 () -> subPedidoService.marcarEntregue(atual.getId()));
@@ -298,7 +298,7 @@ class SubPedidoStateMachineTest {
     void atendenteNaoPodeAssumirPreparacao() {
         autenticarComo("ROLE_ATENDENTE");
         SubPedido atual = criarSubPedidoComStatus(StatusSubPedido.PENDENTE);
-        when(subPedidoRepository.findById(atual.getId())).thenReturn(java.util.Optional.of(atual));
+        when(subPedidoRepository.findByIdWithDetails(atual.getId())).thenReturn(java.util.Optional.of(atual));
 
         assertThrows(PermissaoNegadaException.class,
                 () -> subPedidoService.assumir(atual.getId()));
@@ -328,7 +328,7 @@ class SubPedidoStateMachineTest {
     void marcarProntoQuandoJaEstaProntoDeveSerNoOp() {
         autenticarComo("ROLE_COZINHA");
         SubPedido atual = criarSubPedidoComStatus(StatusSubPedido.PRONTO);
-        when(subPedidoRepository.findById(atual.getId())).thenReturn(java.util.Optional.of(atual));
+        when(subPedidoRepository.findByIdWithDetails(atual.getId())).thenReturn(java.util.Optional.of(atual));
 
         SubPedido resultado = subPedidoService.marcarPronto(atual.getId());
 
@@ -344,7 +344,7 @@ class SubPedidoStateMachineTest {
     void marcarEntregueQuandoJaEstaEntregueDeveSerNoOp() {
         autenticarComo("ROLE_ATENDENTE");
         SubPedido atual = criarSubPedidoComStatus(StatusSubPedido.ENTREGUE);
-        when(subPedidoRepository.findById(atual.getId())).thenReturn(java.util.Optional.of(atual));
+        when(subPedidoRepository.findByIdWithDetails(atual.getId())).thenReturn(java.util.Optional.of(atual));
 
         SubPedido resultado = subPedidoService.marcarEntregue(atual.getId());
 

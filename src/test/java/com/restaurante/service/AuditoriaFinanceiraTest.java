@@ -47,8 +47,7 @@ class AuditoriaFinanceiraTest {
     private ConfiguracaoFinanceiraSistemaRepository configuracaoRepository;
 
     @Mock
-    private EventLogService eventLogService;
-
+    private AuditoriaFinanceiraService auditoriaFinanceiraService;
     @InjectMocks
     private PedidoFinanceiroService pedidoFinanceiroService;
 

@@ -106,8 +106,8 @@ public class AuditoriaFinanceiraService {
         evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
-        log.info("🔐 AUDITORIA [ALTEROU_LIMITE_POS_PAGO] | {} AOA → {} AOA | por {} ({}) | motivo: {}",
-                limiteAnterior, limiteNovo, usuarioNome, usuarioRole, motivo);
+        log.info("🔐 AUDITORIA [ALTEROU_LIMITE_POS_PAGO] | {} → {} | por {} ({}) | motivo: {}",
+                com.restaurante.util.MoneyFormatter.format(limiteAnterior), com.restaurante.util.MoneyFormatter.format(limiteNovo), usuarioNome, usuarioRole, motivo);
     }
 
     /**
@@ -134,8 +134,8 @@ public class AuditoriaFinanceiraService {
         evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
-        log.info("🔐 AUDITORIA [ALTEROU_VALOR_MINIMO] | {} AOA → {} AOA | por {} ({}) | motivo: {}",
-                valorAnterior, valorNovo, usuarioNome, usuarioRole, motivo);
+        log.info("🔐 AUDITORIA [ALTEROU_VALOR_MINIMO] | {} → {} | por {} ({}) | motivo: {}",
+                com.restaurante.util.MoneyFormatter.format(valorAnterior), com.restaurante.util.MoneyFormatter.format(valorNovo), usuarioNome, usuarioRole, motivo);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -170,8 +170,8 @@ public class AuditoriaFinanceiraService {
         evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
-        log.info("🔐 AUDITORIA [CONFIRMOU_PAGAMENTO_POS_PAGO] | Pedido {} ({} AOA) | por {} ({})",
-                numeroPedido, valor, usuarioNome, usuarioRole);
+        log.info("🔐 AUDITORIA [CONFIRMOU_PAGAMENTO_POS_PAGO] | Pedido {} ({}) | por {} ({})",
+                numeroPedido, com.restaurante.util.MoneyFormatter.format(valor), usuarioNome, usuarioRole);
     }
 
     /**
@@ -205,8 +205,8 @@ public class AuditoriaFinanceiraService {
         evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
-        log.info("🔐 AUDITORIA [ESTORNOU_PEDIDO] | Pedido {} ({} AOA) | por {} ({}) | motivo: {}",
-                numeroPedido, valor, usuarioNome, usuarioRole, motivo);
+        log.info("🔐 AUDITORIA [ESTORNOU_PEDIDO] | Pedido {} ({}) | por {} ({}) | motivo: {}",
+                numeroPedido, com.restaurante.util.MoneyFormatter.format(valor), usuarioNome, usuarioRole, motivo);
     }
 
     /**
@@ -240,8 +240,8 @@ public class AuditoriaFinanceiraService {
         evento.setTimestamp(LocalDateTime.now());
 
         auditRepo.save(evento);
-        log.info("🔐 AUDITORIA [AUTORIZOU_POS_PAGO] | Pedido {} ({} AOA) | UnidadeConsumo {}",
-                numeroPedido, valor, unidadeConsumoId);
+        log.info("🔐 AUDITORIA [AUTORIZOU_POS_PAGO] | Pedido {} ({}) | UnidadeConsumo {}",
+                numeroPedido, com.restaurante.util.MoneyFormatter.format(valor), unidadeConsumoId);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

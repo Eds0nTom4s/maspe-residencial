@@ -19,7 +19,7 @@ public class FundoConsumoResponse {
 
     private Long id;
 
-    /** Saldo disponível em AOA */
+    /** Saldo disponível na moeda configurada */
     private BigDecimal saldoAtual;
 
     /** true = pode receber débitos; false = encerrado */

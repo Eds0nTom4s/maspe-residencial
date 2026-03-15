@@ -76,7 +76,7 @@ public class FundoConsumoController {
     @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
     @Operation(
         summary = "Consultar saldo (QR Code)",
-        description = "Retorna apenas o saldo disponível em AOA."
+        description = "Retorna apenas o saldo disponível na moeda configurada."
     )
     public ResponseEntity<ApiResponse<BigDecimal>> consultarSaldo(
             @PathVariable String token) {
@@ -103,11 +103,11 @@ public class FundoConsumoController {
             @PathVariable String token,
             @Valid @RequestBody RecarregarFundoRequest request) {
 
-        log.info("Recarregando fundo (token: {}) — {} AOA", token, request.getValor());
+        log.info("Recarregando fundo (token: {}) — {}", token, com.restaurante.util.MoneyFormatter.format(request.getValor()));
         TransacaoFundo transacao = fundoConsumoService.recarregarPorToken(
                 token, request.getValor(), request.getObservacoes());
         return ResponseEntity.ok(ApiResponse.success(
-                "Recarga concluída. Novo saldo: " + transacao.getSaldoNovo() + " AOA",
+                "Recarga concluída. Novo saldo: " + com.restaurante.util.MoneyFormatter.format(transacao.getSaldoNovo()),
                 toTransacaoResponse(transacao)));
     }
 

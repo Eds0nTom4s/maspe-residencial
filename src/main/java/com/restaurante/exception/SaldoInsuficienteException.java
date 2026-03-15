@@ -9,9 +9,9 @@ public class SaldoInsuficienteException extends BusinessException {
 
     public SaldoInsuficienteException(BigDecimal saldoAtual, BigDecimal valorNecessario) {
         super(String.format(
-            "Saldo insuficiente. Saldo atual: R$ %.2f, Valor necessário: R$ %.2f",
-            saldoAtual,
-            valorNecessario
+            "Saldo insuficiente. Saldo atual: %s, Valor necessário: %s",
+            com.restaurante.util.MoneyFormatter.format(saldoAtual),
+            com.restaurante.util.MoneyFormatter.format(valorNecessario)
         ));
     }
 

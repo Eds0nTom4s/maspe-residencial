@@ -99,7 +99,7 @@ public class PagamentoGatewayService {
      * 5. REF: retorna entidade/referência + aguarda callback
      * 
      * @param fundoId ID do fundo de consumo
-     * @param valor Valor em AOA
+     * @param valor Valor na moeda configurada
      * @param metodo GPO ou REF
      * @param usuario Usuário que solicitou (auditoria)
      * @param role Role do usuário
@@ -156,7 +156,7 @@ public class PagamentoGatewayService {
             usuario,
             role,
             ip,
-            "Recarga de fundo solicitada: " + valor + " AOA"
+            "Recarga de fundo solicitada: " + com.restaurante.util.MoneyFormatter.format(valor)
         );
         
         // Chama AppyPay
@@ -312,8 +312,7 @@ public class PagamentoGatewayService {
             usuario,
             role,
             ip,
-            String.format("Recarga confirmada: %s AOA. Saldo: %s → %s", 
-                pagamento.getAmount(), saldoAnterior, saldoNovo)
+            "Recarga confirmada: " + com.restaurante.util.MoneyFormatter.format(pagamento.getAmount()) + ". Saldo: " + com.restaurante.util.MoneyFormatter.format(saldoAnterior) + " → " + com.restaurante.util.MoneyFormatter.format(saldoNovo)
         );
         
         // Notificar cliente sobre recarga confirmada

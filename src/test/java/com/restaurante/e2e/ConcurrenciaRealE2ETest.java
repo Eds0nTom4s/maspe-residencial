@@ -93,13 +93,13 @@ public class ConcurrenciaRealE2ETest {
     void setupOnce() {
         baseUrl = "http://localhost:" + port;
         
-        // Criar usuário de teste com role ATENDENTE para bypassar @PreAuthorize
+        // Criar usuário de teste com roles ATENDENTE e COZINHA para bypassar @PreAuthorize
         User testUser = User.builder()
             .username("testuser")
             .password(passwordEncoder.encode("testpass"))
             .email("test@test.com")
             .ativo(true)
-            .roles(Set.of(Role.ROLE_ATENDENTE)) // Correção: ROLE_ATENDENTE
+            .roles(Set.of(Role.ROLE_ATENDENTE, Role.ROLE_COZINHA)) // Correção: Ambos os roles
             .build();
         userRepository.save(testUser);
         
@@ -170,7 +170,7 @@ public class ConcurrenciaRealE2ETest {
             latch.countDown(); // Sinaliza que está pronto
             latch.await(); // Aguarda ambos estarem prontos
             
-            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/marcar-entregue";
+            String url = baseUrl + "/subpedidos/" + subPedidoId + "/marcar-entregue";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "atendenteA");
             headers.set("X-User-Role", "ATENDENTE");
@@ -189,7 +189,7 @@ public class ConcurrenciaRealE2ETest {
             latch.await();
             Thread.sleep(50); // 50ms depois (clique quase simultâneo)
             
-            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/marcar-entregue";
+            String url = baseUrl + "/subpedidos/" + subPedidoId + "/marcar-entregue";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "atendenteB");
             headers.set("X-User-Role", "ATENDENTE");
@@ -306,7 +306,7 @@ public class ConcurrenciaRealE2ETest {
             latch.countDown();
             latch.await();
             
-            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/assumir";
+            String url = baseUrl + "/subpedidos/" + subPedidoId + "/assumir";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "cozinheiroA");
             headers.set("X-User-Role", "COZINHA");
@@ -320,7 +320,7 @@ public class ConcurrenciaRealE2ETest {
             latch.await();
             Thread.sleep(30);
             
-            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/assumir";
+            String url = baseUrl + "/subpedidos/" + subPedidoId + "/assumir";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "cozinheiroB");
             headers.set("X-User-Role", "COZINHA");

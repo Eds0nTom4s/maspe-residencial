@@ -24,7 +24,7 @@ public class ConfiguracaoFinanceiraSistema extends BaseEntity {
 
     /**
      * Limite máximo de pós-pago aberto por unidade de consumo
-     * Valor em AOA (Kwanzas Angolanos)
+     * Valor na moeda configurada
      * Configurável via admin - NÃO hardcoded
      */
     @Column(name = "limite_pos_pago", nullable = false, precision = 10, scale = 2)

@@ -103,6 +103,8 @@ class FundoConsumoServiceTest {
         when(pedidoRepository.findById(pedido.getId())).thenReturn(Optional.of(pedido));
         when(transacaoFundoRepository.findByPedidoIdAndTipo(pedido.getId(), TipoTransacaoFundo.DEBITO))
                 .thenReturn(Optional.empty());
+        when(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()))
+                .thenReturn(fundo.getSaldoAtual());
         when(fundoConsumoRepository.save(any(FundoConsumo.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(transacaoFundoRepository.save(any(TransacaoFundo.class))).thenAnswer(invocation -> {
@@ -134,6 +136,8 @@ class FundoConsumoServiceTest {
                 .thenReturn(Optional.of(fundoComSaldoBaixo));
         when(transacaoFundoRepository.findByPedidoIdAndTipo(pedido.getId(), TipoTransacaoFundo.DEBITO))
                 .thenReturn(Optional.empty());
+        when(transacaoFundoRepository.calcularSaldoAgregado(fundoComSaldoBaixo.getId()))
+                .thenReturn(fundoComSaldoBaixo.getSaldoAtual());
 
         assertThrows(SaldoInsuficienteException.class,
                 () -> fundoConsumoService.debitar(sessao.getId(), pedido.getId(), new BigDecimal("25000.00")));

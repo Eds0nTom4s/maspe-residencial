@@ -298,7 +298,7 @@ public class SessaoConsumoService {
             valorTotalLiquidado = valorTotalLiquidado.add(pedido.getTotal() != null ? pedido.getTotal() : BigDecimal.ZERO);
         }
         
-        log.info("Liquidação POS_PAGO concluída: {} faturas confirmadas, Total: {} MZN", countPagas, valorTotalLiquidado);
+        log.info("Liquidação POS_PAGO concluída: {} faturas confirmadas, Total: {}", countPagas, com.restaurante.util.MoneyFormatter.format(valorTotalLiquidado));
         
         // Retorna a view atualizada da sessão (após isso, pode-se fechar com sucesso)
         return fechar(id);

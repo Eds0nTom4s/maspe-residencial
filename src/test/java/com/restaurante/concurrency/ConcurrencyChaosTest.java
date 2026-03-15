@@ -200,7 +200,7 @@ class ConcurrencyChaosTest {
     @Test
     @DisplayName("2 processos debitando o mesmo fundo simultaneamente - saldo deve ser consistente")
     void doisProcessosDebitandoMesmoFundo() throws Exception {
-        // Arrange: Sessão com fundo de R$ 100
+        // Arrange: Sessão com fundo de 100
         Cliente cliente = Cliente.builder()
                 .nome("Cliente Concorrência")
                 .telefone("+55119" + String.format("%08d", System.nanoTime() % 100000000))
@@ -221,7 +221,7 @@ class ConcurrencyChaosTest {
                 .build();
         fundo = fundoConsumoRepository.save(fundo);
 
-        // 2 pedidos de R$ 60 cada
+        // 2 pedidos de 60 cada
         Pedido pedido1 = criarPedido("PED-1", new BigDecimal("60.00"));
         Pedido pedido2 = criarPedido("PED-2", new BigDecimal("60.00"));
 
@@ -266,7 +266,7 @@ class ConcurrencyChaosTest {
         assertThat(sucessos.get()).isEqualTo(1);
         assertThat(falhasSaldo.get()).isEqualTo(1);
 
-        // Saldo final deve ser R$ 40 (100 - 60)
+        // Saldo final deve ser 40 (100 - 60)
         FundoConsumo fundoFinal = fundoConsumoRepository.findById(fundo.getId()).orElseThrow();
         assertThat(fundoFinal.getSaldoAtual()).isEqualByComparingTo(new BigDecimal("40.00"));
     }

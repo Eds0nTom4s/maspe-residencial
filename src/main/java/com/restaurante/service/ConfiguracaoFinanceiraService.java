@@ -64,8 +64,8 @@ public class ConfiguracaoFinanceiraService {
         return configuracaoRepository.findAtual()
             .orElseGet(() -> {
                 log.info("Criando configuração financeira inicial com valores de bootstrap: " +
-                         "limitePosPago={} AOA, valorMinimo={} AOA",
-                         limitePosPageSemente, valorMinimoSemente);
+                         "limitePosPago={}, valorMinimo={}",
+                         com.restaurante.util.MoneyFormatter.format(limitePosPageSemente), com.restaurante.util.MoneyFormatter.format(valorMinimoSemente));
                 ConfiguracaoFinanceiraSistema config = new ConfiguracaoFinanceiraSistema();
                 config.setPosPagoAtivo(true);
                 config.setLimitePosPago(limitePosPageSemente);
@@ -120,8 +120,8 @@ public class ConfiguracaoFinanceiraService {
             throw new LimitePosPagoExcedidoException(novoTotal, limitePosPago);
         }
 
-        log.info("Validação de pós-pago OK. Total aberto após pedido: {} AOA (limite: {} AOA)",
-                novoTotal, limitePosPago);
+        log.info("Validação de pós-pago OK. Total aberto após pedido: {} (limite: {})",
+                com.restaurante.util.MoneyFormatter.format(novoTotal), com.restaurante.util.MoneyFormatter.format(limitePosPago));
     }
 
     /** Calcula total de pós-pago aberto (NAO_PAGO) para sessão. */
@@ -213,7 +213,7 @@ public class ConfiguracaoFinanceiraService {
 
     @Transactional
     public void alterarLimitePosPago(BigDecimal novoLimite, String userName, String userRole, String motivo) {
-        log.info("Alterando limite de pós-pago para {} AOA por {} ({})", novoLimite, userName, userRole);
+        log.info("Alterando limite de pós-pago para {} por {} ({})", com.restaurante.util.MoneyFormatter.format(novoLimite), userName, userRole);
 
         if (novoLimite == null || novoLimite.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("Limite de pós-pago deve ser maior que zero");
@@ -223,7 +223,7 @@ public class ConfiguracaoFinanceiraService {
         BigDecimal limiteAnterior = config.getLimitePosPago();
 
         if (limiteAnterior.compareTo(novoLimite) == 0) {
-            log.info("Limite já é {} AOA. Nenhuma alteração necessária.", novoLimite);
+            log.info("Limite já é {}. Nenhuma alteração necessária.", com.restaurante.util.MoneyFormatter.format(novoLimite));
             return;
         }
 
@@ -236,7 +236,7 @@ public class ConfiguracaoFinanceiraService {
         // ✅ AUDITORIA em banco
         auditoriaFinanceiraService.registrarAlteracaoLimitePosPago(
                 config.getId(), limiteAnterior, novoLimite, userName, userRole, motivo);
-        log.info("Limite de pós-pago alterado de {} AOA para {} AOA", limiteAnterior, novoLimite);
+        log.info("Limite de pós-pago alterado de {} para {}", com.restaurante.util.MoneyFormatter.format(limiteAnterior), com.restaurante.util.MoneyFormatter.format(novoLimite));
     }
 
     /**
@@ -245,7 +245,7 @@ public class ConfiguracaoFinanceiraService {
      */
     @Transactional
     public void alterarValorMinimo(BigDecimal novoValor, String userName, String userRole, String motivo) {
-        log.info("Alterando valor mínimo de operação para {} AOA por {} ({})", novoValor, userName, userRole);
+        log.info("Alterando valor mínimo de operação para {} por {} ({})", com.restaurante.util.MoneyFormatter.format(novoValor), userName, userRole);
 
         if (novoValor == null || novoValor.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("Valor mínimo de operação deve ser maior que zero");
@@ -255,7 +255,7 @@ public class ConfiguracaoFinanceiraService {
         BigDecimal valorAnterior = config.getValorMinimoOperacao();
 
         if (valorAnterior.compareTo(novoValor) == 0) {
-            log.info("Valor mínimo já é {} AOA. Nenhuma alteração necessária.", novoValor);
+            log.info("Valor mínimo já é {}. Nenhuma alteração necessária.", com.restaurante.util.MoneyFormatter.format(novoValor));
             return;
         }
 
@@ -268,7 +268,7 @@ public class ConfiguracaoFinanceiraService {
         // ✅ AUDITORIA em banco
         auditoriaFinanceiraService.registrarAlteracaoValorMinimo(
                 config.getId(), valorAnterior, novoValor, userName, userRole, motivo);
-        log.info("Valor mínimo alterado de {} AOA para {} AOA", valorAnterior, novoValor);
+        log.info("Valor mínimo alterado de {} para {}", com.restaurante.util.MoneyFormatter.format(valorAnterior), com.restaurante.util.MoneyFormatter.format(novoValor));
     }
 
     /** Altera estado do pós-pago (método genérico). */

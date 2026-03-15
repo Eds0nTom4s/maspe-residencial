@@ -58,8 +58,8 @@ public class InicializacaoFinanceiraConfig {
 
         if (configExistente.isPresent()) {
             log.info("✅ Configuração financeira JÁ EXISTE no banco de dados");
-            log.info("  ┣ Limite Pós-Pago: {} AOA", configExistente.get().getLimitePosPago());
-            log.info("  ┣ Valor Mínimo Operação: {} AOA", configExistente.get().getValorMinimoOperacao());
+            log.info("  ┣ Limite Pós-Pago: {}", com.restaurante.util.MoneyFormatter.format(configExistente.get().getLimitePosPago()));
+            log.info("  ┣ Valor Mínimo Operação: {}", com.restaurante.util.MoneyFormatter.format(configExistente.get().getValorMinimoOperacao()));
             log.info("  ┗ Pós-Pago Ativo: {}", configExistente.get().getPosPagoAtivo());
             log.info("📌 BANCO DE DADOS é a fonte de verdade. application.properties IGNORADO.");
             log.info("=".repeat(80));
@@ -69,8 +69,8 @@ public class InicializacaoFinanceiraConfig {
         // PRIMEIRA EXECUÇÃO: Criar configuração com valores do application.properties
         log.info("⚠️  PRIMEIRA EXECUÇÃO DETECTADA");
         log.info("📥 Carregando valores iniciais do application.properties:");
-        log.info("  ┣ Limite Pós-Pago Padrão: {} AOA", limitePosPagoPadrao);
-        log.info("  ┗ Valor Mínimo Operação: {} AOA", valorMinimoOperacaoPadrao);
+        log.info("  ┣ Limite Pós-Pago Padrão: {}", com.restaurante.util.MoneyFormatter.format(new BigDecimal(limitePosPagoPadrao)));
+        log.info("  ┗ Valor Mínimo Operação: {}", com.restaurante.util.MoneyFormatter.format(new BigDecimal(valorMinimoOperacaoPadrao)));
 
         ConfiguracaoFinanceiraSistema config = ConfiguracaoFinanceiraSistema.builder()
             .posPagoAtivo(true)
@@ -83,8 +83,8 @@ public class InicializacaoFinanceiraConfig {
         configuracaoRepository.save(config);
 
         log.info("✅ Configuração financeira CRIADA E PERSISTIDA com sucesso!");
-        log.info("  ┣ Limite Pós-Pago: {} AOA", config.getLimitePosPago());
-        log.info("  ┣ Valor Mínimo Operação: {} AOA", config.getValorMinimoOperacao());
+        log.info("  ┣ Limite Pós-Pago: {}", com.restaurante.util.MoneyFormatter.format(config.getLimitePosPago()));
+        log.info("  ┣ Valor Mínimo Operação: {}", com.restaurante.util.MoneyFormatter.format(config.getValorMinimoOperacao()));
         log.info("  ┗ Pós-Pago Ativo: {}", config.getPosPagoAtivo());
         log.info("📌 A partir de agora: BANCO DE DADOS é a fonte de verdade.");
         log.info("🔄 Para alterar valores, use o frontend administrativo.");

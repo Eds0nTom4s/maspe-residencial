@@ -26,9 +26,9 @@ public class AppyPayChargeRequest {
     private String merchantTransactionId;
     
     /**
-     * Valor em Kwanzas (AOA)
+     * Valor na moeda configurada
      * Sem decimais (centavos)
-     * Exemplo: 1000 = 1000,00 AOA
+     * Exemplo: 1000 = 1000,00 na moeda configurada
      */
     @JsonProperty("amount")
     private Long amount;

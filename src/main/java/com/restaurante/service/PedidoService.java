@@ -117,7 +117,7 @@ public class PedidoService {
             .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
 
         log.info("💰 VALIDAÇÃO FINANCEIRA");
-        log.info("  ┣ Total Calculado: {} AOA", totalPreliminar);
+        log.info("  ┣ Total Calculado: {}", com.restaurante.util.MoneyFormatter.format(totalPreliminar));
         log.info("  ┣ Tipo Pagamento: {}", tipoPagamento);
         log.info("  ┗ Roles Usuário: {}", roles);
 
@@ -227,7 +227,7 @@ public class PedidoService {
 
         log.info("📦 SUBPEDIDOS CRIADOS");
         log.info("  ┣ Total de SubPedidos: {}", requestsPorCozinha.size());
-        log.info("  ┗ Total do Pedido: {} AOA", pedido.getTotal());
+        log.info("  ┗ Total do Pedido: {}", com.restaurante.util.MoneyFormatter.format(pedido.getTotal()));
 
         // PROCESSAMENTO FINANCEIRO - depois de criar pedido e calcular total
         log.info("💳 PROCESSANDO PAGAMENTO");
@@ -249,7 +249,7 @@ public class PedidoService {
         log.info("=".repeat(80));
         log.info("✅ PEDIDO CRIADO COM SUCESSO");
         log.info("  ┣ Número: {}", pedidoAtualizado.getNumero());
-        log.info("  ┣ Total: {} AOA", pedidoAtualizado.getTotal());
+        log.info("  ┣ Total: {}", com.restaurante.util.MoneyFormatter.format(pedidoAtualizado.getTotal()));
         log.info("  ┣ SubPedidos: {}", pedidoAtualizado.getSubPedidos().size());
         log.info("  ┣ Tipo Pagamento: {}", pedidoAtualizado.getTipoPagamento());
         log.info("  ┣ Status Financeiro: {}", pedidoAtualizado.getStatusFinanceiro());
@@ -656,7 +656,7 @@ public class PedidoService {
         log.info("━".repeat(80));
         log.info("🤖 CONFIRMAÇÃO AUTOMÁTICA - Pedido {}", pedido.getNumero());
         log.info("  ┣ Tipo Pagamento: {}", tipoPagamento);
-        log.info("  ┣ Total: {} AOA", pedido.getTotal());
+        log.info("  ┣ Total: {}", com.restaurante.util.MoneyFormatter.format(pedido.getTotal()));
         log.info("  ┗ SubPedidos: {}", pedido.getSubPedidos().size());
 
         // Obter roles do usuário autenticado
@@ -677,7 +677,7 @@ public class PedidoService {
             log.warn("━".repeat(80));
             log.warn("❌ PEDIDO BLOQUEADO - Limite de pós-pago atingido");
             log.warn("  ┣ Pedido: {}", pedido.getNumero());
-            log.warn("  ┣ Total: {} AOA", pedido.getTotal());
+            log.warn("  ┣ Total: {}", com.restaurante.util.MoneyFormatter.format(pedido.getTotal()));
             log.warn("  ┣ Status mantido: CRIADO");
             log.warn("  ┗ Ação: Notificando gerente sobre limite atingido");
             log.warn("━".repeat(80));

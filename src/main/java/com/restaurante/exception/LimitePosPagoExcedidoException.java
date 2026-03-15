@@ -9,9 +9,9 @@ public class LimitePosPagoExcedidoException extends BusinessException {
 
     public LimitePosPagoExcedidoException(BigDecimal totalAberto, BigDecimal limite) {
         super(String.format(
-            "Limite de pós-pago excedido. Total aberto: R$ %.2f, Limite: R$ %.2f",
-            totalAberto,
-            limite
+            "Limite de pós-pago excedido. Total aberto: %s, Limite: %s",
+            com.restaurante.util.MoneyFormatter.format(totalAberto),
+            com.restaurante.util.MoneyFormatter.format(limite)
         ));
     }
 

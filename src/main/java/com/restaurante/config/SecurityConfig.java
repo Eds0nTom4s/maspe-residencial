@@ -54,8 +54,9 @@ public class SecurityConfig {
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint)
                         .accessDeniedHandler(jwtAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
-                        // Endpoints públicos de autenticação
+                        // Endpoints públicos de autenticação e cardápio
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
+                        .requestMatchers("/api/public/**", "/public/**").permitAll()
 
                         // Debug endpoints: restritos por @Profile("!prod") + @PreAuthorize("ADMIN") no controller
                         // Sem regra de permitAll aqui — autenticação obrigatória

@@ -4,10 +4,12 @@ import com.restaurante.dto.request.LoginAtendenteRequest;
 import com.restaurante.dto.request.SolicitarOtpRequest;
 import com.restaurante.dto.request.ValidarOtpRequest;
 import com.restaurante.dto.response.ApiResponse;
+import com.restaurante.dto.response.AuthResponse;
 import com.restaurante.dto.response.ClienteResponse;
 import com.restaurante.dto.response.LoginAtendenteResponse;
 import com.restaurante.service.AuthService;
 import com.restaurante.service.ClienteService;
+import com.restaurante.security.JwtTokenProvider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -32,6 +34,7 @@ public class AuthController {
 
     private final ClienteService clienteService;
     private final AuthService authService;
+    private final JwtTokenProvider jwtTokenProvider;
 
     /**
      * Solicita OTP para o telefone informado
@@ -55,8 +58,8 @@ public class AuthController {
      * POST /api/auth/validar-otp
      */
     @PostMapping("/validar-otp")
-    @Operation(summary = "Validar OTP", description = "Valida o código OTP e autentica o cliente")
-    public ResponseEntity<ApiResponse<ClienteResponse>> validarOtp(@Valid @RequestBody ValidarOtpRequest request) {
+    @Operation(summary = "Validar OTP", description = "Valida o código OTP e autentica o cliente. Retorna JWT.")
+    public ResponseEntity<ApiResponse<AuthResponse>> validarOtp(@Valid @RequestBody ValidarOtpRequest request) {
         log.info("=== VALIDAR OTP ===");
         log.info("Telefone recebido: {}", request.getTelefone());
         log.info("Código OTP recebido: {}", request.getCodigo());
@@ -64,8 +67,17 @@ public class AuthController {
         
         ClienteResponse cliente = clienteService.validarOtp(request);
         
-        log.info("OTP validado com sucesso para cliente ID: {}", cliente.getId());
-        return ResponseEntity.ok(ApiResponse.success("Autenticação realizada com sucesso", cliente));
+        String token = jwtTokenProvider.generateToken(cliente.getTelefone(), "ROLE_CLIENTE");
+        
+        AuthResponse authResponse = AuthResponse.builder()
+            .username(cliente.getNome() != null ? cliente.getNome() : cliente.getTelefone())
+            .accessToken(token)
+            .tokenType("Bearer")
+            .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
+            .build();
+        
+        log.info("OTP validado com sucesso para cliente ID: {}. Token emitido.", cliente.getId());
+        return ResponseEntity.ok(ApiResponse.success("Autenticação realizada com sucesso", authResponse));
     }
     
     /**

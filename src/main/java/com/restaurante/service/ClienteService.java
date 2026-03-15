@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import org.springframework.beans.factory.annotation.Value;
 
 /**
  * Service para operações de negócio com Cliente
@@ -34,8 +35,14 @@ public class ClienteService {
     private final ClienteRepository clienteRepository;
     private final NotificacaoService notificacaoService;
     
-    private static final int OTP_LENGTH = 4;
-    private static final int OTP_EXPIRATION_MINUTES = 5;
+    @Value("${otp.length:4}")
+    private int otpLength;
+
+    @Value("${otp.expiration-minutes:5}")
+    private int otpExpirationMinutes;
+
+    @Value("${otp.mock:true}")
+    private boolean otpMock;
 
     /**
      * Solicita um OTP para o telefone informado
@@ -50,19 +57,24 @@ public class ClienteService {
 
         String otp = gerarOtp();
         cliente.setOtpCode(otp);
-        cliente.setOtpExpiration(LocalDateTime.now().plusMinutes(OTP_EXPIRATION_MINUTES));
+        cliente.setOtpExpiration(LocalDateTime.now().plusMinutes(otpExpirationMinutes));
         
         clienteRepository.save(cliente);
 
-        // Envia OTP via SMS (TelcoSMS)
-        boolean enviado = notificacaoService.enviarOtp(request.getTelefone(), otp);
-        
-        if (enviado) {
-            log.info("OTP {} enviado com sucesso para {} (válido por {} minutos)", 
-                otp, request.getTelefone(), OTP_EXPIRATION_MINUTES);
+        if (otpMock) {
+            log.info("🔧 MOCK OTP ATIVADO: O código OTP gerado para o telefone {} é [{}] (válido por {} minutos)", 
+                request.getTelefone(), otp, otpExpirationMinutes);
         } else {
-            log.warn("Falha ao enviar OTP para {}, mas código foi salvo no banco: {}", 
-                request.getTelefone(), otp);
+            // Envia OTP via SMS (TelcoSMS)
+            boolean enviado = notificacaoService.enviarOtp(request.getTelefone(), otp);
+            
+            if (enviado) {
+                log.info("OTP enviado com sucesso para {} via TelcoSMS (válido por {} minutos)", 
+                    request.getTelefone(), otpExpirationMinutes);
+            } else {
+                log.warn("Falha ao enviar OTP via SMS para {}, mas código foi salvo no banco para contingência", 
+                    request.getTelefone());
+            }
         }
     }
 
@@ -141,7 +153,7 @@ public class ClienteService {
         SecureRandom random = new SecureRandom();
         StringBuilder otp = new StringBuilder();
         
-        for (int i = 0; i < OTP_LENGTH; i++) {
+        for (int i = 0; i < otpLength; i++) {
             otp.append(random.nextInt(10));
         }
         

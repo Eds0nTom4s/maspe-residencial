@@ -78,15 +78,15 @@ public class SessaoConsumoController {
     // Operações para Cliente (QR Ordering)
     // ──────────────────────────────────────────────────────────────────────────
 
-    @PostMapping("/cliente/qr/{token}")
-    @Operation(summary = "Cliente entra na sessão via QR Code da Mesa")
+    @PostMapping("/cliente/iniciar-sessao/qr/{token}")
+    @Operation(summary = "Cliente inicia explicitamente a sessão na mesa via QR Token")
     @PreAuthorize("hasRole('CLIENTE')")
-    public ResponseEntity<ApiResponse<SessaoConsumoResponse>> entrarViaQr(@PathVariable String token) {
+    public ResponseEntity<ApiResponse<SessaoConsumoResponse>> iniciarSessaoCliente(@PathVariable String token) {
         String telefone = getUsuarioLogado();
-        log.info("POST /sessoes-consumo/cliente/qr/{} — cliente: {}", token, telefone);
+        log.info("POST /sessoes-consumo/cliente/iniciar-sessao/qr/{} — cliente: {}", token, telefone);
         
-        SessaoConsumoResponse response = sessaoConsumoService.entrarViaQr(token, telefone);
-        return ResponseEntity.ok(ApiResponse.success("Sessão validada/aberta com sucesso", response));
+        SessaoConsumoResponse response = sessaoConsumoService.iniciarSessaoCliente(token, telefone);
+        return ResponseEntity.ok(ApiResponse.success("Sessão iniciada/validada com sucesso", response));
     }
 
     @GetMapping("/cliente/minha-sessao")

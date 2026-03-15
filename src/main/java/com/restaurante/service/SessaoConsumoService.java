@@ -347,8 +347,8 @@ public class SessaoConsumoService {
      * Se já possui sessão aberta e anônima, associa o cliente a ela.
      */
     @Transactional
-    public SessaoConsumoResponse entrarViaQr(String qrToken, String telefoneCliente) {
-        log.info("Cliente {} entrando via QR Code {}", telefoneCliente, qrToken);
+    public SessaoConsumoResponse iniciarSessaoCliente(String qrToken, String telefoneCliente) {
+        log.info("Cliente {} iniciando sessão via QR Code {}", telefoneCliente, qrToken);
 
         // Valida o QR Code
         var validacao = qrCodeService.validarQrCode(qrToken);

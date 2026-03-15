@@ -1,0 +1,347 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-03-15T14:00:00.000Z",
+  "__export_source": "insomnia.desktop.app:v9.0.0",
+  "resources": [
+    {
+      "_id": "wrk_client_flow",
+      "parentId": null,
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "name": "CLIENT_FLOW_TESTS",
+      "description": "Coleção para validar o fluxo do cliente (QR Ordering)",
+      "scope": "collection",
+      "_type": "workspace"
+    },
+    {
+      "_id": "env_client_flow",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "name": "Base Environment",
+      "data": {
+        "base_url": "http://localhost:8080/api",
+        "telefone": "+244923000000",
+        "otp": "1234",
+        "qr_token": "mesa-01",
+        "jwt": ""
+      },
+      "dataPropertyOrder": {
+        "&": [
+          "base_url",
+          "telefone",
+          "otp",
+          "qr_token",
+          "jwt"
+        ]
+      },
+      "color": null,
+      "isPrivate": false,
+      "metaSortKey": 1710500000000,
+      "_type": "environment"
+    },
+    {
+      "_id": "req_1",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/public/mesa/{{ _.qr_token }}",
+      "name": "1) Ver Mesa via QR (Public)",
+      "description": "Simular scan do QR Code da mesa.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": 100,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_2",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/public/cardapio",
+      "name": "2) Listar Catálogo (Public)",
+      "description": "Validar catálogo público genérico de todos os produtos.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": 200,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_3",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/public/cardapio/categorias",
+      "name": "3) Listar Categorias",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": 300,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_4",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/public/cardapio",
+      "name": "4) Listar Produtos",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": 400,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_5",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/auth/solicitar-otp",
+      "name": "5) Solicitar OTP",
+      "description": "Simular cliente solicitando OTP.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 500,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_6",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/auth/validar-otp",
+      "name": "6) Validar OTP",
+      "description": "Validar OTP para obter JWT. O campo de token pode ser copiado e guardado no environment.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"telefone\": \"{{ _.telefone }}\",\n  \"codigo\": \"{{ _.otp }}\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 600,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_7",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/cliente/completar-perfil",
+      "name": "7) Completar Perfil do Cliente",
+      "description": "Salvar nome do cliente.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"nome\": \"Cliente Teste\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{% response 'body', 'req_6', 'b64::JC5kYXRhLmFjY2Vzc1Rva2Vu::46b', 'always', 'never' %}",
+        "prefix": "Bearer"
+      },
+      "metaSortKey": 700,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_8",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/sessoes-consumo/cliente/iniciar-sessao/qr/{{ _.qr_token }}",
+      "name": "8) Criar Sessão de Consumo via QR",
+      "description": "Criar sessão apenas após autenticação.",
+      "method": "POST",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{% response 'body', 'req_6', 'b64::JC5kYXRhLmFjY2Vzc1Rva2Vu::46b', 'always', 'never' %}",
+        "prefix": "Bearer"
+      },
+      "metaSortKey": 800,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_9",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/sessoes-consumo/cliente/minha-sessao",
+      "name": "9) Consultar Minha Sessão",
+      "description": "Validar sessão ativa.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{% response 'body', 'req_6', 'b64::JC5kYXRhLmFjY2Vzc1Rva2Vu::46b', 'always', 'never' %}",
+        "prefix": "Bearer"
+      },
+      "metaSortKey": 900,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_10",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/pedidos/cliente",
+      "name": "10) Criar Pedido de Teste",
+      "description": "Validar criação de pedido na sessão.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"itens\": [\n    {\n      \"produtoId\": 1,\n      \"quantidade\": 1\n    }\n  ],\n  \"sessaoConsumoId\": {% response 'body', 'req_8', 'b64::JC5kYXRhLmlk::46b', 'always', 'never' %}\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{% response 'body', 'req_6', 'b64::JC5kYXRhLmFjY2Vzc1Rva2Vu::46b', 'always', 'never' %}",
+        "prefix": "Bearer"
+      },
+      "metaSortKey": 1000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_11",
+      "parentId": "wrk_client_flow",
+      "modified": 1710500000000,
+      "created": 1710500000000,
+      "url": "{{ _.base_url }}/pedidos/cliente",
+      "name": "11) Consultar Pedidos",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{% response 'body', 'req_6', 'b64::JC5kYXRhLmFjY2Vzc1Rva2Vu::46b', 'always', 'never' %}",
+        "prefix": "Bearer"
+      },
+      "metaSortKey": 1100,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    }
+  ]
+}

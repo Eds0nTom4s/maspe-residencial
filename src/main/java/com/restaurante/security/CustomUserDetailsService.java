@@ -29,6 +29,7 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepository;
     private final AtendenteRepository atendenteRepository;
+    private final com.restaurante.repository.ClienteRepository clienteRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -90,10 +91,28 @@ public class CustomUserDetailsService implements UserDetailsService {
                         .disabled(!atendente.getAtivo())
                         .build();
             }
+
+            // 4. Se ainda não encontrou, buscar na tabela clientes
+            log.info("  ┣ Não encontrado na tabela 'atendentes'. Tentando buscar na tabela 'clientes': {}", phoneToSearch);
+            Optional<com.restaurante.model.entity.Cliente> clienteOpt = clienteRepository.findByTelefoneAndAtivoTrue(phoneToSearch);
+            if (clienteOpt.isPresent()) {
+                com.restaurante.model.entity.Cliente cliente = clienteOpt.get();
+                log.info("  ┗ ✅ Cliente ENCONTRADO: telefone={}", cliente.getTelefone());
+
+                return org.springframework.security.core.userdetails.User.builder()
+                        .username(cliente.getTelefone())
+                        .password("") // Cliente não usa senha (OTP fallback)
+                        .authorities(Collections.singleton(new SimpleGrantedAuthority(Role.ROLE_CLIENTE.name())))
+                        .accountExpired(false)
+                        .accountLocked(!cliente.getAtivo())
+                        .credentialsExpired(false)
+                        .disabled(!cliente.getAtivo())
+                        .build();
+            }
         }
         
-        // 4. Se ainda não encontrou, lançar exceção
-        log.error("  ✗ Usuário/Atendente NÃO encontrado: {}", usernameOrPhone);
+        // 5. Se ainda não encontrou, lançar exceção
+        log.error("  ✗ Usuário/Atendente/Cliente NÃO encontrado: {}", usernameOrPhone);
         throw new UsernameNotFoundException("Usuário não encontrado: " + usernameOrPhone);
     }
 

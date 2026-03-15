@@ -57,6 +57,7 @@ public class SessaoConsumoService {
     private final PedidoFinanceiroService pedidoFinanceiroService;
 
     private final PedidoRepository pedidoRepository;
+    private final QrCodeService qrCodeService;
 
     public SessaoConsumoService(SessaoConsumoRepository sessaoConsumoRepository,
                                 MesaRepository mesaRepository,
@@ -65,7 +66,8 @@ public class SessaoConsumoService {
                                 UnidadeAtendimentoRepository unidadeAtendimentoRepository,
                                 FundoConsumoService fundoConsumoService,
                                 PedidoFinanceiroService pedidoFinanceiroService,
-                                PedidoRepository pedidoRepository) {
+                                PedidoRepository pedidoRepository,
+                                QrCodeService qrCodeService) {
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.mesaRepository = mesaRepository;
         this.clienteService = clienteService;
@@ -74,6 +76,7 @@ public class SessaoConsumoService {
         this.fundoConsumoService = fundoConsumoService;
         this.pedidoFinanceiroService = pedidoFinanceiroService;
         this.pedidoRepository = pedidoRepository;
+        this.qrCodeService = qrCodeService;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -332,6 +335,85 @@ public class SessaoConsumoService {
         return sessaoConsumoRepository.findByMesaIdOrderByAbertaEmDesc(mesaId).stream()
                 .map(s -> converterParaResponse(s, s.getFundoConsumo()))
                 .collect(Collectors.toList());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Operações para o Cliente (QR Ordering)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Cliente entra na sessão via Token do QR Code da mesa.
+     * Se a mesa não possui sessão aberta, abre uma nova para o cliente.
+     * Se já possui sessão aberta e anônima, associa o cliente a ela.
+     */
+    @Transactional
+    public SessaoConsumoResponse entrarViaQr(String qrToken, String telefoneCliente) {
+        log.info("Cliente {} entrando via QR Code {}", telefoneCliente, qrToken);
+
+        // Valida o QR Code
+        var validacao = qrCodeService.validarQrCode(qrToken);
+        if (!validacao.getValido()) {
+            throw new BusinessException("QR Code inválido ou expirado: " + validacao.getMensagem());
+        }
+
+        var qrCode = validacao.getQrCode();
+        if (qrCode.getTipo() != com.restaurante.model.enums.TipoQrCode.MESA || qrCode.getMesaId() == null) {
+            throw new BusinessException("QR Code não é de uma mesa válida");
+        }
+
+        Cliente cliente = clienteService.buscarOuCriarPorTelefone(telefoneCliente);
+
+        // Verifica se cliente já tem sessão aberta noutro lugar
+        sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())
+                .ifPresent(sessaoExistente -> {
+                    if (!sessaoExistente.getMesa().getId().equals(qrCode.getMesaId())) {
+                        throw new BusinessException(
+                                "Você já possui uma sessão aberta na mesa '" + sessaoExistente.getMesa().getReferencia() + "'. Feche-a primeiro.");
+                    }
+                });
+
+        // Verifica se a mesa atual já tem sessão aberta
+        var sessaoOpt = sessaoConsumoRepository.findByMesaIdAndStatus(qrCode.getMesaId(), StatusSessaoConsumo.ABERTA);
+
+        SessaoConsumo sessao;
+        if (sessaoOpt.isPresent()) {
+            sessao = sessaoOpt.get();
+            // Se já tem sessão, entra nela. Se era anônima, associa ao cliente.
+            if (sessao.getCliente() == null) {
+                sessao.setCliente(cliente);
+                sessao.setModoAnonimo(false);
+                sessao = sessaoConsumoRepository.save(sessao);
+                log.info("Cliente {} associou-se à Sessão ID={}", cliente.getNome(), sessao.getId());
+            } else if (!sessao.getCliente().getId().equals(cliente.getId())) {
+                log.info("Sessão da mesa já pertence ao cliente {}, adicionando {} como convidado (funcionalidade futura, por agora retornamos sucesso)", 
+                    sessao.getCliente().getNome(), cliente.getNome());
+                // Futuro: Lógica de convidados. Por agora, apenas permitimos a visualização.
+            }
+        } else {
+            // Abre nova sessão para o cliente
+            AbrirSessaoRequest req = AbrirSessaoRequest.builder()
+                    .mesaId(qrCode.getMesaId())
+                    .modoAnonimo(false)
+                    .telefoneCliente(telefoneCliente)
+                    .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
+                    .build();
+            return abrir(req);
+        }
+
+        return converterParaResponse(sessao);
+    }
+
+    /**
+     * Retorna a sessão ativa do Cliente logado
+     */
+    @Transactional(readOnly = true)
+    public SessaoConsumoResponse buscarMinhaSessao(String telefoneCliente) {
+        Cliente cliente = clienteService.buscarPorTelefone(telefoneCliente);
+        
+        SessaoConsumo sessao = sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Você não possui nenhuma sessão ativa no momento."));
+                
+        return converterParaResponse(sessao);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

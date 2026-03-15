@@ -41,6 +41,20 @@ public class PedidoController {
     }
 
     /**
+     * Cria um novo pedido a partir do Cliente (QR Code)
+     * POST /api/pedidos/cliente
+     */
+    @PostMapping("/cliente")
+    @PreAuthorize("hasRole('CLIENTE')")
+    @Operation(summary = "Cliente criar pedido", description = "Cria um novo pedido para a sessão ativa do cliente")
+    public ResponseEntity<ApiResponse<PedidoResponse>> criarPedidoCliente(@Valid @RequestBody CriarPedidoRequest request) {
+        String telefone = getUsuarioLogado();
+        PedidoResponse pedido = pedidoService.criarPedidoCliente(request, telefone);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Pedido enviado para a cozinha", pedido));
+    }
+
+    /**
      * Busca pedido por ID
      * GET /api/pedidos/{id}
      */
@@ -171,5 +185,10 @@ public class PedidoController {
     public ResponseEntity<ApiResponse<PedidoResponse>> fecharConta(@PathVariable Long id) {
         PedidoResponse pedido = pedidoService.fecharConta(id);
         return ResponseEntity.ok(ApiResponse.success("Conta fechada. Mesa libertada.", pedido));
+    }
+
+    private String getUsuarioLogado() {
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        return auth != null ? auth.getName() : null;
     }
 }

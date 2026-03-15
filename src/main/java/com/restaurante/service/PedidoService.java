@@ -282,6 +282,31 @@ public class PedidoService {
     }
 
     /**
+     * Cria um novo pedido originado por um Cliente via QR Ordering.
+     * Enforça a validação de propriedade da sessão.
+     */
+    @Transactional
+    public PedidoResponse criarPedidoCliente(CriarPedidoRequest request, String telefoneCliente) {
+        log.info("Cliente {} solicitando criação de pedido na sessão ID: {}", telefoneCliente, request.getSessaoConsumoId());
+
+        SessaoConsumo sessao = sessaoConsumoRepository.findById(request.getSessaoConsumoId())
+                .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada"));
+
+        if (sessao.getCliente() == null || !sessao.getCliente().getTelefone().equals(telefoneCliente)) {
+            log.warn("Tentativa de acesso não autorizada a sessão. Cliente: {}, Sessão ID: {}", telefoneCliente, sessao.getId());
+            throw new BusinessException("Esta sessão não lhe pertence ou não está identificada.");
+        }
+
+        // Força o tipo de pagamento PRE_PAGO se não for enviado, 
+        // já que CLIENTE não tem as roles necessárias para aprovar POS_PAGO no motor financeiro
+        if (request.getTipoPagamento() == null) {
+            request.setTipoPagamento(TipoPagamentoPedido.PRE_PAGO);
+        }
+
+        return criar(request);
+    }
+
+    /**
      * Busca pedido por ID e retorna Response
      */
     @Transactional(readOnly = true)

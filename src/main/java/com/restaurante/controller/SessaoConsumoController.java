@@ -12,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -40,7 +42,7 @@ public class SessaoConsumoController {
     private final SessaoConsumoService sessaoConsumoService;
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Operações de ciclo de vida
+    // Operações de ciclo de vida (Atendentes / Admin)
     // ──────────────────────────────────────────────────────────────────────────
 
     @PostMapping
@@ -70,6 +72,44 @@ public class SessaoConsumoController {
         log.info("PUT /sessoes-consumo/{}/aguardar-pagamento", id);
         SessaoConsumoResponse response = sessaoConsumoService.aguardarPagamento(id);
         return ResponseEntity.ok(ApiResponse.success("Sessão aguardando pagamento", response));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Operações para Cliente (QR Ordering)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @PostMapping("/cliente/qr/{token}")
+    @Operation(summary = "Cliente entra na sessão via QR Code da Mesa")
+    @PreAuthorize("hasRole('CLIENTE')")
+    public ResponseEntity<ApiResponse<SessaoConsumoResponse>> entrarViaQr(@PathVariable String token) {
+        String telefone = getUsuarioLogado();
+        log.info("POST /sessoes-consumo/cliente/qr/{} — cliente: {}", token, telefone);
+        
+        SessaoConsumoResponse response = sessaoConsumoService.entrarViaQr(token, telefone);
+        return ResponseEntity.ok(ApiResponse.success("Sessão validada/aberta com sucesso", response));
+    }
+
+    @GetMapping("/cliente/minha-sessao")
+    @Operation(summary = "Buscar sessão ativa do cliente logado")
+    @PreAuthorize("hasRole('CLIENTE')")
+    public ResponseEntity<ApiResponse<SessaoConsumoResponse>> buscarMinhaSessao() {
+        String telefone = getUsuarioLogado();
+        log.info("GET /sessoes-consumo/cliente/minha-sessao — cliente: {}", telefone);
+        
+        SessaoConsumoResponse response = sessaoConsumoService.buscarMinhaSessao(telefone);
+        return ResponseEntity.ok(ApiResponse.success("Sessão ativa encontrada", response));
+    }
+
+    @PutMapping("/cliente/minha-sessao/aguardar-pagamento")
+    @Operation(summary = "Cliente solicita a conta (fecha a mesa temporariamente para pagamento)")
+    @PreAuthorize("hasRole('CLIENTE')")
+    public ResponseEntity<ApiResponse<SessaoConsumoResponse>> pedirConta() {
+        String telefone = getUsuarioLogado();
+        log.info("PUT /sessoes-consumo/cliente/minha-sessao/aguardar-pagamento — cliente: {}", telefone);
+        
+        SessaoConsumoResponse sessao = sessaoConsumoService.buscarMinhaSessao(telefone);
+        SessaoConsumoResponse response = sessaoConsumoService.aguardarPagamento(sessao.getId());
+        return ResponseEntity.ok(ApiResponse.success("Conta solicitada com sucesso", response));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -103,5 +143,10 @@ public class SessaoConsumoController {
     @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
     public ResponseEntity<ApiResponse<List<SessaoConsumoResponse>>> listarAbertas() {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", sessaoConsumoService.listarAbertas()));
+    }
+
+    private String getUsuarioLogado() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null ? auth.getName() : null;
     }
 }

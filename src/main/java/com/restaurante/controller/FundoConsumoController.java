@@ -112,6 +112,33 @@ public class FundoConsumoController {
     }
 
     /**
+     * Recarrega (credita) saldo na própria sessão ativa do cliente logado.
+     * Endpoint exclusivo para auto-serviço (App do Cliente).
+     *
+     * POST /api/fundos/cliente/recarregar
+     * Body: { "valor": 5000.00, "observacoes": "Recarga Multicaixa" }
+     */
+    @PostMapping("/cliente/recarregar")
+    @PreAuthorize("hasRole('CLIENTE')")
+    @Operation(
+        summary = "Recarregar fundo próprio (Cliente)",
+        description = "Credita valor no fundo da sessão ativa do cliente autenticado."
+    )
+    public ResponseEntity<ApiResponse<TransacaoFundoResponse>> recarregarCliente(
+            @Valid @RequestBody RecarregarFundoRequest request) {
+
+        log.info("Cliente solicitou auto-recarga — {}", com.restaurante.util.MoneyFormatter.format(request.getValor()));
+        Long clienteId = com.restaurante.security.SecurityUtils.getUsuarioLogadoId();
+        
+        TransacaoFundo transacao = fundoConsumoService.recarregarCliente(
+                clienteId, request.getValor(), request.getObservacoes());
+                
+        return ResponseEntity.ok(ApiResponse.success(
+                "Recarga concluída com sucesso. Novo saldo: " + com.restaurante.util.MoneyFormatter.format(transacao.getSaldoNovo()),
+                toTransacaoResponse(transacao)));
+    }
+
+    /**
      * Lista o histórico de movimentações do fundo (paginado, desc por data).
      *
      * GET /api/fundos/{token}/historico?page=0&size=20

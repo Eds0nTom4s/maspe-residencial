@@ -83,6 +83,27 @@ O Cliente agora pode ir no Catálogo, escolher Pratos, e invocar `/api/pedidos/c
 
 ---
 
+## Passo Extra: Auto-Recarga do Cliente (Mock AppyPay)
+
+Para a App do Cliente (onde ele mesmo clica no botão "Carregar Saldo"), também adicionámos um endpoint exclusivo para a "role" `CLIENTE` que auto-deduz a sessão aberta dele, assim nem precisa de passar qual é o QR Code na URL. O backend já sabe quem é!
+
+**ENDPOINT:** `POST /api/fundos/cliente/recarregar`  
+**HEADERS:** 
+- `Authorization: Bearer <JWT_DO_CLIENTE>` 
+- `Content-Type: application/json`
+
+**FORMATO DO BODY (JSON):**
+```json
+{
+  "valor": 10000.00,
+  "observacoes": "Recarga Teste Mock AppyPay (Cliente APP)"
+}
+```
+
+Usando isto na App do Cliente, vocês cimentam o fluxo de recarga end-to-end do lado do Consumidor.
+
+---
+
 ### Resumo dos Códigos de Erro Esperados ao Recarregar:
 - `400 BAD REQUEST`: `"Valor de recarga deve ser positivo"` ou malformado.
 - `401 UNAUTHORIZED`: Token expirado do Garçom/Gerente.

@@ -93,8 +93,8 @@ public class CustomUserDetailsService implements UserDetailsService {
             }
 
             // 4. Se ainda não encontrou, buscar na tabela clientes
-            log.info("  ┣ Não encontrado na tabela 'atendentes'. Tentando buscar na tabela 'clientes': {}", phoneToSearch);
-            Optional<com.restaurante.model.entity.Cliente> clienteOpt = clienteRepository.findByTelefoneAndAtivoTrue(phoneToSearch);
+            log.info("  ┣ Não encontrado na tabela 'atendentes'. Tentando buscar na tabela 'clientes': {}", usernameOrPhone);
+            Optional<com.restaurante.model.entity.Cliente> clienteOpt = clienteRepository.findByTelefoneAndAtivoTrue(usernameOrPhone);
             if (clienteOpt.isPresent()) {
                 com.restaurante.model.entity.Cliente cliente = clienteOpt.get();
                 log.info("  ┗ ✅ Cliente ENCONTRADO: telefone={}", cliente.getTelefone());

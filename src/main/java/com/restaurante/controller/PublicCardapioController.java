@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.PageRequest;
 
 import java.util.Arrays;
 import java.util.List;
@@ -34,7 +35,7 @@ public class PublicCardapioController {
     @GetMapping
     @Operation(summary = "Listar produtos do cardápio", description = "Retorna todos os produtos ativos e disponíveis abertamente")
     public ResponseEntity<ApiResponse<List<ProdutoResponse>>> listarDisponiveis() {
-        List<ProdutoResponse> produtos = produtoService.listarDisponiveis();
+        List<ProdutoResponse> produtos = produtoService.listarDisponiveis(PageRequest.of(0, 500)).getContent();
         return ResponseEntity.ok(ApiResponse.success("Produtos do cardápio listados com sucesso", produtos));
     }
 
@@ -46,7 +47,7 @@ public class PublicCardapioController {
     @Operation(summary = "Listar produtos por categoria", description = "Filtra produtos públicos por categoria específica")
     public ResponseEntity<ApiResponse<List<ProdutoResponse>>> listarPorCategoria(
             @PathVariable CategoriaProduto categoria) {
-        List<ProdutoResponse> produtos = produtoService.listarPorCategoria(categoria);
+        List<ProdutoResponse> produtos = produtoService.listarPorCategoria(categoria, PageRequest.of(0, 500)).getContent();
         return ResponseEntity.ok(ApiResponse.success("Produtos filtrados por categoria", produtos));
     }
 
@@ -57,7 +58,7 @@ public class PublicCardapioController {
     @GetMapping("/buscar")
     @Operation(summary = "Buscar produtos no cardápio", description = "Procura por um termo específico no cardápio")
     public ResponseEntity<ApiResponse<List<ProdutoResponse>>> buscarPorNome(@RequestParam String nome) {
-        List<ProdutoResponse> produtos = produtoService.buscarPorNome(nome);
+        List<ProdutoResponse> produtos = produtoService.buscarPorNome(nome, PageRequest.of(0, 500)).getContent();
         return ResponseEntity.ok(ApiResponse.success("Produtos encontrados", produtos));
     }
 

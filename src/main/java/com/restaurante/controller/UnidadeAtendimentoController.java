@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -33,6 +34,7 @@ public class UnidadeAtendimentoController {
         this.unidadeAtendimentoService = unidadeAtendimentoService;
     }
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Criar nova unidade de atendimento")
     public ResponseEntity<ApiResponse<UnidadeAtendimentoResponse>> criar(@Valid @RequestBody CriarUnidadeAtendimentoRequest request) {
         log.info("Requisição para criar unidade de atendimento: {}", request.getNome());
@@ -49,6 +51,7 @@ public class UnidadeAtendimentoController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Buscar unidade por ID")
     public ResponseEntity<ApiResponse<UnidadeAtendimentoResponse>> buscarPorId(@PathVariable Long id) {
         log.info("Requisição para buscar unidade de atendimento ID: {}", id);
@@ -58,6 +61,7 @@ public class UnidadeAtendimentoController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Listar todas as unidades")
     public ResponseEntity<ApiResponse<List<UnidadeAtendimentoResponse>>> listarTodas() {
         log.info("Requisição para listar todas as unidades de atendimento");
@@ -70,6 +74,7 @@ public class UnidadeAtendimentoController {
     }
 
     @GetMapping("/ativas")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Listar unidades ativas")
     public ResponseEntity<ApiResponse<List<UnidadeAtendimentoResponse>>> listarAtivas() {
         log.info("Requisição para listar unidades ativas");
@@ -82,6 +87,7 @@ public class UnidadeAtendimentoController {
     }
 
     @GetMapping("/operacionais")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Listar unidades operacionais (ativas com cozinhas)")
     public ResponseEntity<ApiResponse<List<UnidadeAtendimentoResponse>>> listarOperacionais() {
         log.info("Requisição para listar unidades operacionais");
@@ -94,6 +100,7 @@ public class UnidadeAtendimentoController {
     }
 
     @GetMapping("/tipo/{tipo}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Listar unidades por tipo")
     public ResponseEntity<ApiResponse<List<UnidadeAtendimentoResponse>>> listarPorTipo(@PathVariable TipoUnidadeAtendimento tipo) {
         log.info("Requisição para listar unidades do tipo: {}", tipo);
@@ -106,6 +113,7 @@ public class UnidadeAtendimentoController {
     }
 
     @PutMapping("/{id}/ativar")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Ativar unidade")
     public ResponseEntity<ApiResponse<UnidadeAtendimentoResponse>> ativar(@PathVariable Long id) {
         log.info("Requisição para ativar unidade ID: {}", id);
@@ -115,6 +123,7 @@ public class UnidadeAtendimentoController {
     }
 
     @PutMapping("/{id}/desativar")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Desativar unidade")
     public ResponseEntity<ApiResponse<UnidadeAtendimentoResponse>> desativar(@PathVariable Long id) {
         log.info("Requisição para desativar unidade ID: {}", id);
@@ -124,6 +133,7 @@ public class UnidadeAtendimentoController {
     }
 
     @PostMapping("/{unidadeId}/cozinhas/{cozinhaId}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Adicionar cozinha à unidade")
     public ResponseEntity<ApiResponse<Void>> adicionarCozinha(
             @PathVariable Long unidadeId,
@@ -136,6 +146,7 @@ public class UnidadeAtendimentoController {
     }
 
     @DeleteMapping("/{unidadeId}/cozinhas/{cozinhaId}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Remover cozinha da unidade")
     public ResponseEntity<ApiResponse<Void>> removerCozinha(
             @PathVariable Long unidadeId,

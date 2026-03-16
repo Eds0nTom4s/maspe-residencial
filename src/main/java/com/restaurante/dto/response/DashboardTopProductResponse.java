@@ -28,7 +28,11 @@ public class DashboardTopProductResponse {
     public String getNome() { return nome; }
     public void setNome(String nome) { this.nome = nome; }
     public Integer getQuantidadeVendida() { return quantidadeVendida; }
-    public void setQuantidadeVendida(int quantidadeVendida) { this.quantidadeVendida = quantidadeVendida; }
+    public void setQuantidadeVendida(Integer quantidadeVendida) { this.quantidadeVendida = quantidadeVendida; }
+    
+    public void setQuantidade(Long quantidade) {
+        this.quantidadeVendida = quantidade != null ? quantidade.intValue() : 0;
+    }
     public BigDecimal getValorTotal() { return valorTotal; }
     public void setValorTotal(BigDecimal valorTotal) { this.valorTotal = valorTotal; }
     public String getCategoria() { return categoria; }

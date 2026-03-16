@@ -18,6 +18,10 @@ import org.springframework.context.annotation.FilterType;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
@@ -168,17 +172,18 @@ class ProdutoControllerTest {
                         .build()
         );
 
-        when(produtoService.listarDisponiveis()).thenReturn(produtos);
-
-        // Act & Assert
-        mockMvc.perform(get("/produtos"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data", hasSize(2)))
-                .andExpect(jsonPath("$.data[0].nome").value("Hambúrguer"))
-                .andExpect(jsonPath("$.data[1].nome").value("Refrigerante"));
-
-        verify(produtoService, times(1)).listarDisponiveis();
+        when(produtoService.listarDisponiveis(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(produtos));
+ 
+         // Act & Assert
+         mockMvc.perform(get("/produtos"))
+                 .andExpect(status().isOk())
+                 .andExpect(jsonPath("$.success").value(true))
+                 .andExpect(jsonPath("$.data.content", hasSize(2)))
+                 .andExpect(jsonPath("$.data.content[0].nome").value("Hambúrguer"))
+                 .andExpect(jsonPath("$.data.content[1].nome").value("Refrigerante"));
+ 
+         verify(produtoService, times(1)).listarDisponiveis(any(Pageable.class));
     }
 
     @Test
@@ -193,16 +198,17 @@ class ProdutoControllerTest {
                         .build()
         );
 
-        when(produtoService.listarDisponiveis()).thenReturn(produtosDisponiveis);
-
-        // Act & Assert
-        mockMvc.perform(get("/produtos"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data", hasSize(1)))
-                .andExpect(jsonPath("$.data[0].disponivel").value(true));
-
-        verify(produtoService, times(1)).listarDisponiveis();
+        when(produtoService.listarDisponiveis(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(produtosDisponiveis));
+ 
+         // Act & Assert
+         mockMvc.perform(get("/produtos"))
+                 .andExpect(status().isOk())
+                 .andExpect(jsonPath("$.success").value(true))
+                 .andExpect(jsonPath("$.data.content", hasSize(1)))
+                 .andExpect(jsonPath("$.data.content[0].disponivel").value(true));
+ 
+         verify(produtoService, times(1)).listarDisponiveis(any(Pageable.class));
     }
 
     @Test
@@ -262,16 +268,17 @@ class ProdutoControllerTest {
                         .build()
         );
 
-        when(produtoService.listarPorCategoria(categoria)).thenReturn(produtos);
-
-        // Act & Assert
-        mockMvc.perform(get("/produtos/categoria/{categoria}", "BEBIDA_NAO_ALCOOLICA"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data", hasSize(2)))
-                .andExpect(jsonPath("$.data[0].categoria").value("BEBIDA_NAO_ALCOOLICA"))
-                .andExpect(jsonPath("$.data[1].categoria").value("BEBIDA_NAO_ALCOOLICA"));
-
-        verify(produtoService, times(1)).listarPorCategoria(categoria);
+        when(produtoService.listarPorCategoria(eq(categoria), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(produtos));
+ 
+         // Act & Assert
+         mockMvc.perform(get("/produtos/categoria/{categoria}", "BEBIDA_NAO_ALCOOLICA"))
+                 .andExpect(status().isOk())
+                 .andExpect(jsonPath("$.success").value(true))
+                 .andExpect(jsonPath("$.data.content", hasSize(2)))
+                 .andExpect(jsonPath("$.data.content[0].categoria").value("BEBIDA_NAO_ALCOOLICA"))
+                 .andExpect(jsonPath("$.data.content[1].categoria").value("BEBIDA_NAO_ALCOOLICA"));
+ 
+         verify(produtoService, times(1)).listarPorCategoria(eq(categoria), any(Pageable.class));
     }
 }

@@ -59,6 +59,18 @@ public class FundoConsumoService {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // LEITURA — Administrativo
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Lista todos os fundos de consumo (administrativo).
+     */
+    @Transactional(readOnly = true)
+    public Page<FundoConsumo> listarTodos(Pageable pageable) {
+        return fundoConsumoRepository.findAll(pageable);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // CRIAÇÃO — invocado pelo SessaoConsumoService ao abrir sessão
     // ═══════════════════════════════════════════════════════════════════════
 

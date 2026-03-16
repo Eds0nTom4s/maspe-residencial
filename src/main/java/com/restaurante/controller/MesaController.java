@@ -72,42 +72,49 @@ public class MesaController {
     // ──────────────────────────────────────────────────────────────────────────
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
     @Operation(summary = "Listar todas as mesas com status DERIVADO (DISPONIVEL/OCUPADA)")
     public ResponseEntity<ApiResponse<List<MesaResponse>>> listarTodas() {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", mesaService.listarTodas()));
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Buscar mesa por ID com status derivado")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
+    @Operation(summary = "Buscar mesa por ID with status derivado")
     public ResponseEntity<ApiResponse<MesaResponse>> buscarPorId(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", mesaService.buscarPorId(id)));
     }
 
     @GetMapping("/qrcode/{qrCode}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
     @Operation(summary = "Buscar mesa pelo QR Code fixo")
     public ResponseEntity<ApiResponse<MesaResponse>> buscarPorQrCode(@PathVariable String qrCode) {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", mesaService.buscarPorQrCode(qrCode)));
     }
 
     @GetMapping("/ativas")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
     @Operation(summary = "Listar mesas ativas")
     public ResponseEntity<ApiResponse<List<MesaResponse>>> listarAtivas() {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", mesaService.listarAtivas()));
     }
 
     @GetMapping("/disponiveis")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
     @Operation(summary = "Listar mesas DISPONÍVEIS (sem sessão aberta — status derivado)")
     public ResponseEntity<ApiResponse<List<MesaResponse>>> listarDisponiveis() {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", mesaService.listarDisponiveis()));
     }
 
     @GetMapping("/ocupadas")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
     @Operation(summary = "Listar mesas OCUPADAS (com sessão aberta — status derivado)")
     public ResponseEntity<ApiResponse<List<MesaResponse>>> listarOcupadas() {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", mesaService.listarOcupadas()));
     }
 
     @GetMapping("/unidade-atendimento/{unidadeAtendimentoId}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
     @Operation(summary = "Listar mesas de uma Unidade de Atendimento")
     public ResponseEntity<ApiResponse<List<MesaResponse>>> listarPorUnidadeAtendimento(
             @PathVariable Long unidadeAtendimentoId) {

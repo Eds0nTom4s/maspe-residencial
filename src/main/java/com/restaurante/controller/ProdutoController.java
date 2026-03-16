@@ -14,6 +14,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import java.util.List;
 
 /**
@@ -37,7 +40,7 @@ public class ProdutoController {
     public ResponseEntity<ApiResponse<ProdutoResponse>> criar(@Valid @RequestBody ProdutoRequest request) {
         ProdutoResponse produto = produtoService.criar(request);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Produto criado com sucesso", produto));
+                .body(ApiResponse.success("Produto criou com sucesso", produto));
     }
 
     /**
@@ -55,36 +58,43 @@ public class ProdutoController {
     }
 
     /**
-     * Lista todos os produtos disponíveis
+     * Lista todos os produtos disponíveis com paginação
      * GET /api/produtos
      */
     @GetMapping
-    @Operation(summary = "Listar produtos disponíveis", description = "Retorna todos os produtos ativos e disponíveis")
-    public ResponseEntity<ApiResponse<List<ProdutoResponse>>> listarDisponiveis() {
-        List<ProdutoResponse> produtos = produtoService.listarDisponiveis();
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
+    @Operation(summary = "Listar produtos disponíveis", description = "Retorna página de produtos ativos e disponíveis")
+    public ResponseEntity<ApiResponse<Page<ProdutoResponse>>> listarDisponiveis(
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<ProdutoResponse> produtos = produtoService.listarDisponiveis(pageable);
         return ResponseEntity.ok(ApiResponse.success("Produtos listados com sucesso", produtos));
     }
 
     /**
-     * Lista produtos por categoria
+     * Lista produtos por categoria com paginação
      * GET /api/produtos/categoria/{categoria}
      */
     @GetMapping("/categoria/{categoria}")
-    @Operation(summary = "Listar produtos por categoria", description = "Filtra produtos por categoria específica")
-    public ResponseEntity<ApiResponse<List<ProdutoResponse>>> listarPorCategoria(
-            @PathVariable CategoriaProduto categoria) {
-        List<ProdutoResponse> produtos = produtoService.listarPorCategoria(categoria);
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
+    @Operation(summary = "Listar produtos por categoria", description = "Filtra produtos por categoria específica com paginação")
+    public ResponseEntity<ApiResponse<Page<ProdutoResponse>>> listarPorCategoria(
+            @PathVariable CategoriaProduto categoria,
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<ProdutoResponse> produtos = produtoService.listarPorCategoria(categoria, pageable);
         return ResponseEntity.ok(ApiResponse.success("Produtos listados com sucesso", produtos));
     }
 
     /**
-     * Busca produtos por nome
+     * Busca produtos por nome com paginação
      * GET /api/produtos/buscar?nome=
      */
     @GetMapping("/buscar")
-    @Operation(summary = "Buscar produtos por nome", description = "Busca produtos que contenham o nome informado")
-    public ResponseEntity<ApiResponse<List<ProdutoResponse>>> buscarPorNome(@RequestParam String nome) {
-        List<ProdutoResponse> produtos = produtoService.buscarPorNome(nome);
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
+    @Operation(summary = "Buscar produtos por nome", description = "Busca produtos que contenham o nome informado com paginação")
+    public ResponseEntity<ApiResponse<Page<ProdutoResponse>>> buscarPorNome(
+            @RequestParam String nome,
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<ProdutoResponse> produtos = produtoService.buscarPorNome(nome, pageable);
         return ResponseEntity.ok(ApiResponse.success("Produtos encontrados", produtos));
     }
 
@@ -112,5 +122,31 @@ public class ProdutoController {
     public ResponseEntity<ApiResponse<Void>> desativar(@PathVariable Long id) {
         produtoService.desativar(id);
         return ResponseEntity.ok(ApiResponse.success("Produto desativado com sucesso", null));
+    }
+
+    /**
+     * [Admin] Lista todos os produtos incluindo inativos e indisponíveis com paginação.
+     * GET /api/produtos/admin
+     */
+    @GetMapping("/admin")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
+    @Operation(summary = "[Admin] Listar todos os produtos", description = "Inclui produtos inativos e indisponíveis com paginação")
+    public ResponseEntity<ApiResponse<Page<ProdutoResponse>>> listarAdmin(
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<ProdutoResponse> produtos = produtoService.listarTodos(pageable);
+        return ResponseEntity.ok(ApiResponse.success("Produtos listados", produtos));
+    }
+
+
+    /**
+     * Busca produto por ID (detalhe completo).
+     * GET /api/produtos/{id}
+     */
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
+    @Operation(summary = "Buscar produto por ID", description = "Retorna os detalhes completos de um produto")
+    public ResponseEntity<ApiResponse<ProdutoResponse>> buscarPorId(@PathVariable Long id) {
+        ProdutoResponse produto = produtoService.buscarPorIdResponse(id);
+        return ResponseEntity.ok(ApiResponse.success("Sucesso", produto));
     }
 }

@@ -43,6 +43,32 @@ public class FundoConsumoController {
     private final FundoConsumoService fundoConsumoService;
 
     // ═══════════════════════════════════════════════════════════════════════
+    // LISTAGEM ADMINISTRATIVA
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Lista todos os fundos de consumo (administrativo).
+     *
+     * GET /api/fundos?page=0&size=20
+     */
+    @GetMapping
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
+    @Operation(
+        summary = "Listar todos os fundos (Admin/Gerente)",
+        description = "Retorna lista paginada de todos os fundos."
+    )
+    public ResponseEntity<ApiResponse<Page<FundoConsumoResponse>>> listar(
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        log.info("Listando fundos — page={}, size={}", page, size);
+        Pageable pageable = PageRequest.of(page, size);
+        Page<FundoConsumo> resultado = fundoConsumoService.listarTodos(pageable);
+        return ResponseEntity.ok(ApiResponse.success("Fundos recuperados",
+                resultado.map(this::toResponse)));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // OPERAÇÕES — QR Code da sessão (qrCodeSessao) como identificador
     // ═══════════════════════════════════════════════════════════════════════
 

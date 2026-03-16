@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -28,6 +29,7 @@ public class CozinhaController {
     private final CozinhaService cozinhaService;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Criar nova cozinha")
     public ResponseEntity<ApiResponse<CozinhaResponse>> criar(@Valid @RequestBody CriarCozinhaRequest request) {
         log.info("Requisição para criar cozinha: {}", request.getNome());
@@ -41,6 +43,7 @@ public class CozinhaController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Buscar cozinha por ID")
     public ResponseEntity<ApiResponse<CozinhaResponse>> buscarPorId(@PathVariable Long id) {
         log.info("Requisição para buscar cozinha ID: {}", id);
@@ -50,6 +53,7 @@ public class CozinhaController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Listar todas as cozinhas")
     public ResponseEntity<ApiResponse<List<CozinhaResponse>>> listarTodas() {
         log.info("Requisição para listar todas as cozinhas");
@@ -62,6 +66,7 @@ public class CozinhaController {
     }
 
     @GetMapping("/ativas")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Listar cozinhas ativas")
     public ResponseEntity<ApiResponse<List<CozinhaResponse>>> listarAtivas() {
         log.info("Requisição para listar cozinhas ativas");
@@ -74,6 +79,7 @@ public class CozinhaController {
     }
 
     @GetMapping("/tipo/{tipo}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Listar cozinhas por tipo")
     public ResponseEntity<ApiResponse<List<CozinhaResponse>>> listarPorTipo(@PathVariable TipoCozinha tipo) {
         log.info("Requisição para listar cozinhas do tipo: {}", tipo);
@@ -86,6 +92,7 @@ public class CozinhaController {
     }
 
     @PutMapping("/{id}/ativar")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Ativar cozinha")
     public ResponseEntity<ApiResponse<CozinhaResponse>> ativar(@PathVariable Long id) {
         log.info("Requisição para ativar cozinha ID: {}", id);
@@ -95,6 +102,7 @@ public class CozinhaController {
     }
 
     @PutMapping("/{id}/desativar")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Desativar cozinha")
     public ResponseEntity<ApiResponse<CozinhaResponse>> desativar(@PathVariable Long id) {
         log.info("Requisição para desativar cozinha ID: {}", id);
@@ -104,6 +112,7 @@ public class CozinhaController {
     }
 
     @PutMapping("/{id}/impressora")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Atualizar ID da impressora")
     public ResponseEntity<ApiResponse<CozinhaResponse>> atualizarImpressora(
             @PathVariable Long id, 
@@ -116,6 +125,7 @@ public class CozinhaController {
     }
 
     @PostMapping("/{cozinhaId}/vincular/{unidadeAtendimentoId}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Vincular cozinha a unidade de atendimento")
     public ResponseEntity<ApiResponse<Void>> vincularUnidadeAtendimento(
             @PathVariable Long cozinhaId,
@@ -128,6 +138,7 @@ public class CozinhaController {
     }
 
     @DeleteMapping("/{cozinhaId}/desvincular/{unidadeAtendimentoId}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "Desvincular cozinha de unidade de atendimento")
     public ResponseEntity<ApiResponse<Void>> desvincularUnidadeAtendimento(
             @PathVariable Long cozinhaId,

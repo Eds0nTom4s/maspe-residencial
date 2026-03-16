@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -244,25 +246,72 @@ public class AuditoriaFinanceiraService {
                 numeroPedido, com.restaurante.util.MoneyFormatter.format(valor), unidadeConsumoId);
     }
 
+    /**
+     * Registra reset de senha de utilizador.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void registrarResetSenha(
+            Long usuarioId,
+            String usernameAlvo,
+            String operadorNome,
+            String operadorRole) {
+
+        ConfiguracaoFinanceiraEventLog evento = new ConfiguracaoFinanceiraEventLog();
+        evento.setTipoEvento("RESET_SENHA_USUARIO");
+        evento.setEntidadeId(usuarioId);
+        evento.setEntidadeTipo("User");
+        evento.setUsuarioNome(operadorNome);
+        evento.setUsuarioRole(operadorRole);
+        evento.setDetalhe("Reset de senha para utilizador: " + usernameAlvo);
+        evento.setTimestamp(LocalDateTime.now());
+
+        auditRepo.save(evento);
+        log.info("🔐 AUDITORIA [RESET_SENHA_USUARIO] | Utilizador: {} (ID: {}) | por {} ({})",
+                usernameAlvo, usuarioId, operadorNome, operadorRole);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // 3. CONSULTAS DE AUDITORIA
     // ──────────────────────────────────────────────────────────────────────────
 
-    /** Últimos 50 eventos financeiros (para dashboard de compliance). */
+    /**
+     * Lista todos os eventos de auditoria com paginação.
+     */
+    @Transactional(readOnly = true)
+    public Page<ConfiguracaoFinanceiraEventLog> listarTodos(Pageable pageable) {
+        return auditRepo.findAll(pageable);
+    }
+
+    /**
+     * Últimos 50 eventos financeiros (para dashboard de compliance).
+     * Mantido unpaged para compatibilidade com DashboardService.
+     */
     @Transactional(readOnly = true)
     public List<ConfiguracaoFinanceiraEventLog> buscarUltimosEventos() {
         return auditRepo.findUltimosEventos(50);
     }
 
-    /** Eventos de um operador específico. */
+    /**
+     * Eventos de um operador específico com paginação.
+     */
     @Transactional(readOnly = true)
-    public List<ConfiguracaoFinanceiraEventLog> buscarPorOperador(String usuarioNome) {
-        return auditRepo.findByUsuarioNomeOrderByTimestampDesc(usuarioNome);
+    public Page<ConfiguracaoFinanceiraEventLog> buscarPorOperador(String usuarioNome, Pageable pageable) {
+        return auditRepo.findByUsuarioNome(usuarioNome, pageable);
     }
 
-    /** Eventos por tipo. */
+    /**
+     * Eventos por tipo com paginação.
+     */
     @Transactional(readOnly = true)
-    public List<ConfiguracaoFinanceiraEventLog> buscarPorTipo(String tipoEvento) {
-        return auditRepo.findByTipoEventoOrderByTimestampDesc(tipoEvento);
+    public Page<ConfiguracaoFinanceiraEventLog> buscarPorTipo(String tipoEvento, Pageable pageable) {
+        return auditRepo.findByTipoEvento(tipoEvento, pageable);
+    }
+
+    /**
+     * Eventos num intervalo de tempo com paginação.
+     */
+    @Transactional(readOnly = true)
+    public Page<ConfiguracaoFinanceiraEventLog> buscarPorPeriodo(LocalDateTime inicio, LocalDateTime fim, Pageable pageable) {
+        return auditRepo.findByPeriodo(inicio, fim, pageable);
     }
 }

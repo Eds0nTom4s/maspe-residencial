@@ -23,6 +23,8 @@ import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -337,53 +339,70 @@ public class PedidoService {
     }
 
     /**
-     * Lista pedidos por status
+     * Lista pedidos por status com paginação
      */
     @Transactional(readOnly = true)
-    public List<PedidoResponse> listarPorStatus(StatusPedido status) {
-        log.info("Listando pedidos com status: {}", status);
-        return pedidoRepository.findByStatusOrderByCreatedAtAsc(status)
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+    public Page<PedidoResponse> listarPorStatus(StatusPedido status, Pageable pageable) {
+        log.info("Listando pedidos com status: {} (page={})", status, pageable.getPageNumber());
+        return pedidoRepository.findByStatus(status, pageable)
+                .map(this::mapToResponse);
     }
 
     /**
-     * Lista todos os pedidos de uma SessaoConsumo.
+     * Lista todos os pedidos de uma SessaoConsumo com paginação.
      */
     @Transactional(readOnly = true)
-    public List<PedidoResponse> listarPorSessaoConsumo(Long sessaoConsumoId) {
-        log.info("Listando pedidos da sessão de consumo ID: {}", sessaoConsumoId);
-        return pedidoRepository.findBySessaoConsumoIdOrderByCreatedAtAsc(sessaoConsumoId)
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+    public Page<PedidoResponse> listarPorSessaoConsumo(Long sessaoConsumoId, Pageable pageable) {
+        log.info("Listando pedidos da sessão de consumo ID: {} (page={})", sessaoConsumoId, pageable.getPageNumber());
+        return pedidoRepository.findBySessaoConsumoId(sessaoConsumoId, pageable)
+                .map(this::mapToResponse);
     }
 
     /**
-     * Lista apenas pedidos activos (CRIADO ou EM_ANDAMENTO) de uma SessaoConsumo.
+     * Lista apenas pedidos activos (CRIADO ou EM_ANDAMENTO) de uma SessaoConsumo com paginação.
      */
     @Transactional(readOnly = true)
-    public List<PedidoResponse> listarAtivosPorSessaoConsumo(Long sessaoConsumoId) {
-        log.info("Listando pedidos activos da sessão de consumo ID: {}", sessaoConsumoId);
+    public Page<PedidoResponse> listarAtivosPorSessaoConsumo(Long sessaoConsumoId, Pageable pageable) {
+        log.info("Listando pedidos activos da sessão de consumo ID: {} (page={})", sessaoConsumoId, pageable.getPageNumber());
         List<StatusPedido> statusAtivos = List.of(StatusPedido.CRIADO, StatusPedido.EM_ANDAMENTO);
-        return pedidoRepository.findBySessaoConsumoIdAndStatusInOrderByCreatedAtAsc(sessaoConsumoId, statusAtivos)
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return pedidoRepository.findBySessaoConsumoIdAndStatusIn(sessaoConsumoId, statusAtivos, pageable)
+                .map(this::mapToResponse);
     }
 
     /**
-     * Lista pedidos pendentes e recebidos (para painel do atendente)
+     * Lista pedidos pendentes e recebidos com paginação (para painel do atendente)
      */
     @Transactional(readOnly = true)
-    public List<PedidoResponse> listarPedidosAtivos() {
-        log.info("Listando pedidos ativos");
+    public Page<PedidoResponse> listarPedidosAtivos(Pageable pageable) {
+        log.info("Listando pedidos ativos (page={})", pageable.getPageNumber());
         List<StatusPedido> statusAtivos = List.of(StatusPedido.CRIADO, StatusPedido.EM_ANDAMENTO);
-        return pedidoRepository.findByStatusInOrderByCreatedAtAsc(statusAtivos)
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return pedidoRepository.findByStatusIn(statusAtivos, pageable)
+                .map(this::mapToResponse);
+    }
+
+    /**
+     * Lista todos os pedidos do dia atual com paginação — uso admin/atendente.
+     */
+    @Transactional(readOnly = true)
+    public Page<PedidoResponse> listarPedidosHoje(Pageable pageable) {
+        log.info("Listando pedidos de hoje (page={})", pageable.getPageNumber());
+        return pedidoRepository.findPedidosDeHoje(pageable)
+                .map(this::mapToResponse);
+    }
+
+    /**
+     * Lista pedidos com filtros avançados e paginação — uso admin.
+     */
+    @Transactional(readOnly = true)
+    public Page<PedidoResponse> listarComFiltros(
+            StatusPedido status,
+            Long sessaoId,
+            java.time.LocalDateTime dataInicio,
+            java.time.LocalDateTime dataFim,
+            Pageable pageable) {
+        log.info("Listando pedidos com filtros: status={}, sessaoId={}", status, sessaoId);
+        return pedidoRepository.findComFiltros(status, dataInicio, dataFim, sessaoId, pageable)
+                .map(this::mapToResponse);
     }
 
     /**

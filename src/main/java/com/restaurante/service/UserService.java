@@ -28,11 +28,13 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditoriaFinanceiraService auditoriaService;
 
     @Autowired
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, AuditoriaFinanceiraService auditoriaService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.auditoriaService = auditoriaService;
     }
 
     // ── Leitura ──────────────────────────────────────────────────────────────
@@ -160,6 +162,53 @@ public class UserService {
         User user = buscarEntidade(id);
         user.setPassword(passwordEncoder.encode(request.getNovaSenha()));
         userRepository.save(user);
+    }
+
+    /**
+     * Reseta a senha de um utilizador e gera uma senha temporária.
+     * O ADMIN recebe a senha temporária em texto claro para comunicar ao utilizador.
+     * O utilizador deverá alterar a senha após o primeiro acesso.
+     *
+     * @param username username do utilizador a redefinir
+     * @return mapa com {"senhaTemporária": "...", "username": "..."}
+     */
+    @Transactional
+    public Map<String, String> resetSenha(Long id) {
+        log.info("Reset de senha solicitado para usuário ID: {}", id);
+
+        User user = buscarEntidade(id);
+
+        // Gera senha temporária: prefixo legível + 8 chars aleatórios
+        String charsPermitidos = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        java.util.Random random = new java.security.SecureRandom();
+        StringBuilder senhaTemp = new StringBuilder("Tmp@");
+        for (int i = 0; i < 8; i++) {
+            senhaTemp.append(charsPermitidos.charAt(random.nextInt(charsPermitidos.length())));
+        }
+        String senhaTempStr = senhaTemp.toString();
+
+        user.setPassword(passwordEncoder.encode(senhaTempStr));
+        userRepository.save(user);
+
+        // Registrar Auditoria
+        try {
+            org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            String operadorNome = (auth != null) ? auth.getName() : "system";
+            String operadorRole = (auth != null && !auth.getAuthorities().isEmpty()) 
+                    ? auth.getAuthorities().iterator().next().getAuthority() : "SYSTEM";
+            
+            auditoriaService.registrarResetSenha(user.getId(), user.getUsername(), operadorNome, operadorRole);
+        } catch (Exception e) {
+            log.error("Erro ao registrar auditoria de reset de senha", e);
+        }
+
+        log.info("Senha temporária gerada para utilizador '{}' (ID: {})", user.getUsername(), user.getId());
+
+        Map<String, String> resultado = new java.util.LinkedHashMap<>();
+        resultado.put("username", user.getUsername());
+        resultado.put("senhaTemporária", senhaTempStr);
+        resultado.put("mensagem", "Senha redefinida com sucesso. Comunique a senha temporária ao utilizador.");
+        return resultado;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

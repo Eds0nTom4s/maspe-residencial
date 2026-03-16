@@ -29,6 +29,7 @@ public class SubPedidoController {
     private final SubPedidoService subPedidoService;
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Buscar SubPedido por ID")
     public ResponseEntity<ApiResponse<SubPedidoResponse>> buscarPorId(@PathVariable Long id) {
         log.info("Requisição para buscar SubPedido ID: {}", id);
@@ -38,6 +39,7 @@ public class SubPedidoController {
     }
 
     @GetMapping("/pedido/{pedidoId}")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Buscar SubPedidos de um Pedido")
     public ResponseEntity<ApiResponse<List<SubPedidoResponse>>> buscarPorPedido(@PathVariable Long pedidoId) {
         log.info("Requisição para buscar SubPedidos do Pedido ID: {}", pedidoId);
@@ -50,6 +52,7 @@ public class SubPedidoController {
     }
 
     @GetMapping("/cozinha/{cozinhaId}/ativos")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Buscar SubPedidos ativos de uma Cozinha")
     public ResponseEntity<ApiResponse<List<SubPedidoResponse>>> buscarAtivosPorCozinha(@PathVariable Long cozinhaId) {
         log.info("Requisição para buscar SubPedidos ativos da Cozinha ID: {}", cozinhaId);
@@ -62,6 +65,7 @@ public class SubPedidoController {
     }
 
     @GetMapping("/cozinha/{cozinhaId}/prontos")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Buscar SubPedidos prontos de uma Cozinha (para impressão)")
     public ResponseEntity<ApiResponse<List<SubPedidoResponse>>> buscarProntosPorCozinha(@PathVariable Long cozinhaId) {
         log.info("Requisição para buscar SubPedidos prontos da Cozinha ID: {}", cozinhaId);
@@ -74,6 +78,7 @@ public class SubPedidoController {
     }
 
     @GetMapping("/atrasados")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA')")
     @Operation(summary = "Buscar SubPedidos com atraso")
     public ResponseEntity<ApiResponse<List<SubPedidoResponse>>> buscarComAtraso(
             @RequestParam(defaultValue = "30") int minutosAtraso) {
@@ -131,6 +136,7 @@ public class SubPedidoController {
     }
 
     @GetMapping("/kpi/tempo-medio")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Operation(summary = "KPI: Tempo médio de preparação por cozinha")
     public ResponseEntity<ApiResponse<Map<String, Double>>> calcularTempoMedioPorCozinha() {
         log.info("Requisição para KPI de tempo médio por cozinha");

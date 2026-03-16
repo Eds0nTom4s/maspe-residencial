@@ -133,18 +133,16 @@ public class UserController {
     }
 
     /**
-     * Reset de senha simplificado — aceita username + nova senha directamente.
-     * NOTA: Em produção deve usar token de email. Endpoint mantido para
-     * compatibilidade com o frontend; proteger com ADMIN se necessário.
+     * Reset de senha administrativo — gera uma senha temporária e retorna ao ADMIN.
+     * O ADMIN deve comunicar a senha temporária ao utilizador pessoalmente ou por canal seguro.
      */
-    @PostMapping("/reset-senha")
-    @Operation(summary = "Reset de senha", description = "Reset directo de senha por username (fluxo simplificado sem email)")
-    public ResponseEntity<ApiResponse<Void>> resetSenha(@RequestBody Map<String, String> body) {
-        log.info("POST /api/usuarios/reset-senha — username: {}", body.get("username"));
-        // TODO: Implementar fluxo completo com token de email quando SMTP estiver configurado
-        // Por enquanto delega para alterarSenha se vier id, ou retorna instrução
-        return ResponseEntity.ok(ApiResponse.success(
-                "Se o utilizador existir, a senha será redefinida. Contacte o administrador do sistema.", null));
+    @PostMapping("/{id}/reset-senha")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Reset de senha (ADMIN)", description = "Gera senha temporária para o utilizador. ADMIN recebe a senha gerada para comunicar ao utilizador.")
+    public ResponseEntity<ApiResponse<Map<String, String>>> resetSenha(@PathVariable Long id) {
+        log.info("POST /api/usuarios/{}/reset-senha", id);
+        Map<String, String> resultado = userService.resetSenha(id);
+        return ResponseEntity.ok(ApiResponse.success("Senha redefinida com sucesso", resultado));
     }
 
     @PostMapping("/reset-senha/confirmar")

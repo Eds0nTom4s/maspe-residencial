@@ -14,6 +14,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,14 +26,6 @@ import java.util.stream.Collectors;
 
 /**
  * Controller de auditoria financeira e operacional.
- *
- * Serve os logs imutáveis gerados pelo AuditoriaFinanceiraService.
- * Todos os endpoints exigem no mínimo role GERENTE.
- *
- * Endpoints consumidos pelo frontend:
- *   GET /api/auditoria/acoes       – lista de eventos recentes
- *   GET /api/auditoria/estatisticas – contadores por tipo de evento
- *   GET /api/auditoria/modulos      – tipos de evento disponíveis no sistema
  */
 @RestController
 @RequestMapping("/auditoria")
@@ -43,73 +39,39 @@ public class AuditoriaController {
     private final AuditoriaFinanceiraService auditoriaService;
     private final ConfiguracaoFinanceiraEventLogRepository auditRepo;
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // GET /api/auditoria/acoes
-    // Consumido pelo painel de compliance do frontend
-    // ──────────────────────────────────────────────────────────────────────────
-
     /**
-     * Lista os últimos eventos de auditoria, com filtros opcionais.
-     *
-     * @param limite   quantos registros retornar (default: 50, máx: 200)
-     * @param tipo     filtrar por tipo de evento (ex: ATIVOU_POS_PAGO)
-     * @param operador filtrar por nome/login do operador
-     * @param inicio   filtrar a partir desta data (ISO 8601)
-     * @param fim      filtrar até esta data (ISO 8601)
+     * Lista os eventos de auditoria com paginação e filtros.
      */
     @GetMapping("/acoes")
     @Operation(
-        summary = "Listar ações auditadas",
-        description = "Retorna o histórico de eventos críticos (configuração financeira, pedidos pós-pago, estornos)"
+        summary = "Listar acções auditadas",
+        description = "Retorna página de eventos críticos com suporte a filtros"
     )
-    public ResponseEntity<ApiResponse<List<ConfiguracaoFinanceiraEventLog>>> listarAcoes(
-            @RequestParam(defaultValue = "50") int limite,
+    public ResponseEntity<ApiResponse<Page<ConfiguracaoFinanceiraEventLog>>> listarAcoes(
             @RequestParam(required = false) String tipo,
             @RequestParam(required = false) String operador,
-            @RequestParam(required = false)
-                @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime inicio,
-            @RequestParam(required = false)
-                @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fim) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime inicio,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fim,
+            @PageableDefault(size = 50, sort = "timestamp", direction = Sort.Direction.DESC) Pageable pageable) {
 
-        log.info("GET /auditoria/acoes | limite={} tipo={} operador={} inicio={} fim={}",
-                limite, tipo, operador, inicio, fim);
+        log.info("GET /auditoria/acoes | tipo={} operador={} inicio={} fim={} page={}",
+                tipo, operador, inicio, fim, pageable.getPageNumber());
 
-        // Limita o máximo para evitar payloads excessivos
-        int limiteEfetivo = Math.min(limite, 200);
-
-        List<ConfiguracaoFinanceiraEventLog> eventos;
+        Page<ConfiguracaoFinanceiraEventLog> pagina;
 
         if (inicio != null && fim != null) {
-            // Filtro por período
-            eventos = auditRepo.findByPeriodo(inicio, fim);
-            if (tipo != null) {
-                eventos = eventos.stream()
-                        .filter(e -> e.getTipoEvento().equalsIgnoreCase(tipo))
-                        .collect(Collectors.toList());
-            }
-            if (operador != null) {
-                eventos = eventos.stream()
-                        .filter(e -> e.getUsuarioNome().equalsIgnoreCase(operador))
-                        .collect(Collectors.toList());
-            }
-            // Aplica limite após filtros
-            eventos = eventos.stream().limit(limiteEfetivo).collect(Collectors.toList());
-
+            pagina = auditoriaService.buscarPorPeriodo(inicio, fim, pageable);
         } else if (tipo != null) {
-            eventos = auditoriaService.buscarPorTipo(tipo).stream()
-                    .limit(limiteEfetivo).collect(Collectors.toList());
-
+            pagina = auditoriaService.buscarPorTipo(tipo, pageable);
         } else if (operador != null) {
-            eventos = auditoriaService.buscarPorOperador(operador).stream()
-                    .limit(limiteEfetivo).collect(Collectors.toList());
-
+            pagina = auditoriaService.buscarPorOperador(operador, pageable);
         } else {
-            eventos = auditRepo.findUltimosEventos(limiteEfetivo);
+            pagina = auditoriaService.listarTodos(pageable);
         }
 
-        return ResponseEntity.ok(ApiResponse.success(
-                "Últimas " + eventos.size() + " ações auditadas", eventos));
+        return ResponseEntity.ok(ApiResponse.success("Acções auditadas listadas", pagina));
     }
+
 
     // ──────────────────────────────────────────────────────────────────────────
     // GET /api/auditoria/estatisticas

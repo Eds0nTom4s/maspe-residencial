@@ -3,6 +3,7 @@ package com.restaurante.repository;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.enums.StatusSessaoConsumo;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -18,7 +19,7 @@ import java.util.Optional;
  * Use {@link #existsByMesaIdAndStatus} para validar antes de abrir nova sessão.
  */
 @Repository
-public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Long> {
+public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Long>, JpaSpecificationExecutor<SessaoConsumo> {
 
     /**
      * Busca sessão pelo QR Code único da sessão.
@@ -72,4 +73,11 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
      * Utilizado pelo Scheduler para inativar (EXPIRAR) sessões zumbi.
      */
     List<SessaoConsumo> findByStatusAndAbertaEmBefore(StatusSessaoConsumo status, LocalDateTime data);
+
+    /**
+     * Conta todas as sessões abertas hoje (independente de status atual).
+     * Usado para estatística de "clientes atendidos hoje".
+     */
+    @Query("SELECT COUNT(s) FROM SessaoConsumo s WHERE CAST(s.abertaEm AS date) = CURRENT_DATE")
+    long countSessoesHoje();
 }

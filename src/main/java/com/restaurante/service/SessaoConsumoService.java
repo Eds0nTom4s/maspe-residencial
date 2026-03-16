@@ -19,8 +19,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import jakarta.persistence.criteria.Predicate;
+import java.util.ArrayList;
 
 /**
  * Service responsável pelo ciclo de vida da SessaoConsumo.
@@ -337,6 +344,14 @@ public class SessaoConsumoService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public List<SessaoConsumoResponse> listarPorStatus(StatusSessaoConsumo status) {
+        return sessaoConsumoRepository.findByStatus(status).stream()
+                .map(s -> converterParaResponse(s, s.getFundoConsumo()))
+                .collect(Collectors.toList());
+    }
+
+
     // ──────────────────────────────────────────────────────────────────────────
     // Operações para o Cliente (QR Ordering)
     // ──────────────────────────────────────────────────────────────────────────
@@ -414,6 +429,57 @@ public class SessaoConsumoService {
                 .orElseThrow(() -> new ResourceNotFoundException("Você não possui nenhuma sessão ativa no momento."));
                 
         return converterParaResponse(sessao);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Consultas Admin
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Lista sessões com filtros avançados e paginação.
+     */
+    @Transactional(readOnly = true)
+    public Page<SessaoConsumoResponse> listarComFiltros(
+            StatusSessaoConsumo status,
+            LocalDateTime dataInicio,
+            LocalDateTime dataFim,
+            Pageable pageable) {
+        
+        log.info("Listando sessões com filtros — status={}, inicio={}, fim={}", status, dataInicio, dataFim);
+        
+        Specification<SessaoConsumo> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            
+            if (dataInicio != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("abertaEm"), dataInicio));
+            }
+            
+            if (dataFim != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("abertaEm"), dataFim));
+            }
+            
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        
+        return sessaoConsumoRepository.findAll(spec, pageable)
+                .map(this::converterParaResponse);
+    }
+
+    /**
+     * Lista todas as sessões (sem filtro) — uso admin.
+     * @deprecated Use listarComFiltros
+     */
+    @Transactional(readOnly = true)
+    @Deprecated
+    public List<SessaoConsumoResponse> listarTodas() {
+        log.info("Listando todas as sessões (admin)");
+        return sessaoConsumoRepository.findAll().stream()
+                .map(this::converterParaResponse)
+                .collect(Collectors.toList());
     }
 
     // ──────────────────────────────────────────────────────────────────────────

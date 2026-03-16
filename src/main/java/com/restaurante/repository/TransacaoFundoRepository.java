@@ -54,4 +54,10 @@ public interface TransacaoFundoRepository extends JpaRepository<TransacaoFundo, 
            "WHEN t.tipo = 'AJUSTE' THEN t.valor ELSE 0 END), 0) " +
            "FROM TransacaoFundo t WHERE t.fundoConsumo.id = :fundoConsumoId")
     java.math.BigDecimal calcularSaldoAgregado(Long fundoConsumoId);
+
+    /**
+     * Busca transações recentes de pagamento (CREDITO) para o dashboard.
+     */
+    @Query("SELECT t FROM TransacaoFundo t WHERE t.tipo = 'CREDITO' AND CAST(t.createdAt AS date) = CURRENT_DATE ORDER BY t.createdAt DESC")
+    List<TransacaoFundo> findRecentPayments(Pageable pageable);
 }

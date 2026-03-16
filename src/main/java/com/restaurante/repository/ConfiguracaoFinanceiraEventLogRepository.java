@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -13,22 +15,26 @@ import java.util.List;
 public interface ConfiguracaoFinanceiraEventLogRepository
         extends JpaRepository<ConfiguracaoFinanceiraEventLog, Long> {
 
-    /** Histórico completo por tipo de evento, ordenado do mais recente. */
-    List<ConfiguracaoFinanceiraEventLog> findByTipoEventoOrderByTimestampDesc(String tipoEvento);
+    /**
+     * Histórico completo por tipo de evento com paginação.
+     */
+    Page<ConfiguracaoFinanceiraEventLog> findByTipoEvento(String tipoEvento, Pageable pageable);
 
-    /** Todos os eventos de um operador específico. */
-    List<ConfiguracaoFinanceiraEventLog> findByUsuarioNomeOrderByTimestampDesc(String usuarioNome);
+    /**
+     * Todos os eventos de um operador específico com paginação.
+     */
+    Page<ConfiguracaoFinanceiraEventLog> findByUsuarioNome(String usuarioNome, Pageable pageable);
 
-    /** Eventos num intervalo de tempo. */
-    @Query("SELECT e FROM ConfiguracaoFinanceiraEventLog e " +
-           "WHERE e.timestamp BETWEEN :inicio AND :fim " +
-           "ORDER BY e.timestamp DESC")
-    List<ConfiguracaoFinanceiraEventLog> findByPeriodo(
-            @Param("inicio") LocalDateTime inicio,
-            @Param("fim")    LocalDateTime fim);
+    /**
+     * Eventos num intervalo de tempo com paginação.
+     */
+    @Query("SELECT e FROM ConfiguracaoFinanceiraEventLog e WHERE e.timestamp BETWEEN :inicio AND :fim")
+    Page<ConfiguracaoFinanceiraEventLog> findByPeriodo(@Param("inicio") LocalDateTime inicio, @Param("fim") LocalDateTime fim, Pageable pageable);
 
-    /** Últimos N eventos (auditoria rápida do dashboard). */
-    @Query("SELECT e FROM ConfiguracaoFinanceiraEventLog e ORDER BY e.timestamp DESC LIMIT :limite")
+    /**
+     * Busca os últimos N eventos (unpaged fallback).
+     */
+    @Query(value = "SELECT * FROM configuracao_financeira_event_logs ORDER BY timestamp DESC LIMIT :limite", nativeQuery = true)
     List<ConfiguracaoFinanceiraEventLog> findUltimosEventos(@Param("limite") int limite);
 
     /** Contagem de eventos agrupada por tipo. */
@@ -45,5 +51,6 @@ public interface ConfiguracaoFinanceiraEventLogRepository
 
     /** Contagem de eventos nas últimas N horas. */
     @Query("SELECT COUNT(e) FROM ConfiguracaoFinanceiraEventLog e WHERE e.timestamp >= :desde")
-    long countDesde(@Param("desde") java.time.LocalDateTime desde);
+    long countDesde(@Param("desde") LocalDateTime desde);
 }
+

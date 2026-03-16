@@ -14,6 +14,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.data.domain.Sort;
 import java.util.List;
 
 /**
@@ -77,49 +81,61 @@ public class PedidoController {
     }
 
     /**
-     * Lista pedidos por status
-     * GET /api/pedidos/status/{status}
+     * Lista todos os pedidos de hoje (dashboard admin) com paginação
+     */
+    @GetMapping("/hoje")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ATENDENTE')")
+    @Operation(summary = "Pedidos hoje", description = "Lista todos os pedidos do dia atual com paginação")
+    public ApiResponse<Page<PedidoResponse>> pedidosHoje(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ApiResponse.success("Pedidos de hoje listados com sucesso", pedidoService.listarPedidosHoje(pageable));
+    }
+
+    /**
+     * Lista pedidos por status com paginação
      */
     @GetMapping("/status/{status}")
-    @Operation(summary = "Listar pedidos por status", description = "Lista pedidos filtrados por status")
-    public ResponseEntity<ApiResponse<List<PedidoResponse>>> listarPorStatus(@PathVariable StatusPedido status) {
-        List<PedidoResponse> pedidos = pedidoService.listarPorStatus(status);
-        return ResponseEntity.ok(ApiResponse.success("Pedidos listados com sucesso", pedidos));
+    @PreAuthorize("hasAnyRole('ADMIN', 'ATENDENTE')")
+    @Operation(summary = "Listar pedidos por status", description = "Lista pedidos filtrados por status com paginação")
+    public ApiResponse<Page<PedidoResponse>> listarPorStatus(
+            @PathVariable StatusPedido status,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.ASC) Pageable pageable) {
+        return ApiResponse.success("Pedidos filtrados por status", pedidoService.listarPorStatus(status, pageable));
     }
 
     /**
-     * Lista pedidos ativos (para painel do atendente)
-     * GET /api/pedidos/ativos
+     * Lista pedidos ativos (CRIADO, EM_ANDAMENTO) com paginação
      */
     @GetMapping("/ativos")
-    @Operation(summary = "Listar pedidos ativos", description = "Lista pedidos pendentes, recebidos e em preparo")
-    public ResponseEntity<ApiResponse<List<PedidoResponse>>> listarAtivos() {
-        List<PedidoResponse> pedidos = pedidoService.listarPedidosAtivos();
-        return ResponseEntity.ok(ApiResponse.success("Pedidos ativos listados", pedidos));
+    @PreAuthorize("hasAnyRole('ADMIN', 'ATENDENTE')")
+    @Operation(summary = "Listar pedidos ativos", description = "Lista pedidos pendentes, recebidos e em preparo com paginação")
+    public ApiResponse<Page<PedidoResponse>> listarAtivos(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.ASC) Pageable pageable) {
+        return ApiResponse.success("Pedidos ativos listados com sucesso", pedidoService.listarPedidosAtivos(pageable));
     }
 
     /**
-     * Lista todos os pedidos de uma SessaoConsumo.
-     * GET /api/pedidos/sessao-consumo/{id}
+     * Lista pedidos por sessão de consumo com paginação
      */
-    @GetMapping("/sessao-consumo/{id}")
-    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
-    @Operation(summary = "Listar pedidos por sessão", description = "Lista todos os pedidos de uma sessão de consumo")
-    public ResponseEntity<ApiResponse<List<PedidoResponse>>> listarPorSessaoConsumo(@PathVariable Long id) {
-        List<PedidoResponse> pedidos = pedidoService.listarPorSessaoConsumo(id);
-        return ResponseEntity.ok(ApiResponse.success("Pedidos da sessão listados", pedidos));
+    @GetMapping("/sessao/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ATENDENTE')")
+    @Operation(summary = "Listar pedidos por sessão", description = "Lista todos os pedidos de uma sessão de consumo com paginação")
+    public ApiResponse<Page<PedidoResponse>> listarPorSessaoConsumo(
+            @PathVariable Long id,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.ASC) Pageable pageable) {
+        return ApiResponse.success("Pedidos da sessão listados com sucesso", pedidoService.listarPorSessaoConsumo(id, pageable));
     }
 
     /**
-     * Lista apenas pedidos activos (CRIADO ou EM_ANDAMENTO) de uma SessaoConsumo.
-     * GET /api/pedidos/sessao-consumo/{id}/ativo
+     * Lista apenas pedidos ativos de uma sessão com paginação
      */
-    @GetMapping("/sessao-consumo/{id}/ativo")
-    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
-    @Operation(summary = "Pedidos activos da sessão", description = "Lista pedidos CRIADO ou EM_ANDAMENTO de uma sessão")
-    public ResponseEntity<ApiResponse<List<PedidoResponse>>> listarAtivosPorSessaoConsumo(@PathVariable Long id) {
-        List<PedidoResponse> pedidos = pedidoService.listarAtivosPorSessaoConsumo(id);
-        return ResponseEntity.ok(ApiResponse.success("Pedidos activos da sessão listados", pedidos));
+    @GetMapping("/sessao/{id}/ativos")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ATENDENTE')")
+    @Operation(summary = "Pedidos activos da sessão", description = "Lista pedidos CRIADO ou EM_ANDAMENTO de uma sessão com paginação")
+    public ApiResponse<Page<PedidoResponse>> listarAtivosPorSessaoConsumo(
+            @PathVariable Long id,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.ASC) Pageable pageable) {
+        return ApiResponse.success("Pedidos ativos da sessão listados com sucesso", pedidoService.listarAtivosPorSessaoConsumo(id, pageable));
     }
 
     /**
@@ -185,6 +201,25 @@ public class PedidoController {
     public ResponseEntity<ApiResponse<PedidoResponse>> fecharConta(@PathVariable Long id) {
         PedidoResponse pedido = pedidoService.fecharConta(id);
         return ResponseEntity.ok(ApiResponse.success("Conta fechada. Mesa libertada.", pedido));
+    }
+
+    /**
+     * Lista pedidos com filtros avançados e paginação. Todos os parâmetros são opcionais.
+     * GET /api/pedidos?status=FINALIZADO&sessaoId=1&page=0&size=20
+     */
+    @GetMapping
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    @Operation(summary = "[Admin] Listar pedidos com filtros",
+               description = "Filtros opcionais: status, sessaoId, dataInicio, dataFim. Suporta paginação.")
+    public ApiResponse<Page<PedidoResponse>> listarComFiltros(
+            @RequestParam(required = false) StatusPedido status,
+            @RequestParam(required = false) Long sessaoId,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(
+                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.LocalDateTime dataInicio,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(
+                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.LocalDateTime dataFim,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ApiResponse.success("Pedidos listados", pedidoService.listarComFiltros(status, sessaoId, dataInicio, dataFim, pageable));
     }
 
     private String getUsuarioLogado() {

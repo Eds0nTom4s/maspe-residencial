@@ -12,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -99,40 +101,53 @@ public class ProdutoService {
     }
 
     /**
-     * Busca todos os produtos disponíveis
+     * Busca todos os produtos disponíveis com paginação
      */
     @Transactional(readOnly = true)
-    public List<ProdutoResponse> listarDisponiveis() {
-        log.info("Listando produtos disponíveis");
-        return produtoRepository.findByDisponivelTrueAndAtivoTrue()
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+    public Page<ProdutoResponse> listarDisponiveis(Pageable pageable) {
+        log.info("Listando produtos disponíveis - Página: {}", pageable.getPageNumber());
+        return produtoRepository.findByDisponivelTrueAndAtivoTrue(pageable)
+                .map(this::mapToResponse);
     }
 
     /**
-     * Busca produtos por categoria
+     * Lista TODOS os produtos (incluindo inativos/indisponíveis) — uso admin.
      */
     @Transactional(readOnly = true)
-    public List<ProdutoResponse> listarPorCategoria(CategoriaProduto categoria) {
-        log.info("Listando produtos da categoria: {}", categoria);
-        return produtoRepository.findByCategoriaAndDisponivelTrueAndAtivoTrue(categoria)
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+    public Page<ProdutoResponse> listarTodos(Pageable pageable) {
+        log.info("Listando todos os produtos (admin) - Página: {}", pageable.getPageNumber());
+        return produtoRepository.findAll(pageable)
+                .map(this::mapToResponse);
     }
 
     /**
-     * Busca produtos por nome (busca parcial)
+     * Retorna o ProdutoResponse por ID.
      */
     @Transactional(readOnly = true)
-    public List<ProdutoResponse> buscarPorNome(String nome) {
-        log.info("Buscando produtos com nome: {}", nome);
-        return produtoRepository.findByNomeContainingIgnoreCaseAndDisponivelTrueAndAtivoTrue(nome)
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+    public ProdutoResponse buscarPorIdResponse(Long id) {
+        return mapToResponse(buscarPorId(id));
     }
+
+    /**
+     * Busca produtos por categoria com paginação
+     */
+    @Transactional(readOnly = true)
+    public Page<ProdutoResponse> listarPorCategoria(CategoriaProduto categoria, Pageable pageable) {
+        log.info("Listando produtos da categoria: {} - Página: {}", categoria, pageable.getPageNumber());
+        return produtoRepository.findByCategoriaAndDisponivelTrueAndAtivoTrue(categoria, pageable)
+                .map(this::mapToResponse);
+    }
+
+    /**
+     * Busca produtos por nome (busca parcial) com paginação
+     */
+    @Transactional(readOnly = true)
+    public Page<ProdutoResponse> buscarPorNome(String nome, Pageable pageable) {
+        log.info("Buscando produtos com nome: {} - Página: {}", nome, pageable.getPageNumber());
+        return produtoRepository.findByNomeContainingIgnoreCaseAndDisponivelTrueAndAtivoTrue(nome, pageable)
+                .map(this::mapToResponse);
+    }
+
 
     /**
      * Altera disponibilidade do produto

@@ -14,6 +14,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import com.restaurante.model.enums.StatusSessaoConsumo;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.format.annotation.DateTimeFormat;
+import java.time.LocalDateTime;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -143,6 +151,55 @@ public class SessaoConsumoController {
     @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
     public ResponseEntity<ApiResponse<List<SessaoConsumoResponse>>> listarAbertas() {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", sessaoConsumoService.listarAbertas()));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Endpoints Admin — Gestão e relatórios de sessões
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Lista sessões filtráveis por status e data.
+     * GET /sessoes-consumo?status=ABERTA&dataInicio=...&dataFim=...&page=0&size=20
+     */
+    @GetMapping
+    @Operation(summary = "[Admin] Listar sessões com filtros e paginação")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    public ApiResponse<Page<SessaoConsumoResponse>> listar(
+            @RequestParam(required = false) StatusSessaoConsumo status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime dataInicio,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime dataFim,
+            @PageableDefault(size = 20, sort = "abertaEm", direction = Sort.Direction.DESC) Pageable pageable) {
+        
+        log.info("GET /sessoes-consumo — status={}, inicio={}, fim={}", status, dataInicio, dataFim);
+        Page<SessaoConsumoResponse> resultado = sessaoConsumoService.listarComFiltros(status, dataInicio, dataFim, pageable);
+        return ApiResponse.success("Sessões recuperadas com sucesso", resultado);
+    }
+
+    /**
+     * Lista apenas sessões em estado AGUARDANDO_PAGAMENTO.
+     * Endpoint dedicado para o painel de caixa.
+     * GET /sessoes-consumo/aguardando-pagamento
+     */
+    @GetMapping("/aguardando-pagamento")
+    @Operation(summary = "[Admin/Caixa] Listar sessões aguardando pagamento")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    public ApiResponse<List<SessaoConsumoResponse>> listarAguardandoPagamento() {
+        log.info("GET /sessoes-consumo/aguardando-pagamento");
+        List<SessaoConsumoResponse> sessoes = sessaoConsumoService.listarPorStatus(StatusSessaoConsumo.AGUARDANDO_PAGAMENTO);
+        return ApiResponse.success("Sucesso", sessoes);
+    }
+
+
+    /**
+     * Resumo financeiro de uma sessão específica.
+     * GET /sessoes-consumo/{id}/resumo-financeiro
+     */
+    @GetMapping("/{id}/resumo-financeiro")
+    @Operation(summary = "[Admin] Resumo financeiro de uma sessão")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    public ResponseEntity<ApiResponse<SessaoConsumoResponse>> resumoFinanceiro(@PathVariable Long id) {
+        log.info("GET /sessoes-consumo/{}/resumo-financeiro", id);
+        return ResponseEntity.ok(ApiResponse.success("Sucesso", sessaoConsumoService.buscarPorId(id)));
     }
 
     private String getUsuarioLogado() {

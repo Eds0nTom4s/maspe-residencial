@@ -5,6 +5,8 @@ import com.restaurante.model.enums.CategoriaProduto;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,22 +27,23 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
     boolean existsByCodigo(String codigo);
 
     /**
-     * Busca produtos ativos
+     * Busca produtos ativos com paginação
      */
-    List<Produto> findByAtivoTrue();
+    Page<Produto> findByAtivoTrue(Pageable pageable);
 
     /**
-     * Busca produtos disponíveis
+     * Busca produtos disponíveis com paginação
      */
-    List<Produto> findByDisponivelTrueAndAtivoTrue();
+    Page<Produto> findByDisponivelTrueAndAtivoTrue(Pageable pageable);
 
     /**
-     * Busca produtos por categoria
+     * Busca produtos por categoria com paginação
      */
-    List<Produto> findByCategoriaAndDisponivelTrueAndAtivoTrue(CategoriaProduto categoria);
+    Page<Produto> findByCategoriaAndDisponivelTrueAndAtivoTrue(CategoriaProduto categoria, Pageable pageable);
 
     /**
-     * Busca produtos por nome (busca parcial)
+     * Busca produtos por nome (busca parcial) com paginação
      */
-    List<Produto> findByNomeContainingIgnoreCaseAndDisponivelTrueAndAtivoTrue(String nome);
+    Page<Produto> findByNomeContainingIgnoreCaseAndDisponivelTrueAndAtivoTrue(String nome, Pageable pageable);
 }
+

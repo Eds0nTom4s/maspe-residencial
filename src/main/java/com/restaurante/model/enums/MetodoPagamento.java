@@ -6,12 +6,9 @@ package com.restaurante.model.enums;
  * Estrutura preparada para integração futura com gateways de pagamento
  */
 public enum MetodoPagamento {
-    DINHEIRO("Dinheiro"),
-    CARTAO_CREDITO("Cartão de Crédito"),
-    CARTAO_DEBITO("Cartão de Débito"),
-    PIX("PIX"),
-    VALE_REFEICAO("Vale Refeição"),
-    DIGITAL("Pagamento Digital");
+    CASH("Cash / Dinheiro Físico"),
+    TPA("TPA / Cartão Multicaixa"),
+    DIGITAL("Pagamento Digital (App/Carteira)");
 
     private final String descricao;
 

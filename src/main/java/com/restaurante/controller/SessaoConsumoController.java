@@ -82,6 +82,19 @@ public class SessaoConsumoController {
         return ResponseEntity.ok(ApiResponse.success("Sessão aguardando pagamento", response));
     }
 
+    @PutMapping("/{id}/liquidar")
+    @Operation(summary = "Checkout e liquidação (pagamento) de toda a sessão de consumo pós-paga")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    public ResponseEntity<ApiResponse<SessaoConsumoResponse>> liquidarContaPosPago(
+            @PathVariable Long id,
+            @RequestParam(required = false, defaultValue = "CASH") String metodoPagamento,
+            @RequestParam(required = false) String qrCodeFundoExterno,
+            @RequestParam(required = false) String telefone) {
+        log.info("PUT /sessoes-consumo/{}/liquidar - metodo: {}, telefone: {}", id, metodoPagamento, telefone);
+        SessaoConsumoResponse response = sessaoConsumoService.liquidarContaPosPago(id, metodoPagamento, qrCodeFundoExterno, telefone);
+        return ResponseEntity.ok(ApiResponse.success("Liquidação concluída. Sessão encerrada.", response));
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Operações para Cliente (QR Ordering)
     // ──────────────────────────────────────────────────────────────────────────

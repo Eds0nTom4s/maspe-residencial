@@ -55,12 +55,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Lombok para reduzir boilerplate -->
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>1.18.30</version>
-        </dependency>
+
 
         <!-- MapStruct para mapeamento de DTOs -->
         <dependency>
@@ -133,6 +128,13 @@
             <groupId>com.google.zxing</groupId>
             <artifactId>javase</artifactId>
             <version>3.5.3</version>
+        </dependency>
+        
+        <!-- MinIO Client for File Storage -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.7</version>
         </dependency>
 
     <!-- Lombok -->

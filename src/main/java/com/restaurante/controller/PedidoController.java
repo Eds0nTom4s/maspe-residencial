@@ -204,6 +204,25 @@ public class PedidoController {
     }
 
     /**
+     * Paga o pedido usando um fundo de consumo (via QR Code).
+     * O QR Code pode ser de qualquer fundo ativo (próprio ou de terceiros).
+     * POST /api/pedidos/{id}/pagar-com-fundo
+     */
+    @PostMapping("/{id}/pagar-com-fundo")
+    @PreAuthorize("hasRole('CLIENTE')")
+    @Operation(
+        summary = "Pagar com fundo de consumo",
+        description = "Debita o valor do pedido de um QR Code de fundo de consumo escaneado."
+    )
+    public ResponseEntity<ApiResponse<PedidoResponse>> pagarComFundo(
+            @PathVariable Long id,
+            @RequestParam String qrCodeFundo) {
+        String telefonePagador = getUsuarioLogado();
+        PedidoResponse pedido = pedidoService.pagarComFundoExterno(id, qrCodeFundo, telefonePagador);
+        return ResponseEntity.ok(ApiResponse.success("Pagamento efetuado com sucesso via fundo de consumo", pedido));
+    }
+
+    /**
      * Lista pedidos com filtros avançados e paginação. Todos os parâmetros são opcionais.
      * GET /api/pedidos?status=FINALIZADO&sessaoId=1&page=0&size=20
      */

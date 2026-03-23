@@ -156,7 +156,8 @@ public class PedidoFinanceiroService {
             Long pedidoId,
             SessaoConsumo sessao,
             BigDecimal valorTotal,
-            TipoPagamentoPedido tipoPagamento) {
+            TipoPagamentoPedido tipoPagamento,
+            String qrCodeFundoExterno) {
 
         log.info("Processando pagamento do pedido {}: tipo={}, valor={}", pedidoId, tipoPagamento, valorTotal);
 
@@ -170,11 +171,25 @@ public class PedidoFinanceiroService {
         }
 
         if (tipoPagamento.isPrePago()) {
-            // Obtém fundo directamente da sessão
-            FundoConsumo fundo = sessao.getFundoConsumo();
-            if (fundo == null) {
-                throw new BusinessException("Sessão ID=" + sessao.getId() + " não possui fundo de consumo ativo");
+            FundoConsumo fundo;
+            
+            if (qrCodeFundoExterno != null && !qrCodeFundoExterno.isBlank()) {
+                // FLUXO: Pagar com fundo externo (via scan)
+                log.info("Pedido {} sendo pago via fundo externo: {}", pedidoId, qrCodeFundoExterno);
+                fundo = fundoConsumoService.buscarPorToken(qrCodeFundoExterno);
+                
+                // Notificar dono do fundo (regra de negócio: se for identificado)
+                if (fundo.getSessaoConsumo() != null && fundo.getSessaoConsumo().getCliente() != null) {
+                    notificarDonoFundo(fundo.getSessaoConsumo().getCliente(), valorTotal, pedido.getNumero());
+                }
+            } else {
+                // FLUXO PADRÃO: Pagar com fundo da própria sessão
+                fundo = sessao.getFundoConsumo();
+                if (fundo == null) {
+                    throw new BusinessException("Sessão ID=" + sessao.getId() + " não possui fundo de consumo ativo");
+                }
             }
+            
             fundoConsumoService.debitarDireto(fundo, pedidoId, valorTotal);
             pedido.marcarComoPago();
         } else {
@@ -275,6 +290,16 @@ public class PedidoFinanceiroService {
     // ──────────────────────────────────────────────────────────────────────────
     // Helpers de segurança
     // ──────────────────────────────────────────────────────────────────────────
+
+    private void notificarDonoFundo(com.restaurante.model.entity.Cliente dono, BigDecimal valor, String numeroPedido) {
+        try {
+            log.info("Notificando dono do fundo ({}) sobre débito de {}", dono.getTelefone(), valor);
+            // Aqui chamaríamos o serviço de notificação SMS/WebSocket
+            // NotificacaoService.notificarDebitoFundoCompartilhado(...)
+        } catch (Exception e) {
+            log.error("Erro ao notificar dono do fundo: {}", e.getMessage());
+        }
+    }
 
     private String obterNomeUsuarioAutenticado() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();

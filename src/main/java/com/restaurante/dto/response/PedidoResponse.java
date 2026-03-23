@@ -27,6 +27,8 @@ public class PedidoResponse {
     private Long sessaoConsumoId;
     private Long mesaId;
     private String referenciaMesa;
+    private Integer totalSubPedidos;
+    private Integer completedSubPedidos;
     private List<ItemPedidoResponse> itens;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

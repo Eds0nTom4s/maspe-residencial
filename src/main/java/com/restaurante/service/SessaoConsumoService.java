@@ -23,6 +23,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.restaurante.notificacao.service.NotificacaoService;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -65,6 +67,7 @@ public class SessaoConsumoService {
 
     private final PedidoRepository pedidoRepository;
     private final QrCodeService qrCodeService;
+    private final NotificacaoService notificacaoService;
 
     public SessaoConsumoService(SessaoConsumoRepository sessaoConsumoRepository,
                                 MesaRepository mesaRepository,
@@ -74,7 +77,8 @@ public class SessaoConsumoService {
                                 FundoConsumoService fundoConsumoService,
                                 PedidoFinanceiroService pedidoFinanceiroService,
                                 PedidoRepository pedidoRepository,
-                                QrCodeService qrCodeService) {
+                                QrCodeService qrCodeService,
+                                NotificacaoService notificacaoService) {
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.mesaRepository = mesaRepository;
         this.clienteService = clienteService;
@@ -84,6 +88,7 @@ public class SessaoConsumoService {
         this.pedidoFinanceiroService = pedidoFinanceiroService;
         this.pedidoRepository = pedidoRepository;
         this.qrCodeService = qrCodeService;
+        this.notificacaoService = notificacaoService;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -152,7 +157,7 @@ public class SessaoConsumoService {
             if (request.getTelefoneCliente() == null || request.getTelefoneCliente().isBlank()) {
                 throw new BusinessException("Telefone do cliente é obrigatório no fluxo identificado");
             }
-            Cliente cliente = clienteService.buscarOuCriarPorTelefone(request.getTelefoneCliente());
+            Cliente cliente = clienteService.buscarOuCriarPorTelefone(request.getTelefoneCliente(), request.getNomeCliente());
 
             // Impede cliente com sessão aberta (qualquer mesa)
             sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())
@@ -160,8 +165,13 @@ public class SessaoConsumoService {
                         String localSessao = sessaoExistente.getMesa() != null
                                 ? "mesa '" + sessaoExistente.getMesa().getReferencia() + "'"
                                 : "sessão #" + sessaoExistente.getId();
+                                
+                        String nomeExibicao = (cliente.getNome() != null && !cliente.getNome().isBlank()) 
+                                ? cliente.getNome() 
+                                : cliente.getTelefone();
+
                         throw new BusinessException(
-                                "Cliente '" + cliente.getNome() + "' já possui sessão aberta em " + localSessao);
+                                "Cliente '" + nomeExibicao + "' já possui sessão aberta em " + localSessao);
                     });
 
             builder.cliente(cliente);
@@ -186,6 +196,20 @@ public class SessaoConsumoService {
 
         log.info("Sessão aberta: ID={}, QR={}, fundo=ID:{}, status={}",
                 sessaoSalva.getId(), sessaoSalva.getQrCodeSessao(), fundo.getId(), sessaoSalva.getStatus());
+
+        // Enviar notificação SMS para o cliente
+        if (!request.isModoAnonimo() && request.getTelefoneCliente() != null && !request.getTelefoneCliente().isBlank()) {
+            final String referenciaMesa = (sessaoSalva.getMesa() != null) ? sessaoSalva.getMesa().getReferencia() : null;
+            try {
+                notificacaoService.enviarNotificacaoSessaoCriada(
+                    request.getTelefoneCliente(),
+                    referenciaMesa,
+                    sessaoSalva.getQrCodeSessao()
+                );
+            } catch (Exception e) {
+                log.error("Erro ao enviar SMS de abertura de sessão: {}", e.getMessage());
+            }
+        }
 
         return converterParaResponse(sessaoSalva, fundo);
     }
@@ -261,7 +285,7 @@ public class SessaoConsumoService {
      * e transiciona a sessão de AGUARDANDO_PAGAMENTO para ENCERRADA.
      */
     @Transactional
-    public SessaoConsumoResponse liquidarContaPosPago(Long id, String metodoPagamento) {
+    public SessaoConsumoResponse liquidarContaPosPago(Long id, String metodoPagamento, String qrCodeFundoExterno, String telefone) {
         log.info("Liquidando conta POS_PAGO da sessão ID={} com método {}", id, metodoPagamento);
         
         SessaoConsumo sessao = buscarEntidadePorId(id);
@@ -298,14 +322,46 @@ public class SessaoConsumoService {
         int countPagas = 0;
         BigDecimal valorTotalLiquidado = BigDecimal.ZERO;
         
-        for (Pedido pedido : pedidosPendentes) {
-            // Confirmamos usando o PedidoFinanceiroService para gerar a auditoria correta
-            pedidoFinanceiroService.confirmarPagamentoPosPago(pedido.getId());
-            countPagas++;
-            valorTotalLiquidado = valorTotalLiquidado.add(pedido.getTotal() != null ? pedido.getTotal() : BigDecimal.ZERO);
+        // Determina se pagamento via Fundo (externo ou o da sessão)
+        boolean pagarComFundo = "FUNDO_CONSUMO".equalsIgnoreCase(metodoPagamento);
+        String tokenFundoParaPagamento = qrCodeFundoExterno;
+        if (pagarComFundo && (tokenFundoParaPagamento == null || tokenFundoParaPagamento.isBlank())) {
+            // Se deseja pagar com fundo, mas não passou um externo, usamos o da própria sessão, se post-pago o permitiria 
+            // Porém, POS_PAGO não tem dinheiro na sessão (a menos que tenham recarregado como poupança).
+            if (sessao.getFundoConsumo() != null && sessao.getQrCodeSessao() != null) {
+                 tokenFundoParaPagamento = sessao.getQrCodeSessao();
+            } else {
+                 throw new BusinessException("QR Code do Fundo de Consumo não informado para o pagamento");
+            }
         }
         
-        log.info("Liquidação POS_PAGO concluída: {} faturas confirmadas, Total: {}", countPagas, com.restaurante.util.MoneyFormatter.format(valorTotalLiquidado));
+        for (Pedido pedido : pedidosPendentes) {
+            if (pagarComFundo) {
+                // Modifica o tipo de pagamento para pré-pago a meio do voo para o financeiro service aceitar o débito
+                // ou apenas chama processarPagamento normal (assumindo que já validou total do fundo)
+                
+                // Pedido foi POS_PAGO, entao ele tem que se tornar PRE_PAGO ou o service aceitar pagar o post-pago com o fundo.
+                // Como PedidoFinanceiroService tem um processamento directo, vamos debitar do fundo.
+                try {
+                    FundoConsumo fundo = fundoConsumoService.buscarPorToken(tokenFundoParaPagamento);
+                    fundoConsumoService.debitarDireto(fundo, pedido.getId(), pedido.getTotal() != null ? pedido.getTotal() : BigDecimal.ZERO);
+                    pedido.marcarComoPago();
+                    pedidoRepository.save(pedido);
+                    countPagas++;
+                    valorTotalLiquidado = valorTotalLiquidado.add(pedido.getTotal() != null ? pedido.getTotal() : BigDecimal.ZERO);
+                } catch (Exception e) {
+                    throw new BusinessException("Erro ao pagar com fundo: " + e.getMessage());
+                }
+            } else {
+                // Cash, TPA, AppyPay (registrado externamente)
+                pedidoFinanceiroService.confirmarPagamentoPosPago(pedido.getId());
+                countPagas++;
+                valorTotalLiquidado = valorTotalLiquidado.add(pedido.getTotal() != null ? pedido.getTotal() : BigDecimal.ZERO);
+            }
+        }
+        
+        log.info("Liquidação POS_PAGO concluída: {} faturas pagas (Método: {}), Total: {}", 
+                 countPagas, metodoPagamento, com.restaurante.util.MoneyFormatter.format(valorTotalLiquidado));
         
         // Retorna a view atualizada da sessão (após isso, pode-se fechar com sucesso)
         return fechar(id);
@@ -398,10 +454,21 @@ public class SessaoConsumoService {
                 sessao.setCliente(cliente);
                 sessao.setModoAnonimo(false);
                 sessao = sessaoConsumoRepository.save(sessao);
-                log.info("Cliente {} associou-se à Sessão ID={}", cliente.getNome(), sessao.getId());
+                
+                String nomeIdentificacao = (cliente.getNome() != null && !cliente.getNome().isBlank()) 
+                        ? cliente.getNome() 
+                        : cliente.getTelefone();
+                log.info("Cliente {} associou-se à Sessão ID={}", nomeIdentificacao, sessao.getId());
             } else if (!sessao.getCliente().getId().equals(cliente.getId())) {
+                String nomeAtual = (sessao.getCliente().getNome() != null && !sessao.getCliente().getNome().isBlank())
+                        ? sessao.getCliente().getNome()
+                        : sessao.getCliente().getTelefone();
+                String nomeConvidado = (cliente.getNome() != null && !cliente.getNome().isBlank())
+                        ? cliente.getNome()
+                        : cliente.getTelefone();
+                        
                 log.info("Sessão da mesa já pertence ao cliente {}, adicionando {} como convidado (funcionalidade futura, por agora retornamos sucesso)", 
-                    sessao.getCliente().getNome(), cliente.getNome());
+                    nomeAtual, nomeConvidado);
                 // Futuro: Lógica de convidados. Por agora, apenas permitimos a visualização.
             }
         } else {
@@ -410,6 +477,9 @@ public class SessaoConsumoService {
                     .mesaId(qrCode.getMesaId())
                     .modoAnonimo(false)
                     .telefoneCliente(telefoneCliente)
+                    // No fluxo de QR code, por enquanto não temos campo de nome no parâmetro
+                    // Mas a carcaça do DTO já suporta. Passamos null.
+                    .nomeCliente(null) 
                     .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
                     .build();
             return abrir(req);

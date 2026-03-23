@@ -2,6 +2,7 @@ package com.restaurante.notificacao.service;
 
 import com.restaurante.notificacao.gateway.SmsGateway;
 import com.restaurante.notificacao.gateway.SmsResponse;
+import org.springframework.scheduling.annotation.Async;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -43,7 +44,8 @@ public class NotificacaoService {
     /**
      * Envia notificação de recarga de fundo confirmada
      */
-    public boolean enviarNotificacaoRecargaConfirmada(String telefone, double valor, String metodoPagamento) {
+    @Async
+    public void enviarNotificacaoRecargaConfirmada(String telefone, double valor, String metodoPagamento) {
         String mensagem = String.format(
             "Recarga confirmada!\n" +
             "Valor: Kz %.2f\n" +
@@ -53,43 +55,68 @@ public class NotificacaoService {
             metodoPagamento
         );
         
-        return enviarSms(telefone, mensagem, "RECARGA_CONFIRMADA");
+        enviarSms(telefone, mensagem, "RECARGA_CONFIRMADA");
+    }
+    
+    /**
+     * Envia notificação quando uma sessão de consumo é criada (mesa/quarto aberto)
+     */
+    @Async
+    public void enviarNotificacaoSessaoCriada(String telefone, String referenciaMesa, String qrCodeSessao) {
+        String mensagem = String.format(
+            "Bem-vindo! A sua conta em %s foi aberta.\n" +
+            "Seu TOKEN/QR Único: %s\n" +
+            "Acompanhe o consumo e pague em: https://app.restaurante.com/s/%s\n" +
+            "Sistema de Restauração",
+            referenciaMesa != null ? "mesa/quarto (" + referenciaMesa + ")" : "balcão",
+            qrCodeSessao,
+            qrCodeSessao
+        );
+        
+        enviarSms(telefone, mensagem, "SESSAO_CRIADA");
     }
     
     /**
      * Envia notificação de pedido criado
      */
-    public boolean enviarNotificacaoPedidoCriado(String telefone, String numeroPedido, double total) {
+    @Async
+    public void enviarNotificacaoPedidoCriado(String telefone, String numeroPedido, double total, String itens) {
         String mensagem = String.format(
             "Pedido #%s criado com sucesso!\n" +
+            "Itens: %s\n" +
             "Total: Kz %.2f\n" +
             "Aguardando preparação.\n" +
             "Sistema de Restauração",
             numeroPedido,
+            itens,
             total
         );
         
-        return enviarSms(telefone, mensagem, "PEDIDO_CRIADO");
+        enviarSms(telefone, mensagem, "PEDIDO_CRIADO");
     }
     
     /**
      * Envia notificação de pedido pronto
      */
-    public boolean enviarNotificacaoPedidoPronto(String telefone, String numeroPedido) {
+    @Async
+    public void enviarNotificacaoPedidoPronto(String telefone, String numeroPedido, String itens) {
         String mensagem = String.format(
-            "Seu pedido #%s está pronto! 🍴\n" +
+            "Seu pedido #%s está pronto! \uD83C\uDF74\n" +
+            "Item(ns): %s\n" +
             "Dirija-se ao balcão de retirada.\n" +
             "Sistema de Restauração",
-            numeroPedido
+            numeroPedido,
+            itens
         );
         
-        return enviarSms(telefone, mensagem, "PEDIDO_PRONTO");
+        enviarSms(telefone, mensagem, "PEDIDO_PRONTO");
     }
     
     /**
      * Envia notificação de referência bancária gerada
      */
-    public boolean enviarNotificacaoReferenciaBancaria(String telefone, String entidade, String referencia, double valor) {
+    @Async
+    public void enviarNotificacaoReferenciaBancaria(String telefone, String entidade, String referencia, double valor) {
         String mensagem = String.format(
             "Referência Multicaixa gerada:\n" +
             "Entidade: %s\n" +
@@ -102,13 +129,14 @@ public class NotificacaoService {
             valor
         );
         
-        return enviarSms(telefone, mensagem, "REFERENCIA_BANCARIA");
+        enviarSms(telefone, mensagem, "REFERENCIA_BANCARIA");
     }
     
     /**
      * Envia notificação de saldo insuficiente
      */
-    public boolean enviarNotificacaoSaldoInsuficiente(String telefone, double saldoAtual, double valorNecessario) {
+    @Async
+    public void enviarNotificacaoSaldoInsuficiente(String telefone, double saldoAtual, double valorNecessario) {
         String mensagem = String.format(
             "Saldo insuficiente!\n" +
             "Saldo atual: Kz %.2f\n" +
@@ -119,7 +147,26 @@ public class NotificacaoService {
             valorNecessario
         );
         
-        return enviarSms(telefone, mensagem, "SALDO_INSUFICIENTE");
+        enviarSms(telefone, mensagem, "SALDO_INSUFICIENTE");
+    }
+    
+    /**
+     * Envia notificação quando o fundo é usado por terceiros para pagar um pedido
+     */
+    @Async
+    public void enviarNotificacaoUsoFundoPorTerceiros(String telefone, String numeroPedido, double valor, String nomePagador) {
+        String mensagem = String.format(
+            "Seu fundo foi usado!\n" +
+            "Valor: Kz %.2f\n" +
+            "Pedido: #%s\n" +
+            "Utilizado por: %s\n" +
+            "Sistema de Restauração",
+            valor,
+            numeroPedido,
+            nomePagador != null ? nomePagador : "Usuário anónimo"
+        );
+        
+        enviarSms(telefone, mensagem, "USO_FUNDO_TERCEIROS");
     }
     
     /**

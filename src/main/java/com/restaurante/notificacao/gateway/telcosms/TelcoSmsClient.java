@@ -22,7 +22,7 @@ public class TelcoSmsClient {
     private final TelcoSmsProperties properties;
     private final RestTemplate restTemplate;
     
-    public TelcoSmsClient(TelcoSmsProperties properties, RestTemplate restTemplate) {
+    public TelcoSmsClient(TelcoSmsProperties properties, @org.springframework.beans.factory.annotation.Qualifier("smsRestTemplate") RestTemplate restTemplate) {
         this.properties = properties;
         this.restTemplate = restTemplate;
     }

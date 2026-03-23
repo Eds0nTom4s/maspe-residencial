@@ -11,8 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
@@ -66,11 +65,10 @@ class NotificacaoServiceTest {
                 .thenReturn(SmsResponse.success("SMS-456"));
 
         // Act
-        boolean enviado = notificacaoService.enviarNotificacaoRecargaConfirmada(
+        notificacaoService.enviarNotificacaoRecargaConfirmada(
                 telefone, valor, metodoPagamento);
 
         // Assert
-        assertTrue(enviado);
         verify(smsGateway, times(1)).sendSms(
                 eq(telefone), 
                 contains("Recarga confirmada")
@@ -87,14 +85,13 @@ class NotificacaoServiceTest {
                 .thenReturn(SmsResponse.success("SMS-789"));
 
         // Act
-        boolean enviado = notificacaoService.enviarNotificacaoPedidoCriado(
-                telefone, numeroPedido, total);
+        notificacaoService.enviarNotificacaoPedidoCriado(
+                telefone, numeroPedido, total, "Produto A, Produto B");
 
         // Assert
-        assertTrue(enviado);
         verify(smsGateway, times(1)).sendSms(
                 eq(telefone), 
-                contains(numeroPedido)
+                argThat(msg -> msg.contains(numeroPedido) && msg.contains("Produto A, Produto B"))
         );
     }
 
@@ -107,14 +104,13 @@ class NotificacaoServiceTest {
                 .thenReturn(SmsResponse.success("SMS-ABC"));
 
         // Act
-        boolean enviado = notificacaoService.enviarNotificacaoPedidoPronto(
-                telefone, numeroPedido);
+        notificacaoService.enviarNotificacaoPedidoPronto(
+                telefone, numeroPedido, "Produto A");
 
         // Assert
-        assertTrue(enviado);
         verify(smsGateway, times(1)).sendSms(
                 eq(telefone), 
-                contains("pronto")
+                argThat(msg -> msg.contains("pronto") && msg.contains("Produto A"))
         );
     }
 
@@ -129,11 +125,10 @@ class NotificacaoServiceTest {
                 .thenReturn(SmsResponse.success("SMS-DEF"));
 
         // Act
-        boolean enviado = notificacaoService.enviarNotificacaoReferenciaBancaria(
+        notificacaoService.enviarNotificacaoReferenciaBancaria(
                 telefone, entidade, referencia, valor);
 
         // Assert
-        assertTrue(enviado);
         verify(smsGateway, times(1)).sendSms(
                 eq(telefone), 
                 contains(referencia)
@@ -150,11 +145,10 @@ class NotificacaoServiceTest {
                 .thenReturn(SmsResponse.success("SMS-GHI"));
 
         // Act
-        boolean enviado = notificacaoService.enviarNotificacaoSaldoInsuficiente(
+        notificacaoService.enviarNotificacaoSaldoInsuficiente(
                 telefone, saldoAtual, valorNecessario);
 
         // Assert
-        assertTrue(enviado);
         verify(smsGateway, times(1)).sendSms(
                 eq(telefone), 
                 contains("insuficiente")

@@ -54,6 +54,14 @@ public class Pagamento extends BaseEntity {
     private FundoConsumo fundoConsumo;
 
     /**
+     * Cliente relacionado (opcional)
+     * Usado quando o cliente solicita recarga sem ter uma sessão ativa
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cliente_id")
+    private Cliente cliente;
+
+    /**
      * Tipo de pagamento
      * PRE_PAGO: Recarga de fundo
      * POS_PAGO: Pagamento de pedido
@@ -127,7 +135,7 @@ public class Pagamento extends BaseEntity {
     // ── Constructors ──────────────────────────────────────────────────────────
     public Pagamento() {}
 
-    public Pagamento(Pedido pedido, FundoConsumo fundoConsumo,
+    public Pagamento(Pedido pedido, FundoConsumo fundoConsumo, Cliente cliente,
                      TipoPagamentoFinanceiro tipoPagamento, MetodoPagamentoAppyPay metodo,
                      BigDecimal amount, StatusPagamentoGateway status,
                      String externalReference, String gatewayChargeId,
@@ -135,6 +143,7 @@ public class Pagamento extends BaseEntity {
                      String gatewayResponse, String observacoes) {
         this.pedido = pedido;
         this.fundoConsumo = fundoConsumo;
+        this.cliente = cliente;
         this.tipoPagamento = tipoPagamento;
         this.metodo = metodo;
         this.amount = amount;
@@ -151,6 +160,7 @@ public class Pagamento extends BaseEntity {
     // ── Getters ───────────────────────────────────────────────────────────────
     public Pedido getPedido() { return pedido; }
     public FundoConsumo getFundoConsumo() { return fundoConsumo; }
+    public Cliente getCliente() { return cliente; }
     public TipoPagamentoFinanceiro getTipoPagamento() { return tipoPagamento; }
     public MetodoPagamentoAppyPay getMetodo() { return metodo; }
     public BigDecimal getAmount() { return amount; }
@@ -166,6 +176,7 @@ public class Pagamento extends BaseEntity {
     // ── Setters ───────────────────────────────────────────────────────────────
     public void setPedido(Pedido pedido) { this.pedido = pedido; }
     public void setFundoConsumo(FundoConsumo fundoConsumo) { this.fundoConsumo = fundoConsumo; }
+    public void setCliente(Cliente cliente) { this.cliente = cliente; }
     public void setTipoPagamento(TipoPagamentoFinanceiro tipoPagamento) { this.tipoPagamento = tipoPagamento; }
     public void setMetodo(MetodoPagamentoAppyPay metodo) { this.metodo = metodo; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
@@ -200,6 +211,7 @@ public class Pagamento extends BaseEntity {
     public static class Builder {
         private Pedido pedido;
         private FundoConsumo fundoConsumo;
+        private Cliente cliente;
         private TipoPagamentoFinanceiro tipoPagamento;
         private MetodoPagamentoAppyPay metodo;
         private BigDecimal amount;
@@ -214,6 +226,7 @@ public class Pagamento extends BaseEntity {
 
         public Builder pedido(Pedido pedido) { this.pedido = pedido; return this; }
         public Builder fundoConsumo(FundoConsumo fundoConsumo) { this.fundoConsumo = fundoConsumo; return this; }
+        public Builder cliente(Cliente cliente) { this.cliente = cliente; return this; }
         public Builder tipoPagamento(TipoPagamentoFinanceiro tipoPagamento) { this.tipoPagamento = tipoPagamento; return this; }
         public Builder metodo(MetodoPagamentoAppyPay metodo) { this.metodo = metodo; return this; }
         public Builder amount(BigDecimal amount) { this.amount = amount; return this; }
@@ -227,7 +240,7 @@ public class Pagamento extends BaseEntity {
         public Builder observacoes(String observacoes) { this.observacoes = observacoes; return this; }
 
         public Pagamento build() {
-            return new Pagamento(pedido, fundoConsumo, tipoPagamento, metodo, amount, status,
+            return new Pagamento(pedido, fundoConsumo, cliente, tipoPagamento, metodo, amount, status,
                     externalReference, gatewayChargeId, entidade, referencia,
                     confirmedAt, gatewayResponse, observacoes);
         }

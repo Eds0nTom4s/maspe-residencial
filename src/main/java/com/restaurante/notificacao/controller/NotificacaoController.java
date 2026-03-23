@@ -75,19 +75,12 @@ public class NotificacaoController {
         double valor = ((Number) request.get("valor")).doubleValue();
         String metodoPagamento = (String) request.get("metodoPagamento");
         
-        boolean enviado = notificacaoService.enviarNotificacaoRecargaConfirmada(telefone, valor, metodoPagamento);
+        notificacaoService.enviarNotificacaoRecargaConfirmada(telefone, valor, metodoPagamento);
         
-        if (enviado) {
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Notificação de recarga enviada"
-            ));
-        } else {
-            return ResponseEntity.status(500).body(Map.of(
-                "success", false,
-                "message", "Falha ao enviar notificação"
-            ));
-        }
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Notificação de recarga enviada"
+        ));
     }
     
     /**
@@ -98,20 +91,14 @@ public class NotificacaoController {
         String telefone = (String) request.get("telefone");
         String numeroPedido = (String) request.get("numeroPedido");
         double total = ((Number) request.get("total")).doubleValue();
+        String itens = (String) request.getOrDefault("itens", "Itens diversos");
         
-        boolean enviado = notificacaoService.enviarNotificacaoPedidoCriado(telefone, numeroPedido, total);
+        notificacaoService.enviarNotificacaoPedidoCriado(telefone, numeroPedido, total, itens);
         
-        if (enviado) {
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Notificação de pedido criado enviada"
-            ));
-        } else {
-            return ResponseEntity.status(500).body(Map.of(
-                "success", false,
-                "message", "Falha ao enviar notificação"
-            ));
-        }
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Notificação de pedido criado enviada"
+        ));
     }
     
     /**
@@ -121,20 +108,14 @@ public class NotificacaoController {
     public ResponseEntity<?> notificarPedidoPronto(@RequestBody Map<String, String> request) {
         String telefone = request.get("telefone");
         String numeroPedido = request.get("numeroPedido");
+        String itens = (String) request.getOrDefault("itens", "Itens diversos");
         
-        boolean enviado = notificacaoService.enviarNotificacaoPedidoPronto(telefone, numeroPedido);
+        notificacaoService.enviarNotificacaoPedidoPronto(telefone, numeroPedido, itens);
         
-        if (enviado) {
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Notificação de pedido pronto enviada"
-            ));
-        } else {
-            return ResponseEntity.status(500).body(Map.of(
-                "success", false,
-                "message", "Falha ao enviar notificação"
-            ));
-        }
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Notificação de pedido pronto enviada"
+        ));
     }
     
     /**
@@ -147,19 +128,12 @@ public class NotificacaoController {
         String referencia = (String) request.get("referencia");
         double valor = ((Number) request.get("valor")).doubleValue();
         
-        boolean enviado = notificacaoService.enviarNotificacaoReferenciaBancaria(telefone, entidade, referencia, valor);
+        notificacaoService.enviarNotificacaoReferenciaBancaria(telefone, entidade, referencia, valor);
         
-        if (enviado) {
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Notificação de referência bancária enviada"
-            ));
-        } else {
-            return ResponseEntity.status(500).body(Map.of(
-                "success", false,
-                "message", "Falha ao enviar notificação"
-            ));
-        }
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Notificação de referência bancária enviada"
+        ));
     }
     
     /**
@@ -171,18 +145,11 @@ public class NotificacaoController {
         double saldoAtual = ((Number) request.get("saldoAtual")).doubleValue();
         double valorNecessario = ((Number) request.get("valorNecessario")).doubleValue();
         
-        boolean enviado = notificacaoService.enviarNotificacaoSaldoInsuficiente(telefone, saldoAtual, valorNecessario);
+        notificacaoService.enviarNotificacaoSaldoInsuficiente(telefone, saldoAtual, valorNecessario);
         
-        if (enviado) {
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Notificação de saldo insuficiente enviada"
-            ));
-        } else {
-            return ResponseEntity.status(500).body(Map.of(
-                "success", false,
-                "message", "Falha ao enviar notificação"
-            ));
-        }
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Notificação de saldo insuficiente enviada"
+        ));
     }
 }

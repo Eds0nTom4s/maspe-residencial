@@ -53,7 +53,7 @@ public class ClienteService {
         log.info("Solicitando OTP para telefone: {}", request.getTelefone());
         
         Cliente cliente = clienteRepository.findByTelefone(request.getTelefone())
-                .orElseGet(() -> criarNovoCliente(request.getTelefone()));
+                .orElseGet(() -> criarNovoCliente(request.getTelefone(), null));
 
         String otp = gerarOtp();
         cliente.setOtpCode(otp);
@@ -120,25 +120,40 @@ public class ClienteService {
                 .orElseThrow(() -> new ResourceNotFoundException("Cliente", "telefone", telefone));
     }
 
-    /**
-     * Retorna o cliente pelo telefone, criando-o automaticamente se não existir.
-     * Usado no fluxo de abertura de sessão — o cliente é registado na primeira visita.
-     */
     @Transactional
     public Cliente buscarOuCriarPorTelefone(String telefone) {
+        return buscarOuCriarPorTelefone(telefone, null);
+    }
+
+    /**
+     * Retorna o cliente pelo telefone, criando-o automaticamente se não existir.
+     * Se o cliente existir mas o nome for nulo e um nome novo for fornecido, atualiza-o.
+     */
+    @Transactional
+    public Cliente buscarOuCriarPorTelefone(String telefone, String nome) {
         return clienteRepository.findByTelefone(telefone)
+                .map(cliente -> {
+                    // Se o cliente existe mas está sem nome, e recebemos um nome, atualizamos
+                    if ((cliente.getNome() == null || cliente.getNome().isBlank()) && nome != null && !nome.isBlank()) {
+                        log.info("Atualizando nome para cliente existente {}: {}", telefone, nome);
+                        cliente.setNome(nome.trim());
+                        return clienteRepository.save(cliente);
+                    }
+                    return cliente;
+                })
                 .orElseGet(() -> {
-                    log.info("Cliente não encontrado para telefone {}. Criando automaticamente.", telefone);
-                    return criarNovoCliente(telefone);
+                    log.info("Cliente não encontrado para telefone {}. Criando automaticamente com nome '{}'.", telefone, nome);
+                    return criarNovoCliente(telefone, nome);
                 });
     }
 
     /**
-     * Cria um novo cliente
+     * Cria um novo cliente com nome opcional
      */
-    private Cliente criarNovoCliente(String telefone) {
+    private Cliente criarNovoCliente(String telefone, String nome) {
         Cliente cliente = Cliente.builder()
                 .telefone(telefone)
+                .nome(nome != null && !nome.isBlank() ? nome.trim() : null)
                 .telefoneVerificado(false)
                 .ativo(true)
                 .build();

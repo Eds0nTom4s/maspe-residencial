@@ -3,13 +3,16 @@ package com.restaurante.service;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.exception.SaldoInsuficienteException;
+import com.restaurante.model.entity.Cliente;
 import com.restaurante.model.entity.FundoConsumo;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.TransacaoFundo;
 import com.restaurante.model.enums.TipoTransacaoFundo;
+import com.restaurante.repository.ClienteRepository;
 import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,15 +49,21 @@ public class FundoConsumoService {
     private final FundoConsumoRepository fundoConsumoRepository;
     private final TransacaoFundoRepository transacaoFundoRepository;
     private final PedidoRepository pedidoRepository;
+    private final SessaoConsumoRepository sessaoConsumoRepository;
+    private final ClienteRepository clienteRepository;
     private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
 
     public FundoConsumoService(FundoConsumoRepository fundoConsumoRepository,
-                               TransacaoFundoRepository transacaoFundoRepository,
-                               PedidoRepository pedidoRepository,
-                               ConfiguracaoFinanceiraService configuracaoFinanceiraService) {
+                              TransacaoFundoRepository transacaoFundoRepository,
+                              PedidoRepository pedidoRepository,
+                              SessaoConsumoRepository sessaoConsumoRepository,
+                              ClienteRepository clienteRepository,
+                              ConfiguracaoFinanceiraService configuracaoFinanceiraService) {
         this.fundoConsumoRepository = fundoConsumoRepository;
         this.transacaoFundoRepository = transacaoFundoRepository;
         this.pedidoRepository = pedidoRepository;
+        this.sessaoConsumoRepository = sessaoConsumoRepository;
+        this.clienteRepository = clienteRepository;
         this.configuracaoFinanceiraService = configuracaoFinanceiraService;
     }
 
@@ -67,7 +76,7 @@ public class FundoConsumoService {
      */
     @Transactional(readOnly = true)
     public Page<FundoConsumo> listarTodos(Pageable pageable) {
-        return fundoConsumoRepository.findAll(pageable);
+        return fundoConsumoRepository.findAllWithSessao(pageable);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -81,21 +90,72 @@ public class FundoConsumoService {
      * @param sessao sessão de consumo já persistida
      */
     @Transactional
-    public FundoConsumo criarFundoParaSessao(SessaoConsumo sessao) {
-        log.info("Criando fundo de consumo para sessão ID={}", sessao.getId());
+    public FundoConsumo criarFundoParaSessao(com.restaurante.model.entity.SessaoConsumo sessao) {
+        log.info("Criando FundoConsumo para sessão ID={}", sessao.getId());
+        
+        // Verifica se já existe para evitar duplicidade
+        return fundoConsumoRepository.findBySessaoConsumoId(sessao.getId())
+                .orElseGet(() -> {
+                    FundoConsumo fundo = FundoConsumo.builder()
+                            .sessaoConsumo(sessao)
+                            .saldoAtual(BigDecimal.ZERO)
+                            .ativo(true)
+                            .build();
+                    return fundoConsumoRepository.save(fundo);
+                });
+    }
 
-        if (fundoConsumoRepository.existsBySessaoConsumoIdAndAtivoTrue(sessao.getId())) {
-            throw new BusinessException("Sessão ID=" + sessao.getId() + " já possui fundo de consumo ativo");
+    /**
+     * Criação manual (Admin) de um fundo de consumo.
+     * Pode ser associado a uma sessão existente ou a um cliente.
+     */
+    @Transactional
+    public FundoConsumo criarFundoManual(Long sessaoId, Long clienteId, BigDecimal saldoInicial, String obs) {
+        log.info("Iniciando criação manual de fundo: sessaoId={}, clienteId={}, saldo={}", sessaoId, clienteId, saldoInicial);
+
+        FundoConsumo.FundoConsumoBuilder builder = FundoConsumo.builder()
+                .saldoAtual(saldoInicial)
+                .ativo(true);
+
+        if (sessaoId != null) {
+            com.restaurante.model.entity.SessaoConsumo sessao = sessaoConsumoRepository.findById(sessaoId)
+                    .orElseThrow(() -> new BusinessException("Sessão não encontrada: " + sessaoId));
+            
+            // Verifica se a sessão já tem fundo
+            fundoConsumoRepository.findBySessaoConsumoId(sessaoId).ifPresent(f -> {
+                throw new BusinessException("Esta sessão já possui o fundo ID: " + f.getId());
+            });
+            builder.sessaoConsumo(sessao);
+        } else if (clienteId != null) {
+            // Se informou clienteId, buscamos a sessão aberta dele
+            com.restaurante.model.entity.SessaoConsumo sessao = sessaoConsumoRepository.findSessaoAbertaByCliente(clienteId)
+                    .orElseThrow(() -> new BusinessException("O cliente ID=" + clienteId + " não possui uma sessão aberta para vincular o fundo."));
+            
+            // Verifica se a sessão já tem fundo
+            fundoConsumoRepository.findBySessaoConsumoId(sessao.getId()).ifPresent(f -> {
+                throw new BusinessException("A sessão ativa do cliente (" + sessao.getId() + ") já possui o fundo ID: " + f.getId());
+            });
+            builder.sessaoConsumo(sessao);
+        } else {
+            throw new BusinessException("É necessário informar uma Sessão ou um Cliente para criar o fundo.");
         }
 
-        FundoConsumo fundo = FundoConsumo.builder()
-            .sessaoConsumo(sessao)
-            .saldoAtual(BigDecimal.ZERO)
-            .ativo(true)
-            .build();
-
+        FundoConsumo fundo = builder.build();
         FundoConsumo salvo = fundoConsumoRepository.save(fundo);
-        log.info("Fundo criado: ID={} para sessão ID={}, QR={}", salvo.getId(), sessao.getId(), sessao.getQrCodeSessao());
+
+        // Se houver saldo inicial, registra como transação de crédito
+        if (saldoInicial.compareTo(BigDecimal.ZERO) > 0) {
+            TransacaoFundo t = TransacaoFundo.builder()
+                    .fundoConsumo(salvo)
+                    .tipo(com.restaurante.model.enums.TipoTransacaoFundo.CREDITO)
+                    .valor(saldoInicial)
+                    .saldoAnterior(BigDecimal.ZERO)
+                    .saldoNovo(saldoInicial)
+                    .observacoes(obs != null ? obs : "Saldo inicial administrativo")
+                    .build();
+            transacaoFundoRepository.save(t);
+        }
+
         return salvo;
     }
 

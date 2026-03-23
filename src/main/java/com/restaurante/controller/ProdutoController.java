@@ -13,6 +13,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.MediaType;
+
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -148,5 +151,19 @@ public class ProdutoController {
     public ResponseEntity<ApiResponse<ProdutoResponse>> buscarPorId(@PathVariable Long id) {
         ProdutoResponse produto = produtoService.buscarPorIdResponse(id);
         return ResponseEntity.ok(ApiResponse.success("Sucesso", produto));
+    }
+
+    /**
+     * Upload de imagem para o produto.
+     * POST /api/produtos/{id}/imagem
+     */
+    @PostMapping(value = "/{id}/imagem", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
+    @Operation(summary = "Upload de imagem do produto", description = "Faz o upload de uma imagem para o MinIO e associa ao produto")
+    public ResponseEntity<ApiResponse<ProdutoResponse>> uploadImagem(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file) {
+        ProdutoResponse produto = produtoService.atualizarImagem(id, file);
+        return ResponseEntity.ok(ApiResponse.success("Imagem enviada com sucesso", produto));
     }
 }

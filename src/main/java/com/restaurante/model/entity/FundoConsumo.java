@@ -123,7 +123,6 @@ public class FundoConsumo extends BaseEntity {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        if (!super.equals(o)) return false;
         FundoConsumo that = (FundoConsumo) o;
         // Identidade baseada na sessão (relação 1:1 única)
         return Objects.equals(sessaoConsumo, that.sessaoConsumo) &&
@@ -132,7 +131,7 @@ public class FundoConsumo extends BaseEntity {
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), sessaoConsumo, ativo);
+        return Objects.hash(sessaoConsumo, ativo);
     }
 
     public static FundoConsumoBuilder builder() {

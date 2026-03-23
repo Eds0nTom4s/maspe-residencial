@@ -320,7 +320,11 @@ public class SubPedidoService {
                 : null;
             
             if (telefoneCliente != null) {
-                notificacaoService.enviarNotificacaoPedidoPronto(telefoneCliente, pedido.getNumero());
+                String resumoItens = subPedido.getItens().stream()
+                    .map(item -> item.getQuantidade() + "x " + item.getProduto().getNome())
+                    .collect(Collectors.joining(", "));
+
+                notificacaoService.enviarNotificacaoPedidoPronto(telefoneCliente, pedido.getNumero(), resumoItens);
                 log.info("Notificação de pedido pronto enviada para {} - Pedido: {}", telefoneCliente, pedido.getNumero());
             } else {
                 log.warn("Cliente sem telefone cadastrado - notificação não enviada");

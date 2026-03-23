@@ -30,7 +30,7 @@ public class AppyPayAuthService {
     private final AppyPayProperties properties;
     private final RestTemplate restTemplate;
 
-    public AppyPayAuthService(AppyPayProperties properties, RestTemplate restTemplate) {
+    public AppyPayAuthService(AppyPayProperties properties, @org.springframework.beans.factory.annotation.Qualifier("appyPayRestTemplate") RestTemplate restTemplate) {
         this.properties = properties;
         this.restTemplate = restTemplate;
     }

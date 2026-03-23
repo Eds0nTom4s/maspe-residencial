@@ -92,7 +92,8 @@ public class PagamentoController {
                 request.getMetodo(),
                 usuario,
                 role,
-                ip);
+                ip,
+                request.getTelefone());
 
         PagamentoGatewayResponse resposta = toResponse(pagamento);
 

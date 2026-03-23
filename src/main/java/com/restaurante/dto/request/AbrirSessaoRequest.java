@@ -31,6 +31,9 @@ public class AbrirSessaoRequest {
      * Nulo/vazio quando {@code modoAnonimo = true}.
      */
     private String telefoneCliente;
+    
+    /** Nome do cliente (opcional - auxilia na identificação rápida) */
+    private String nomeCliente;
 
     /**
      * Tipo de sessão (Pré-pago / Pós-pago).
@@ -51,10 +54,11 @@ public class AbrirSessaoRequest {
 
     public AbrirSessaoRequest() {}
 
-    public AbrirSessaoRequest(Long mesaId, Long unidadeAtendimentoId, String telefoneCliente, com.restaurante.model.enums.TipoSessao tipoSessao, boolean modoAnonimo, Long atendenteId) {
+    public AbrirSessaoRequest(Long mesaId, Long unidadeAtendimentoId, String telefoneCliente, String nomeCliente, com.restaurante.model.enums.TipoSessao tipoSessao, boolean modoAnonimo, Long atendenteId) {
         this.mesaId = mesaId;
         this.unidadeAtendimentoId = unidadeAtendimentoId;
         this.telefoneCliente = telefoneCliente;
+        this.nomeCliente = nomeCliente;
         this.tipoSessao = tipoSessao;
         this.modoAnonimo = modoAnonimo;
         this.atendenteId = atendenteId;
@@ -68,6 +72,9 @@ public class AbrirSessaoRequest {
 
     public String getTelefoneCliente() { return telefoneCliente; }
     public void setTelefoneCliente(String telefoneCliente) { this.telefoneCliente = telefoneCliente; }
+
+    public String getNomeCliente() { return nomeCliente; }
+    public void setNomeCliente(String nomeCliente) { this.nomeCliente = nomeCliente; }
 
     public com.restaurante.model.enums.TipoSessao getTipoSessao() { return tipoSessao; }
     public void setTipoSessao(com.restaurante.model.enums.TipoSessao tipoSessao) { this.tipoSessao = tipoSessao; }
@@ -88,13 +95,14 @@ public class AbrirSessaoRequest {
                Objects.equals(mesaId, that.mesaId) &&
                Objects.equals(unidadeAtendimentoId, that.unidadeAtendimentoId) &&
                Objects.equals(telefoneCliente, that.telefoneCliente) &&
+               Objects.equals(nomeCliente, that.nomeCliente) &&
                tipoSessao == that.tipoSessao &&
                Objects.equals(atendenteId, that.atendenteId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mesaId, unidadeAtendimentoId, telefoneCliente, tipoSessao, modoAnonimo, atendenteId);
+        return Objects.hash(mesaId, unidadeAtendimentoId, telefoneCliente, nomeCliente, tipoSessao, modoAnonimo, atendenteId);
     }
 
     public static AbrirSessaoRequestBuilder builder() {
@@ -105,6 +113,7 @@ public class AbrirSessaoRequest {
         private Long mesaId;
         private Long unidadeAtendimentoId;
         private String telefoneCliente;
+        private String nomeCliente;
         private com.restaurante.model.enums.TipoSessao tipoSessao;
         private boolean modoAnonimo;
         private Long atendenteId;
@@ -126,6 +135,11 @@ public class AbrirSessaoRequest {
             return this;
         }
 
+        public AbrirSessaoRequestBuilder nomeCliente(String nomeCliente) {
+            this.nomeCliente = nomeCliente;
+            return this;
+        }
+
         public AbrirSessaoRequestBuilder tipoSessao(com.restaurante.model.enums.TipoSessao tipoSessao) {
             this.tipoSessao = tipoSessao;
             return this;
@@ -142,7 +156,7 @@ public class AbrirSessaoRequest {
         }
 
         public AbrirSessaoRequest build() {
-            return new AbrirSessaoRequest(this.mesaId, this.unidadeAtendimentoId, this.telefoneCliente, this.tipoSessao, this.modoAnonimo, this.atendenteId);
+            return new AbrirSessaoRequest(this.mesaId, this.unidadeAtendimentoId, this.telefoneCliente, this.nomeCliente, this.tipoSessao, this.modoAnonimo, this.atendenteId);
         }
     }
 }

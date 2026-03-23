@@ -63,6 +63,10 @@ class ClienteServiceTest {
                 .otpCode("1234")
                 .otpExpiration(LocalDateTime.now().plusMinutes(5))
                 .build();
+
+        org.springframework.test.util.ReflectionTestUtils.setField(clienteService, "otpLength", 4);
+        org.springframework.test.util.ReflectionTestUtils.setField(clienteService, "otpExpirationMinutes", 5);
+        org.springframework.test.util.ReflectionTestUtils.setField(clienteService, "otpMock", false);
     }
 
     @Test

@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -66,6 +67,29 @@ public class FundoConsumoController {
         Page<FundoConsumo> resultado = fundoConsumoService.listarTodos(pageable);
         return ResponseEntity.ok(ApiResponse.success("Fundos recuperados",
                 resultado.map(this::toResponse)));
+    }
+
+    /**
+     * Criação manual de fundo (fallback/administrativo).
+     * POST /api/fundos
+     * Body: { "sessaoId": 1, "clienteId": 1, "saldoInicial": 5000.00, "observacoes": "..." }
+     */
+    @PostMapping
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
+    @Operation(summary = "Criar fundo manualmente (Sessão ou Cliente)")
+    public ResponseEntity<ApiResponse<FundoConsumoResponse>> criarManual(
+            @RequestBody java.util.Map<String, Object> payload) {
+        
+        log.info("POST /fundos — Payload: {}", payload);
+        
+        Long sessaoId = payload.get("sessaoId") != null ? Long.valueOf(payload.get("sessaoId").toString()) : null;
+        Long clienteId = payload.get("clienteId") != null ? Long.valueOf(payload.get("clienteId").toString()) : null;
+        BigDecimal saldo = payload.get("saldoInicial") != null ? new BigDecimal(payload.get("saldoInicial").toString()) : BigDecimal.ZERO;
+        String obs = (String) payload.getOrDefault("observacoes", "Criação manual");
+
+        FundoConsumo fundo = fundoConsumoService.criarFundoManual(sessaoId, clienteId, saldo, obs);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Fundo criado com sucesso", toResponse(fundo)));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -144,24 +168,21 @@ public class FundoConsumoController {
      * POST /api/fundos/cliente/recarregar
      * Body: { "valor": 5000.00, "observacoes": "Recarga Multicaixa" }
      */
+    /**
+     * @deprecated Use {@code /api/financeiro/pagamento/recarga-sessao-ativa}
+     */
+    @Deprecated
     @PostMapping("/cliente/recarregar")
     @PreAuthorize("hasRole('CLIENTE')")
     @Operation(
-        summary = "Recarregar fundo próprio (Cliente)",
-        description = "Credita valor no fundo da sessão ativa do cliente autenticado."
+        summary = "Recarregar fundo próprio (Cliente) - DEPRECATED",
+        description = "Este endpoint foi descontinuado. Utilize os endpoints de gateway para recarga via Multicaixa/Referência."
     )
-    public ResponseEntity<ApiResponse<TransacaoFundoResponse>> recarregarCliente(
+    public ResponseEntity<ApiResponse<String>> recarregarCliente(
             @Valid @RequestBody RecarregarFundoRequest request) {
-
-        log.info("Cliente solicitou auto-recarga — {}", com.restaurante.util.MoneyFormatter.format(request.getValor()));
-        String telefone = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
         
-        TransacaoFundo transacao = fundoConsumoService.recarregarCliente(
-                telefone, request.getValor(), request.getObservacoes());
-                
-        return ResponseEntity.ok(ApiResponse.success(
-                "Recarga concluída com sucesso. Novo saldo: " + com.restaurante.util.MoneyFormatter.format(transacao.getSaldoNovo()),
-                toTransacaoResponse(transacao)));
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(ApiResponse.error("Este método de recarga direta foi desativado. Utilize a recarga via Multicaixa Express ou Referência Bancária."));
     }
 
     /**
@@ -235,15 +256,19 @@ public class FundoConsumoController {
     // ═══════════════════════════════════════════════════════════════════════
 
     private FundoConsumoResponse toResponse(FundoConsumo fundo) {
-        return FundoConsumoResponse.builder()
+        FundoConsumoResponse.FundoConsumoResponseBuilder builder = FundoConsumoResponse.builder()
                 .id(fundo.getId())
                 .saldoAtual(fundo.getSaldoAtual())
                 .ativo(fundo.getAtivo())
-                .sessaoId(fundo.getSessaoConsumo().getId())
-                .qrCodeSessao(fundo.getSessaoConsumo().getQrCodeSessao())
                 .createdAt(fundo.getCreatedAt())
-                .updatedAt(fundo.getUpdatedAt())
-                .build();
+                .updatedAt(fundo.getUpdatedAt());
+
+        if (fundo.getSessaoConsumo() != null) {
+            builder.sessaoId(fundo.getSessaoConsumo().getId());
+            builder.qrCodeSessao(fundo.getSessaoConsumo().getQrCodeSessao());
+        }
+
+        return builder.build();
     }
 
     private TransacaoFundoResponse toTransacaoResponse(TransacaoFundo t) {

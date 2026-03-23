@@ -59,4 +59,10 @@ public class AppyPayChargeRequest {
      */
     @JsonProperty("callbackUrl")
     private String callbackUrl;
+
+    /**
+     * Número do telemóvel para M-Express (GPO)
+     */
+    @JsonProperty("mobileNumber")
+    private String mobileNumber;
 }

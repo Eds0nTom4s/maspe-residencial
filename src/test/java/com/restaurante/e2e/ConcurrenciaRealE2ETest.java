@@ -60,6 +60,9 @@ public class ConcurrenciaRealE2ETest {
     @Autowired
     private ClienteRepository clienteRepository;
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private io.minio.MinioClient minioClient;
+
     @Autowired
     private MesaRepository mesaRepository;
 
@@ -140,7 +143,6 @@ public class ConcurrenciaRealE2ETest {
      * RISCO: CRÍTICO
      * Se falhar: Cliente pode ser cobrado 2x, pedido duplicado, estado inconsistente
      */
-    @Test
     @Order(1)
     @RepeatedTest(20) // Executar 20x para detectar flakiness
     @DisplayName("🔴 CRÍTICO: 2 atendentes entregando MESMO subpedido simultaneamente")
@@ -283,7 +285,6 @@ public class ConcurrenciaRealE2ETest {
         System.out.println("═══════════════════════════════════════════════════\n");
     }
 
-    @Test
     @Order(2)
     @RepeatedTest(20)
     @DisplayName("🔴 CRÍTICO: 2 cozinheiros assumindo MESMO subpedido simultaneamente")

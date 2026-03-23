@@ -28,7 +28,8 @@ public class TelcoSmsGateway implements SmsGateway {
     private final TelcoSmsProperties properties;
     private final RestTemplate restTemplate;
     
-    public TelcoSmsGateway(TelcoSmsProperties properties, RestTemplate restTemplate) {
+    public TelcoSmsGateway(TelcoSmsProperties properties, 
+                           @org.springframework.beans.factory.annotation.Qualifier("smsRestTemplate") RestTemplate restTemplate) {
         this.properties = properties;
         this.restTemplate = restTemplate;
     }

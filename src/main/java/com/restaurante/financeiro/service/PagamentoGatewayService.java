@@ -65,6 +65,9 @@ public class PagamentoGatewayService {
     private final PedidoService pedidoService;
     private final ObjectMapper objectMapper;
     private final NotificacaoService notificacaoService;
+    private final com.restaurante.service.SessaoConsumoService sessaoConsumoService;
+    private final com.restaurante.repository.ClienteRepository clienteRepository;
+
 
     @Autowired
     public PagamentoGatewayService(
@@ -76,7 +79,9 @@ public class PagamentoGatewayService {
         AppyPayClient appyPayClient,
         PedidoService pedidoService,
         ObjectMapper objectMapper,
-        NotificacaoService notificacaoService
+        NotificacaoService notificacaoService,
+        com.restaurante.service.SessaoConsumoService sessaoConsumoService,
+        com.restaurante.repository.ClienteRepository clienteRepository
     ) {
         this.pagamentoRepository = pagamentoRepository;
         this.eventLogRepository = eventLogRepository;
@@ -87,6 +92,8 @@ public class PagamentoGatewayService {
         this.pedidoService = pedidoService;
         this.objectMapper = objectMapper;
         this.notificacaoService = notificacaoService;
+        this.sessaoConsumoService = sessaoConsumoService;
+        this.clienteRepository = clienteRepository;
     }
     /**
      * Cria pagamento para recarga de fundo (PRÉ-PAGO)
@@ -113,7 +120,8 @@ public class PagamentoGatewayService {
         MetodoPagamentoAppyPay metodo,
         String usuario,
         String role,
-        String ip
+        String ip,
+        String telefone
     ) {
         log.info("Criando pagamento recarga fundo: fundoId={}, valor={}, metodo={}", 
             fundoId, valor, metodo);
@@ -166,6 +174,9 @@ public class PagamentoGatewayService {
                 .amount(converterParaCentavos(valor))
                 .paymentMethod(metodo.getCodigo())
                 .description("Recarga Fundo #" + fundoId)
+                .mobileNumber(telefone != null ? telefone : 
+                    (fundo.getSessaoConsumo() != null && fundo.getSessaoConsumo().getCliente() != null ? 
+                     fundo.getSessaoConsumo().getCliente().getTelefone() : null))
                 .build();
             
             AppyPayChargeResponse response = appyPayClient.createCharge(request);
@@ -237,6 +248,86 @@ public class PagamentoGatewayService {
     }
     
     /**
+     * Cria pagamento para recarga de fundo para um cliente que NÃO possui sessão ativa.
+     * A sessão será criada automaticamente na confirmação do pagamento.
+     */
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public Pagamento criarPagamentoRecargaSemSessao(
+        Long clienteId,
+        BigDecimal valor,
+        MetodoPagamentoAppyPay metodo,
+        String usuario,
+        String role,
+        String ip,
+        String telefone
+    ) {
+        log.info("Criando pagamento recarga NOVO CLIENTE: clienteId={}, valor={}, metodo={}", 
+            clienteId, valor, metodo);
+
+        Cliente cliente = clienteRepository.findById(clienteId)
+            .orElseThrow(() -> new ResourceNotFoundException("Cliente não encontrado"));
+
+        if (valor.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Valor deve ser maior que zero");
+        }
+
+        String externalRef = gerarExternalReference();
+
+        Pagamento pagamento = Pagamento.builder()
+            .cliente(cliente)
+            .tipoPagamento(TipoPagamentoFinanceiro.PRE_PAGO)
+            .metodo(metodo)
+            .amount(valor)
+            .status(StatusPagamentoGateway.PENDENTE)
+            .externalReference(externalRef)
+            .observacoes("Recarga para nova sessão - Cliente #" + clienteId)
+            .build();
+
+        pagamento = pagamentoRepository.save(pagamento);
+
+        try {
+            AppyPayChargeRequest request = AppyPayChargeRequest.builder()
+                .merchantTransactionId(externalRef)
+                .amount(converterParaCentavos(valor))
+                .paymentMethod(metodo.getCodigo())
+                .description("Nova Sessão - Cliente #" + clienteId)
+                .mobileNumber(telefone != null ? telefone : cliente.getTelefone())
+                .build();
+
+            AppyPayChargeResponse response = appyPayClient.createCharge(request);
+            pagamento.setGatewayChargeId(response.getChargeId());
+            pagamento.setGatewayResponse(serializarJson(response));
+
+            if ("REF".equals(response.getPaymentMethod())) {
+                pagamento.setEntidade(response.getEntity());
+                pagamento.setReferencia(response.getReference());
+                
+                if (cliente.getTelefone() != null) {
+                    notificacaoService.enviarNotificacaoReferenciaBancaria(
+                        cliente.getTelefone(), 
+                        response.getEntity(), 
+                        response.getReference(), 
+                        valor.doubleValue()
+                    );
+                }
+            }
+
+            pagamentoRepository.save(pagamento);
+
+            if ("GPO".equals(response.getPaymentMethod()) && "CONFIRMED".equals(response.getStatus())) {
+                confirmarPagamentoRecargaFundo(pagamento.getId(), "SYSTEM", "SYSTEM", null);
+            }
+
+            return pagamento;
+        } catch (Exception e) {
+            log.error("Erro ao criar cobrança AppyPay: {}", e.getMessage());
+            pagamento.marcarComoFalho("Erro gateway: " + e.getMessage());
+            pagamentoRepository.save(pagamento);
+            throw new BusinessException("Falha ao processar pagamento: " + e.getMessage());
+        }
+    }
+    
+    /**
      * Confirma pagamento de recarga de fundo
      * 
      * FLUXO:
@@ -277,8 +368,26 @@ public class PagamentoGatewayService {
         }
         
         FundoConsumo fundo = pagamento.getFundoConsumo();
+        
+        // Se não houver fundo mas houver cliente, cria a sessão agora
+        if (fundo == null && pagamento.getCliente() != null) {
+            log.info("Pagamento confirmado para cliente sem sessão. Criando sessão automática para clienteId={}", 
+                pagamento.getCliente().getId());
+            
+            // Abre sessão em modo Takeaway/App (sem mesa)
+            com.restaurante.dto.request.AbrirSessaoRequest request = new com.restaurante.dto.request.AbrirSessaoRequest();
+            request.setTelefoneCliente(pagamento.getCliente().getTelefone());
+            request.setTipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO);
+            
+            com.restaurante.dto.response.SessaoConsumoResponse sessaoResp = sessaoConsumoService.abrir(request);
+            fundo = fundoConsumoRepository.findBySessaoConsumoId(sessaoResp.getId())
+                .orElseThrow(() -> new BusinessException("Falha ao recuperar fundo da nova sessão"));
+            
+            pagamento.setFundoConsumo(fundo);
+        }
+
         if (fundo == null) {
-            throw new BusinessException("Pagamento sem fundo vinculado");
+            throw new BusinessException("Pagamento sem fundo ou cliente vinculado");
         }
         
         // Confirma pagamento

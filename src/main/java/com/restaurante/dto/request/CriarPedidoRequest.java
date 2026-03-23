@@ -17,7 +17,6 @@ import java.util.List;
  */
 public class CriarPedidoRequest {
 
-    @NotNull(message = "ID da sessão de consumo é obrigatório")
     private Long sessaoConsumoId;
 
     @NotEmpty(message = "Pedido deve conter ao menos um item")
@@ -31,15 +30,22 @@ public class CriarPedidoRequest {
 
     private String observacoes;
 
+    /**
+     * QR Code de um fundo de consumo externo para pagamento (opcional).
+     * Se fornecido, o débito será feito neste fundo em vez do fundo da sessão.
+     */
+    private String qrCodeFundo;
+
     // ── Constructors ──────────────────────────────────────────────────────────
     public CriarPedidoRequest() {}
 
     public CriarPedidoRequest(Long sessaoConsumoId, List<ItemPedidoRequest> itens,
-                               TipoPagamentoPedido tipoPagamento, String observacoes) {
+                               TipoPagamentoPedido tipoPagamento, String observacoes, String qrCodeFundo) {
         this.sessaoConsumoId = sessaoConsumoId;
         this.itens = itens;
         this.tipoPagamento = tipoPagamento;
         this.observacoes = observacoes;
+        this.qrCodeFundo = qrCodeFundo;
     }
 
     // ── Getters ───────────────────────────────────────────────────────────────
@@ -47,12 +53,14 @@ public class CriarPedidoRequest {
     public List<ItemPedidoRequest> getItens() { return itens; }
     public TipoPagamentoPedido getTipoPagamento() { return tipoPagamento; }
     public String getObservacoes() { return observacoes; }
+    public String getQrCodeFundo() { return qrCodeFundo; }
 
     // ── Setters ───────────────────────────────────────────────────────────────
     public void setSessaoConsumoId(Long sessaoConsumoId) { this.sessaoConsumoId = sessaoConsumoId; }
     public void setItens(List<ItemPedidoRequest> itens) { this.itens = itens; }
     public void setTipoPagamento(TipoPagamentoPedido tipoPagamento) { this.tipoPagamento = tipoPagamento; }
     public void setObservacoes(String observacoes) { this.observacoes = observacoes; }
+    public void setQrCodeFundo(String qrCodeFundo) { this.qrCodeFundo = qrCodeFundo; }
 
     // ── Builder ───────────────────────────────────────────────────────────────
     public static Builder builder() { return new Builder(); }
@@ -62,14 +70,16 @@ public class CriarPedidoRequest {
         private List<ItemPedidoRequest> itens;
         private TipoPagamentoPedido tipoPagamento;
         private String observacoes;
+        private String qrCodeFundo;
 
         public Builder sessaoConsumoId(Long sessaoConsumoId) { this.sessaoConsumoId = sessaoConsumoId; return this; }
         public Builder itens(List<ItemPedidoRequest> itens) { this.itens = itens; return this; }
         public Builder tipoPagamento(TipoPagamentoPedido tipoPagamento) { this.tipoPagamento = tipoPagamento; return this; }
         public Builder observacoes(String observacoes) { this.observacoes = observacoes; return this; }
+        public Builder qrCodeFundo(String qrCodeFundo) { this.qrCodeFundo = qrCodeFundo; return this; }
 
         public CriarPedidoRequest build() {
-            return new CriarPedidoRequest(sessaoConsumoId, itens, tipoPagamento, observacoes);
+            return new CriarPedidoRequest(sessaoConsumoId, itens, tipoPagamento, observacoes, qrCodeFundo);
         }
     }
 }

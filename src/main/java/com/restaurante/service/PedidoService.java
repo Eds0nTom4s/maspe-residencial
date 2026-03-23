@@ -55,7 +55,10 @@ public class PedidoService {
     private final SubPedidoService subPedidoService;
     private final EventLogService eventLogService;
     private final PedidoFinanceiroService pedidoFinanceiroService;
+    private final FundoConsumoService fundoConsumoService;
     private final NotificacaoService notificacaoService;
+    @org.springframework.context.annotation.Lazy
+    private final SessaoConsumoService sessaoConsumoService;
 
     public PedidoService(PedidoRepository pedidoRepository,
                          SessaoConsumoRepository sessaoConsumoRepository,
@@ -64,7 +67,9 @@ public class PedidoService {
                          SubPedidoService subPedidoService,
                          EventLogService eventLogService,
                          PedidoFinanceiroService pedidoFinanceiroService,
-                         NotificacaoService notificacaoService) {
+                         FundoConsumoService fundoConsumoService,
+                         NotificacaoService notificacaoService,
+                         @org.springframework.context.annotation.Lazy SessaoConsumoService sessaoConsumoService) {
         this.pedidoRepository = pedidoRepository;
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.produtoService = produtoService;
@@ -72,7 +77,9 @@ public class PedidoService {
         this.subPedidoService = subPedidoService;
         this.eventLogService = eventLogService;
         this.pedidoFinanceiroService = pedidoFinanceiroService;
+        this.fundoConsumoService = fundoConsumoService;
         this.notificacaoService = notificacaoService;
+        this.sessaoConsumoService = sessaoConsumoService;
     }
 
     /**
@@ -233,7 +240,13 @@ public class PedidoService {
 
         // PROCESSAMENTO FINANCEIRO - depois de criar pedido e calcular total
         log.info("💳 PROCESSANDO PAGAMENTO");
-        pedidoFinanceiroService.processarPagamentoPedido(pedido.getId(), sessaoConsumo, pedido.getTotal(), tipoPagamento);
+        pedidoFinanceiroService.processarPagamentoPedido(
+            pedido.getId(), 
+            sessaoConsumo, 
+            pedido.getTotal(), 
+            tipoPagamento,
+            request.getQrCodeFundo()
+        );
         log.info("✅ Pagamento processado - Status: {}", pedido.getStatusFinanceiro());
 
         // ⚠️ RECARREGAR PEDIDO DO BANCO - com JOIN FETCH para carregar SubPedidos
@@ -266,10 +279,15 @@ public class PedidoService {
                 : null;
 
             if (telefoneCliente != null) {
+                String resumoItens = pedidoAtualizado.getItens().stream()
+                    .map(item -> item.getQuantidade() + "x " + item.getProduto().getNome())
+                    .collect(Collectors.joining(", "));
+
                 notificacaoService.enviarNotificacaoPedidoCriado(
                     telefoneCliente,
                     pedidoAtualizado.getNumero(),
-                    pedidoAtualizado.getTotal().doubleValue()
+                    pedidoAtualizado.getTotal().doubleValue(),
+                    resumoItens
                 );
                 log.info("Notificação de pedido criado enviada para {}", telefoneCliente);
             } else {
@@ -284,14 +302,39 @@ public class PedidoService {
     }
 
     /**
-     * Cria um novo pedido originado por um Cliente via QR Ordering.
-     * Enforça a validação de propriedade da sessão.
+     * Cria um novo pedido originado por um Cliente via QR Ordering ou App.
+     * Se o cliente não possuir sessão ativa, uma será criada automaticamente.
      */
     @Transactional
     public PedidoResponse criarPedidoCliente(CriarPedidoRequest request, String telefoneCliente) {
-        log.info("Cliente {} solicitando criação de pedido na sessão ID: {}", telefoneCliente, request.getSessaoConsumoId());
+        log.info("Cliente {} solicitando criação de pedido", telefoneCliente);
 
-        SessaoConsumo sessao = sessaoConsumoRepository.findById(request.getSessaoConsumoId())
+        Long sessaoId = request.getSessaoConsumoId();
+        
+        if (sessaoId == null) {
+            log.info("Pedido sem sessão informada. Verificando sessão ativa para cliente {}", telefoneCliente);
+            try {
+                // Tenta buscar sessão ativa existente
+                com.restaurante.dto.response.SessaoConsumoResponse sessaoAtiva = sessaoConsumoService.buscarMinhaSessao(telefoneCliente);
+                sessaoId = sessaoAtiva.getId();
+                log.info("Sessão ativa encontrada para o cliente: ID={}", sessaoId);
+            } catch (ResourceNotFoundException e) {
+                // Se não existir, abre uma nova sessão (sem mesa)
+                log.info("Cliente {} sem sessão ativa. Abrindo nova sessão para o pedido.", telefoneCliente);
+                com.restaurante.dto.request.AbrirSessaoRequest abrirReq = com.restaurante.dto.request.AbrirSessaoRequest.builder()
+                        .modoAnonimo(false)
+                        .telefoneCliente(telefoneCliente)
+                        .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
+                        .build();
+                
+                com.restaurante.dto.response.SessaoConsumoResponse novaSessao = sessaoConsumoService.abrir(abrirReq);
+                sessaoId = novaSessao.getId();
+                log.info("Nova sessão aberta para o pedido: ID={}", sessaoId);
+            }
+            request.setSessaoConsumoId(sessaoId);
+        }
+
+        SessaoConsumo sessao = sessaoConsumoRepository.findById(sessaoId)
                 .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada"));
 
         if (sessao.getCliente() == null || !sessao.getCliente().getTelefone().equals(telefoneCliente)) {
@@ -631,6 +674,32 @@ public class PedidoService {
     }
 
     /**
+     * Paga o pedido usando um fundo de consumo externo (via QR Code).
+     * O QR Code pode ser de qualquer fundo ativo (próprio ou de terceiros).
+     */
+    @Transactional
+    public PedidoResponse pagarComFundoExterno(Long id, String qrCodeFundo, String telefonePagador) {
+        log.info("Pagando pedido ID: {} com Fundo Externo (QRCode): {} por {}", id, qrCodeFundo, telefonePagador);
+
+        Pedido pedido = buscarPorId(id);
+
+        if (pedido.getStatus() == StatusPedido.CANCELADO) {
+            throw new com.restaurante.exception.BusinessException("Pedido já cancelado.");
+        }
+
+        if (pedido.isPago()) {
+            throw new com.restaurante.exception.BusinessException("Pedido já pago.");
+        }
+
+        fundoConsumoService.debitarPorToken(qrCodeFundo, pedido.getId(), pedido.getTotal());
+
+        pedidoFinanceiroService.confirmarPagamentoPosPago(id);
+
+        Pedido pedidoAtualizado = buscarPorId(id);
+        return mapToResponse(pedidoAtualizado);
+    }
+
+    /**
      * Obtém roles do usuário autenticado
      */
     private Set<String> obterRolesUsuarioAutenticado() {
@@ -745,6 +814,14 @@ public class PedidoService {
      * Mapeia Pedido para PedidoResponse
      */
     private PedidoResponse mapToResponse(Pedido pedido) {
+        int totalSubPedidos = (int) pedido.getSubPedidos().stream()
+                .filter(sp -> sp.getStatus() != com.restaurante.model.enums.StatusSubPedido.CANCELADO)
+                .count();
+        int completedSubPedidos = (int) pedido.getSubPedidos().stream()
+                .filter(sp -> sp.getStatus() == com.restaurante.model.enums.StatusSubPedido.PRONTO || 
+                              sp.getStatus() == com.restaurante.model.enums.StatusSubPedido.ENTREGUE)
+                .count();
+
         return PedidoResponse.builder()
                 .id(pedido.getId())
                 .numero(pedido.getNumero())
@@ -754,6 +831,8 @@ public class PedidoService {
                 .sessaoConsumoId(pedido.getSessaoConsumo().getId())
                 .mesaId(pedido.getSessaoConsumo().getMesa().getId())
                 .referenciaMesa(pedido.getSessaoConsumo().getMesa().getReferencia())
+                .totalSubPedidos(totalSubPedidos)
+                .completedSubPedidos(completedSubPedidos)
                 .itens(pedido.getItens().stream()
                         .map(this::mapItemToResponse)
                         .collect(Collectors.toList()))

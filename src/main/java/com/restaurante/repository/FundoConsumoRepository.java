@@ -20,15 +20,23 @@ import java.util.Optional;
 public interface FundoConsumoRepository extends JpaRepository<FundoConsumo, Long> {
 
     /**
+     * Lista todos os fundos com a sessão carregada (JOIN FETCH).
+     */
+    @Query(value = "SELECT f FROM FundoConsumo f JOIN FETCH f.sessaoConsumo",
+           countQuery = "SELECT count(f) FROM FundoConsumo f")
+    org.springframework.data.domain.Page<FundoConsumo> findAllWithSessao(org.springframework.data.domain.Pageable pageable);
+
+
+    /**
      * Busca fundo ativo pela sessão de consumo.
      */
-    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.id = :sessaoId AND f.ativo = true")
+    @Query("SELECT f FROM FundoConsumo f JOIN FETCH f.sessaoConsumo WHERE f.sessaoConsumo.id = :sessaoId AND f.ativo = true")
     Optional<FundoConsumo> findBySessaoConsumoIdAndAtivoTrue(@Param("sessaoId") Long sessaoId);
 
     /**
      * Busca fundo (activo ou não) pela sessão de consumo.
      */
-    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.id = :sessaoId")
+    @Query("SELECT f FROM FundoConsumo f JOIN FETCH f.sessaoConsumo WHERE f.sessaoConsumo.id = :sessaoId")
     Optional<FundoConsumo> findBySessaoConsumoId(@Param("sessaoId") Long sessaoId);
 
     /**
@@ -36,7 +44,7 @@ public interface FundoConsumoRepository extends JpaRepository<FundoConsumo, Long
      * Agora utiliza implicitamente Optimistic Locking via @Version na entidade,
      * não necessitando do @Lock pessimista aqui.
      */
-    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.id = :sessaoId AND f.ativo = true")
+    @Query("SELECT f FROM FundoConsumo f JOIN FETCH f.sessaoConsumo WHERE f.sessaoConsumo.id = :sessaoId AND f.ativo = true")
     Optional<FundoConsumo> findBySessaoConsumoIdWithLock(@Param("sessaoId") Long sessaoId);
 
     /**
@@ -49,13 +57,13 @@ public interface FundoConsumoRepository extends JpaRepository<FundoConsumo, Long
      * Busca fundo pelo QR Code da sessão (token de acesso externo).
      * O qrCodeSessao da SessaoConsumo é o identificador público do fundo.
      */
-    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.qrCodeSessao = :qrCode AND f.ativo = true")
+    @Query("SELECT f FROM FundoConsumo f JOIN FETCH f.sessaoConsumo WHERE f.sessaoConsumo.qrCodeSessao = :qrCode AND f.ativo = true")
     Optional<FundoConsumo> findByQrCodeSessaoAndAtivoTrue(@Param("qrCode") String qrCode);
 
     /**
      * Busca fundo pelo QR Code da sessão com finalidade de escrita/lock optimista.
      */
-    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.qrCodeSessao = :qrCode AND f.ativo = true")
+    @Query("SELECT f FROM FundoConsumo f JOIN FETCH f.sessaoConsumo WHERE f.sessaoConsumo.qrCodeSessao = :qrCode AND f.ativo = true")
     Optional<FundoConsumo> findByQrCodeSessaoWithLock(@Param("qrCode") String qrCode);
 
     /**
@@ -67,6 +75,6 @@ public interface FundoConsumoRepository extends JpaRepository<FundoConsumo, Long
     /**
      * Busca fundo ativo pela Sessão do Cliente que está ABERTA, pesquisando pelo telefone (principal).
      */
-    @Query("SELECT f FROM FundoConsumo f WHERE f.sessaoConsumo.cliente.telefone = :telefone AND f.sessaoConsumo.status = :status AND f.ativo = true")
+    @Query("SELECT f FROM FundoConsumo f JOIN FETCH f.sessaoConsumo WHERE f.sessaoConsumo.cliente.telefone = :telefone AND f.sessaoConsumo.status = :status AND f.ativo = true")
     Optional<FundoConsumo> findBySessaoConsumoClienteTelefoneAndSessaoConsumoStatusAndAtivoTrue(@Param("telefone") String telefone, @Param("status") com.restaurante.model.enums.StatusSessaoConsumo status);
 }

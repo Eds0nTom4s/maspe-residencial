@@ -9,6 +9,8 @@ import com.restaurante.model.enums.CategoriaProduto;
 import com.restaurante.repository.ProdutoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.restaurante.service.storage.StorageService;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +29,8 @@ public class ProdutoService {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ProdutoService.class);
 
     private final ProdutoRepository produtoRepository;
+    private final StorageService storageService;
+
 
     /**
      * Cria um novo produto
@@ -174,6 +178,35 @@ public class ProdutoService {
         produto.setAtivo(false);
         produto.setDisponivel(false);
         produtoRepository.save(produto);
+    }
+
+    /**
+     * Faz o upload e atualiza a imagem do produto.
+     * @param id ID do produto
+     * @param file Arquivo binário da imagem
+     * @return Produto atualizado
+     */
+    @Transactional
+    public ProdutoResponse atualizarImagem(Long id, MultipartFile file) {
+        log.info("Iniciando processo de upload de imagem para o produto ID: {}", id);
+        
+        Produto produto = buscarPorId(id);
+        
+        // Se já tiver uma imagem, removemos a anterior do MinIO para poupar espaço
+        if (produto.getUrlImagem() != null && !produto.getUrlImagem().isEmpty()) {
+            log.debug("Removendo imagem antiga do produto: {}", produto.getUrlImagem());
+            storageService.deleteFile(produto.getUrlImagem());
+        }
+        
+        // Faz o novo upload
+        String urlImagem = storageService.uploadFile(file, "produtos");
+        
+        // Atualiza o produto
+        produto.setUrlImagem(urlImagem);
+        produto = produtoRepository.save(produto);
+        
+        log.info("Imagem do produto {} atualizada com sucesso: {}", id, urlImagem);
+        return mapToResponse(produto);
     }
 
     /**

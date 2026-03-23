@@ -39,4 +39,9 @@ public class IniciarPagamentoRequest {
      */
     @NotNull(message = "metodo é obrigatório")
     private MetodoPagamentoAppyPay metodo;
+
+    /**
+     * Telemóvel do cliente para disparar pedido M-Express (opcional).
+     */
+    private String telefone;
 }

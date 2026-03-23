@@ -21,7 +21,23 @@ import org.springframework.context.annotation.Primary;
  * - Futuro: TwilioGateway, AwsSnsGateway, etc.
  */
 @Configuration
+@lombok.RequiredArgsConstructor
 public class NotificationGatewayConfig {
+    
+    private final com.restaurante.notificacao.gateway.telcosms.TelcoSmsProperties telcoSmsProperties;
+
+    /**
+     * RestTemplate dedicado para notificações SMS.
+     * Configura timeouts curtos para não travar a aplicação em caso de lentidão do gateway.
+     */
+    @Bean(name = "smsRestTemplate")
+    public org.springframework.web.client.RestTemplate smsRestTemplate(org.springframework.boot.web.client.RestTemplateBuilder builder) {
+        return builder
+            .setConnectTimeout(java.time.Duration.ofMillis(5000)) // 5s conexão
+            .setReadTimeout(java.time.Duration.ofMillis(telcoSmsProperties.getTimeoutMs()))
+            .build();
+    }
+
     
     /**
      * Gateway SMS padrão: TelcoSMS

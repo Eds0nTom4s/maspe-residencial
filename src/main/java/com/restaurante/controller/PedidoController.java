@@ -59,6 +59,19 @@ public class PedidoController {
     }
 
     /**
+     * Lista pedidos da sessão do cliente conectado
+     * GET /api/pedidos/cliente
+     */
+    @GetMapping("/cliente")
+    @PreAuthorize("hasRole('CLIENTE')")
+    @Operation(summary = "Meus pedidos", description = "Lista todos os pedidos da sessão ativa do cliente (QR ou Login)")
+    public ResponseEntity<ApiResponse<List<PedidoResponse>>> listarMeusPedidos() {
+        String telefone = getUsuarioLogado();
+        List<PedidoResponse> pedidos = pedidoService.listarPedidosPorCliente(telefone);
+        return ResponseEntity.ok(ApiResponse.success("Seus pedidos efetuados", pedidos));
+    }
+
+    /**
      * Busca pedido por ID
      * GET /api/pedidos/{id}
      */

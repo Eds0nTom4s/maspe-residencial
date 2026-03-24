@@ -352,6 +352,24 @@ public class PedidoService {
     }
 
     /**
+     * Lista todos os pedidos efetuados pelo cliente na sua sessão ativa.
+     */
+    @Transactional(readOnly = true)
+    public List<PedidoResponse> listarPedidosPorCliente(String telefoneCliente) {
+        log.info("Listando pedidos para o cliente {}", telefoneCliente);
+        try {
+            com.restaurante.dto.response.SessaoConsumoResponse sessaoAtiva = sessaoConsumoService.buscarMinhaSessao(telefoneCliente);
+            return pedidoRepository.findBySessaoConsumoId(sessaoAtiva.getId(), Pageable.unpaged())
+                    .stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        } catch (ResourceNotFoundException e) {
+            log.info("Cliente {} não possui sessão ativa para listar pedidos", telefoneCliente);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
      * Busca pedido por ID e retorna Response
      */
     @Transactional(readOnly = true)

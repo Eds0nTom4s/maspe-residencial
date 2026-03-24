@@ -18,7 +18,6 @@ public class CriarUsuarioRequest {
     @Size(min = 6, message = "Senha deve ter no mínimo 6 caracteres")
     private String senha;
 
-    @NotBlank(message = "Email é obrigatório")
     @Email(message = "Email inválido")
     private String email;
 

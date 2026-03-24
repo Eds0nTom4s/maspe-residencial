@@ -12,6 +12,7 @@ import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +69,7 @@ public class SessaoConsumoService {
     private final PedidoRepository pedidoRepository;
     private final QrCodeService qrCodeService;
     private final NotificacaoService notificacaoService;
+    private final InstituicaoRepository instituicaoRepository;
 
     public SessaoConsumoService(SessaoConsumoRepository sessaoConsumoRepository,
                                 MesaRepository mesaRepository,
@@ -78,7 +80,8 @@ public class SessaoConsumoService {
                                 PedidoFinanceiroService pedidoFinanceiroService,
                                 PedidoRepository pedidoRepository,
                                 QrCodeService qrCodeService,
-                                NotificacaoService notificacaoService) {
+                                NotificacaoService notificacaoService,
+                                InstituicaoRepository instituicaoRepository) {
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.mesaRepository = mesaRepository;
         this.clienteService = clienteService;
@@ -89,6 +92,7 @@ public class SessaoConsumoService {
         this.pedidoRepository = pedidoRepository;
         this.qrCodeService = qrCodeService;
         this.notificacaoService = notificacaoService;
+        this.instituicaoRepository = instituicaoRepository;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -187,7 +191,10 @@ public class SessaoConsumoService {
             builder.aberturaPor(atendente);
         }
 
-        // Persiste a sessão (qrCodeSessao já gerado pelo @Builder.Default)
+        // Geração do código único estilo ArenaTicket
+        builder.qrCodeSessao(gerarTokenSessaoUnico());
+
+        // Persiste a sessão
         SessaoConsumo sessao = builder.build();
         SessaoConsumo sessaoSalva = sessaoConsumoRepository.save(sessao);
 
@@ -589,5 +596,29 @@ public class SessaoConsumoService {
                 .saldoFundo(fundo != null ? fundo.getSaldoAtual() : BigDecimal.ZERO)
                 .totalConsumo(totalConsumo)
                 .build();
+    }
+
+    /**
+     * Gera e valida iterativamente um Token Único curto para a Sessão.
+     * Padrão Arquitetural ArenaTicket: [SIGLA]-[8_DIGITOS_ALEATORIOS]
+     */
+    private String gerarTokenSessaoUnico() {
+        java.util.Random random = new java.util.Random();
+        int max = (int) Math.pow(10, 8); // 100M
+        
+        // Busca a sigla da Instituição dinamicamente (fallback 'SYS' se não houver cadastrada)
+        String sigla = instituicaoRepository.findFirstByAtivaTrue()
+                .map(Instituicao::getSigla)
+                .orElse("SYS");
+                
+        while (true) {
+            int numero = random.nextInt(max);
+            String tokenCandidate = sigla + "-" + String.format("%08d", numero);
+            
+            // Check na base de dados para garantir unicidade
+            if (sessaoConsumoRepository.findByQrCodeSessao(tokenCandidate).isEmpty()) {
+                return tokenCandidate;
+            }
+        }
     }
 }

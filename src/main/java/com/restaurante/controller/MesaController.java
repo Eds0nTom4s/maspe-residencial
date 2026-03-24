@@ -67,6 +67,23 @@ public class MesaController {
         return ResponseEntity.ok(ApiResponse.success("Mesa desativada", mesaService.desativar(id)));
     }
 
+    @PutMapping("/{id}/renomear")
+    @Operation(summary = "Renomear referência da mesa (ADMIN)")
+    @PreAuthorize("hasAnyRole('ADMIN')")
+    public ResponseEntity<ApiResponse<MesaResponse>> renomear(@PathVariable Long id, @RequestParam String novaReferencia) {
+        log.info("PUT /mesas/{}/renomear - novaReferencia='{}'", id, novaReferencia);
+        return ResponseEntity.ok(ApiResponse.success("Mesa renomeada", mesaService.renomear(id, novaReferencia)));
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Remover mesa (ADMIN)")
+    @PreAuthorize("hasAnyRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> remover(@PathVariable Long id) {
+        log.info("DELETE /mesas/{}", id);
+        mesaService.remover(id);
+        return ResponseEntity.ok(ApiResponse.success("Mesa removida com sucesso", null));
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Consultas — retornam status DERIVADO (DISPONIVEL/OCUPADA) em tempo real
     // ──────────────────────────────────────────────────────────────────────────

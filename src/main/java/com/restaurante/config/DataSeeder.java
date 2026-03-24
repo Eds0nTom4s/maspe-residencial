@@ -37,6 +37,7 @@ public class DataSeeder {
     private final MesaRepository mesaRepository;
     private final ClienteRepository clienteRepository;
     private final PasswordEncoder passwordEncoder;
+    private final InstituicaoRepository instituicaoRepository;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Ponto de entrada
@@ -49,6 +50,7 @@ public class DataSeeder {
         log.info("🌱  DATA SEEDER — Perfil: dev");
         log.info("=".repeat(72));
 
+        seedInstituicao();
         seedUsuarios();
         seedAtendentes();
         seedClientes();
@@ -60,6 +62,28 @@ public class DataSeeder {
         log.info("=".repeat(72));
         log.info("✅  DATA SEEDER CONCLUÍDO");
         log.info("=".repeat(72));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Instituição Base (Tenant)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void seedInstituicao() {
+        if (instituicaoRepository.count() > 0) {
+            log.info("  [instituicao]     já existe — pulando");
+            return;
+        }
+
+        Instituicao inst = Instituicao.builder()
+            .nome("MesaDigital / MASPE")
+            .sigla("MASPE")
+            .nif("5000000000") // NIF fictício
+            .urlLogo("https://maspe.ao/logo.png")
+            .ativa(true)
+            .build();
+
+        instituicaoRepository.save(inst);
+        log.info("  [instituicao]     ✅ 1 criada  (MASPE)");
     }
 
     // ─────────────────────────────────────────────────────────────────────────

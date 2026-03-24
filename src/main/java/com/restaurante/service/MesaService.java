@@ -109,6 +109,32 @@ public class MesaService {
         return converterParaResponse(mesaRepository.save(mesa));
     }
 
+    /**
+     * Renomear uma mesa física.
+     */
+    @Transactional
+    public MesaResponse renomear(Long id, String novaReferencia) {
+        Mesa mesa = buscarEntidadePorId(id);
+        mesa.setReferencia(novaReferencia);
+        log.info("Mesa ID={} renomeada para '{}'", id, novaReferencia);
+        return converterParaResponse(mesaRepository.save(mesa));
+    }
+
+    /**
+     * Remover uma mesa física.
+     * Não é permitido remover mesa com sessão aberta.
+     */
+    @Transactional
+    public void remover(Long id) {
+        Mesa mesa = buscarEntidadePorId(id);
+        if (sessaoConsumoRepository.existsByMesaIdAndStatus(id, StatusSessaoConsumo.ABERTA)) {
+            throw new BusinessException(
+                    "Não é possível remover mesa '" + mesa.getReferencia() + "': possui sessão aberta");
+        }
+        mesaRepository.delete(mesa);
+        log.info("Mesa ID={} removida", id);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Consultas
     // ──────────────────────────────────────────────────────────────────────────

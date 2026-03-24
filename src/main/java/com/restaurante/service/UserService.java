@@ -29,12 +29,14 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditoriaFinanceiraService auditoriaService;
+    private final InstituicaoService instituicaoService;
 
     @Autowired
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, AuditoriaFinanceiraService auditoriaService) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, AuditoriaFinanceiraService auditoriaService, InstituicaoService instituicaoService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.auditoriaService = auditoriaService;
+        this.instituicaoService = instituicaoService;
     }
 
     // ── Leitura ──────────────────────────────────────────────────────────────
@@ -82,6 +84,9 @@ public class UserService {
     @Transactional
     public UserResponse criar(CriarUsuarioRequest request) {
         log.info("Criando utilizador: {}", request.getUsername());
+
+        // Validação obrigatória por OTP administrativo
+        instituicaoService.validarOtpAutorizacao(request.getOtpAutorizacao());
 
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException("Username já está em uso: " + request.getUsername());

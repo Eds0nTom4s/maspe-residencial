@@ -31,8 +31,15 @@ public class InstituicaoController {
         String sigla = payload.get("sigla");
         String nif = payload.get("nif");
         String urlLogo = payload.get("urlLogo");
+        String telefoneAutorizacao = payload.get("telefoneAutorizacao");
 
-        Instituicao atualizada = instituicaoService.atualizarInstituicao(id, nome, sigla, nif, urlLogo);
+        Instituicao atualizada = instituicaoService.atualizarInstituicao(id, nome, sigla, nif, urlLogo, telefoneAutorizacao);
         return ResponseEntity.ok(atualizada);
+    }
+
+    @PostMapping("/autorizacao/otp")
+    public ResponseEntity<Void> solicitarOtpAutorizacao() {
+        instituicaoService.solicitarOtpAutorizacao();
+        return ResponseEntity.ok().build();
     }
 }

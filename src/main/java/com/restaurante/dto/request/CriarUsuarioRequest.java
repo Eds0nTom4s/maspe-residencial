@@ -28,16 +28,20 @@ public class CriarUsuarioRequest {
     @NotEmpty(message = "Ao menos uma role é obrigatória")
     private Set<Role> roles;
 
+    @NotBlank(message = "O código de OTP do administrador é obrigatório")
+    private String otpAutorizacao;
+
     public CriarUsuarioRequest() {
     }
 
-    public CriarUsuarioRequest(String username, String senha, String email, String nomeCompleto, String telefone, Set<Role> roles) {
+    public CriarUsuarioRequest(String username, String senha, String email, String nomeCompleto, String telefone, Set<Role> roles, String otpAutorizacao) {
         this.username = username;
         this.senha = senha;
         this.email = email;
         this.nomeCompleto = nomeCompleto;
         this.telefone = telefone;
         this.roles = roles;
+        this.otpAutorizacao = otpAutorizacao;
     }
 
     public String getUsername() { return username; }
@@ -52,6 +56,8 @@ public class CriarUsuarioRequest {
     public void setTelefone(String telefone) { this.telefone = telefone; }
     public Set<Role> getRoles() { return roles; }
     public void setRoles(Set<Role> roles) { this.roles = roles; }
+    public String getOtpAutorizacao() { return otpAutorizacao; }
+    public void setOtpAutorizacao(String otpAutorizacao) { this.otpAutorizacao = otpAutorizacao; }
 
     public static CriarUsuarioRequestBuilder builder() {
         return new CriarUsuarioRequestBuilder();
@@ -64,6 +70,7 @@ public class CriarUsuarioRequest {
         private String nomeCompleto;
         private String telefone;
         private Set<Role> roles;
+        private String otpAutorizacao;
 
         public CriarUsuarioRequestBuilder username(String username) { this.username = username; return this; }
         public CriarUsuarioRequestBuilder senha(String senha) { this.senha = senha; return this; }
@@ -71,9 +78,10 @@ public class CriarUsuarioRequest {
         public CriarUsuarioRequestBuilder nomeCompleto(String nomeCompleto) { this.nomeCompleto = nomeCompleto; return this; }
         public CriarUsuarioRequestBuilder telefone(String telefone) { this.telefone = telefone; return this; }
         public CriarUsuarioRequestBuilder roles(Set<Role> roles) { this.roles = roles; return this; }
+        public CriarUsuarioRequestBuilder otpAutorizacao(String otpAutorizacao) { this.otpAutorizacao = otpAutorizacao; return this; }
 
         public CriarUsuarioRequest build() {
-            return new CriarUsuarioRequest(username, senha, email, nomeCompleto, telefone, roles);
+            return new CriarUsuarioRequest(username, senha, email, nomeCompleto, telefone, roles, otpAutorizacao);
         }
     }
 }

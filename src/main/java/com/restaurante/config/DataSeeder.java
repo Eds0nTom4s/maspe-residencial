@@ -79,6 +79,7 @@ public class DataSeeder {
             .sigla("MASPE")
             .nif("5000000000") // NIF fictício
             .urlLogo("https://maspe.ao/logo.png")
+            .telefoneAutorizacao("+244925813939")
             .ativa(true)
             .build();
 

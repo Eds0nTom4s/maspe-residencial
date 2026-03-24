@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
 
+import java.time.LocalDateTime;
+
 /**
  * Entidade Instituição (Tenant)
  * 
@@ -43,5 +45,25 @@ public class Instituicao extends BaseEntity {
     @Column(nullable = false)
     @Builder.Default
     private Boolean ativa = true;
+
+    @NotBlank(message = "O telefone de autorização é obrigatório")
+    @Column(name = "telefone_autorizacao", nullable = false, length = 20)
+    private String telefoneAutorizacao;
+
+    @Column(name = "otp_code", length = 10)
+    private String otpCode;
+
+    @Column(name = "otp_expiration")
+    private LocalDateTime otpExpiration;
+
+    public boolean isOtpValido(String codigo) {
+        if (this.otpCode == null || this.otpExpiration == null) {
+            return false;
+        }
+        if (LocalDateTime.now().isAfter(this.otpExpiration)) {
+            return false;
+        }
+        return this.otpCode.equals(codigo);
+    }
 
 }

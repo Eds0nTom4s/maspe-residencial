@@ -85,6 +85,8 @@ public class AuthController {
             .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
             .qrCodeSessao(sessao.getQrCodeSessao())
             .sessaoId(sessao.getId())
+            .saldoFundo(sessao.getSaldoFundo())
+            .referenciaMesa(sessao.getReferenciaMesa())
             .build();
         
         log.info("OTP validado com sucesso para cliente ID: {}. Sessão ID: {}. Token emitido.", 

@@ -19,6 +19,8 @@ public class AuthResponse {
     // Dados da sessão criada automaticamente no login
     private String qrCodeSessao;
     private Long sessaoId;
+    private java.math.BigDecimal saldoFundo;
+    private String referenciaMesa;
 
     public AuthResponse() {}
 
@@ -55,6 +57,12 @@ public class AuthResponse {
     public Long getSessaoId() { return sessaoId; }
     public void setSessaoId(Long sessaoId) { this.sessaoId = sessaoId; }
 
+    public java.math.BigDecimal getSaldoFundo() { return saldoFundo; }
+    public void setSaldoFundo(java.math.BigDecimal saldoFundo) { this.saldoFundo = saldoFundo; }
+
+    public String getReferenciaMesa() { return referenciaMesa; }
+    public void setReferenciaMesa(String referenciaMesa) { this.referenciaMesa = referenciaMesa; }
+
     public static AuthResponseBuilder builder() {
         return new AuthResponseBuilder();
     }
@@ -68,6 +76,8 @@ public class AuthResponse {
         private Set<Role> roles;
         private String qrCodeSessao;
         private Long sessaoId;
+        private java.math.BigDecimal saldoFundo;
+        private String referenciaMesa;
 
         AuthResponseBuilder() {}
 
@@ -111,10 +121,22 @@ public class AuthResponse {
             return this;
         }
 
+        public AuthResponseBuilder saldoFundo(java.math.BigDecimal saldoFundo) {
+            this.saldoFundo = saldoFundo;
+            return this;
+        }
+
+        public AuthResponseBuilder referenciaMesa(String referenciaMesa) {
+            this.referenciaMesa = referenciaMesa;
+            return this;
+        }
+
         public AuthResponse build() {
             AuthResponse r = new AuthResponse(this.accessToken, this.refreshToken, this.tokenType, this.expiresIn, this.username, this.roles);
             r.setQrCodeSessao(this.qrCodeSessao);
             r.setSessaoId(this.sessaoId);
+            r.setSaldoFundo(this.saldoFundo);
+            r.setReferenciaMesa(this.referenciaMesa);
             return r;
         }
     }

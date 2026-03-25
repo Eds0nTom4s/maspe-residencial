@@ -52,6 +52,12 @@ public class PedidoController {
     @PreAuthorize("hasRole('CLIENTE')")
     @Operation(summary = "Cliente criar pedido", description = "Cria um novo pedido para a sessão ativa do cliente")
     public ResponseEntity<ApiResponse<PedidoResponse>> criarPedidoCliente(@Valid @RequestBody CriarPedidoRequest request) {
+        log.info("🛒 RECEBENDO PEDIDO DO CLIENTE");
+        log.info("  ┣ Sessão ID (Request): {}", request.getSessaoConsumoId());
+        log.info("  ┣ Itens: {}", request.getItens() != null ? request.getItens().size() : "NULL");
+        log.info("  ┣ Tipo Pagamento: {}", request.getTipoPagamento());
+        log.info("  ┗ Fundo Externo: {}", request.getQrCodeFundo() != null ? "SIM" : "NÃO");
+
         String telefone = getUsuarioLogado();
         PedidoResponse pedido = pedidoService.criarPedidoCliente(request, telefone);
         return ResponseEntity.status(HttpStatus.CREATED)

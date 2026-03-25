@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,6 +28,7 @@ import java.util.List;
 @RequestMapping("/pedidos")
 @RequiredArgsConstructor
 @Tag(name = "Pedidos", description = "Endpoints para gestão de pedidos")
+@Slf4j
 public class PedidoController {
 
     private final PedidoService pedidoService;

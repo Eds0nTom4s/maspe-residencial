@@ -846,9 +846,11 @@ public class PedidoService {
                 .status(pedido.getStatus())
                 .observacoes(pedido.getObservacoes())
                 .total(pedido.getTotal())
-                .sessaoConsumoId(pedido.getSessaoConsumo().getId())
-                .mesaId(pedido.getSessaoConsumo().getMesa().getId())
-                .referenciaMesa(pedido.getSessaoConsumo().getMesa().getReferencia())
+                .sessaoConsumoId(pedido.getSessaoConsumo() != null ? pedido.getSessaoConsumo().getId() : null)
+                .mesaId(pedido.getSessaoConsumo() != null && pedido.getSessaoConsumo().getMesa() != null
+                        ? pedido.getSessaoConsumo().getMesa().getId() : null)
+                .referenciaMesa(pedido.getSessaoConsumo() != null && pedido.getSessaoConsumo().getMesa() != null
+                        ? pedido.getSessaoConsumo().getMesa().getReferencia() : null)
                 .totalSubPedidos(totalSubPedidos)
                 .completedSubPedidos(completedSubPedidos)
                 .itens(pedido.getItens().stream()

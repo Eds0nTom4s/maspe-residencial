@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.*;
  * mas callbacks com assinatura inválida são descartados antes de qualquer processamento.
  */
 @RestController
-@RequestMapping("/api/pagamentos")
+@RequestMapping("/pagamentos")
 @RequiredArgsConstructor
 @Slf4j
 public class PagamentoCallbackController {

@@ -22,7 +22,7 @@ import java.math.BigDecimal;
  * Suporta recargas de fundo e pagamentos de pedidos via GPO/REF.
  */
 @RestController
-@RequestMapping("/api/financeiro/pagamento")
+@RequestMapping("/financeiro/pagamento")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Pagamento Gateway", description = "Integração com AppyPay (Multicaixa Express / Referência)")

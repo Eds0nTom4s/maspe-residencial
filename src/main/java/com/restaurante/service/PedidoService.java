@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -354,24 +355,26 @@ public class PedidoService {
     /**
      * Lista todos os pedidos efetuados pelo cliente na sua sessão ativa.
      *
-     * IMPORTANTE: noRollbackFor=ResourceNotFoundException.class é necessário para evitar
-     * UnexpectedRollbackException quando o cliente não tem sessão ativa.
-     * Sem isso, o Spring marca a transação para rollback ao apanhar a excepção
-     * internamente, mesmo que o catch a trate.
+     * USA buscarMinhaSessaoOpcional (retorna Optional) em vez de buscarMinhaSessao (lança excepção)
+     * para evitar UnexpectedRollbackException: a excepção do orElseThrow envenena a transação
+     * externa antes do catch poder agir.
      */
-    @Transactional(readOnly = true, noRollbackFor = ResourceNotFoundException.class)
+    @Transactional(readOnly = true)
     public List<PedidoResponse> listarPedidosPorCliente(String telefoneCliente) {
         log.info("Listando pedidos para o cliente {}", telefoneCliente);
-        try {
-            com.restaurante.dto.response.SessaoConsumoResponse sessaoAtiva = sessaoConsumoService.buscarMinhaSessao(telefoneCliente);
-            return pedidoRepository.findBySessaoConsumoId(sessaoAtiva.getId(), Pageable.unpaged())
-                    .stream()
-                    .map(this::mapToResponse)
-                    .collect(Collectors.toList());
-        } catch (ResourceNotFoundException e) {
+        
+        Optional<com.restaurante.dto.response.SessaoConsumoResponse> sessaoOpt =
+                sessaoConsumoService.buscarMinhaSessaoOpcional(telefoneCliente);
+
+        if (sessaoOpt.isEmpty()) {
             log.info("Cliente {} não possui sessão ativa — retornando lista vazia", telefoneCliente);
             return new ArrayList<>();
         }
+
+        return pedidoRepository.findBySessaoConsumoId(sessaoOpt.get().getId(), Pageable.unpaged())
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
     }
 
     /**

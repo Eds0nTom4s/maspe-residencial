@@ -31,6 +31,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
+import java.util.Optional;
 
 /**
  * Service responsável pelo ciclo de vida da SessaoConsumo.
@@ -506,6 +507,23 @@ public class SessaoConsumoService {
                 .orElseThrow(() -> new ResourceNotFoundException("Você não possui nenhuma sessão ativa no momento."));
                 
         return converterParaResponse(sessao);
+    }
+
+    /**
+     * Versão segura de buscarMinhaSessao — retorna Optional em vez de lançar excepção.
+     * Use este método quando chamar dentro de um @Transactional externo para evitar
+     * UnexpectedRollbackException (a excepção do orElseThrow envenena a transação externa).
+     */
+    @Transactional(readOnly = true)
+    public Optional<SessaoConsumoResponse> buscarMinhaSessaoOpcional(String telefoneCliente) {
+        try {
+            Cliente cliente = clienteService.buscarPorTelefone(telefoneCliente);
+            return sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())
+                    .map(this::converterParaResponse);
+        } catch (Exception e) {
+            // Cliente não existe ou sem sessão — retornar vazio sem lançar excepção
+            return Optional.empty();
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────

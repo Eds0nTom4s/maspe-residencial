@@ -16,6 +16,10 @@ public class AuthResponse {
     private String username;
     private Set<Role> roles;
 
+    // Dados da sessão criada automaticamente no login
+    private String qrCodeSessao;
+    private Long sessaoId;
+
     public AuthResponse() {}
 
     public AuthResponse(String accessToken, String refreshToken, String tokenType, Long expiresIn, String username, Set<Role> roles) {
@@ -45,6 +49,12 @@ public class AuthResponse {
     public Set<Role> getRoles() { return roles; }
     public void setRoles(Set<Role> roles) { this.roles = roles; }
 
+    public String getQrCodeSessao() { return qrCodeSessao; }
+    public void setQrCodeSessao(String qrCodeSessao) { this.qrCodeSessao = qrCodeSessao; }
+
+    public Long getSessaoId() { return sessaoId; }
+    public void setSessaoId(Long sessaoId) { this.sessaoId = sessaoId; }
+
     public static AuthResponseBuilder builder() {
         return new AuthResponseBuilder();
     }
@@ -56,6 +66,8 @@ public class AuthResponse {
         private Long expiresIn;
         private String username;
         private Set<Role> roles;
+        private String qrCodeSessao;
+        private Long sessaoId;
 
         AuthResponseBuilder() {}
 
@@ -89,8 +101,21 @@ public class AuthResponse {
             return this;
         }
 
+        public AuthResponseBuilder qrCodeSessao(String qrCodeSessao) {
+            this.qrCodeSessao = qrCodeSessao;
+            return this;
+        }
+
+        public AuthResponseBuilder sessaoId(Long sessaoId) {
+            this.sessaoId = sessaoId;
+            return this;
+        }
+
         public AuthResponse build() {
-            return new AuthResponse(this.accessToken, this.refreshToken, this.tokenType, this.expiresIn, this.username, this.roles);
+            AuthResponse r = new AuthResponse(this.accessToken, this.refreshToken, this.tokenType, this.expiresIn, this.username, this.roles);
+            r.setQrCodeSessao(this.qrCodeSessao);
+            r.setSessaoId(this.sessaoId);
+            return r;
         }
     }
 }

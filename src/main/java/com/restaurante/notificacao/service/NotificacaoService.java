@@ -1,5 +1,6 @@
 package com.restaurante.notificacao.service;
 
+import com.restaurante.exception.BusinessException;
 import com.restaurante.notificacao.gateway.SmsGateway;
 import com.restaurante.notificacao.gateway.SmsResponse;
 import org.springframework.scheduling.annotation.Async;
@@ -20,6 +21,9 @@ public class NotificacaoService {
     
     private static final Logger log = LoggerFactory.getLogger(NotificacaoService.class);
     
+    /** Código de erro retornado pelo gateway quando o saldo de SMS está esgotado */
+    static final String ERRO_SALDO_INSUFICIENTE_GATEWAY = "SALDO_INSUFICIENTE_GATEWAY";
+    
     private final SmsGateway smsGateway;
     
     public NotificacaoService(SmsGateway smsGateway) {
@@ -28,7 +32,9 @@ public class NotificacaoService {
     }
     
     /**
-     * Envia notificação de OTP para autenticação
+     * Envia notificação de OTP para autenticação.
+     * Este método é SÍNCRONO — uma falha bloqueia a operação do utilizador.
+     * Se o saldo de SMS estiver esgotado, lança BusinessException com mensagem amigável.
      */
     public boolean enviarOtp(String telefone, String codigo) {
         String mensagem = String.format(
@@ -38,7 +44,23 @@ public class NotificacaoService {
             codigo
         );
         
-        return enviarSms(telefone, mensagem, "OTP");
+        log.info("Enviando OTP via SMS [OTP] para {} via {}", telefone, smsGateway.getProviderName());
+        SmsResponse response = smsGateway.sendSms(telefone, mensagem);
+        
+        if (!response.isSuccess()) {
+            if (ERRO_SALDO_INSUFICIENTE_GATEWAY.equals(response.getErrorCode())) {
+                log.error("\u26a0\ufe0f Saldo de SMS esgotado! Não é possível enviar OTP para {}.", telefone);
+                throw new BusinessException(
+                    "Sistema de notificações indisponível. Tente novamente mais tarde ou" +
+                    " dirija-se ao balcão para assistência presencial."
+                );
+            }
+            log.warn("Falha ao enviar OTP [OTP] para {}: {}", telefone, response.getMessage());
+            return false;
+        }
+        
+        log.info("OTP enviado com sucesso para {}", telefone);
+        return true;
     }
     
     /**
@@ -184,10 +206,18 @@ public class NotificacaoService {
                 log.info("Notificação [{}] enviada com sucesso - ID: {}", contexto, response.getMessageId());
                 return true;
             } else {
-                log.warn("Falha ao enviar notificação [{}]: {}", contexto, response.getMessage());
+                if (ERRO_SALDO_INSUFICIENTE_GATEWAY.equals(response.getErrorCode())) {
+                    log.warn("\u26a0\ufe0f Saldo de SMS esgotado na conta TelcoSMS! Notificação [{}] não enviada para {}. " +
+                             "Contacte o administrador para recarregar o saldo.", contexto, telefone);
+                } else {
+                    log.warn("Falha ao enviar notificação [{}]: {}", contexto, response.getMessage());
+                }
                 return false;
             }
             
+        } catch (BusinessException e) {
+            // Re-lança BusinessException para não silenciar erros críticos em fluxos síncronos
+            throw e;
         } catch (Exception e) {
             log.error("Erro ao enviar notificação [{}] para {}: {}", contexto, telefone, e.getMessage(), e);
             return false;

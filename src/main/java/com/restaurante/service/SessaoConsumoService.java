@@ -526,6 +526,44 @@ public class SessaoConsumoService {
         }
     }
 
+    /**
+     * Inicia uma sessão automática para o cliente no momento do login.
+     * Se já houver uma sessão aberta, retorna a existente.
+     * Caso contrário, cria uma nova sessão sem mesa associada.
+     */
+    @Transactional
+    public SessaoConsumoResponse iniciarSessaoNoLogin(String telefoneCliente) {
+        log.info("Iniciando/Recuperando sessão para cliente {} no login", telefoneCliente);
+        
+        Cliente cliente = clienteService.buscarPorTelefone(telefoneCliente);
+        
+        return sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())
+                .map(this::converterParaResponse)
+                .orElseGet(() -> {
+                    log.info("Cliente {} sem sessão ativa. Criando nova sessão automática.", telefoneCliente);
+                    
+                    SessaoConsumo novaSessao = SessaoConsumo.builder()
+                            .cliente(cliente)
+                            .modoAnonimo(false)
+                            .status(StatusSessaoConsumo.ABERTA)
+                            .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
+                            .qrCodeSessao(gerarTokenSessaoUnico())
+                            .build();
+                            
+                    // Se houver uma instituição padrão ou única, podemos associar aqui se necessário.
+                    // Para agora, seguimos o padrão das outras aberturas.
+                    
+                    SessaoConsumo salva = sessaoConsumoRepository.save(novaSessao);
+                    
+                    // Cria automaticamente o FundoConsumo com saldo zero (obrigatório para o fluxo do cliente)
+                    FundoConsumo fundo = fundoConsumoService.criarFundoParaSessao(salva);
+                    
+                    log.info("Nova sessão e fundo (ID:{}) criados para login: ID={}, QR={}", 
+                             fundo.getId(), salva.getId(), salva.getQrCodeSessao());
+                    return converterParaResponse(salva);
+                });
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Consultas Admin
     // ──────────────────────────────────────────────────────────────────────────

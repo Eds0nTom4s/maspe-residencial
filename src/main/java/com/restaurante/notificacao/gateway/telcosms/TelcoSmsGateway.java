@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.UUID;
@@ -106,6 +107,22 @@ public class TelcoSmsGateway implements SmsGateway {
                 return SmsResponse.error(errorMsg, telcoResponse != null ? telcoResponse.getErrorCode() : null);
             }
             
+        } catch (HttpClientErrorException e) {
+            // O TelcoSMS retorna HTTP 404 quando o saldo é insuficiente.
+            // Precisamos ler o corpo e distinguir este caso de um erro genérico.
+            String responseBody = e.getResponseBodyAsString();
+            log.error("Erro ao enviar SMS via TelcoSMS para {}. URL={}: {}", phoneNumber, url, responseBody);
+
+            if (responseBody != null && responseBody.toLowerCase().contains("saldo insuficiente")) {
+                log.warn("Saldo insuficiente na conta TelcoSMS! Approvisionamento necessário.");
+                return SmsResponse.error(
+                    "Saldo insuficiente na conta de SMS. Contacte o administrador.",
+                    "SALDO_INSUFICIENTE_GATEWAY"
+                );
+            }
+
+            return SmsResponse.error(responseBody != null ? responseBody : e.getMessage(), "HTTP_" + e.getStatusCode().value());
+
         } catch (Exception e) {
             log.error("Erro ao enviar SMS via TelcoSMS para {}. URL={}: {}", phoneNumber, url, e.getMessage(), e);
             return SmsResponse.error(e.getMessage(), "SEND_FAILED");

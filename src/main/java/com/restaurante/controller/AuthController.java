@@ -10,6 +10,8 @@ import com.restaurante.dto.response.LoginAtendenteResponse;
 import com.restaurante.service.AuthService;
 import com.restaurante.service.ClienteService;
 import com.restaurante.security.JwtTokenProvider;
+import com.restaurante.dto.response.SessaoConsumoResponse;
+import com.restaurante.service.SessaoConsumoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -35,6 +37,7 @@ public class AuthController {
     private final ClienteService clienteService;
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final SessaoConsumoService sessaoConsumoService;
 
     /**
      * Solicita OTP para o telefone informado
@@ -58,25 +61,34 @@ public class AuthController {
      * POST /api/auth/validar-otp
      */
     @PostMapping("/validar-otp")
-    @Operation(summary = "Validar OTP", description = "Valida o código OTP e autentica o cliente. Retorna JWT.")
+    @Operation(summary = "Validar OTP", description = "Valida o código OTP e autentica o cliente. Retorna JWT e dados da sessão ativa.")
     public ResponseEntity<ApiResponse<AuthResponse>> validarOtp(@Valid @RequestBody ValidarOtpRequest request) {
         log.info("=== VALIDAR OTP ===");
         log.info("Telefone recebido: {}", request.getTelefone());
         log.info("Código OTP recebido: {}", request.getCodigo());
-        log.info("Request completo: {}", request);
         
+        // 1. Valida o OTP e busca o cliente
         ClienteResponse cliente = clienteService.validarOtp(request);
         
+        // 2. Garante que o cliente tem uma sessão ativa (cria se necessário)
+        // Isso permite que ele já tenha um QR para recarga no balcão sem precisar de mesa
+        SessaoConsumoResponse sessao = sessaoConsumoService.iniciarSessaoNoLogin(cliente.getTelefone());
+        
+        // 3. Gera o Token JWT
         String token = jwtTokenProvider.generateToken(cliente.getTelefone(), "ROLE_CLIENTE");
         
+        // 4. Constrói o Response com dados de autenticação e da sessão
         AuthResponse authResponse = AuthResponse.builder()
             .username(cliente.getNome() != null ? cliente.getNome() : cliente.getTelefone())
             .accessToken(token)
             .tokenType("Bearer")
             .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
+            .qrCodeSessao(sessao.getQrCodeSessao())
+            .sessaoId(sessao.getId())
             .build();
         
-        log.info("OTP validado com sucesso para cliente ID: {}. Token emitido.", cliente.getId());
+        log.info("OTP validado com sucesso para cliente ID: {}. Sessão ID: {}. Token emitido.", 
+                 cliente.getId(), sessao.getId());
         return ResponseEntity.ok(ApiResponse.success("Autenticação realizada com sucesso", authResponse));
     }
     

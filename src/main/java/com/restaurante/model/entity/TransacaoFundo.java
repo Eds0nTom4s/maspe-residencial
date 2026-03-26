@@ -49,7 +49,7 @@ public class TransacaoFundo extends BaseEntity {
     /**
      * Valor da transação (sempre positivo).
      */
-    @Column(nullable = false, precision = 10, scale = 2)
+    @Column(nullable = false, precision = 19, scale = 2)
     @NotNull
     private BigDecimal valor;
 
@@ -72,13 +72,13 @@ public class TransacaoFundo extends BaseEntity {
     /**
      * Saldo ANTES da transação (snapshot auditável).
      */
-    @Column(nullable = false, precision = 10, scale = 2)
+    @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal saldoAnterior;
 
     /**
      * Saldo DEPOIS da transação (snapshot auditável).
      */
-    @Column(nullable = false, precision = 10, scale = 2)
+    @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal saldoNovo;
 
     /**

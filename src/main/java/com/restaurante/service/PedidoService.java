@@ -4,6 +4,7 @@ import com.restaurante.dto.request.CriarPedidoRequest;
 import com.restaurante.dto.request.ItemPedidoRequest;
 import com.restaurante.dto.response.ItemPedidoResponse;
 import com.restaurante.dto.response.PedidoResponse;
+import com.restaurante.dto.response.SubPedidoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Cozinha;
@@ -135,7 +136,7 @@ public class PedidoService {
                 sessaoConsumo.getId(), Boolean.TRUE.equals(sessaoConsumo.getModoAnonimo()) ? "anónimo" : "identificado");
 
         // VALIDAÇÃO FINANCEIRA via sessão
-        pedidoFinanceiroService.validarCriacaoPedido(sessaoConsumo, totalPreliminar, tipoPagamento, roles);
+        pedidoFinanceiroService.validarCriacaoPedido(sessaoConsumo, totalPreliminar, tipoPagamento, roles, request.getQrCodeFundo());
         log.info("✅ Validação financeira APROVADA");
 
         // Cria o pedido
@@ -343,8 +344,7 @@ public class PedidoService {
             throw new BusinessException("Esta sessão não lhe pertence ou não está identificada.");
         }
 
-        // Força o tipo de pagamento PRE_PAGO se não for enviado, 
-        // já que CLIENTE não tem as roles necessárias para aprovar POS_PAGO no motor financeiro
+        // Default para PRE_PAGO caso o cliente não especifique o método
         if (request.getTipoPagamento() == null) {
             request.setTipoPagamento(TipoPagamentoPedido.PRE_PAGO);
         }
@@ -864,8 +864,34 @@ public class PedidoService {
                 .itens(pedido.getItens().stream()
                         .map(this::mapItemToResponse)
                         .collect(Collectors.toList()))
+                .subPedidos(pedido.getSubPedidos().stream()
+                        .filter(sp -> sp.getStatus() != com.restaurante.model.enums.StatusSubPedido.CANCELADO)
+                        .map(this::mapSubPedidoToResponse)
+                        .collect(Collectors.toList()))
                 .createdAt(pedido.getCreatedAt())
                 .updatedAt(pedido.getUpdatedAt())
+                .build();
+    }
+
+    private SubPedidoResponse mapSubPedidoToResponse(SubPedido sp) {
+        return SubPedidoResponse.builder()
+                .id(sp.getId())
+                .pedidoId(sp.getPedido().getId())
+                .numeroPedido(sp.getPedido().getNumero())
+                .cozinhaId(sp.getCozinha().getId())
+                .nomeCozinha(sp.getCozinha().getNome())
+                .unidadeAtendimentoId(sp.getUnidadeAtendimento().getId())
+                .nomeUnidadeAtendimento(sp.getUnidadeAtendimento().getNome())
+                .status(sp.getStatus())
+                .observacoes(sp.getObservacoes())
+                .recebidoEm(sp.getCreatedAt())
+                .iniciadoEm(sp.getIniciadoEm())
+                .prontoEm(sp.getProntoEm())
+                .entregueEm(sp.getEntregueEm())
+                .tempoPreparacaoMinutos(sp.calcularTempoPreparacao())
+                .itens(sp.getItens().stream()
+                        .map(this::mapItemToResponse)
+                        .collect(Collectors.toList()))
                 .build();
     }
 

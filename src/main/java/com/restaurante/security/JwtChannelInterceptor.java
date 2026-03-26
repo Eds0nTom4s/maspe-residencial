@@ -52,11 +52,14 @@ public class JwtChannelInterceptor implements ChannelInterceptor {
                         String username = jwtTokenProvider.getUsernameFromToken(token);
                         String roles = jwtTokenProvider.getRolesFromToken(token);
                         
-                        // Converter roles string para lista de authorities
-                        List<SimpleGrantedAuthority> authorities = Arrays.stream(roles.split(","))
-                                .map(String::trim)
-                                .map(SimpleGrantedAuthority::new)
-                                .collect(Collectors.toList());
+                        // Converter roles string para lista de authorities (previne NPE se roles nulas)
+                        List<SimpleGrantedAuthority> authorities = java.util.Collections.emptyList();
+                        if (roles != null && !roles.isBlank()) {
+                            authorities = Arrays.stream(roles.split(","))
+                                    .map(String::trim)
+                                    .map(SimpleGrantedAuthority::new)
+                                    .collect(Collectors.toList());
+                        }
                         
                         // Criar authentication e configurar no accessor
                         UsernamePasswordAuthenticationToken authentication = 

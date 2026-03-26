@@ -79,7 +79,8 @@ public class PedidoFinanceiroService {
             SessaoConsumo sessao,
             BigDecimal valorTotal,
             TipoPagamentoPedido tipoPagamento,
-            Set<String> roles) {
+            Set<String> roles,
+            String qrCodeFundoExterno) {
 
         log.info("Validando criação de pedido: sessãoId={}, valor={}, tipo={}, roles={}",
                 sessao.getId(), valorTotal, tipoPagamento, roles);
@@ -95,7 +96,11 @@ public class PedidoFinanceiroService {
         }
 
         if (tipoPagamento.isPrePago()) {
-            fundoConsumoService.validarSaldoSuficiente(sessao.getId(), valorTotal);
+            if (qrCodeFundoExterno != null && !qrCodeFundoExterno.isBlank()) {
+                fundoConsumoService.validarSaldoSuficientePorToken(qrCodeFundoExterno, valorTotal);
+            } else {
+                fundoConsumoService.validarSaldoSuficiente(sessao.getId(), valorTotal);
+            }
         }
     }
 
@@ -138,7 +143,11 @@ public class PedidoFinanceiroService {
      * Verifica se roles permitem autorizar pós-pago.
      */
     public void autorizarPosPago(Set<String> roles) {
-        boolean temPermissao = roles.stream().anyMatch(ROLES_AUTORIZAM_POS_PAGO::contains);
+        // Permitimos POS_PAGO para Gerente, Admin ou Cliente (identificado)
+        boolean temPermissao = roles.stream().anyMatch(r -> 
+            ROLES_AUTORIZAM_POS_PAGO.contains(r) || "CLIENTE".equals(r)
+        );
+        
         if (!temPermissao) {
             throw new PosPagoNaoPermitidoException();
         }

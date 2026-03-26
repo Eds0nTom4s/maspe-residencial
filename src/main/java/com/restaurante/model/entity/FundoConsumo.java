@@ -50,7 +50,7 @@ public class FundoConsumo extends BaseEntity {
      * se a aplicação precisar para query rápido, APENAS atualizado na trigger/Service após transação.
      * Sempre >= 0 no modelo Pré-Pago.
      */
-    @Column(name = "saldo_atual", precision = 10, scale = 2)
+    @Column(name = "saldo_atual", precision = 19, scale = 2)
     private BigDecimal saldoAtual = BigDecimal.ZERO;
 
     /**

@@ -30,6 +30,7 @@ public class PedidoResponse {
     private Integer totalSubPedidos;
     private Integer completedSubPedidos;
     private List<ItemPedidoResponse> itens;
+    private List<SubPedidoResponse> subPedidos;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

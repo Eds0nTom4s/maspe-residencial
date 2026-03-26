@@ -52,19 +52,22 @@ public class FundoConsumoService {
     private final SessaoConsumoRepository sessaoConsumoRepository;
     private final ClienteRepository clienteRepository;
     private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
+    private final com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService;
 
     public FundoConsumoService(FundoConsumoRepository fundoConsumoRepository,
                               TransacaoFundoRepository transacaoFundoRepository,
                               PedidoRepository pedidoRepository,
                               SessaoConsumoRepository sessaoConsumoRepository,
                               ClienteRepository clienteRepository,
-                              ConfiguracaoFinanceiraService configuracaoFinanceiraService) {
+                              ConfiguracaoFinanceiraService configuracaoFinanceiraService,
+                              com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService) {
         this.fundoConsumoRepository = fundoConsumoRepository;
         this.transacaoFundoRepository = transacaoFundoRepository;
         this.pedidoRepository = pedidoRepository;
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.clienteRepository = clienteRepository;
         this.configuracaoFinanceiraService = configuracaoFinanceiraService;
+        this.webSocketNotificacaoService = webSocketNotificacaoService;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -250,6 +253,7 @@ public class FundoConsumoService {
         log.info("Recarregando {} no fundo da sessão QR={}", com.restaurante.util.MoneyFormatter.format(valor), qrCodeSessao);
         validarValorPositivo(valor);
         validarValorMinimo(valor);
+        validarValorMaximo(valor);
         FundoConsumo fundo = buscarPorToken(qrCodeSessao);
         return executarCredito(fundo, valor, observacoes != null ? observacoes : "Recarga via QR Code");
     }
@@ -267,6 +271,7 @@ public class FundoConsumoService {
         log.info("Recarregando {} no fundo da sessão ID={}", com.restaurante.util.MoneyFormatter.format(valor), sessaoId);
         validarValorPositivo(valor);
         validarValorMinimo(valor);
+        validarValorMaximo(valor);
         FundoConsumo fundo = buscarPorSessaoId(sessaoId);
         return executarCredito(fundo, valor, observacoes);
     }
@@ -349,6 +354,9 @@ public class FundoConsumoService {
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
         
+        // Notifica atualização de saldo via WebSocket
+        webSocketNotificacaoService.notificarAtualizacaoSaldo(sessao.getId(), sessao.getQrCodeSessao(), fundo.getSaldoAtual());
+
         log.info("Débito concluído. Saldo anterior: {}, Saldo novo: {}", com.restaurante.util.MoneyFormatter.format(saldoAnterior), com.restaurante.util.MoneyFormatter.format(fundo.getSaldoAtual()));
         return transacao;
     }
@@ -434,6 +442,9 @@ public class FundoConsumoService {
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
         
+        // Notifica atualização de saldo via WebSocket
+        webSocketNotificacaoService.notificarAtualizacaoSaldo(fundo.getSessaoConsumo().getId(), fundo.getSessaoConsumo().getQrCodeSessao(), fundo.getSaldoAtual());
+
         log.info("Estorno concluído. Valor: {}, Saldo anterior: {}, Saldo novo: {}",
                  com.restaurante.util.MoneyFormatter.format(valorEstorno), com.restaurante.util.MoneyFormatter.format(saldoAnterior), com.restaurante.util.MoneyFormatter.format(fundo.getSaldoAtual()));
         return transacao;
@@ -504,6 +515,9 @@ public class FundoConsumoService {
         transacao = transacaoFundoRepository.save(transacao);
         fundo.atualizarSaldoCache(saldoNovo);
         fundoConsumoRepository.save(fundo);
+
+        // Notifica atualização de saldo via WebSocket
+        webSocketNotificacaoService.notificarAtualizacaoSaldo(sessao.getId(), sessao.getQrCodeSessao(), saldoNovo);
 
         log.warn("Ajuste concluído. Saldo anterior: {} → Saldo novo: {}", com.restaurante.util.MoneyFormatter.format(saldoAnterior), com.restaurante.util.MoneyFormatter.format(saldoNovo));
         return transacao;
@@ -633,6 +647,9 @@ public class FundoConsumoService {
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
         
+        // Notifica atualização de saldo via WebSocket
+        webSocketNotificacaoService.notificarAtualizacaoSaldo(fundo.getSessaoConsumo().getId(), fundo.getSessaoConsumo().getQrCodeSessao(), fundo.getSaldoAtual());
+
         log.info("Recarga concluída. Saldo anterior: {}, Saldo novo: {}", com.restaurante.util.MoneyFormatter.format(saldoAnterior), com.restaurante.util.MoneyFormatter.format(fundo.getSaldoAtual()));
         return transacao;
     }
@@ -648,6 +665,15 @@ public class FundoConsumoService {
         if (valor.compareTo(valorMinimo) < 0) {
             throw new BusinessException(String.format(
                 "Valor (%s) abaixo do mínimo permitido (%s)", com.restaurante.util.MoneyFormatter.format(valor), com.restaurante.util.MoneyFormatter.format(valorMinimo)));
+        }
+    }
+
+    private void validarValorMaximo(BigDecimal valor) {
+        // Limite de 1 bilhão para segurança
+        BigDecimal max = new BigDecimal("1000000000.00");
+        if (valor != null && valor.compareTo(max) > 0) {
+            throw new BusinessException("Valor excede o limite máximo permitido (" + 
+                com.restaurante.util.MoneyFormatter.format(max) + ")");
         }
     }
 }

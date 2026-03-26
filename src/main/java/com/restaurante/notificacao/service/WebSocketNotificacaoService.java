@@ -227,6 +227,30 @@ public class WebSocketNotificacaoService {
         }
     }
 
+    /**
+     * Notifica alteração de saldo no fundo de consumo (Recarga ou Débito)
+     * Envia para tópico específico da sessão.
+     */
+    public void notificarAtualizacaoSaldo(Long sessaoId, String qrCodeSessao, java.math.BigDecimal novoSaldo) {
+        log.info("💰 NOTIFICANDO ATUALIZAÇÃO DE SALDO: Sessao {} - Novo Saldo: {}", sessaoId, novoSaldo);
+        
+        String topico = String.format("/topic/sessao/%s", qrCodeSessao);
+        java.util.Map<String, Object> evento = java.util.Map.of(
+            "tipo", "ATUALIZACAO_SALDO",
+            "sessaoId", sessaoId,
+            "qrCodeSessao", qrCodeSessao,
+            "novoSaldo", novoSaldo,
+            "timestamp", java.time.LocalDateTime.now()
+        );
+
+        try {
+            messagingTemplate.convertAndSend(topico, evento);
+            log.debug("✓ Notificação de saldo enviada para: {}", topico);
+        } catch (Exception e) {
+            log.error("Erro ao notificar atualização de saldo: {}", e.getMessage());
+        }
+    }
+
     // ========== MÉTODOS PRIVADOS DE ENVIO ==========
 
     /**

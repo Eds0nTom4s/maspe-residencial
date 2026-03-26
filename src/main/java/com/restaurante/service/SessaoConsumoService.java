@@ -538,27 +538,41 @@ public class SessaoConsumoService {
         Cliente cliente = clienteService.buscarPorTelefone(telefoneCliente);
         
         return sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())
-                .map(this::converterParaResponse)
+                .map(sessao -> {
+                    if (sessao.getUnidadeAtendimento() == null) {
+                        unidadeAtendimentoRepository.findByAtivaTrue().stream()
+                                .findFirst()
+                                .ifPresent(ua -> {
+                                    sessao.setUnidadeAtendimento(ua);
+                                    sessaoConsumoRepository.save(sessao);
+                                    log.info("Unidade de Atendimento '{}' associada retrospectivamente à sessão ID={}", ua.getNome(), sessao.getId());
+                                });
+                    }
+                    return converterParaResponse(sessao);
+                })
                 .orElseGet(() -> {
                     log.info("Cliente {} sem sessão ativa. Criando nova sessão automática.", telefoneCliente);
                     
-                    SessaoConsumo novaSessao = SessaoConsumo.builder()
+                    SessaoConsumo.SessaoConsumoBuilder builder = SessaoConsumo.builder()
                             .cliente(cliente)
                             .modoAnonimo(false)
                             .status(StatusSessaoConsumo.ABERTA)
                             .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
-                            .qrCodeSessao(gerarTokenSessaoUnico())
-                            .build();
+                            .qrCodeSessao(gerarTokenSessaoUnico());
                             
-                    // Se houver uma instituição padrão ou única, podemos associar aqui se necessário.
-                    // Para agora, seguimos o padrão das outras aberturas.
+                    // Tenta encontrar uma unidade de atendimento ativa para a sessão
+                    unidadeAtendimentoRepository.findByAtivaTrue().stream()
+                            .findFirst()
+                            .ifPresent(builder::unidadeAtendimento);
                     
+                    SessaoConsumo novaSessao = builder.build();
                     SessaoConsumo salva = sessaoConsumoRepository.save(novaSessao);
                     
                     // Cria automaticamente o FundoConsumo com saldo zero (obrigatório para o fluxo do cliente)
                     FundoConsumo fundo = fundoConsumoService.criarFundoParaSessao(salva);
                     
-                    log.info("Nova sessão e fundo (ID:{}) criados para login: ID={}, QR={}", 
+                    log.info("Nova sessão (Unidade: {}) e fundo (ID:{}) criados para login: ID={}, QR={}", 
+                             salva.getUnidadeAtendimento() != null ? salva.getUnidadeAtendimento().getNome() : "N/A",
                              fundo.getId(), salva.getId(), salva.getQrCodeSessao());
                     return converterParaResponse(salva);
                 });

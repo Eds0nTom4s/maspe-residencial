@@ -1,0 +1,498 @@
+================================================================================
+BASE DE INTEGRACAO APPYPAY — GPO, REF, WEBHOOK E RECONCILIACAO
+Projeto: Motor Loja GDSE / Sistema de Restauracao
+Objetivo: Servir como guia reutilizavel para integracao AppyPay em outros projetos
+================================================================================
+
+1. VISAO GERAL
+--------------------------------------------------------------------------------
+A integracao AppyPay deve ser tratada como uma camada de gateway isolada do
+dominio de negocio.
+
+O dominio cria uma intencao de pagamento local.
+O gateway cria a cobranca na AppyPay.
+O webhook ou a reconciliacao confirmam o estado real.
+O dominio reage a confirmacao.
+
+Regra central:
+
+    O sistema local nunca deve depender apenas da tela de retorno do comprador.
+    A confirmacao confiavel vem de webhook ou reconciliacao.
+
+
+2. COMPONENTES RECOMENDADOS
+--------------------------------------------------------------------------------
+Camada AppyPay:
+
+    AppyPayProperties
+        Configuracoes do gateway.
+
+    AppyPayAuthService
+        OAuth2 client_credentials, cache de access_token e renovacao automatica.
+
+    AppyPayClient
+        Cliente HTTP puro para criar e consultar cobrancas.
+
+    AppyPayStatusMapper
+        Normaliza status retornados pela AppyPay para status internos.
+
+    AppyPayWebhookPayload
+        Extrai campos de payloads reais, inclusive formatos aninhados.
+
+    AppyPayHmacValidator
+        Valida assinatura quando o merchant/AppyPay envia assinatura.
+
+Camada financeira local:
+
+    Pagamento
+        Registro local da transacao.
+
+    PagamentoGatewayRepository
+        Busca por externalReference, gatewayChargeId e referencia.
+
+    PagamentoCallbackService
+        Processa webhook/callback com idempotencia.
+
+    AppyPayReconciliationService
+        Rotina periodica que consulta a AppyPay e recupera pagamentos
+        confirmados cujo webhook falhou ou se perdeu.
+
+
+3. CONFIGURACOES
+--------------------------------------------------------------------------------
+Exemplo de properties:
+
+    app.payment.appypay.base-url=https://gwy-api.appypay.co.ao/v2.0
+    app.payment.appypay.token-url=https://login.microsoftonline.com/auth.appypay.co.ao/oauth2/token
+    app.payment.appypay.client-id=${APPYPAY_CLIENT_ID}
+    app.payment.appypay.client-secret=${APPYPAY_CLIENT_SECRET}
+    app.payment.appypay.resource=${APPYPAY_RESOURCE}
+
+    app.payment.appypay.methods.gpo=${APPYPAY_METHOD_GPO}
+    app.payment.appypay.methods.ref=${APPYPAY_METHOD_REF}
+
+    app.payment.appypay.callback-url=${APP_BASE_URL}/api/pagamentos/callback
+    app.payment.appypay.return-url=${APPYPAY_RETURN_URL:${APP_BASE_URL}/api/pagamentos/callback}
+
+    app.payment.appypay.webhook-secret=${APPYPAY_WEBHOOK_SECRET:}
+    app.payment.appypay.webhook-signature-required=${APPYPAY_WEBHOOK_SIGNATURE_REQUIRED:false}
+
+    app.payment.appypay.mock=${APPYPAY_MOCK:false}
+    app.payment.appypay.timeout-ms=${APPYPAY_TIMEOUT_MS:20000}
+    app.payment.appypay.debug=false
+
+    app.payment.appypay.reconciliation.enabled=${APPYPAY_RECONCILIATION_ENABLED:true}
+    app.payment.appypay.reconciliation.cron=${APPYPAY_RECONCILIATION_CRON:0 */15 * * * *}
+    app.payment.appypay.reconciliation.min-age-minutes=${APPYPAY_RECONCILIATION_MIN_AGE_MINUTES:5}
+    app.payment.appypay.reconciliation.batch-size=${APPYPAY_RECONCILIATION_BATCH_SIZE:100}
+
+Em producao:
+
+    - APPYPAY_CLIENT_SECRET deve vir de variavel de ambiente ou cofre.
+    - APPYPAY_WEBHOOK_SECRET deve ser configurado se o ambiente exigir HMAC.
+    - callback-url deve ser HTTPS publico.
+    - mock deve ser false.
+    - URLs localhost/http devem bloquear arranque em profile prod.
+
+
+4. AUTENTICACAO OAUTH2
+--------------------------------------------------------------------------------
+Fluxo:
+
+    1. App chama AppyPayAuthService.getAccessToken().
+    2. Se token em cache ainda estiver valido, reutiliza.
+    3. Se expirou, chama token-url com:
+
+        grant_type=client_credentials
+        client_id=<client-id>
+        client_secret=<client-secret>
+        resource=<resource>
+
+    4. Cacheia access_token ate alguns minutos antes da expiracao.
+
+Boas praticas:
+
+    - Nunca logar client_secret.
+    - Usar timeout de rede.
+    - Renovar token com margem de seguranca.
+    - Sincronizar renovacao para evitar chamadas paralelas desnecessarias.
+
+
+5. CRIACAO DE COBRANCA
+--------------------------------------------------------------------------------
+Request base:
+
+    {
+      "merchantTransactionId": "ST123456789",
+      "amount": 250000,
+      "paymentMethod": "GPO_fd67da50-9858-45c4-8871-b271709328c7",
+      "description": "Ordem Loja GDSE ORD-20260430120000",
+      "returnUrl": "https://api.exemplo.ao/api/pagamentos/callback",
+      "callbackUrl": "https://api.exemplo.ao/api/pagamentos/callback",
+      "mobileNumber": "+244923000000"
+    }
+
+Campos:
+
+    merchantTransactionId
+        Referencia unica no merchant.
+        Deve ser curta e unica. No projeto atual, externalReference tem limite 15.
+
+    amount
+        Valor enviado em unidade menor conforme contrato AppyPay usado no projeto.
+        No motor atual usa-se valor * 100.
+        Confirmar sempre com AppyPay/merchant antes de producao.
+
+    paymentMethod
+        Deve usar o ID completo configurado do metodo:
+            GPO_<uuid>
+            REF_<uuid>
+
+    callbackUrl
+        Endpoint backend chamado pela AppyPay.
+
+    returnUrl
+        Endpoint/tela de retorno do comprador.
+        Nao deve ser tratado como confirmacao definitiva.
+
+    mobileNumber
+        Necessario especialmente para GPO/M-Express.
+
+
+6. FLUXO GPO
+--------------------------------------------------------------------------------
+GPO e usado para pagamento instantaneo/express.
+
+Fluxo recomendado:
+
+    1. Criar Pagamento local com status PENDENTE.
+    2. Chamar AppyPay createCharge com metodo GPO.
+    3. Salvar:
+        gatewayChargeId
+        externalReference
+        gatewayResponse
+        paymentUrl, se retornada
+    4. Se AppyPay responder status confirmado imediatamente:
+        confirmar pagamento local.
+    5. Caso contrario:
+        aguardar webhook ou reconciliacao.
+
+Statuses considerados confirmados:
+
+    CONFIRMED
+    Paid
+    Success
+    Succeeded
+    Pago
+
+
+7. FLUXO REF
+--------------------------------------------------------------------------------
+REF e usado para referencia bancaria/multicaixa.
+
+Fluxo recomendado:
+
+    1. Criar Pagamento local com status PENDENTE.
+    2. Chamar AppyPay createCharge com metodo REF.
+    3. Salvar:
+        gatewayChargeId
+        externalReference
+        entidade
+        referencia
+        gatewayResponse
+    4. Retornar entidade/referencia ao cliente.
+    5. Aguardar webhook ou reconciliacao.
+
+Importante:
+
+    - REF normalmente nao confirma no momento da criacao.
+    - referencia deve ser persistida para localizar webhook quando o payload nao
+      trouxer merchantTransactionId.
+    - referencia pode vir como string simples ou objeto aninhado.
+
+
+8. WEBHOOK / CALLBACK
+--------------------------------------------------------------------------------
+Endpoint recomendado:
+
+    POST /api/pagamentos/callback
+
+Alias aceitavel:
+
+    POST /api/pagamentos/webhook
+
+O endpoint deve ser publico, mas protegido por uma das estrategias:
+
+    - HMAC-SHA256, se AppyPay enviar assinatura.
+    - segredo/header compartilhado, se contratualmente suportado.
+    - validação por payload + idempotencia + reconciliacao, quando AppyPay nao
+      enviar assinatura.
+
+No projeto atual:
+
+    X-AppyPay-Signature e suportado.
+    app.payment.appypay.webhook-signature-required controla se a assinatura e
+    obrigatoria.
+
+Regra operacional:
+
+    Callback invalido nao deve alterar estado financeiro.
+    Callback duplicado deve ser NO-OP.
+
+
+9. PAYLOADS SUPORTADOS NO WEBHOOK
+--------------------------------------------------------------------------------
+O payload real pode variar. A extracao deve procurar identificadores em varios
+campos.
+
+Campos de identificacao:
+
+    merchantTransactionId
+    merchant_transaction_id
+    id
+    paymentId
+    transaction_id
+    chargeId
+    referencia
+    reference
+    reference.referenceNumber
+    responseStatus.reference.referenceNumber
+
+Campos de status:
+
+    status
+    responseStatus.status
+
+Campos de valor:
+
+    amount
+    valor
+    value
+
+Exemplo simples:
+
+    {
+      "chargeId": "ch_123",
+      "merchantTransactionId": "ST123456",
+      "status": "CONFIRMED",
+      "amount": 250000,
+      "paymentMethod": "GPO_fd67..."
+    }
+
+Exemplo aninhado observado em integracoes:
+
+    {
+      "id": "pay_123",
+      "merchantTransactionId": "ST123456",
+      "responseStatus": {
+        "status": "Paid",
+        "reference": {
+          "referenceNumber": "999123456"
+        }
+      },
+      "amount": "250000"
+    }
+
+
+10. PROCESSAMENTO DO WEBHOOK
+--------------------------------------------------------------------------------
+Fluxo recomendado:
+
+    1. Receber rawBody.
+    2. Validar assinatura se obrigatoria.
+    3. Desserializar para Map<String, Object> ou DTO tolerante.
+    4. Extrair:
+        merchantTransactionId
+        chargeId/paymentId
+        referencia
+        status
+        amount
+    5. Localizar pagamento local por ordem:
+        externalReference
+        gatewayChargeId
+        referencia
+    6. Usar lock pessimista ou controle transacional equivalente.
+    7. Registrar evento CALLBACK_RECEBIDO.
+    8. Normalizar status.
+    9. Se CONFIRMADO:
+        validar valor, se informado.
+        confirmar pagamento local.
+        atualizar dominio relacionado.
+    10. Se FALHOU:
+        marcar pagamento como FALHOU, se ainda nao terminal.
+    11. Se PENDENTE/desconhecido:
+        logar e aguardar reconciliacao.
+
+
+11. IDEMPOTENCIA
+--------------------------------------------------------------------------------
+Obrigatorio.
+
+Camadas:
+
+    Banco:
+        external_reference unique.
+
+    Processamento:
+        Se pagamento ja esta CONFIRMADO, callback duplicado nao faz nada.
+
+    Lock:
+        Buscar pagamento com lock pessimista durante callback.
+
+    Dominio:
+        Confirmacao deve ser idempotente.
+
+
+12. RECONCILIACAO
+--------------------------------------------------------------------------------
+Motivo:
+
+    Webhook pode falhar, chegar fora de ordem, ser bloqueado por rede ou nao ser
+    emitido. A reconciliacao recupera a verdade diretamente do gateway.
+
+Rotina recomendada:
+
+    @Scheduled(cron = "${app.payment.appypay.reconciliation.cron}")
+
+Fluxo:
+
+    1. Se reconciliation.enabled=false, sair.
+    2. Buscar pagamentos:
+        status = PENDENTE
+        gatewayChargeId IS NOT NULL
+        createdAt <= now - min-age-minutes
+    3. Limitar por batch-size.
+    4. Para cada pagamento:
+        chamar GET /charges/{gatewayChargeId}
+        normalizar status
+        se CONFIRMADO, confirmar localmente
+        se FALHOU/CANCELLED, marcar falho
+        se PENDENTE, manter aguardando
+    5. Registrar auditoria.
+    6. Logar totais:
+        confirmados
+        falhados
+        aguardando
+        erros
+
+Exemplo de configuracao:
+
+    app.payment.appypay.reconciliation.enabled=true
+    app.payment.appypay.reconciliation.cron=0 */15 * * * *
+    app.payment.appypay.reconciliation.min-age-minutes=5
+    app.payment.appypay.reconciliation.batch-size=100
+
+
+13. STATUS INTERNOS RECOMENDADOS
+--------------------------------------------------------------------------------
+Gateway:
+
+    PENDENTE
+    CONFIRMADO
+    FALHOU
+    ESTORNADO
+
+Normalizacao:
+
+    CONFIRMED, PAID, SUCCESS, SUCCEEDED, PAGO
+        -> CONFIRMADO
+
+    FAILED, FAILURE, CANCELLED, CANCELED, EXPIRED, REJECTED
+        -> FALHOU
+
+    REFUNDED, REVERSED
+        -> ESTORNADO
+
+    Qualquer outro
+        -> PENDENTE
+
+
+14. AUDITORIA
+--------------------------------------------------------------------------------
+Eventos minimos:
+
+    PAGAMENTO_CRIADO
+    CALLBACK_RECEBIDO
+    CONFIRMACAO_PAGAMENTO
+    PAGAMENTO_FALHOU
+
+Metadados recomendados:
+
+    pagamentoId
+    pedidoId ou entidade de dominio
+    externalReference
+    gatewayChargeId
+    referencia
+    statusGateway
+    origem:
+        APPYPAY_CALLBACK
+        APPYPAY_RECONCILIACAO
+    timestamp
+
+
+15. SEGURANCA DE PRODUCAO
+--------------------------------------------------------------------------------
+Obrigatorio antes de producao:
+
+    - HTTPS publico no callback-url.
+    - Sem localhost/http em profile prod.
+    - Secrets via ambiente/cofre.
+    - mock=false.
+    - debug=false.
+    - Nao logar client_secret.
+    - Nao logar payload completo com dados sensiveis.
+    - Validar valor retornado pelo gateway quando amount vier no webhook.
+
+
+16. CHECKLIST DE HOMOLOGACAO
+--------------------------------------------------------------------------------
+[ ] Criar cobranca GPO.
+[ ] Confirmar GPO imediato, se gateway retornar confirmado.
+[ ] Confirmar GPO via webhook.
+[ ] Criar cobranca REF.
+[ ] Exibir entidade/referencia corretamente.
+[ ] Confirmar REF via webhook.
+[ ] Simular webhook duplicado.
+[ ] Simular webhook sem merchantTransactionId, mas com referencia.
+[ ] Simular webhook com responseStatus.reference.referenceNumber.
+[ ] Simular webhook perdido e confirmar via reconciliacao.
+[ ] Simular pagamento falhado/cancelado.
+[ ] Validar divergencia de valor.
+[ ] Confirmar auditoria.
+[ ] Confirmar que retorno do comprador nao confirma pagamento sozinho.
+
+
+17. CONTRATO MINIMO ENTRE DOMINIO E GATEWAY
+--------------------------------------------------------------------------------
+Entrada para criar pagamento:
+
+    valor
+    metodo: GPO ou REF
+    telefone
+    descricao
+    entidade de dominio relacionada
+
+Saida:
+
+    pagamentoId local
+    externalReference
+    gatewayChargeId
+    status
+    paymentUrl
+    entidade
+    referencia
+
+Confirmacao:
+
+    Deve chamar um metodo do dominio, por exemplo:
+
+        confirmarPagamentoDaOrdem(pagamento)
+        confirmarPagamentoDaCota(pagamento)
+        creditarFundo(pagamento)
+
+O gateway nao deve conter regra especifica de socio, loja, cota, produto ou
+restaurante. Ele apenas cria, consulta e normaliza pagamentos.
+
+================================================================================
+FIM
+================================================================================

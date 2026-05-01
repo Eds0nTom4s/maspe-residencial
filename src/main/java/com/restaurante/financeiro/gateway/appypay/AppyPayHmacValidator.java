@@ -45,6 +45,11 @@ public class AppyPayHmacValidator {
     public boolean validar(String rawBody, String receivedSig) {
         String secret = properties.getWebhookSecret();
 
+        if ((receivedSig == null || receivedSig.isBlank()) && !properties.isWebhookSignatureRequired()) {
+            log.warn("[HMAC] Assinatura ausente; callback aceite porque webhook-signature-required=false.");
+            return true;
+        }
+
         // Em modo mock/dev sem secret configurado, aceita qualquer callback
         if (secret == null || secret.isBlank()) {
             if (properties.isMock()) {

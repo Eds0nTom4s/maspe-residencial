@@ -84,6 +84,7 @@ public class SubPedidoService {
             case PIZZA -> TipoCozinha.PIZZARIA;
             case SOBREMESA -> TipoCozinha.CONFEITARIA;
             case BEBIDA_ALCOOLICA, BEBIDA_NAO_ALCOOLICA -> TipoCozinha.BAR_PREP;
+            case VESTUARIO, EQUIPAMENTO_DESPORTIVO, ACESSORIO, COLECCIONAVEL -> TipoCozinha.ESPECIAL;
             case OUTROS -> TipoCozinha.CENTRAL; // Fallback para cozinha central
         };
     }

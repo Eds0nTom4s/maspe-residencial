@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * DTO para criação/atualização de produto
@@ -38,6 +39,8 @@ public class ProdutoRequest {
 
     private String urlImagem;
 
+    private List<String> imagensGaleria;
+
     private Integer tempoPreparoMinutos;
 
     private Boolean disponivel;
@@ -64,6 +67,10 @@ public class ProdutoRequest {
     
     public String getUrlImagem() {
         return urlImagem;
+    }
+
+    public List<String> getImagensGaleria() {
+        return imagensGaleria;
     }
     
     public Integer getTempoPreparoMinutos() {

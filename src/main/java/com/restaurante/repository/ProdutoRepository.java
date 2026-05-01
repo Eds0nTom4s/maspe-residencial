@@ -41,9 +41,10 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
      */
     Page<Produto> findByCategoriaAndDisponivelTrueAndAtivoTrue(CategoriaProduto categoria, Pageable pageable);
 
+    Page<Produto> findByCategoriaInAndDisponivelTrueAndAtivoTrue(List<CategoriaProduto> categorias, Pageable pageable);
+
     /**
      * Busca produtos por nome (busca parcial) com paginação
      */
     Page<Produto> findByNomeContainingIgnoreCaseAndDisponivelTrueAndAtivoTrue(String nome, Pageable pageable);
 }
-

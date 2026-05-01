@@ -3,10 +3,12 @@ package com.restaurante.config;
 import com.restaurante.security.CustomUserDetailsService;
 import com.restaurante.security.JwtAuthenticationFilter;
 import com.restaurante.security.JwtSecurityExceptionHandlers;
+import com.restaurante.store.security.SocioAuthFilter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
@@ -39,6 +41,7 @@ public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final SocioAuthFilter socioAuthFilter;
     private final JwtSecurityExceptionHandlers.JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtSecurityExceptionHandlers.JwtAccessDeniedHandler jwtAccessDeniedHandler;
     private final CorsConfigurationSource corsConfigurationSource;
@@ -57,6 +60,11 @@ public class SecurityConfig {
                         // Endpoints públicos de autenticação e cardápio
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
                         .requestMatchers("/api/public/**", "/public/**").permitAll()
+
+                        // Loja do Sócio — catálogo público (sem autenticação)
+                        .requestMatchers(HttpMethod.GET, "/store/catalogo", "/store/catalogo/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/store/ordens").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/store/ordens/rastreio").permitAll()
 
                         // Debug endpoints: restritos por @Profile("!prod") + @PreAuthorize("ADMIN") no controller
                         // Sem regra de permitAll aqui — autenticação obrigatória
@@ -77,7 +85,9 @@ public class SecurityConfig {
                         
                         // Webhooks e callbacks (AppyPay)
                         .requestMatchers("/api/pagamentos/callback").permitAll()
+                        .requestMatchers("/api/pagamentos/webhook").permitAll()
                         .requestMatchers("/pagamentos/webhook").permitAll()
+                        .requestMatchers("/pagamentos/callback").permitAll()
                         
                         // WebSocket endpoints (SockJS handshake deve ser permitido)
                         .requestMatchers("/ws/**", "/api/ws/**").permitAll()
@@ -86,6 +96,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())
+                // SocioAuthFilter ANTES do JWT filter — actua em /store/** com token Associagest
+                .addFilterBefore(socioAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         // Permitir H2 Console (desenvolvimento) - desabilita frame protection e relaxa CSP
@@ -96,6 +108,13 @@ public class SecurityConfig {
                 .contentTypeOptions(contentType -> contentType.disable()));
 
         return http.build();
+    }
+
+    @Bean
+    public FilterRegistrationBean<SocioAuthFilter> socioAuthFilterRegistration(SocioAuthFilter filter) {
+        FilterRegistrationBean<SocioAuthFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean

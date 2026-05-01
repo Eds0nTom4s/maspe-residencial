@@ -6,6 +6,7 @@ package com.restaurante.financeiro.enums;
  * SEPARAÇÃO DE CONCEITOS:
  * - PRE_PAGO: Cliente paga antecipadamente (recarga de fundo)
  * - POS_PAGO: Cliente paga depois (autorização gerencial)
+ * - STORE_PEDIDO: Pagamento direto de ordem da loja
  */
 public enum TipoPagamentoFinanceiro {
     
@@ -19,7 +20,9 @@ public enum TipoPagamentoFinanceiro {
      * Pós-pago: Pagamento posterior
      * Requer autorização GERENTE/ADMIN
      */
-    POS_PAGO("Pós-Pago (Pagamento Posterior)");
+    POS_PAGO("Pós-Pago (Pagamento Posterior)"),
+
+    STORE_PEDIDO("Ordem da Loja");
     
     private final String descricao;
     

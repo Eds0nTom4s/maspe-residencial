@@ -35,6 +35,10 @@ public class ItemPedido extends BaseEntity {
     @JoinColumn(name = "produto_id", nullable = false)
     private Produto produto;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "variacao_produto_id")
+    private VariacaoProduto variacaoProduto;
+
     @NotNull(message = "Quantidade é obrigatória")
     @Min(value = 1, message = "Quantidade deve ser maior que zero")
     @Column(nullable = false)
@@ -49,6 +53,18 @@ public class ItemPedido extends BaseEntity {
 
     @Column(length = 500)
     private String observacoes;
+
+    @Column(name = "personalized_name", length = 80)
+    private String personalizedName;
+
+    @Column(name = "qr_identity_enabled")
+    private Boolean qrIdentityEnabled = false;
+
+    @Column(name = "premium_packaging")
+    private Boolean premiumPackaging = false;
+
+    @Column(name = "qr_identity_token_hash", length = 128)
+    private String qrIdentityTokenHash;
 
     /**
      * Calcula o subtotal do item (quantidade * preço unitário)
@@ -83,13 +99,26 @@ public class ItemPedido extends BaseEntity {
 
     public ItemPedido(Pedido pedido, SubPedido subPedido, Produto produto, Integer quantidade,
                       BigDecimal precoUnitario, BigDecimal subtotal, String observacoes) {
+        this(pedido, subPedido, produto, null, quantidade, precoUnitario, subtotal, observacoes,
+                null, false, false, null);
+    }
+
+    public ItemPedido(Pedido pedido, SubPedido subPedido, Produto produto, VariacaoProduto variacaoProduto,
+                      Integer quantidade, BigDecimal precoUnitario, BigDecimal subtotal, String observacoes,
+                      String personalizedName, Boolean qrIdentityEnabled, Boolean premiumPackaging,
+                      String qrIdentityTokenHash) {
         this.pedido = pedido;
         this.subPedido = subPedido;
         this.produto = produto;
+        this.variacaoProduto = variacaoProduto;
         this.quantidade = quantidade;
         this.precoUnitario = precoUnitario;
         this.subtotal = subtotal;
         this.observacoes = observacoes;
+        this.personalizedName = personalizedName;
+        this.qrIdentityEnabled = qrIdentityEnabled != null ? qrIdentityEnabled : false;
+        this.premiumPackaging = premiumPackaging != null ? premiumPackaging : false;
+        this.qrIdentityTokenHash = qrIdentityTokenHash;
     }
 
     // --- Getters & Setters Auxiliares ---
@@ -99,6 +128,9 @@ public class ItemPedido extends BaseEntity {
     
     public Produto getProduto() { return produto; }
     public void setProduto(Produto produto) { this.produto = produto; }
+
+    public VariacaoProduto getVariacaoProduto() { return variacaoProduto; }
+    public void setVariacaoProduto(VariacaoProduto variacaoProduto) { this.variacaoProduto = variacaoProduto; }
     
     public Integer getQuantidade() { return quantidade; }
     public void setQuantidade(Integer quantidade) { this.quantidade = quantidade; }
@@ -110,6 +142,18 @@ public class ItemPedido extends BaseEntity {
     
     public String getObservacoes() { return observacoes; }
     public void setObservacoes(String observacoes) { this.observacoes = observacoes; }
+
+    public String getPersonalizedName() { return personalizedName; }
+    public void setPersonalizedName(String personalizedName) { this.personalizedName = personalizedName; }
+
+    public Boolean getQrIdentityEnabled() { return qrIdentityEnabled; }
+    public void setQrIdentityEnabled(Boolean qrIdentityEnabled) { this.qrIdentityEnabled = qrIdentityEnabled; }
+
+    public Boolean getPremiumPackaging() { return premiumPackaging; }
+    public void setPremiumPackaging(Boolean premiumPackaging) { this.premiumPackaging = premiumPackaging; }
+
+    public String getQrIdentityTokenHash() { return qrIdentityTokenHash; }
+    public void setQrIdentityTokenHash(String qrIdentityTokenHash) { this.qrIdentityTokenHash = qrIdentityTokenHash; }
 
     // --- Equals & HashCode ---
     @Override
@@ -141,10 +185,15 @@ public class ItemPedido extends BaseEntity {
         private Pedido pedido;
         private SubPedido subPedido;
         private Produto produto;
+        private VariacaoProduto variacaoProduto;
         private Integer quantidade;
         private BigDecimal precoUnitario;
         private BigDecimal subtotal;
         private String observacoes;
+        private String personalizedName;
+        private Boolean qrIdentityEnabled;
+        private Boolean premiumPackaging;
+        private String qrIdentityTokenHash;
 
         ItemPedidoBuilder() {}
 
@@ -160,6 +209,11 @@ public class ItemPedido extends BaseEntity {
 
         public ItemPedidoBuilder produto(Produto produto) {
             this.produto = produto;
+            return this;
+        }
+
+        public ItemPedidoBuilder variacaoProduto(VariacaoProduto variacaoProduto) {
+            this.variacaoProduto = variacaoProduto;
             return this;
         }
 
@@ -183,8 +237,30 @@ public class ItemPedido extends BaseEntity {
             return this;
         }
 
+        public ItemPedidoBuilder personalizedName(String personalizedName) {
+            this.personalizedName = personalizedName;
+            return this;
+        }
+
+        public ItemPedidoBuilder qrIdentityEnabled(Boolean qrIdentityEnabled) {
+            this.qrIdentityEnabled = qrIdentityEnabled;
+            return this;
+        }
+
+        public ItemPedidoBuilder premiumPackaging(Boolean premiumPackaging) {
+            this.premiumPackaging = premiumPackaging;
+            return this;
+        }
+
+        public ItemPedidoBuilder qrIdentityTokenHash(String qrIdentityTokenHash) {
+            this.qrIdentityTokenHash = qrIdentityTokenHash;
+            return this;
+        }
+
         public ItemPedido build() {
-            return new ItemPedido(pedido, subPedido, produto, quantidade, precoUnitario, subtotal, observacoes);
+            return new ItemPedido(pedido, subPedido, produto, variacaoProduto, quantidade, precoUnitario,
+                    subtotal, observacoes, personalizedName, qrIdentityEnabled, premiumPackaging,
+                    qrIdentityTokenHash);
         }
     }
 }

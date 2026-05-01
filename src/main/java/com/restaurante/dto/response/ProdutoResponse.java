@@ -3,6 +3,8 @@ package com.restaurante.dto.response;
 import com.restaurante.model.enums.CategoriaProduto;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+
 public class ProdutoResponse {
 
     private Long id;
@@ -12,6 +14,7 @@ public class ProdutoResponse {
     private BigDecimal preco;
     private CategoriaProduto categoria;
     private String urlImagem;
+    private List<String> imagensGaleria;
     private Integer tempoPreparoMinutos;
     private Boolean disponivel;
     private Boolean ativo;
@@ -41,6 +44,9 @@ public class ProdutoResponse {
     public String getUrlImagem() { return urlImagem; }
     public void setUrlImagem(String urlImagem) { this.urlImagem = urlImagem; }
 
+    public List<String> getImagensGaleria() { return imagensGaleria; }
+    public void setImagensGaleria(List<String> imagensGaleria) { this.imagensGaleria = imagensGaleria; }
+
     public Integer getTempoPreparoMinutos() { return tempoPreparoMinutos; }
     public void setTempoPreparoMinutos(Integer tempoPreparoMinutos) { this.tempoPreparoMinutos = tempoPreparoMinutos; }
 
@@ -68,6 +74,7 @@ public class ProdutoResponse {
         private BigDecimal preco;
         private CategoriaProduto categoria;
         private String urlImagem;
+        private List<String> imagensGaleria;
         private Integer tempoPreparoMinutos;
         private Boolean disponivel;
         private Boolean ativo;
@@ -81,6 +88,7 @@ public class ProdutoResponse {
         public ProdutoResponseBuilder preco(BigDecimal preco) { this.preco = preco; return this; }
         public ProdutoResponseBuilder categoria(CategoriaProduto categoria) { this.categoria = categoria; return this; }
         public ProdutoResponseBuilder urlImagem(String urlImagem) { this.urlImagem = urlImagem; return this; }
+        public ProdutoResponseBuilder imagensGaleria(List<String> imagensGaleria) { this.imagensGaleria = imagensGaleria; return this; }
         public ProdutoResponseBuilder tempoPreparoMinutos(Integer tempoPreparoMinutos) { this.tempoPreparoMinutos = tempoPreparoMinutos; return this; }
         public ProdutoResponseBuilder disponivel(Boolean disponivel) { this.disponivel = disponivel; return this; }
         public ProdutoResponseBuilder ativo(Boolean ativo) { this.ativo = ativo; return this; }
@@ -96,6 +104,7 @@ public class ProdutoResponse {
             response.setPreco(preco);
             response.setCategoria(categoria);
             response.setUrlImagem(urlImagem);
+            response.setImagensGaleria(imagensGaleria);
             response.setTempoPreparoMinutos(tempoPreparoMinutos);
             response.setDisponivel(disponivel);
             response.setAtivo(ativo);

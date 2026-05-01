@@ -303,4 +303,8 @@ public class Pagamento extends BaseEntity {
     public boolean isPosPago() {
         return tipoPagamento == TipoPagamentoFinanceiro.POS_PAGO;
     }
+
+    public boolean isStorePedido() {
+        return tipoPagamento == TipoPagamentoFinanceiro.STORE_PEDIDO;
+    }
 }

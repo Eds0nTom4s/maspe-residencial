@@ -11,7 +11,9 @@ import java.util.List;
 
 /**
  * Entidade Produto
- * Representa um item do cardápio disponível para pedidos
+ * Representa um item do cardápio ou da Loja do Sócio disponível para pedidos.
+ * Para produtos de loja (camisolas, acessórios), o campo {@code variacoes}
+ * contém as opções de tamanho e cor disponíveis.
  */
 @Entity
 @Table(name = "produtos", indexes = {
@@ -48,6 +50,11 @@ public class Produto extends BaseEntity {
     @Column(name = "url_imagem", length = 500)
     private String urlImagem;
 
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "produto_imagens", joinColumns = @JoinColumn(name = "produto_id"))
+    @Column(name = "imagem_url", length = 500)
+    private List<String> imagensGaleria = new ArrayList<>();
+
     @Column(name = "tempo_preparo_minutos")
     private Integer tempoPreparoMinutos;
 
@@ -60,6 +67,13 @@ public class Produto extends BaseEntity {
     // Relacionamento com itens de pedido
     @OneToMany(mappedBy = "produto", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<ItemPedido> itensPedido = new ArrayList<>();
+
+    /**
+     * Variações disponíveis para este produto (tamanho, cor, etc.).
+     * Usado pela Loja do Sócio. Vazio para produtos do restaurante.
+     */
+    @OneToMany(mappedBy = "produto", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    private List<VariacaoProduto> variacoes = new ArrayList<>();
 
     /**
      * Calcula o subtotal baseado na quantidade
@@ -86,6 +100,9 @@ public class Produto extends BaseEntity {
     public String getUrlImagem() { return this.urlImagem; }
     public void setUrlImagem(String urlImagem) { this.urlImagem = urlImagem; }
 
+    public List<String> getImagensGaleria() { return this.imagensGaleria; }
+    public void setImagensGaleria(List<String> imagensGaleria) { this.imagensGaleria = imagensGaleria; }
+
     public Integer getTempoPreparoMinutos() { return this.tempoPreparoMinutos; }
     public void setTempoPreparoMinutos(Integer tempoPreparoMinutos) { this.tempoPreparoMinutos = tempoPreparoMinutos; }
 
@@ -98,11 +115,14 @@ public class Produto extends BaseEntity {
     public List<ItemPedido> getItensPedido() { return this.itensPedido; }
     public void setItensPedido(List<ItemPedido> itensPedido) { this.itensPedido = itensPedido; }
 
+    public List<VariacaoProduto> getVariacoes() { return this.variacoes; }
+    public void setVariacoes(List<VariacaoProduto> variacoes) { this.variacoes = variacoes; }
+
     // --- Construtores ---
     public Produto() {}
 
     public Produto(String codigo, String nome, String descricao, BigDecimal preco,
-                   CategoriaProduto categoria, String urlImagem, Integer tempoPreparoMinutos,
+                   CategoriaProduto categoria, String urlImagem, List<String> imagensGaleria, Integer tempoPreparoMinutos,
                    Boolean disponivel, Boolean ativo, List<ItemPedido> itensPedido) {
         this.codigo = codigo;
         this.nome = nome;
@@ -110,6 +130,7 @@ public class Produto extends BaseEntity {
         this.preco = preco;
         this.categoria = categoria;
         this.urlImagem = urlImagem;
+        this.imagensGaleria = imagensGaleria != null ? imagensGaleria : new ArrayList<>();
         this.tempoPreparoMinutos = tempoPreparoMinutos;
         this.disponivel = disponivel != null ? disponivel : true;
         this.ativo = ativo != null ? ativo : true;
@@ -143,6 +164,7 @@ public class Produto extends BaseEntity {
         private BigDecimal preco;
         private CategoriaProduto categoria;
         private String urlImagem;
+        private List<String> imagensGaleria;
         private Integer tempoPreparoMinutos;
         private Boolean disponivel;
         private Boolean ativo;
@@ -180,6 +202,11 @@ public class Produto extends BaseEntity {
             return this;
         }
 
+        public ProdutoBuilder imagensGaleria(List<String> imagensGaleria) {
+            this.imagensGaleria = imagensGaleria;
+            return this;
+        }
+
         public ProdutoBuilder tempoPreparoMinutos(Integer tempoPreparoMinutos) {
             this.tempoPreparoMinutos = tempoPreparoMinutos;
             return this;
@@ -201,7 +228,7 @@ public class Produto extends BaseEntity {
         }
 
         public Produto build() {
-            return new Produto(codigo, nome, descricao, preco, categoria, urlImagem,
+            return new Produto(codigo, nome, descricao, preco, categoria, urlImagem, imagensGaleria,
                                tempoPreparoMinutos, disponivel, ativo, itensPedido);
         }
     }

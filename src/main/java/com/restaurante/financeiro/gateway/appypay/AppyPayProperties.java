@@ -50,6 +50,11 @@ public class AppyPayProperties {
      * AppyPay notifica quando pagamento confirma
      */
     private String callbackUrl;
+
+    /**
+     * URL de retorno do comprador após fluxo de pagamento.
+     */
+    private String returnUrl;
     
     /**
      * Timeout de requisição (ms)
@@ -78,6 +83,17 @@ public class AppyPayProperties {
     private String webhookSecret;
 
     /**
+     * Exige assinatura HMAC no callback. Manter false quando o merchant AppyPay
+     * não envia assinatura; se habilitado, callbacks sem assinatura são rejeitados.
+     */
+    private boolean webhookSignatureRequired = false;
+
+    /**
+     * Configuração da rotina de reconciliação de pagamentos pendentes.
+     */
+    private Reconciliation reconciliation = new Reconciliation();
+
+    /**
      * Métodos de pagamento com IDs específicos
      */
     private Methods methods = new Methods();
@@ -100,6 +116,9 @@ public class AppyPayProperties {
     public String getCallbackUrl() { return callbackUrl; }
     public void setCallbackUrl(String callbackUrl) { this.callbackUrl = callbackUrl; }
 
+    public String getReturnUrl() { return returnUrl; }
+    public void setReturnUrl(String returnUrl) { this.returnUrl = returnUrl; }
+
     public int getTimeoutMs() { return timeoutMs; }
     public void setTimeoutMs(int timeoutMs) { this.timeoutMs = timeoutMs; }
 
@@ -112,8 +131,16 @@ public class AppyPayProperties {
     public String getWebhookSecret() { return webhookSecret; }
     public void setWebhookSecret(String webhookSecret) { this.webhookSecret = webhookSecret; }
 
+    public boolean isWebhookSignatureRequired() { return webhookSignatureRequired; }
+    public void setWebhookSignatureRequired(boolean webhookSignatureRequired) {
+        this.webhookSignatureRequired = webhookSignatureRequired;
+    }
+
     public Methods getMethods() { return methods; }
     public void setMethods(Methods methods) { this.methods = methods; }
+
+    public Reconciliation getReconciliation() { return reconciliation; }
+    public void setReconciliation(Reconciliation reconciliation) { this.reconciliation = reconciliation; }
     
     /**
      * Classe interna para métodos de pagamento
@@ -136,6 +163,25 @@ public class AppyPayProperties {
 
         public String getRef() { return ref; }
         public void setRef(String ref) { this.ref = ref; }
+    }
+
+    public static class Reconciliation {
+        private boolean enabled = true;
+        private String cron = "0 */15 * * * *";
+        private int minAgeMinutes = 5;
+        private int batchSize = 100;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getCron() { return cron; }
+        public void setCron(String cron) { this.cron = cron; }
+
+        public int getMinAgeMinutes() { return minAgeMinutes; }
+        public void setMinAgeMinutes(int minAgeMinutes) { this.minAgeMinutes = minAgeMinutes; }
+
+        public int getBatchSize() { return batchSize; }
+        public void setBatchSize(int batchSize) { this.batchSize = batchSize; }
     }
     
     /**

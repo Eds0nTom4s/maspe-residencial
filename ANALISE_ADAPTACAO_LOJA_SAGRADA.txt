@@ -1,0 +1,397 @@
+ANALISE TECNICA - ADAPTACAO DO MOTOR RESTAURANTE PARA LOJA DO SOCIO SAGRADA ESPERANCA
+
+DECISAO EXECUTIVA
+
+O sistema nao deve ser reutilizado como esta.
+
+A melhor abordagem e isolar o nucleo transacional reaproveitavel e construir uma camada fina de loja por cima.
+
+Ou seja:
+- Reutilizar Pedido, Produto, Cliente, Pagamento, AppyPay, auditoria e estados.
+- Evitar expor conceitos de restaurante para o app de socios.
+- Criar uma API propria da loja: catalogo, checkout, pagamento, acompanhamento e entrega.
+
+O sistema tem uma base forte para transacoes, mas o fluxo atual ainda esta muito acoplado a restaurante: sessao de consumo, fundo pre-pago, mesa, cozinha, subpedido por cozinha e preparo.
+
+Tambem foi identificado que o projeto atual nao compila, porque foram adicionadas categorias de loja em CategoriaProduto, mas o switch em SubPedidoService.determinarTipoCozinha nao cobre essas novas categorias.
+
+
+1. AVALIACAO DA ARQUITETURA ATUAL
+
+1.1 Modelo de dominio
+
+O sistema atual e organizado em torno destes conceitos principais:
+
+- SessaoConsumo:
+  Representa uma sessao operacional de consumo. Pode estar ligada a mesa, cliente, atendente, unidade de atendimento e fundo de consumo.
+
+- FundoConsumo:
+  Representa saldo pre-pago associado a uma sessao. E usado para debitar pedidos.
+
+- Pedido:
+  Agregado principal do pedido. Possui status operacional e status financeiro separados.
+
+- SubPedido:
+  Unidade operacional de execucao. No restaurante, representa uma divisao do pedido por cozinha/unidade de preparo.
+
+- ItemPedido:
+  Item dentro do pedido. Atualmente depende de um SubPedido.
+
+- Produto:
+  Produto/cardapio. Ja comecou a ser adaptado para loja, inclusive com VariacaoProduto.
+
+- Pagamento:
+  Controle financeiro e integracao com AppyPay.
+
+1.2 Modelo transacional
+
+O sistema tem boas decisoes tecnicas:
+
+- Separacao entre status operacional e status financeiro.
+- Uso de @Transactional.
+- Uso de locking otimista via BaseEntity.
+- Fluxos financeiros com preocupacao de idempotencia.
+- Historico financeiro via TransacaoFundo.
+- Integracao AppyPay ja estruturada.
+
+1.3 Acoplamento com restaurante
+
+O acoplamento ainda e medio/alto.
+
+Pontos de acoplamento:
+
+- Pedido exige SessaoConsumo.
+- ItemPedido exige SubPedido.
+- SubPedido exige Cozinha e UnidadeAtendimento.
+- PedidoService.criar sempre passa por sessao, fundo, validacao financeira e roteamento por cozinha.
+- Categorias de produto sao usadas para determinar cozinha.
+- Fluxos como mesa, QR code, cozinha, preparo e garcom ainda influenciam o caminho principal.
+
+1.4 Modularidade
+
+O sistema tem uma boa separacao interna de services, controllers, repositories e entidades, mas ainda nao e um motor generico de e-commerce.
+
+Ele e melhor descrito como:
+
+"Um motor operacional de consumo, com forte base transacional, ainda especializado para restaurante/bar/evento."
+
+
+2. AVALIACAO DE REUTILIZACAO
+
+2.1 Componentes que podem ser reutilizados diretamente
+
+- Produto:
+  Pode representar produtos da loja, como camisolas, acessorios e itens basicos.
+
+- VariacaoProduto:
+  Pode representar tamanho, cor e variacoes simples.
+
+- Cliente:
+  Pode representar o socio como cliente interno do motor.
+
+- SocioVinculo:
+  Pode mapear o socio do app Associagest/membership para Cliente.
+
+- Pedido:
+  Pode representar a ordem de compra.
+
+- Pagamento:
+  Pode ser reutilizado para rastrear pagamentos AppyPay.
+
+- AppyPayClient e servicos financeiros:
+  Podem ser reaproveitados, mas precisam de um fluxo mais direto para pagamento de pedido.
+
+- Auditoria e logs:
+  Sao uteis para rastreabilidade.
+
+2.2 Componentes que devem ser adaptados
+
+- PedidoService:
+  Nao deve ser chamado diretamente pelo app da loja sem uma camada propria.
+  Deve existir um StoreCheckoutService para esconder a complexidade do restaurante.
+
+- SubPedido:
+  Pode virar "separacao" ou "picking", mas deve ser simplificado para um unico subpedido por ordem.
+
+- Produto/CategoriaProduto:
+  Deve separar claramente categorias de restaurante e categorias de loja.
+
+- ItemPedido:
+  Precisa guardar a variacao escolhida, como tamanho/cor da camisola.
+
+- PagamentoGatewayService:
+  Hoje esta muito orientado a recarga de fundo.
+  Para loja, o ideal e pagamento direto do pedido.
+
+2.3 Componentes que devem ser removidos ou ignorados no MVP da loja
+
+- Mesa.
+- QR code de mesa.
+- Cozinha.
+- Roteamento por cozinha.
+- Garcom/atendente no fluxo de compra.
+- Fundo de consumo como fluxo principal.
+- POS_PAGO.
+- Multiplos subpedidos por pedido.
+- Fluxos anonimos.
+- Dashboard de cozinha.
+
+
+3. MAPEAMENTO DE DOMINIO
+
+Restaurante -> Loja
+
+- SessaoConsumo -> contexto interno de checkout ou compra do socio.
+- Pedido -> ordem de compra.
+- SubPedido -> tarefa de separacao/picking.
+- Mesa -> nao se aplica.
+- Cliente -> socio/cliente.
+- Produto/Menu -> produto da loja.
+- Cozinha -> unidade logistica ou loja, mas deve ser escondida.
+- FundoConsumo -> carteira/saldo pre-pago, mas nao deve ser obrigatorio no MVP.
+
+3.1 Inconsistencias e riscos do mapeamento
+
+- SessaoConsumo e pesada demais para uma compra simples.
+- Mesa nao tem equivalente real na loja.
+- Cozinha nao tem equivalente real; no maximo vira "loja/estoque".
+- SubPedido por cozinha e complexo demais para poucos produtos.
+- FundoConsumo cria uma logica de carteira que nao e necessaria para checkout simples.
+- ItemPedido ainda nao guarda explicitamente a variacao comprada.
+
+
+4. ESTRATEGIA DE SIMPLIFICACAO
+
+4.1 O que manter
+
+- Catalogo de produtos.
+- Variacoes simples.
+- Cliente/socio.
+- Pedido.
+- Pagamento.
+- Status financeiro.
+- Status basico de entrega.
+- Auditoria basica.
+
+4.2 O que achatar
+
+- Um pedido da loja deve gerar uma unica ordem.
+- Um pedido da loja deve gerar no maximo uma tarefa de separacao.
+- Uma unidade logistica fixa pode ser usada internamente: LOJA_SAGRADA.
+- O app nao deve conhecer SessaoConsumo, FundoConsumo, Cozinha ou SubPedido.
+
+4.3 Fluxo MVP sugerido
+
+1. Socio abre catalogo.
+2. Seleciona produto e variacao.
+3. Faz checkout.
+4. Sistema cria Pedido.
+5. Sistema inicia pagamento AppyPay.
+6. Callback confirma pagamento.
+7. Pedido fica pago e pronto para separacao.
+8. Operador marca como separado/pronto.
+9. Operador marca como entregue.
+
+4.4 Estados expostos para a loja
+
+- AGUARDANDO_PAGAMENTO.
+- PAGO.
+- EM_SEPARACAO.
+- PRONTO_PARA_ENTREGA.
+- ENTREGUE.
+- CANCELADO.
+
+Internamente esses estados podem ser derivados de StatusFinanceiroPedido e StatusSubPedido.
+
+
+5. RISCOS TECNICOS
+
+5.1 Risco de build
+
+O projeto atual nao compila porque CategoriaProduto recebeu novas categorias de loja, mas SubPedidoService.determinarTipoCozinha nao cobre todos os valores.
+
+Risco:
+O sistema nao pode ser publicado nesse estado.
+
+Acao:
+Corrigir o switch ou separar o fluxo de loja do roteamento por cozinha.
+
+5.2 Risco de acoplamento oculto
+
+Pedido depende de SessaoConsumo.
+ItemPedido depende de SubPedido.
+SubPedido depende de Cozinha e UnidadeAtendimento.
+
+Isso obriga a loja a criar entidades artificiais se usar o fluxo atual diretamente.
+
+5.3 Risco financeiro
+
+O fluxo AppyPay atual esta mais maduro para recarga de fundo do que para pagamento direto de pedido.
+
+Para uma loja, o comportamento ideal e:
+
+Pedido criado -> pagamento iniciado -> callback confirma -> pedido pago.
+
+Nao:
+
+Criar fundo -> recarregar fundo -> debitar fundo -> marcar pedido pago.
+
+5.4 Risco de estoque
+
+VariacaoProduto tem campo stock, mas ele e nullable e nao ha evidencia de reserva transacional de estoque.
+
+Para MVP, pode funcionar sem estoque automatico.
+Para venda real de camisolas limitadas, isso precisa ser reforcado.
+
+5.5 Risco de variacoes
+
+Produtos como camisolas precisam registrar tamanho/cor na linha do pedido.
+
+Hoje ItemPedido referencia Produto, mas nao referencia claramente VariacaoProduto.
+
+5.6 Risco de excesso de complexidade
+
+Levar mesa, cozinha, sessao, fundo, QR code e subpedidos para a loja deixara o MVP lento e dificil de manter.
+
+
+6. RECOMENDACAO FINAL
+
+Abordagem escolhida:
+
+ISOLAR O NUCLEO TRANSACIONAL E RECONSTRUIR UMA CAMADA FINA DE LOJA.
+
+Justificativa:
+
+- Evita reescrever tudo.
+- Reaproveita entidades e services ja valiosos.
+- Reduz risco de quebrar o restaurante.
+- Mantem a loja simples.
+- Impede que o app de socios seja contaminado por conceitos de restaurante.
+- Permite entregar rapido.
+
+Nao recomendado:
+
+- Reuso como esta.
+- Reescrita total.
+- Transformar todo o backend em plataforma generica antes do MVP.
+
+Melhor desenho:
+
+- StoreCatalogService.
+- StoreCheckoutService.
+- StorePaymentService.
+- StoreOrderQueryService.
+- StoreFulfillmentService.
+
+Esses services usam o motor existente por baixo, mas entregam uma API limpa para a loja.
+
+
+7. PLANO MINIMO DE IMPLEMENTACAO
+
+Etapa 1 - Corrigir compilacao
+
+- Atualizar SubPedidoService.determinarTipoCozinha para cobrir categorias de loja.
+- Ou impedir que produtos de loja passem por roteamento de cozinha.
+- Rodar mvn -q -DskipTests compile.
+
+Etapa 2 - Catalogo da loja
+
+- Criar endpoint GET /store/catalogo.
+- Retornar apenas categorias de loja:
+  - VESTUARIO.
+  - EQUIPAMENTO_DESPORTIVO.
+  - ACESSORIO.
+  - COLECCIONAVEL.
+- Incluir variacoes ativas.
+- Ocultar campos de restaurante como tempoPreparoMinutos.
+
+Etapa 3 - Identidade do socio
+
+- Usar SocioAuthFilter para validar token do app de socios.
+- Criar/atualizar SocioVinculo.
+- Garantir existencia de Cliente interno.
+- O app da loja deve operar com o socio autenticado.
+
+Etapa 4 - Checkout
+
+- Criar POST /store/checkout.
+- Request minimo:
+  - itens.
+  - produtoId.
+  - variacaoId ou sku.
+  - quantidade.
+  - metodoPagamento.
+  - entrega ou levantamento.
+  - telefone/endereco se necessario.
+
+- StoreCheckoutService deve:
+  - validar produtos ativos.
+  - validar variacoes.
+  - calcular total no backend.
+  - criar Pedido.
+  - criar uma unica tarefa de separacao, se necessario.
+  - iniciar pagamento.
+
+Etapa 5 - Pagamento AppyPay
+
+- Preferencia tecnica:
+  Criar pagamento direto para Pedido.
+
+- Alternativa rapida:
+  Reaproveitar fluxo de fundo internamente, mas esconder isso da API da loja.
+
+- Em ambos os casos:
+  - callback deve ser idempotente.
+  - pagamento confirmado deve marcar pedido como PAGO.
+  - falha deve manter pedido como AGUARDANDO_PAGAMENTO.
+
+Etapa 6 - Persistir variacoes compradas
+
+- Adicionar variacao_produto_id em ItemPedido.
+- Ou criar tabela item_pedido_variacoes.
+- Para MVP com camisolas, variacao_produto_id pode ser suficiente se cada variacao representar tamanho/cor combinados.
+
+Etapa 7 - Separacao e entrega
+
+- Criar endpoints administrativos:
+  - GET /store/admin/ordens.
+  - PATCH /store/admin/ordens/{id}/em-separacao.
+  - PATCH /store/admin/ordens/{id}/pronto.
+  - PATCH /store/admin/ordens/{id}/entregue.
+
+- Mapear internamente para StatusSubPedido:
+  - PENDENTE -> EM_PREPARACAO -> PRONTO -> ENTREGUE.
+
+Etapa 8 - Consultas do socio
+
+- GET /store/minhas-ordens.
+- GET /store/minhas-ordens/{id}.
+
+Etapa 9 - Testes minimos
+
+- Catalogo retorna apenas produtos da loja.
+- Checkout calcula total no backend.
+- Checkout grava variacao escolhida.
+- Callback AppyPay confirma pagamento.
+- Callback duplicado nao duplica pagamento.
+- Pedido pago aparece para separacao.
+- Pedido entregue aparece como ENTREGUE para o socio.
+
+
+8. CONCLUSAO
+
+O backend atual tem uma boa base transacional e pode ser aproveitado.
+
+Mas a loja do Sagrada Esperanca deve ser implementada como uma camada propria, simples e orientada a e-commerce, sem expor a complexidade de restaurante.
+
+A solucao mais rapida e segura e:
+
+1. Corrigir o build.
+2. Criar API /store.
+3. Reusar Produto, Cliente, Pedido e Pagamento.
+4. Usar SubPedido apenas como separacao, se necessario.
+5. Evitar FundoConsumo como conceito publico da loja.
+6. Implementar pagamento direto de Pedido assim que possivel.
+7. Manter o MVP pequeno: catalogo, checkout, pagamento, separacao e entrega.
+
+Essa abordagem permite colocar usuarios reais rapidamente sem uma reescrita completa e sem arrastar o modelo mental de restaurante para a loja de produtos do clube.

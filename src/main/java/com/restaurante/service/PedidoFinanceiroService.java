@@ -143,14 +143,8 @@ public class PedidoFinanceiroService {
      * Verifica se roles permitem autorizar pós-pago.
      */
     public void autorizarPosPago(Set<String> roles) {
-        // Permitimos POS_PAGO para Gerente, Admin ou Cliente (identificado)
-        boolean temPermissao = roles.stream().anyMatch(r -> 
-            ROLES_AUTORIZAM_POS_PAGO.contains(r) || "CLIENTE".equals(r)
-        );
-        
-        if (!temPermissao) {
-            throw new PosPagoNaoPermitidoException();
-        }
+        // Bloqueio Global: Pedidos Pós-Pago não são permitidos no ecosistema
+        throw new PosPagoNaoPermitidoException("Pedidos do tipo Pós-Pago foram desativados. Todos os pedidos devem ser pagos no ato da compra (Pré-Pago).");
     }
 
     /**

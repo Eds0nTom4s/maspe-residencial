@@ -70,7 +70,7 @@ public class AppyPayClient {
             
             HttpEntity<AppyPayChargeRequest> httpRequest = new HttpEntity<>(request, headers);
             
-            String url = properties.getBaseUrl() + "/charges";
+            String url = endpoint("/charges");
             
             // Chama API
             ResponseEntity<AppyPayChargeResponse> response = restTemplate.exchange(
@@ -142,7 +142,7 @@ public class AppyPayClient {
             
             HttpEntity<Void> request = new HttpEntity<>(headers);
             
-            String url = properties.getBaseUrl() + "/charges/" + chargeId;
+            String url = endpoint("/charges/" + chargeId);
             
             ResponseEntity<AppyPayChargeResponse> response = restTemplate.exchange(
                 url,
@@ -227,5 +227,16 @@ public class AppyPayClient {
         // Retorna como está se não reconhecido
         log.warn("Método de pagamento desconhecido: {}", metodo);
         return metodo;
+    }
+
+    private String endpoint(String path) {
+        String baseUrl = properties.getBaseUrl();
+        if (baseUrl.endsWith("/") && path.startsWith("/")) {
+            return baseUrl.substring(0, baseUrl.length() - 1) + path;
+        }
+        if (!baseUrl.endsWith("/") && !path.startsWith("/")) {
+            return baseUrl + "/" + path;
+        }
+        return baseUrl + path;
     }
 }

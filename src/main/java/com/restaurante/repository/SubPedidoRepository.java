@@ -33,6 +33,7 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
            "LEFT JOIN FETCH sp.unidadeAtendimento " +
            "LEFT JOIN FETCH sp.itens i " +
            "LEFT JOIN FETCH i.produto " +
+           "LEFT JOIN FETCH i.variacaoProduto " +
            "WHERE sp.id = :id")
     Optional<SubPedido> findByIdWithDetails(@Param("id") Long id);
 
@@ -79,6 +80,7 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
            "LEFT JOIN FETCH sp.unidadeAtendimento " +
            "LEFT JOIN FETCH sp.itens i " +
            "LEFT JOIN FETCH i.produto " +
+           "LEFT JOIN FETCH i.variacaoProduto " +
            "WHERE sp.status IN :status " +
            "ORDER BY sp.createdAt ASC")
     List<SubPedido> findByStatusInOrderByCreatedAtAsc(@Param("status") List<StatusSubPedido> status);

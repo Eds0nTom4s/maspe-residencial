@@ -8,6 +8,8 @@ import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import com.restaurante.financeiro.enums.TipoEventoFinanceiro;
 import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
+import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
+import com.restaurante.financeiro.gateway.appypay.AppyPayStatusMapper;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayCallback;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeRequest;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
@@ -62,6 +64,7 @@ public class PagamentoGatewayService {
     private final TransacaoFundoRepository transacaoFundoRepository;
     private final PedidoRepository pedidoRepository;
     private final AppyPayClient appyPayClient;
+    private final AppyPayProperties appyPayProperties;
     private final PedidoService pedidoService;
     private final ObjectMapper objectMapper;
     private final NotificacaoService notificacaoService;
@@ -77,6 +80,7 @@ public class PagamentoGatewayService {
         TransacaoFundoRepository transacaoFundoRepository,
         PedidoRepository pedidoRepository,
         AppyPayClient appyPayClient,
+        AppyPayProperties appyPayProperties,
         PedidoService pedidoService,
         ObjectMapper objectMapper,
         NotificacaoService notificacaoService,
@@ -89,6 +93,7 @@ public class PagamentoGatewayService {
         this.transacaoFundoRepository = transacaoFundoRepository;
         this.pedidoRepository = pedidoRepository;
         this.appyPayClient = appyPayClient;
+        this.appyPayProperties = appyPayProperties;
         this.pedidoService = pedidoService;
         this.objectMapper = objectMapper;
         this.notificacaoService = notificacaoService;
@@ -177,6 +182,8 @@ public class PagamentoGatewayService {
                 .mobileNumber(telefone != null ? telefone : 
                     (fundo.getSessaoConsumo() != null && fundo.getSessaoConsumo().getCliente() != null ? 
                      fundo.getSessaoConsumo().getCliente().getTelefone() : null))
+                .callbackUrl(appyPayProperties.getCallbackUrl())
+                .returnUrl(appyPayProperties.getReturnUrl())
                 .build();
             
             AppyPayChargeResponse response = appyPayClient.createCharge(request);
@@ -186,7 +193,7 @@ public class PagamentoGatewayService {
             pagamento.setGatewayResponse(serializarJson(response));
             
             // REF: salva entidade e referência
-            if ("REF".equals(response.getPaymentMethod())) {
+            if (AppyPayStatusMapper.isMethod(response.getPaymentMethod(), "REF")) {
                 pagamento.setEntidade(response.getEntity());
                 pagamento.setReferencia(response.getReference());
                 
@@ -215,8 +222,8 @@ public class PagamentoGatewayService {
             pagamentoRepository.save(pagamento);
             
             // GPO: confirmação imediata
-            if ("GPO".equals(response.getPaymentMethod()) && 
-                "CONFIRMED".equals(response.getStatus())) {
+            if (AppyPayStatusMapper.isMethod(response.getPaymentMethod(), "GPO") &&
+                AppyPayStatusMapper.isConfirmed(response.getStatus())) {
                 confirmarPagamentoRecargaFundo(pagamento.getId(), "SYSTEM", "SYSTEM", null);
             }
             
@@ -292,13 +299,15 @@ public class PagamentoGatewayService {
                 .paymentMethod(metodo.getCodigo())
                 .description("Nova Sessão - Cliente #" + clienteId)
                 .mobileNumber(telefone != null ? telefone : cliente.getTelefone())
+                .callbackUrl(appyPayProperties.getCallbackUrl())
+                .returnUrl(appyPayProperties.getReturnUrl())
                 .build();
 
             AppyPayChargeResponse response = appyPayClient.createCharge(request);
             pagamento.setGatewayChargeId(response.getChargeId());
             pagamento.setGatewayResponse(serializarJson(response));
 
-            if ("REF".equals(response.getPaymentMethod())) {
+            if (AppyPayStatusMapper.isMethod(response.getPaymentMethod(), "REF")) {
                 pagamento.setEntidade(response.getEntity());
                 pagamento.setReferencia(response.getReference());
                 
@@ -314,7 +323,8 @@ public class PagamentoGatewayService {
 
             pagamentoRepository.save(pagamento);
 
-            if ("GPO".equals(response.getPaymentMethod()) && "CONFIRMED".equals(response.getStatus())) {
+            if (AppyPayStatusMapper.isMethod(response.getPaymentMethod(), "GPO") &&
+                AppyPayStatusMapper.isConfirmed(response.getStatus())) {
                 confirmarPagamentoRecargaFundo(pagamento.getId(), "SYSTEM", "SYSTEM", null);
             }
 

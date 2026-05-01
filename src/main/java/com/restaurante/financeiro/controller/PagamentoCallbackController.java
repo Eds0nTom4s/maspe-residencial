@@ -33,7 +33,7 @@ public class PagamentoCallbackController {
      * @param signature header {@code X-AppyPay-Signature} com HMAC-SHA256 do payload
      * @param rawBody   corpo bruto da requisição (JSON original sem desserialização)
      */
-    @PostMapping("/callback")
+    @PostMapping({"/callback", "/webhook"})
     public ResponseEntity<Void> processarCallback(
             @RequestHeader(value = "X-AppyPay-Signature", required = false) String signature,
             @RequestBody String rawBody) {

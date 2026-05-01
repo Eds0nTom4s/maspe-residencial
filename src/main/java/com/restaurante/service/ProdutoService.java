@@ -50,6 +50,7 @@ public class ProdutoService {
         produto.setPreco(request.getPreco());
         produto.setCategoria(request.getCategoria());
         produto.setUrlImagem(request.getUrlImagem());
+        produto.setImagensGaleria(request.getImagensGaleria());
         produto.setTempoPreparoMinutos(request.getTempoPreparoMinutos());
         produto.setDisponivel(request.getDisponivel() != null ? request.getDisponivel() : true);
         produto.setAtivo(true);
@@ -83,6 +84,11 @@ public class ProdutoService {
         produto.setPreco(request.getPreco());
         produto.setCategoria(request.getCategoria());
         produto.setUrlImagem(request.getUrlImagem());
+        
+        if (request.getImagensGaleria() != null) {
+            produto.setImagensGaleria(request.getImagensGaleria());
+        }
+        
         produto.setTempoPreparoMinutos(request.getTempoPreparoMinutos());
         
         if (request.getDisponivel() != null) {
@@ -221,6 +227,7 @@ public class ProdutoService {
         response.setPreco(produto.getPreco());
         response.setCategoria(produto.getCategoria());
         response.setUrlImagem(produto.getUrlImagem());
+        response.setImagensGaleria(produto.getImagensGaleria());
         response.setTempoPreparoMinutos(produto.getTempoPreparoMinutos());
         response.setDisponivel(produto.getDisponivel());
         response.setAtivo(produto.getAtivo());

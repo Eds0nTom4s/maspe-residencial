@@ -1,0 +1,21 @@
+services:
+  sistema-restauracao-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sistema-restauracao-api:local
+    container_name: sistema-restauracao-api
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SERVER_PORT: 8080
+      APP_BASE_URL: http://localhost:8081/api
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:4200,http://localhost:5173,http://localhost:5174,http://localhost:8081
+      APPYPAY_MOCK: "true"
+      TELCOSMS_MOCK: "true"
+      MINIO_ENDPOINT: http://host.docker.internal:9000
+      MINIO_PUBLIC_URL: http://localhost:9000/restaurante-images
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8081:8080"

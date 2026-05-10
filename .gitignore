@@ -85,3 +85,7 @@ Desktop.ini
 application-local.properties
 application-dev.properties
 application-prod.properties
+.env
+.env.*
+!.env.example
+!.env.*.example

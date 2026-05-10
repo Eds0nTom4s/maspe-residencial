@@ -11,6 +11,8 @@ public class LoginAtendenteResponse {
     private String nome;
     private String telefone;
     private String email;
+    private Long unidadeAtendimentoId;
+    private String unidadeAtendimentoNome;
     private TipoUsuario tipoUsuario;
     private String token;
     private Long expiresIn;
@@ -18,11 +20,14 @@ public class LoginAtendenteResponse {
     public LoginAtendenteResponse() {}
 
     public LoginAtendenteResponse(Long id, String nome, String telefone, String email,
+                                  Long unidadeAtendimentoId, String unidadeAtendimentoNome,
                                   TipoUsuario tipoUsuario, String token, Long expiresIn) {
         this.id = id;
         this.nome = nome;
         this.telefone = telefone;
         this.email = email;
+        this.unidadeAtendimentoId = unidadeAtendimentoId;
+        this.unidadeAtendimentoNome = unidadeAtendimentoNome;
         this.tipoUsuario = tipoUsuario;
         this.token = token;
         this.expiresIn = expiresIn;
@@ -36,6 +41,10 @@ public class LoginAtendenteResponse {
     public void setTelefone(String telefone) { this.telefone = telefone; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
+    public Long getUnidadeAtendimentoId() { return unidadeAtendimentoId; }
+    public void setUnidadeAtendimentoId(Long unidadeAtendimentoId) { this.unidadeAtendimentoId = unidadeAtendimentoId; }
+    public String getUnidadeAtendimentoNome() { return unidadeAtendimentoNome; }
+    public void setUnidadeAtendimentoNome(String unidadeAtendimentoNome) { this.unidadeAtendimentoNome = unidadeAtendimentoNome; }
     public TipoUsuario getTipoUsuario() { return tipoUsuario; }
     public void setTipoUsuario(TipoUsuario tipoUsuario) { this.tipoUsuario = tipoUsuario; }
     public String getToken() { return token; }
@@ -50,6 +59,8 @@ public class LoginAtendenteResponse {
         private String nome;
         private String telefone;
         private String email;
+        private Long unidadeAtendimentoId;
+        private String unidadeAtendimentoNome;
         private TipoUsuario tipoUsuario;
         private String token;
         private Long expiresIn;
@@ -58,12 +69,14 @@ public class LoginAtendenteResponse {
         public LoginAtendenteResponseBuilder nome(String nome) { this.nome = nome; return this; }
         public LoginAtendenteResponseBuilder telefone(String telefone) { this.telefone = telefone; return this; }
         public LoginAtendenteResponseBuilder email(String email) { this.email = email; return this; }
+        public LoginAtendenteResponseBuilder unidadeAtendimentoId(Long unidadeAtendimentoId) { this.unidadeAtendimentoId = unidadeAtendimentoId; return this; }
+        public LoginAtendenteResponseBuilder unidadeAtendimentoNome(String unidadeAtendimentoNome) { this.unidadeAtendimentoNome = unidadeAtendimentoNome; return this; }
         public LoginAtendenteResponseBuilder tipoUsuario(TipoUsuario tipoUsuario) { this.tipoUsuario = tipoUsuario; return this; }
         public LoginAtendenteResponseBuilder token(String token) { this.token = token; return this; }
         public LoginAtendenteResponseBuilder expiresIn(Long expiresIn) { this.expiresIn = expiresIn; return this; }
 
         public LoginAtendenteResponse build() {
-            return new LoginAtendenteResponse(id, nome, telefone, email, tipoUsuario, token, expiresIn);
+            return new LoginAtendenteResponse(id, nome, telefone, email, unidadeAtendimentoId, unidadeAtendimentoNome, tipoUsuario, token, expiresIn);
         }
     }
 }

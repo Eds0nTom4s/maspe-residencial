@@ -8,6 +8,7 @@ import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import com.restaurante.financeiro.enums.TipoEventoFinanceiro;
 import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
+import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayCallback;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeRequest;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
@@ -67,6 +68,7 @@ public class PagamentoGatewayService {
     private final NotificacaoService notificacaoService;
     private final com.restaurante.service.SessaoConsumoService sessaoConsumoService;
     private final com.restaurante.repository.ClienteRepository clienteRepository;
+    private final AppyPayProperties appyPayProperties;
 
 
     @Autowired
@@ -81,7 +83,8 @@ public class PagamentoGatewayService {
         ObjectMapper objectMapper,
         NotificacaoService notificacaoService,
         com.restaurante.service.SessaoConsumoService sessaoConsumoService,
-        com.restaurante.repository.ClienteRepository clienteRepository
+        com.restaurante.repository.ClienteRepository clienteRepository,
+        AppyPayProperties appyPayProperties
     ) {
         this.pagamentoRepository = pagamentoRepository;
         this.eventLogRepository = eventLogRepository;
@@ -94,6 +97,7 @@ public class PagamentoGatewayService {
         this.notificacaoService = notificacaoService;
         this.sessaoConsumoService = sessaoConsumoService;
         this.clienteRepository = clienteRepository;
+        this.appyPayProperties = appyPayProperties;
     }
     /**
      * Cria pagamento para recarga de fundo (PRÉ-PAGO)
@@ -174,6 +178,8 @@ public class PagamentoGatewayService {
                 .amount(converterParaCentavos(valor))
                 .paymentMethod(metodo.getCodigo())
                 .description("Recarga Fundo #" + fundoId)
+                .returnUrl(appyPayProperties.getCallbackUrl())
+                .callbackUrl(appyPayProperties.getCallbackUrl())
                 .mobileNumber(telefone != null ? telefone : 
                     (fundo.getSessaoConsumo() != null && fundo.getSessaoConsumo().getCliente() != null ? 
                      fundo.getSessaoConsumo().getCliente().getTelefone() : null))
@@ -291,6 +297,8 @@ public class PagamentoGatewayService {
                 .amount(converterParaCentavos(valor))
                 .paymentMethod(metodo.getCodigo())
                 .description("Nova Sessão - Cliente #" + clienteId)
+                .returnUrl(appyPayProperties.getCallbackUrl())
+                .callbackUrl(appyPayProperties.getCallbackUrl())
                 .mobileNumber(telefone != null ? telefone : cliente.getTelefone())
                 .build();
 

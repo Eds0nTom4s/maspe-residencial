@@ -45,6 +45,11 @@ public class AppyPayHmacValidator {
     public boolean validar(String rawBody, String receivedSig) {
         String secret = properties.getWebhookSecret();
 
+        if (!properties.isWebhookSignatureRequired()) {
+            log.warn("[HMAC] Validação de assinatura AppyPay desativada por configuração.");
+            return true;
+        }
+
         // Em modo mock/dev sem secret configurado, aceita qualquer callback
         if (secret == null || secret.isBlank()) {
             if (properties.isMock()) {

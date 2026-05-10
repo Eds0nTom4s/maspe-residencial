@@ -106,9 +106,9 @@ public class ConfiguracaoFinanceiraService {
         }
 
         boolean temPermissao = roles.stream()
-            .anyMatch(role -> role.equals("GERENTE") || role.equals("ADMIN") || role.equals("CLIENTE"));
+            .anyMatch(role -> role.equals("GERENTE") || role.equals("ADMIN"));
         if (!temPermissao) {
-            throw new BusinessException("Apenas CLIENTEs identificados, GERENTEs ou ADMINs podem autorizar pós-pago");
+            throw new BusinessException("Apenas GERENTEs ou ADMINs podem autorizar pós-pago");
         }
 
         ConfiguracaoFinanceiraSistema config = buscarOuCriarConfiguracao();

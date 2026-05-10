@@ -274,6 +274,8 @@ public class AuthService {
             .nome(user.getNomeCompleto() != null ? user.getNomeCompleto() : user.getUsername())
             .telefone(user.getTelefone())
             .email(user.getEmail())
+            .unidadeAtendimentoId(user.getUnidadeAtendimento() != null ? user.getUnidadeAtendimento().getId() : null)
+            .unidadeAtendimentoNome(user.getUnidadeAtendimento() != null ? user.getUnidadeAtendimento().getNome() : null)
             .tipoUsuario(tipoUsuario)
             .token(token)
             .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
@@ -318,4 +320,3 @@ public class AuthService {
             .build();
     }
 }
-

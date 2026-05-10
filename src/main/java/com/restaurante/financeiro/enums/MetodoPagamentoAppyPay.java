@@ -1,5 +1,7 @@
 package com.restaurante.financeiro.enums;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+
 /**
  * Métodos de pagamento suportados pela AppyPay
  * 
@@ -50,5 +52,20 @@ public enum MetodoPagamentoAppyPay {
      */
     public boolean requerCallback() {
         return !instantaneo;
+    }
+
+    @JsonCreator
+    public static MetodoPagamentoAppyPay from(String valor) {
+        if (valor == null || valor.isBlank()) {
+            return null;
+        }
+
+        String normalizado = valor.trim().toUpperCase();
+        return switch (normalizado) {
+            case "GPO", "MULTICAIXA_EXPRESS", "MULTICAIXA-EXPRESS", "MULTICAIXA EXPRESS" -> GPO;
+            case "REF", "REFERENCIA", "REFERÊNCIA", "REFERENCIA_BANCARIA", "REFERÊNCIA_BANCÁRIA" -> REF;
+            default -> throw new IllegalArgumentException(
+                    "Método de pagamento inválido: " + valor + ". Valores aceites: GPO, MULTICAIXA_EXPRESS, REF, REFERENCIA");
+        };
     }
 }

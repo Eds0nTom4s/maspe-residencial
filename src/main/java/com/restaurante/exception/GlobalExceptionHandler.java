@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -87,6 +88,30 @@ public class GlobalExceptionHandler {
                 .message("Dados inválidos fornecidos")
                 .path(request.getDescription(false).replace("uri=", ""))
                 .validationErrors(errors)
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
+     * Trata parâmetros de rota/query inválidos (ex: enum não reconhecido).
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatchException(
+            MethodArgumentTypeMismatchException ex, WebRequest request) {
+
+        String parametro = ex.getName();
+        String valor = ex.getValue() != null ? ex.getValue().toString() : "null";
+        String mensagem = "Parâmetro inválido: " + parametro + "=" + valor;
+
+        log.warn("Erro de parâmetro: {}", mensagem);
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Parâmetro inválido")
+                .message(mensagem)
+                .path(request.getDescription(false).replace("uri=", ""))
                 .build();
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);

@@ -5,14 +5,18 @@ import com.restaurante.dto.request.CriarUsuarioRequest;
 import com.restaurante.dto.request.AlterarSenhaAdminRequest;
 import com.restaurante.dto.response.UserResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.Role;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.UserRepository;
+import jakarta.persistence.criteria.Join;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,21 +34,57 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final AuditoriaFinanceiraService auditoriaService;
     private final InstituicaoService instituicaoService;
+    private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
 
     @Autowired
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, AuditoriaFinanceiraService auditoriaService, InstituicaoService instituicaoService) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder,
+                       AuditoriaFinanceiraService auditoriaService, InstituicaoService instituicaoService,
+                       UnidadeAtendimentoRepository unidadeAtendimentoRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.auditoriaService = auditoriaService;
         this.instituicaoService = instituicaoService;
+        this.unidadeAtendimentoRepository = unidadeAtendimentoRepository;
     }
 
     // ── Leitura ──────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public Page<UserResponse> listarTodos(Pageable pageable) {
-        log.info("Listando usuários (paginado)");
-        return userRepository.findAll(pageable).map(this::toResponse);
+        return listarTodos(pageable, null, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<UserResponse> listarTodos(Pageable pageable, Role role, Boolean ativo, String busca) {
+        log.info("Listando usuários (paginado) role={} ativo={} busca={}", role, ativo, busca);
+
+        Specification<User> spec = Specification.where(null);
+
+        if (role != null) {
+            spec = spec.and((root, query, criteriaBuilder) -> {
+                if (query != null) {
+                    query.distinct(true);
+                }
+                Join<User, Role> roles = root.join("roles");
+                return criteriaBuilder.equal(roles, role);
+            });
+        }
+
+        if (ativo != null) {
+            spec = spec.and((root, query, criteriaBuilder) -> criteriaBuilder.equal(root.get("ativo"), ativo));
+        }
+
+        if (busca != null && !busca.isBlank()) {
+            String termo = "%" + busca.trim().toLowerCase() + "%";
+            spec = spec.and((root, query, criteriaBuilder) -> criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("username")), termo),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("nomeCompleto")), termo),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("email")), termo),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("telefone")), termo)
+            ));
+        }
+
+        return userRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
@@ -79,7 +119,7 @@ public class UserService {
     // ── Escrita ───────────────────────────────────────────────────────────────
 
     /**
-     * Cria novo utilizador. Username e email devem ser únicos.
+     * Cria novo utilizador. Username e telefone devem ser únicos; email é opcional.
      */
     @Transactional
     public UserResponse criar(CriarUsuarioRequest request) {
@@ -91,16 +131,22 @@ public class UserService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException("Username já está em uso: " + request.getUsername());
         }
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (request.getEmail() != null && !request.getEmail().isBlank() && userRepository.existsByEmail(request.getEmail())) {
             throw new BusinessException("Email já está em uso: " + request.getEmail());
         }
+        if (userRepository.existsByTelefone(request.getTelefone())) {
+            throw new BusinessException("Telefone já está em uso: " + request.getTelefone());
+        }
+
+        UnidadeAtendimento unidadeAtendimento = resolverUnidade(request.getUnidadeAtendimentoId());
 
         User user = User.builder()
                 .username(request.getUsername())
                 .password(passwordEncoder.encode(request.getSenha()))
-                .email(request.getEmail())
+                .email(normalizarTextoOpcional(request.getEmail()))
                 .nomeCompleto(request.getNomeCompleto())
                 .telefone(request.getTelefone())
+                .unidadeAtendimento(unidadeAtendimento)
                 .roles(request.getRoles())
                 .ativo(true)
                 .build();
@@ -116,17 +162,26 @@ public class UserService {
         log.info("Atualizando usuário ID: {}", id);
         User user = buscarEntidade(id);
 
-        if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
-            if (userRepository.existsByEmail(request.getEmail())) {
-                throw new BusinessException("Email já está em uso: " + request.getEmail());
+        if (request.getEmail() != null) {
+            String email = normalizarTextoOpcional(request.getEmail());
+            if (email != null && !email.equals(user.getEmail())) {
+                if (userRepository.existsByEmail(email)) {
+                    throw new BusinessException("Email já está em uso: " + email);
+                }
             }
-            user.setEmail(request.getEmail());
+            user.setEmail(email);
         }
         if (request.getNomeCompleto() != null) {
             user.setNomeCompleto(request.getNomeCompleto());
         }
-        if (request.getTelefone() != null) {
+        if (request.getTelefone() != null && !request.getTelefone().equals(user.getTelefone())) {
+            if (userRepository.existsByTelefone(request.getTelefone())) {
+                throw new BusinessException("Telefone já está em uso: " + request.getTelefone());
+            }
             user.setTelefone(request.getTelefone());
+        }
+        if (request.getUnidadeAtendimentoId() != null) {
+            user.setUnidadeAtendimento(resolverUnidade(request.getUnidadeAtendimentoId()));
         }
         if (request.getRoles() != null && !request.getRoles().isEmpty()) {
             user.getRoles().clear();
@@ -223,13 +278,31 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException("Usuário não encontrado com ID: " + id));
     }
 
+    private UnidadeAtendimento resolverUnidade(Long unidadeAtendimentoId) {
+        if (unidadeAtendimentoId == null) {
+            return null;
+        }
+        return unidadeAtendimentoRepository.findById(unidadeAtendimentoId)
+                .orElseThrow(() -> new BusinessException("Unidade de atendimento não encontrada com ID: " + unidadeAtendimentoId));
+    }
+
+    private String normalizarTextoOpcional(String valor) {
+        if (valor == null || valor.isBlank()) {
+            return null;
+        }
+        return valor.trim();
+    }
+
     private UserResponse toResponse(User user) {
+        UnidadeAtendimento unidade = user.getUnidadeAtendimento();
         return UserResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .nomeCompleto(user.getNomeCompleto())
                 .telefone(user.getTelefone())
+                .unidadeAtendimentoId(unidade != null ? unidade.getId() : null)
+                .unidadeAtendimentoNome(unidade != null ? unidade.getNome() : null)
                 .roles(user.getRoles())
                 .ativo(user.getAtivo())
                 .created_at(user.getCreatedAt())

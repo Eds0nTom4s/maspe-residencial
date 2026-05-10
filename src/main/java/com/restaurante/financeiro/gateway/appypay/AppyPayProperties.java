@@ -78,6 +78,15 @@ public class AppyPayProperties {
     private String webhookSecret;
 
     /**
+     * Define se a assinatura HMAC do webhook é obrigatória.
+     *
+     * <p>Algumas contas AppyPay usam apenas endpoint público sem assinatura.
+     * Quando false, o callback é aceite e a segurança fica dependente da
+     * referência externa/idempotência e do canal HTTPS.
+     */
+    private boolean webhookSignatureRequired = false;
+
+    /**
      * Métodos de pagamento com IDs específicos
      */
     private Methods methods = new Methods();
@@ -111,6 +120,9 @@ public class AppyPayProperties {
 
     public String getWebhookSecret() { return webhookSecret; }
     public void setWebhookSecret(String webhookSecret) { this.webhookSecret = webhookSecret; }
+
+    public boolean isWebhookSignatureRequired() { return webhookSignatureRequired; }
+    public void setWebhookSignatureRequired(boolean webhookSignatureRequired) { this.webhookSignatureRequired = webhookSignatureRequired; }
 
     public Methods getMethods() { return methods; }
     public void setMethods(Methods methods) { this.methods = methods; }

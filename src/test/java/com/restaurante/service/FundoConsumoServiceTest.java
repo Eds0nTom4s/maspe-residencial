@@ -8,6 +8,7 @@ import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.TransacaoFundo;
 import com.restaurante.model.enums.TipoTransacaoFundo;
+import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
@@ -45,6 +46,9 @@ class FundoConsumoServiceTest {
 
     @Mock
     private ConfiguracaoFinanceiraService configuracaoFinanceiraService;
+
+    @Mock
+    private WebSocketNotificacaoService webSocketNotificacaoService;
 
     @InjectMocks
     private FundoConsumoService fundoConsumoService;

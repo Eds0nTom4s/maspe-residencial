@@ -11,6 +11,8 @@ public class UserResponse {
     private String email;
     private String nomeCompleto;
     private String telefone;
+    private Long unidadeAtendimentoId;
+    private String unidadeAtendimentoNome;
     private Set<Role> roles;
     private Boolean ativo;
     private LocalDateTime created_at;
@@ -20,6 +22,7 @@ public class UserResponse {
     public UserResponse() {}
 
     public UserResponse(Long id, String username, String email, String nomeCompleto, String telefone,
+                        Long unidadeAtendimentoId, String unidadeAtendimentoNome,
                         Set<Role> roles, Boolean ativo, LocalDateTime created_at, LocalDateTime updated_at,
                         LocalDateTime ultimoAcesso) {
         this.id = id;
@@ -27,6 +30,8 @@ public class UserResponse {
         this.email = email;
         this.nomeCompleto = nomeCompleto;
         this.telefone = telefone;
+        this.unidadeAtendimentoId = unidadeAtendimentoId;
+        this.unidadeAtendimentoNome = unidadeAtendimentoNome;
         this.roles = roles;
         this.ativo = ativo;
         this.created_at = created_at;
@@ -44,6 +49,10 @@ public class UserResponse {
     public void setNomeCompleto(String nomeCompleto) { this.nomeCompleto = nomeCompleto; }
     public String getTelefone() { return telefone; }
     public void setTelefone(String telefone) { this.telefone = telefone; }
+    public Long getUnidadeAtendimentoId() { return unidadeAtendimentoId; }
+    public void setUnidadeAtendimentoId(Long unidadeAtendimentoId) { this.unidadeAtendimentoId = unidadeAtendimentoId; }
+    public String getUnidadeAtendimentoNome() { return unidadeAtendimentoNome; }
+    public void setUnidadeAtendimentoNome(String unidadeAtendimentoNome) { this.unidadeAtendimentoNome = unidadeAtendimentoNome; }
     public Set<Role> getRoles() { return roles; }
     public void setRoles(Set<Role> roles) { this.roles = roles; }
     public Boolean getAtivo() { return ativo; }
@@ -63,6 +72,8 @@ public class UserResponse {
         private String email;
         private String nomeCompleto;
         private String telefone;
+        private Long unidadeAtendimentoId;
+        private String unidadeAtendimentoNome;
         private Set<Role> roles;
         private Boolean ativo;
         private LocalDateTime created_at;
@@ -74,6 +85,8 @@ public class UserResponse {
         public UserResponseBuilder email(String email) { this.email = email; return this; }
         public UserResponseBuilder nomeCompleto(String nomeCompleto) { this.nomeCompleto = nomeCompleto; return this; }
         public UserResponseBuilder telefone(String telefone) { this.telefone = telefone; return this; }
+        public UserResponseBuilder unidadeAtendimentoId(Long unidadeAtendimentoId) { this.unidadeAtendimentoId = unidadeAtendimentoId; return this; }
+        public UserResponseBuilder unidadeAtendimentoNome(String unidadeAtendimentoNome) { this.unidadeAtendimentoNome = unidadeAtendimentoNome; return this; }
         public UserResponseBuilder roles(Set<Role> roles) { this.roles = roles; return this; }
         public UserResponseBuilder ativo(Boolean ativo) { this.ativo = ativo; return this; }
         public UserResponseBuilder created_at(LocalDateTime created_at) { this.created_at = created_at; return this; }
@@ -81,7 +94,7 @@ public class UserResponse {
         public UserResponseBuilder ultimoAcesso(LocalDateTime ultimoAcesso) { this.ultimoAcesso = ultimoAcesso; return this; }
 
         public UserResponse build() {
-            return new UserResponse(id, username, email, nomeCompleto, telefone, roles, ativo, created_at, updated_at, ultimoAcesso);
+            return new UserResponse(id, username, email, nomeCompleto, telefone, unidadeAtendimentoId, unidadeAtendimentoNome, roles, ativo, created_at, updated_at, ultimoAcesso);
         }
     }
 }

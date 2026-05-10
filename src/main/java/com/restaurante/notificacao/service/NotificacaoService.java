@@ -44,23 +44,30 @@ public class NotificacaoService {
             codigo
         );
         
-        log.info("Enviando OTP via SMS [OTP] para {} via {}", telefone, smsGateway.getProviderName());
-        SmsResponse response = smsGateway.sendSms(telefone, mensagem);
-        
-        if (!response.isSuccess()) {
-            if (ERRO_SALDO_INSUFICIENTE_GATEWAY.equals(response.getErrorCode())) {
-                log.error("\u26a0\ufe0f Saldo de SMS esgotado! Não é possível enviar OTP para {}.", telefone);
-                throw new BusinessException(
-                    "Sistema de notificações indisponível. Tente novamente mais tarde ou" +
-                    " dirija-se ao balcão para assistência presencial."
-                );
+        try {
+            log.info("Enviando OTP via SMS [OTP] para {} via {}", telefone, smsGateway.getProviderName());
+            SmsResponse response = smsGateway.sendSms(telefone, mensagem);
+            
+            if (!response.isSuccess()) {
+                if (ERRO_SALDO_INSUFICIENTE_GATEWAY.equals(response.getErrorCode())) {
+                    log.error("\u26a0\ufe0f Saldo de SMS esgotado! Não é possível enviar OTP para {}.", telefone);
+                    throw new BusinessException(
+                        "Sistema de notificações indisponível. Tente novamente mais tarde ou" +
+                        " dirija-se ao balcão para assistência presencial."
+                    );
+                }
+                log.warn("Falha ao enviar OTP [OTP] para {}: {}", telefone, response.getMessage());
+                return false;
             }
-            log.warn("Falha ao enviar OTP [OTP] para {}: {}", telefone, response.getMessage());
+            
+            log.info("OTP enviado com sucesso para {}", telefone);
+            return true;
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Erro ao enviar OTP [OTP] para {}: {}", telefone, e.getMessage(), e);
             return false;
         }
-        
-        log.info("OTP enviado com sucesso para {}", telefone);
-        return true;
     }
     
     /**

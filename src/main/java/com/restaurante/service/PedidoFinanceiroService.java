@@ -143,10 +143,7 @@ public class PedidoFinanceiroService {
      * Verifica se roles permitem autorizar pós-pago.
      */
     public void autorizarPosPago(Set<String> roles) {
-        // Permitimos POS_PAGO para Gerente, Admin ou Cliente (identificado)
-        boolean temPermissao = roles.stream().anyMatch(r -> 
-            ROLES_AUTORIZAM_POS_PAGO.contains(r) || "CLIENTE".equals(r)
-        );
+        boolean temPermissao = roles.stream().anyMatch(ROLES_AUTORIZAM_POS_PAGO::contains);
         
         if (!temPermissao) {
             throw new PosPagoNaoPermitidoException();

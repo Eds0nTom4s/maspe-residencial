@@ -20,7 +20,9 @@ import java.util.stream.Collectors;
 @Entity
 @Table(name = "users", indexes = {
     @Index(name = "idx_user_username", columnList = "username", unique = true),
-    @Index(name = "idx_user_email", columnList = "email", unique = true)
+    @Index(name = "idx_user_email", columnList = "email", unique = true),
+    @Index(name = "idx_user_telefone", columnList = "telefone", unique = true),
+    @Index(name = "idx_user_unidade_atendimento", columnList = "unidade_atendimento_id")
 })
 public class User extends BaseEntity implements UserDetails {
 
@@ -30,14 +32,18 @@ public class User extends BaseEntity implements UserDetails {
     @Column(name = "password", nullable = false)
     private String password;
 
-    @Column(name = "email", nullable = false, unique = true, length = 100)
+    @Column(name = "email", unique = true, length = 100)
     private String email;
 
     @Column(name = "nome_completo", length = 150)
     private String nomeCompleto;
 
-    @Column(name = "telefone", length = 20)
+    @Column(name = "telefone", nullable = false, unique = true, length = 20)
     private String telefone;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "unidade_atendimento_id")
+    private UnidadeAtendimento unidadeAtendimento;
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
@@ -53,12 +59,14 @@ public class User extends BaseEntity implements UserDetails {
 
     public User() {}
 
-    public User(String username, String password, String email, String nomeCompleto, String telefone, Set<Role> roles, Boolean ativo, LocalDateTime ultimoAcesso) {
+    public User(String username, String password, String email, String nomeCompleto, String telefone,
+                UnidadeAtendimento unidadeAtendimento, Set<Role> roles, Boolean ativo, LocalDateTime ultimoAcesso) {
         this.username = username;
         this.password = password;
         this.email = email;
         this.nomeCompleto = nomeCompleto;
         this.telefone = telefone;
+        this.unidadeAtendimento = unidadeAtendimento;
         this.roles = roles != null ? roles : new HashSet<>();
         this.ativo = ativo != null ? ativo : true;
         this.ultimoAcesso = ultimoAcesso;
@@ -72,6 +80,8 @@ public class User extends BaseEntity implements UserDetails {
     public void setNomeCompleto(String nomeCompleto) { this.nomeCompleto = nomeCompleto; }
     public String getTelefone() { return telefone; }
     public void setTelefone(String telefone) { this.telefone = telefone; }
+    public UnidadeAtendimento getUnidadeAtendimento() { return unidadeAtendimento; }
+    public void setUnidadeAtendimento(UnidadeAtendimento unidadeAtendimento) { this.unidadeAtendimento = unidadeAtendimento; }
     public Set<Role> getRoles() { return roles; }
     public void setRoles(Set<Role> roles) { this.roles = roles; }
     public Boolean getAtivo() { return ativo; }
@@ -89,6 +99,7 @@ public class User extends BaseEntity implements UserDetails {
         private String email;
         private String nomeCompleto;
         private String telefone;
+        private UnidadeAtendimento unidadeAtendimento;
         private Set<Role> roles;
         private Boolean ativo;
         private LocalDateTime ultimoAcesso;
@@ -120,6 +131,11 @@ public class User extends BaseEntity implements UserDetails {
             return this;
         }
 
+        public UserBuilder unidadeAtendimento(UnidadeAtendimento unidadeAtendimento) {
+            this.unidadeAtendimento = unidadeAtendimento;
+            return this;
+        }
+
         public UserBuilder roles(Set<Role> roles) {
             this.roles = roles;
             return this;
@@ -136,7 +152,7 @@ public class User extends BaseEntity implements UserDetails {
         }
 
         public User build() {
-            return new User(this.username, this.password, this.email, this.nomeCompleto, this.telefone, this.roles, this.ativo, this.ultimoAcesso);
+            return new User(this.username, this.password, this.email, this.nomeCompleto, this.telefone, this.unidadeAtendimento, this.roles, this.ativo, this.ultimoAcesso);
         }
     }
 

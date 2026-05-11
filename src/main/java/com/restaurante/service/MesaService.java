@@ -5,6 +5,7 @@ import com.restaurante.dto.response.MesaResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Mesa;
+import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.StatusSessaoConsumo;
@@ -12,6 +13,7 @@ import com.restaurante.model.enums.TipoUnidadeConsumo;
 import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.repository.InstituicaoRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -41,13 +43,16 @@ public class MesaService {
     private final MesaRepository mesaRepository;
     private final SessaoConsumoRepository sessaoConsumoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    private final InstituicaoRepository instituicaoRepository;
 
     public MesaService(MesaRepository mesaRepository,
                        SessaoConsumoRepository sessaoConsumoRepository,
-                       UnidadeAtendimentoRepository unidadeAtendimentoRepository) {
+                       UnidadeAtendimentoRepository unidadeAtendimentoRepository,
+                       InstituicaoRepository instituicaoRepository) {
         this.mesaRepository = mesaRepository;
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.unidadeAtendimentoRepository = unidadeAtendimentoRepository;
+        this.instituicaoRepository = instituicaoRepository;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -66,6 +71,9 @@ public class MesaService {
         UnidadeAtendimento unidadeAtendimento = unidadeAtendimentoRepository
                 .findById(request.getUnidadeAtendimentoId())
                 .orElseThrow(() -> new ResourceNotFoundException("Unidade de atendimento não encontrada"));
+        Instituicao instituicao = unidadeAtendimento.getInstituicao() != null
+                ? unidadeAtendimento.getInstituicao()
+                : buscarInstituicaoAtiva();
 
         Mesa mesa = Mesa.builder()
                 .referencia(request.getReferencia())
@@ -75,6 +83,7 @@ public class MesaService {
                 .capacidade(request.getCapacidade())
                 .ativa(true)
                 .unidadeAtendimento(unidadeAtendimento)
+                .instituicao(instituicao)
                 .build();
 
         Mesa mesaSalva = mesaRepository.save(mesa);
@@ -225,9 +234,26 @@ public class MesaService {
                 .tipo(mesa.getTipo())
                 .unidadeAtendimentoId(mesa.getUnidadeAtendimento().getId())
                 .unidadeAtendimentoNome(mesa.getUnidadeAtendimento().getNome())
+                .instituicaoId(resolverInstituicao(mesa).getId())
+                .instituicaoSigla(resolverInstituicao(mesa).getSigla())
                 .status(statusDerived)
                 .sessaoAtivaId(sessaoAtiva.map(SessaoConsumo::getId).orElse(null))
                 .createdAt(mesa.getCreatedAt())
                 .build();
+    }
+
+    private Instituicao buscarInstituicaoAtiva() {
+        return instituicaoRepository.findFirstByAtivaTrue()
+                .orElseThrow(() -> new BusinessException("Nenhuma instituição ativa configurada"));
+    }
+
+    private Instituicao resolverInstituicao(Mesa mesa) {
+        if (mesa.getInstituicao() != null) {
+            return mesa.getInstituicao();
+        }
+        if (mesa.getUnidadeAtendimento() != null && mesa.getUnidadeAtendimento().getInstituicao() != null) {
+            return mesa.getUnidadeAtendimento().getInstituicao();
+        }
+        return buscarInstituicaoAtiva();
     }
 }

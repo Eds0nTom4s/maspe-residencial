@@ -114,6 +114,7 @@ public class SessaoConsumoService {
 
         SessaoConsumo.SessaoConsumoBuilder builder = SessaoConsumo.builder()
                 .modoAnonimo(request.isModoAnonimo());
+        Instituicao instituicao = buscarInstituicaoAtiva();
                 
         // ── Tipo de Sessão ────────────────────────────────────────────────
         // Se não for especificado, assume que é para continuar com o padrão PRE_PAGO 
@@ -140,10 +141,14 @@ public class SessaoConsumoService {
             }
 
             builder.mesa(mesa);
+            instituicao = mesa.getInstituicao() != null ? mesa.getInstituicao() : instituicao;
 
             // Deriva unidade de atendimento da mesa quando não fornecida explicitamente
             if (request.getUnidadeAtendimentoId() == null && mesa.getUnidadeAtendimento() != null) {
                 builder.unidadeAtendimento(mesa.getUnidadeAtendimento());
+                if (mesa.getUnidadeAtendimento().getInstituicao() != null) {
+                    instituicao = mesa.getUnidadeAtendimento().getInstituicao();
+                }
             }
 
             log.info("Sessão associada à mesa: '{}' (ID={})", mesa.getReferencia(), mesa.getId());
@@ -155,7 +160,12 @@ public class SessaoConsumoService {
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Unidade de atendimento não encontrada: " + request.getUnidadeAtendimentoId()));
             builder.unidadeAtendimento(ua);
+            if (ua.getInstituicao() != null) {
+                instituicao = ua.getInstituicao();
+            }
         }
+
+        builder.instituicao(instituicao);
 
         // ── Cliente (OPCIONAL) ─────────────────────────────────────────────
         if (!request.isModoAnonimo()) {
@@ -445,9 +455,12 @@ public class SessaoConsumoService {
         // Verifica se cliente já tem sessão aberta noutro lugar
         sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())
                 .ifPresent(sessaoExistente -> {
-                    if (!sessaoExistente.getMesa().getId().equals(qrCode.getMesaId())) {
+                    if (sessaoExistente.getMesa() == null || !sessaoExistente.getMesa().getId().equals(qrCode.getMesaId())) {
+                        String localSessao = sessaoExistente.getMesa() != null
+                                ? "mesa '" + sessaoExistente.getMesa().getReferencia() + "'"
+                                : "sessão #" + sessaoExistente.getId();
                         throw new BusinessException(
-                                "Você já possui uma sessão aberta na mesa '" + sessaoExistente.getMesa().getReferencia() + "'. Feche-a primeiro.");
+                                "Você já possui uma sessão aberta em " + localSessao + ". Feche-a primeiro.");
                     }
                 });
 
@@ -558,6 +571,7 @@ public class SessaoConsumoService {
                             .modoAnonimo(false)
                             .status(StatusSessaoConsumo.ABERTA)
                             .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
+                            .instituicao(buscarInstituicaoAtiva())
                             .qrCodeSessao(gerarTokenSessaoUnico());
                             
                     // Tenta encontrar uma unidade de atendimento ativa para a sessão
@@ -690,5 +704,10 @@ public class SessaoConsumoService {
                 return tokenCandidate;
             }
         }
+    }
+
+    private Instituicao buscarInstituicaoAtiva() {
+        return instituicaoRepository.findFirstByAtivaTrue()
+                .orElseThrow(() -> new BusinessException("Nenhuma instituição ativa configurada"));
     }
 }

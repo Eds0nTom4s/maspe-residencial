@@ -3,9 +3,11 @@ package com.restaurante.service;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Cozinha;
+import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.repository.CozinhaRepository;
+import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,11 +29,14 @@ public class UnidadeAtendimentoService {
 
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final CozinhaRepository cozinhaRepository;
+    private final InstituicaoRepository instituicaoRepository;
 
     public UnidadeAtendimentoService(UnidadeAtendimentoRepository unidadeAtendimentoRepository,
-                                     CozinhaRepository cozinhaRepository) {
+                                     CozinhaRepository cozinhaRepository,
+                                     InstituicaoRepository instituicaoRepository) {
         this.unidadeAtendimentoRepository = unidadeAtendimentoRepository;
         this.cozinhaRepository = cozinhaRepository;
+        this.instituicaoRepository = instituicaoRepository;
     }
     /**
      * Cria nova unidade de atendimento
@@ -49,6 +54,7 @@ public class UnidadeAtendimentoService {
                 .nome(nome)
                 .tipo(tipo)
                 .descricao(descricao)
+                .instituicao(buscarInstituicaoAtiva())
                 .ativa(true)
                 .build();
 
@@ -63,7 +69,7 @@ public class UnidadeAtendimentoService {
      */
     @Transactional(readOnly = true)
     public UnidadeAtendimento buscarPorId(Long id) {
-        return unidadeAtendimentoRepository.findById(id)
+        return unidadeAtendimentoRepository.findByIdWithCozinhas(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Unidade de atendimento não encontrada"));
     }
 
@@ -72,7 +78,7 @@ public class UnidadeAtendimentoService {
      */
     @Transactional(readOnly = true)
     public List<UnidadeAtendimento> listarTodas() {
-        return unidadeAtendimentoRepository.findAll();
+        return unidadeAtendimentoRepository.findAllWithCozinhas();
     }
 
     /**
@@ -80,7 +86,7 @@ public class UnidadeAtendimentoService {
      */
     @Transactional(readOnly = true)
     public List<UnidadeAtendimento> listarAtivas() {
-        return unidadeAtendimentoRepository.findByAtivaTrue();
+        return unidadeAtendimentoRepository.findByAtivaTrueWithCozinhas();
     }
 
     /**
@@ -96,7 +102,7 @@ public class UnidadeAtendimentoService {
      */
     @Transactional(readOnly = true)
     public List<UnidadeAtendimento> listarPorTipo(TipoUnidadeAtendimento tipo) {
-        return unidadeAtendimentoRepository.findByTipo(tipo);
+        return unidadeAtendimentoRepository.findByTipoWithCozinhas(tipo);
     }
 
     /**
@@ -192,5 +198,10 @@ public class UnidadeAtendimentoService {
     @Transactional(readOnly = true)
     public long contarUnidadesConsumoAtivas(Long unidadeId) {
         return unidadeAtendimentoRepository.contarUnidadesConsumoAtivasPorUnidade(unidadeId);
+    }
+
+    private Instituicao buscarInstituicaoAtiva() {
+        return instituicaoRepository.findFirstByAtivaTrue()
+                .orElseThrow(() -> new BusinessException("Nenhuma instituição ativa configurada"));
     }
 }

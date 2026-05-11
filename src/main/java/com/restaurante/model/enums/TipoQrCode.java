@@ -30,7 +30,7 @@ public enum TipoQrCode {
      */
     public long getValidadeMinutos() {
         return switch (this) {
-            case MESA -> 1440; // 24 horas
+            case MESA -> 5_256_000; // 10 anos para QR físico impresso
             case ENTREGA -> 30; // 30 minutos
             case PAGAMENTO -> 60; // 1 hora
         };

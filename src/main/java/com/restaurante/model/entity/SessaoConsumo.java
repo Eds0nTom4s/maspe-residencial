@@ -40,7 +40,8 @@ import java.util.UUID;
     @Index(name = "idx_sessao_mesa", columnList = "mesa_id"),
     @Index(name = "idx_sessao_status", columnList = "status"),
     @Index(name = "idx_sessao_cliente", columnList = "cliente_id"),
-    @Index(name = "idx_sessao_aberta_em", columnList = "aberta_em")
+    @Index(name = "idx_sessao_aberta_em", columnList = "aberta_em"),
+    @Index(name = "idx_sessao_instituicao", columnList = "instituicao_id")
 })
 public class SessaoConsumo extends BaseEntity {
 
@@ -75,6 +76,13 @@ public class SessaoConsumo extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "unidade_atendimento_id", nullable = true)
     private UnidadeAtendimento unidadeAtendimento;
+
+    /**
+     * Instituição proprietária da sessão.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "instituicao_id")
+    private Instituicao instituicao;
 
     /**
      * Cliente identificado (opcional — nulo no fluxo anônimo).
@@ -148,11 +156,12 @@ public class SessaoConsumo extends BaseEntity {
 
     public SessaoConsumo() {}
 
-    public SessaoConsumo(String qrCodeSessao, FundoConsumo fundoConsumo, Mesa mesa, UnidadeAtendimento unidadeAtendimento, Cliente cliente, Atendente aberturaPor, LocalDateTime abertaEm, LocalDateTime fechadaEm, StatusSessaoConsumo status, Boolean modoAnonimo, List<Pedido> pedidos, com.restaurante.model.enums.TipoSessao tipoSessao, List<EventoSessao> eventos) {
+    public SessaoConsumo(String qrCodeSessao, FundoConsumo fundoConsumo, Mesa mesa, UnidadeAtendimento unidadeAtendimento, Instituicao instituicao, Cliente cliente, Atendente aberturaPor, LocalDateTime abertaEm, LocalDateTime fechadaEm, StatusSessaoConsumo status, Boolean modoAnonimo, List<Pedido> pedidos, com.restaurante.model.enums.TipoSessao tipoSessao, List<EventoSessao> eventos) {
         this.qrCodeSessao = qrCodeSessao != null ? qrCodeSessao : UUID.randomUUID().toString();
         this.fundoConsumo = fundoConsumo;
         this.mesa = mesa;
         this.unidadeAtendimento = unidadeAtendimento;
+        this.instituicao = instituicao;
         this.cliente = cliente;
         this.aberturaPor = aberturaPor;
         this.abertaEm = abertaEm != null ? abertaEm : LocalDateTime.now();
@@ -175,6 +184,9 @@ public class SessaoConsumo extends BaseEntity {
     
     public UnidadeAtendimento getUnidadeAtendimento() { return unidadeAtendimento; }
     public void setUnidadeAtendimento(UnidadeAtendimento unidadeAtendimento) { this.unidadeAtendimento = unidadeAtendimento; }
+
+    public Instituicao getInstituicao() { return instituicao; }
+    public void setInstituicao(Instituicao instituicao) { this.instituicao = instituicao; }
     
     public Cliente getCliente() { return cliente; }
     public void setCliente(Cliente cliente) { this.cliente = cliente; }
@@ -223,6 +235,7 @@ public class SessaoConsumo extends BaseEntity {
         private FundoConsumo fundoConsumo;
         private Mesa mesa;
         private UnidadeAtendimento unidadeAtendimento;
+        private Instituicao instituicao;
         private Cliente cliente;
         private Atendente aberturaPor;
         private LocalDateTime abertaEm;
@@ -252,6 +265,11 @@ public class SessaoConsumo extends BaseEntity {
 
         public SessaoConsumoBuilder unidadeAtendimento(UnidadeAtendimento unidadeAtendimento) {
             this.unidadeAtendimento = unidadeAtendimento;
+            return this;
+        }
+
+        public SessaoConsumoBuilder instituicao(Instituicao instituicao) {
+            this.instituicao = instituicao;
             return this;
         }
 
@@ -301,7 +319,7 @@ public class SessaoConsumo extends BaseEntity {
         }
 
         public SessaoConsumo build() {
-            return new SessaoConsumo(this.qrCodeSessao, this.fundoConsumo, this.mesa, this.unidadeAtendimento, this.cliente, this.aberturaPor, this.abertaEm, this.fechadaEm, this.status, this.modoAnonimo, this.pedidos, this.tipoSessao, this.eventos);
+            return new SessaoConsumo(this.qrCodeSessao, this.fundoConsumo, this.mesa, this.unidadeAtendimento, this.instituicao, this.cliente, this.aberturaPor, this.abertaEm, this.fechadaEm, this.status, this.modoAnonimo, this.pedidos, this.tipoSessao, this.eventos);
         }
     }
 

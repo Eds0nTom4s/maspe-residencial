@@ -34,6 +34,8 @@ public class MesaResponse {
 
     private Long unidadeAtendimentoId;
     private String unidadeAtendimentoNome;
+    private Long instituicaoId;
+    private String instituicaoSigla;
 
     /**
      * Status derivado — calculado via SessaoConsumo, NUNCA persistido.

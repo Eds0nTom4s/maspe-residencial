@@ -19,6 +19,30 @@ public interface UnidadeAtendimentoRepository extends JpaRepository<UnidadeAtend
     /**
      * Busca unidades ativas
      */
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u LEFT JOIN FETCH u.cozinhas")
+    List<UnidadeAtendimento> findAllWithCozinhas();
+
+    /**
+     * Busca unidades ativas com cozinhas inicializadas
+     */
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u LEFT JOIN FETCH u.cozinhas WHERE u.ativa = true")
+    List<UnidadeAtendimento> findByAtivaTrueWithCozinhas();
+
+    /**
+     * Busca unidades por tipo com cozinhas inicializadas
+     */
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u LEFT JOIN FETCH u.cozinhas WHERE u.tipo = :tipo")
+    List<UnidadeAtendimento> findByTipoWithCozinhas(@Param("tipo") TipoUnidadeAtendimento tipo);
+
+    /**
+     * Busca unidade por ID com cozinhas inicializadas
+     */
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u LEFT JOIN FETCH u.cozinhas WHERE u.id = :id")
+    Optional<UnidadeAtendimento> findByIdWithCozinhas(@Param("id") Long id);
+
+    /**
+     * Busca unidades ativas
+     */
     List<UnidadeAtendimento> findByAtivaTrue();
 
     /**
@@ -39,7 +63,7 @@ public interface UnidadeAtendimentoRepository extends JpaRepository<UnidadeAtend
     /**
      * Busca unidades operacionais (ativas e com cozinhas)
      */
-    @Query("SELECT u FROM UnidadeAtendimento u JOIN u.cozinhas c WHERE u.ativa = true AND c.ativa = true")
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u JOIN FETCH u.cozinhas c WHERE u.ativa = true AND c.ativa = true")
     List<UnidadeAtendimento> findUnidadesOperacionais();
 
     /**

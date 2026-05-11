@@ -9,11 +9,13 @@ import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.QrCodeToken;
+import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.enums.StatusQrCode;
 import com.restaurante.model.enums.TipoQrCode;
 import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.QrCodeTokenRepository;
+import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.util.QrCodeGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,16 +43,21 @@ public class QrCodeService {
     private final MesaRepository mesaRepository;
     private final PedidoRepository pedidoRepository;
     private final QrCodeGenerator qrCodeGenerator;
+    private final InstituicaoRepository instituicaoRepository;
 
-    public QrCodeService(QrCodeTokenRepository qrCodeTokenRepository, MesaRepository mesaRepository, PedidoRepository pedidoRepository, QrCodeGenerator qrCodeGenerator) {
+    public QrCodeService(QrCodeTokenRepository qrCodeTokenRepository, MesaRepository mesaRepository, PedidoRepository pedidoRepository, QrCodeGenerator qrCodeGenerator, InstituicaoRepository instituicaoRepository) {
         this.qrCodeTokenRepository = qrCodeTokenRepository;
         this.mesaRepository = mesaRepository;
         this.pedidoRepository = pedidoRepository;
         this.qrCodeGenerator = qrCodeGenerator;
+        this.instituicaoRepository = instituicaoRepository;
     }
 
     @Value("${app.base-url:http://localhost:8080/api}")
     private String baseUrl;
+
+    @Value("${app.client-url:http://localhost:3000}")
+    private String clientUrl;
 
     /**
      * Gera novo QR Code
@@ -70,14 +77,37 @@ public class QrCodeService {
             mesa = mesaRepository.findById(request.getMesaId())
                     .orElseThrow(() -> new ResourceNotFoundException("Mesa não encontrada"));
         }
+        Instituicao instituicao = resolverInstituicao(mesa);
 
         if (request.getPedidoId() != null) {
             pedido = pedidoRepository.findById(request.getPedidoId())
                     .orElseThrow(() -> new ResourceNotFoundException("Pedido não encontrado"));
         }
 
-        // Para QR Code de mesa, verifica se já existe um ativo
+        // Para QR Code de mesa, usa código estável e legível para impressão/digitação.
         if (request.getTipo() == TipoQrCode.MESA && mesa != null) {
+            String tokenMesa = gerarTokenMesa(mesa, instituicao);
+            long validadeMinutos = request.getValidadeMinutos() != null
+                    ? request.getValidadeMinutos()
+                    : request.getTipo().getValidadeMinutos();
+            LocalDateTime expiraEm = LocalDateTime.now().plusMinutes(validadeMinutos);
+
+            Optional<QrCodeToken> qrPorToken = qrCodeTokenRepository.findByToken(tokenMesa);
+            if (qrPorToken.isPresent()) {
+                QrCodeToken qr = qrPorToken.get();
+                if (qr.getMesa() == null || !qr.getMesa().getId().equals(mesa.getId())) {
+                    throw new BusinessException("Código de mesa já está associado a outra mesa: " + tokenMesa);
+                }
+                qr.setStatus(StatusQrCode.ATIVO);
+                qr.setExpiraEm(expiraEm);
+                qr.setMetadados(request.getMetadados());
+                qr.setInstituicao(instituicao);
+                mesa.setQrCode(tokenMesa);
+                mesa.setInstituicao(instituicao);
+                mesaRepository.save(mesa);
+                return toResponse(qrCodeTokenRepository.save(qr));
+            }
+
             Optional<QrCodeToken> qrExistente = qrCodeTokenRepository
                     .findByMesaIdAndTipoAndStatus(
                             mesa.getId(),
@@ -86,9 +116,16 @@ public class QrCodeService {
                     );
             
             if (qrExistente.isPresent() && !qrExistente.get().isExpirado()) {
-                log.info("QR Code ativo já existe para mesa {}, renovando", mesa.getId());
+                log.info("QR Code ativo já existe para mesa {}, normalizando token", mesa.getId());
                 QrCodeToken qr = qrExistente.get();
-                qr.renovar();
+                qr.setToken(tokenMesa);
+                qr.setExpiraEm(expiraEm);
+                qr.setStatus(StatusQrCode.ATIVO);
+                qr.setMetadados(request.getMetadados());
+                qr.setInstituicao(instituicao);
+                mesa.setQrCode(tokenMesa);
+                mesa.setInstituicao(instituicao);
+                mesaRepository.save(mesa);
                 qr = qrCodeTokenRepository.save(qr);
                 return toResponse(qr);
             }
@@ -103,15 +140,23 @@ public class QrCodeService {
 
         // Cria novo QR Code
         QrCodeToken qrCodeToken = QrCodeToken.builder()
+                .token(request.getTipo() == TipoQrCode.MESA && mesa != null ? gerarTokenMesa(mesa, instituicao) : null)
                 .tipo(request.getTipo())
                 .status(StatusQrCode.ATIVO)
                 .expiraEm(expiraEm)
                 .mesa(mesa)
                 .pedido(pedido)
+                .instituicao(instituicao)
                 .metadados(request.getMetadados())
                 .build();
 
         qrCodeToken = qrCodeTokenRepository.save(qrCodeToken);
+
+        if (request.getTipo() == TipoQrCode.MESA && mesa != null) {
+            mesa.setQrCode(qrCodeToken.getToken());
+            mesa.setInstituicao(instituicao);
+            mesaRepository.save(mesa);
+        }
 
         log.info("QR Code gerado com sucesso: {} (expira em: {})", qrCodeToken.getToken(), expiraEm);
 
@@ -125,7 +170,8 @@ public class QrCodeService {
     public QrCodeValidacaoResponse validarQrCode(String token) {
         log.info("Validando QR Code: {}", token);
 
-        Optional<QrCodeToken> qrOpt = qrCodeTokenRepository.findByToken(token);
+        String tokenNormalizado = normalizarTokenMesa(token);
+        Optional<QrCodeToken> qrOpt = qrCodeTokenRepository.findByToken(tokenNormalizado);
 
         if (qrOpt.isEmpty()) {
             return QrCodeValidacaoResponse.builder()
@@ -160,7 +206,7 @@ public class QrCodeService {
                     .build();
         }
 
-        log.info("QR Code válido: {}", token);
+        log.info("QR Code válido: {}", tokenNormalizado);
 
         return QrCodeValidacaoResponse.builder()
                 .valido(true)
@@ -243,7 +289,7 @@ public class QrCodeService {
         QrCodeToken qr = qrCodeTokenRepository.findByToken(token)
                 .orElseThrow(() -> new ResourceNotFoundException("QR Code não encontrado"));
 
-        String url = qr.getUrl(baseUrl);
+        String url = montarUrlCliente(qr.getToken());
         return qrCodeGenerator.generateQrCodeImage(url);
     }
 
@@ -254,7 +300,7 @@ public class QrCodeService {
         QrCodeToken qr = qrCodeTokenRepository.findByToken(token)
                 .orElseThrow(() -> new ResourceNotFoundException("QR Code não encontrado"));
 
-        String url = qr.getUrl(baseUrl);
+        String url = montarUrlCliente(qr.getToken());
         return qrCodeGenerator.generateQrCodePrint(url);
     }
 
@@ -350,11 +396,42 @@ public class QrCodeService {
                 .usadoEm(qr.getUsadoEm())
                 .usadoPor(qr.getUsadoPor())
                 .metadados(qr.getMetadados())
-                .url(qr.getUrl(baseUrl))
+                .url(qr.getTipo() == TipoQrCode.MESA ? montarUrlCliente(qr.getToken()) : qr.getUrl(baseUrl))
                 .valido(qr.isValido())
                 .expirado(qr.isExpirado())
                 .criadoEm(qr.getCreatedAt())
                 .criadoPor(qr.getCreatedBy())
                 .build();
+    }
+
+    private String gerarTokenMesa(Mesa mesa, Instituicao instituicao) {
+        return String.format("%s-MESA-%04d", instituicao.getSigla(), mesa.getId());
+    }
+
+    private String montarUrlCliente(String token) {
+        String normalizedClientUrl = clientUrl != null && clientUrl.endsWith("/")
+                ? clientUrl.substring(0, clientUrl.length() - 1)
+                : clientUrl;
+        return normalizedClientUrl + "/?qr=" + token;
+    }
+
+    private String normalizarTokenMesa(String token) {
+        String normalized = token != null ? token.trim().toUpperCase() : "";
+        if (normalized.startsWith("MESA-")) {
+            Instituicao instituicao = resolverInstituicao(null);
+            return instituicao.getSigla() + "-" + normalized;
+        }
+        return normalized;
+    }
+
+    private Instituicao resolverInstituicao(Mesa mesa) {
+        if (mesa != null && mesa.getInstituicao() != null) {
+            return mesa.getInstituicao();
+        }
+        if (mesa != null && mesa.getUnidadeAtendimento() != null && mesa.getUnidadeAtendimento().getInstituicao() != null) {
+            return mesa.getUnidadeAtendimento().getInstituicao();
+        }
+        return instituicaoRepository.findFirstByAtivaTrue()
+                .orElseThrow(() -> new BusinessException("Nenhuma instituição ativa configurada"));
     }
 }

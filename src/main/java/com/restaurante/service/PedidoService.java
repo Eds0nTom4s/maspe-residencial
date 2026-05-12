@@ -352,6 +352,27 @@ public class PedidoService {
         return criar(request);
     }
 
+    @Transactional
+    public PedidoResponse criarPedidoAnonimo(CriarPedidoRequest request, String qrCodeSessao) {
+        log.info("Sessão anónima {} solicitando criação de pedido", qrCodeSessao);
+
+        SessaoConsumo sessao = sessaoConsumoRepository.findByQrCodeSessao(qrCodeSessao)
+                .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada"));
+
+        if (!Boolean.TRUE.equals(sessao.getModoAnonimo())) {
+            throw new BusinessException("Sessão informada não é anónima.");
+        }
+        if (!sessao.isAberta()) {
+            throw new BusinessException("Sessão anónima não está ABERTA. Status: " + sessao.getStatus());
+        }
+
+        request.setSessaoConsumoId(sessao.getId());
+        request.setTipoPagamento(TipoPagamentoPedido.PRE_PAGO);
+        request.setQrCodeFundo(qrCodeSessao);
+
+        return criar(request);
+    }
+
     /**
      * Lista todos os pedidos efetuados pelo cliente na sua sessão ativa.
      *
@@ -372,6 +393,21 @@ public class PedidoService {
         }
 
         return pedidoRepository.findBySessaoConsumoId(sessaoOpt.get().getId(), Pageable.unpaged())
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<PedidoResponse> listarPedidosPorSessaoAnonima(String qrCodeSessao) {
+        SessaoConsumo sessao = sessaoConsumoRepository.findByQrCodeSessao(qrCodeSessao)
+                .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada"));
+
+        if (!Boolean.TRUE.equals(sessao.getModoAnonimo())) {
+            throw new BusinessException("Sessão informada não é anónima.");
+        }
+
+        return pedidoRepository.findBySessaoConsumoId(sessao.getId(), Pageable.unpaged())
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());

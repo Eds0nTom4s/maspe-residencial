@@ -1,6 +1,7 @@
 package com.restaurante.controller;
 
 import com.restaurante.dto.request.AbrirSessaoRequest;
+import com.restaurante.dto.request.EnviarFaturaSmsRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.SessaoConsumoResponse;
 import com.restaurante.service.SessaoConsumoService;
@@ -93,6 +94,17 @@ public class SessaoConsumoController {
         log.info("PUT /sessoes-consumo/{}/liquidar - metodo: {}, telefone: {}", id, metodoPagamento, telefone);
         SessaoConsumoResponse response = sessaoConsumoService.liquidarContaPosPago(id, metodoPagamento, qrCodeFundoExterno, telefone);
         return ResponseEntity.ok(ApiResponse.success("Liquidação concluída. Sessão encerrada.", response));
+    }
+
+    @PostMapping("/{id}/fatura/sms")
+    @Operation(summary = "Enviar conta/fatura proforma da mesa por SMS")
+    @PreAuthorize("hasAnyRole('ATENDENTE', 'GERENTE', 'ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> enviarFaturaSms(
+            @PathVariable Long id,
+            @Valid @RequestBody EnviarFaturaSmsRequest request) {
+        log.info("POST /sessoes-consumo/{}/fatura/sms", id);
+        sessaoConsumoService.enviarFaturaPorSms(id, request.getTelefone());
+        return ResponseEntity.ok(ApiResponse.success("Fatura enviada por SMS", null));
     }
 
     // ──────────────────────────────────────────────────────────────────────────

@@ -25,13 +25,13 @@ public class PublicMesaController {
     private final MesaService mesaService;
 
     /**
-     * Busca os dados da mesa a partir do seu QR Code token
-     * GET /api/public/mesa/{qrToken}
+     * Busca os dados da mesa a partir do QR Code token ou da referência impressa.
+     * GET /api/public/mesa/{codigo}
      */
-    @GetMapping("/{qrToken}")
-    @Operation(summary = "Obter dados da mesa por QR Token", description = "Retorna os detalhes públicos da mesa ao ser escaneada. Não cria sessão.")
-    public ResponseEntity<ApiResponse<MesaResponse>> obterMesaPorQrToken(@PathVariable String qrToken) {
-        MesaResponse mesaResponse = mesaService.buscarPorQrCode(qrToken);
+    @GetMapping("/{codigo}")
+    @Operation(summary = "Obter dados da mesa por código", description = "Aceita token do QR Code ou referência impressa na mesa. Não cria sessão.")
+    public ResponseEntity<ApiResponse<MesaResponse>> obterMesaPorCodigo(@PathVariable String codigo) {
+        MesaResponse mesaResponse = mesaService.buscarPorCodigoPublico(codigo);
         return ResponseEntity.ok(ApiResponse.success("Mesa identificada com sucesso", mesaResponse));
     }
 }

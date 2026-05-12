@@ -22,6 +22,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Service para operações sobre Mesa.
@@ -44,6 +48,7 @@ public class MesaService {
     private final SessaoConsumoRepository sessaoConsumoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final InstituicaoRepository instituicaoRepository;
+    private static final Pattern CODIGO_NUMERICO_MESA = Pattern.compile(".*(?:MESA[-\\s]?)(\\d+)$");
 
     public MesaService(MesaRepository mesaRepository,
                        SessaoConsumoRepository sessaoConsumoRepository,
@@ -160,6 +165,21 @@ public class MesaService {
         return converterParaResponse(mesa);
     }
 
+    @Transactional(readOnly = true)
+    public MesaResponse buscarPorCodigoPublico(String codigo) {
+        if (codigo == null || codigo.isBlank()) {
+            throw new BusinessException("Código da mesa é obrigatório");
+        }
+
+        String codigoNormalizado = codigo.trim().toUpperCase();
+        Mesa mesa = mesaRepository.findByQrCode(codigoNormalizado)
+                .or(() -> mesaRepository.findByReferenciaIgnoreCase(codigo.trim()))
+                .or(() -> buscarPorNumeroNoCodigo(codigoNormalizado))
+                .orElseThrow(() -> new ResourceNotFoundException("Mesa não encontrada para o código: " + codigo));
+
+        return converterParaResponse(mesa);
+    }
+
     /**
      * Lista todas as mesas com status derivado em tempo real.
      */
@@ -201,6 +221,15 @@ public class MesaService {
     public List<MesaResponse> listarPorUnidadeAtendimento(Long unidadeAtendimentoId) {
         return mesaRepository.findByUnidadeAtendimentoId(unidadeAtendimentoId).stream()
                 .map(this::converterParaResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, String>> listarTipos() {
+        return Arrays.stream(TipoUnidadeConsumo.values())
+                .map(tipo -> Map.of(
+                        "codigo", tipo.name(),
+                        "descricao", tipo.getDescricao()))
                 .collect(Collectors.toList());
     }
 
@@ -255,5 +284,19 @@ public class MesaService {
             return mesa.getUnidadeAtendimento().getInstituicao();
         }
         return buscarInstituicaoAtiva();
+    }
+
+    private Optional<Mesa> buscarPorNumeroNoCodigo(String codigoNormalizado) {
+        Matcher matcher = CODIGO_NUMERICO_MESA.matcher(codigoNormalizado);
+        if (!matcher.matches()) {
+            return Optional.empty();
+        }
+
+        try {
+            Integer numero = Integer.valueOf(matcher.group(1));
+            return mesaRepository.findFirstByNumero(numero);
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
     }
 }

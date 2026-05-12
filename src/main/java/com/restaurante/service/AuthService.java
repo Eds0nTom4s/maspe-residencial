@@ -261,6 +261,7 @@ public class AuthService {
                 switch (role.name()) {
                     case "ROLE_ADMIN":     return TipoUsuario.ADMIN;
                     case "ROLE_GERENTE":   return TipoUsuario.GERENTE;
+                    case "ROLE_COZINHA":   return TipoUsuario.COZINHA;
                     default:               return TipoUsuario.ATENDENTE;
                 }
             })

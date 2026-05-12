@@ -26,6 +26,16 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
     Optional<Mesa> findByQrCode(String qrCode);
 
     /**
+     * Busca mesa pela referência humana, ignorando maiúsculas/minúsculas.
+     */
+    Optional<Mesa> findByReferenciaIgnoreCase(String referencia);
+
+    /**
+     * Busca primeira mesa pelo número operacional.
+     */
+    Optional<Mesa> findFirstByNumero(Integer numero);
+
+    /**
      * Lista mesas pelo flag de ativação administrativa.
      */
     List<Mesa> findByAtiva(Boolean ativa);

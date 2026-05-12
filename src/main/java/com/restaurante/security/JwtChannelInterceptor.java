@@ -1,8 +1,7 @@
 package com.restaurante.security;
 
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -27,9 +26,8 @@ import java.util.stream.Collectors;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class JwtChannelInterceptor implements ChannelInterceptor {
-
-    private static final Logger log = LoggerFactory.getLogger(JwtChannelInterceptor.class);
 
     private final JwtTokenProvider jwtTokenProvider;
 
@@ -52,14 +50,11 @@ public class JwtChannelInterceptor implements ChannelInterceptor {
                         String username = jwtTokenProvider.getUsernameFromToken(token);
                         String roles = jwtTokenProvider.getRolesFromToken(token);
                         
-                        // Converter roles string para lista de authorities (previne NPE se roles nulas)
-                        List<SimpleGrantedAuthority> authorities = java.util.Collections.emptyList();
-                        if (roles != null && !roles.isBlank()) {
-                            authorities = Arrays.stream(roles.split(","))
-                                    .map(String::trim)
-                                    .map(SimpleGrantedAuthority::new)
-                                    .collect(Collectors.toList());
-                        }
+                        // Converter roles string para lista de authorities
+                        List<SimpleGrantedAuthority> authorities = Arrays.stream(roles.split(","))
+                                .map(String::trim)
+                                .map(SimpleGrantedAuthority::new)
+                                .collect(Collectors.toList());
                         
                         // Criar authentication e configurar no accessor
                         UsernamePasswordAuthenticationToken authentication = 

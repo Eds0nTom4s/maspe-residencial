@@ -28,10 +28,10 @@ public class IniciarPagamentoRequest {
     private Long fundoId;
 
     /**
-     * Valor da recarga na moeda configurada. Mínimo: 1.00.
+     * Valor da recarga em AOA (Kwanzas). Mínimo: 1.00 AOA.
      */
     @NotNull(message = "valor é obrigatório")
-    @DecimalMin(value = "1.00", message = "Valor mínimo é 1.00")
+    @DecimalMin(value = "1.00", message = "Valor mínimo é 1.00 AOA")
     private BigDecimal valor;
 
     /**
@@ -39,9 +39,4 @@ public class IniciarPagamentoRequest {
      */
     @NotNull(message = "metodo é obrigatório")
     private MetodoPagamentoAppyPay metodo;
-
-    /**
-     * Telemóvel do cliente para disparar pedido M-Express (opcional).
-     */
-    private String telefone;
 }

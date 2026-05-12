@@ -60,9 +60,6 @@ public class ConcurrenciaRealE2ETest {
     @Autowired
     private ClienteRepository clienteRepository;
 
-    @org.springframework.boot.test.mock.mockito.MockBean
-    private io.minio.MinioClient minioClient;
-
     @Autowired
     private MesaRepository mesaRepository;
 
@@ -96,13 +93,13 @@ public class ConcurrenciaRealE2ETest {
     void setupOnce() {
         baseUrl = "http://localhost:" + port;
         
-        // Criar usuário de teste com roles ATENDENTE e COZINHA para bypassar @PreAuthorize
+        // Criar usuário de teste com role ATENDENTE para bypassar @PreAuthorize
         User testUser = User.builder()
             .username("testuser")
             .password(passwordEncoder.encode("testpass"))
             .email("test@test.com")
             .ativo(true)
-            .roles(Set.of(Role.ROLE_ATENDENTE, Role.ROLE_COZINHA)) // Correção: Ambos os roles
+            .roles(Set.of(Role.ROLE_ATENDENTE)) // Correção: ROLE_ATENDENTE
             .build();
         userRepository.save(testUser);
         
@@ -143,6 +140,7 @@ public class ConcurrenciaRealE2ETest {
      * RISCO: CRÍTICO
      * Se falhar: Cliente pode ser cobrado 2x, pedido duplicado, estado inconsistente
      */
+    @Test
     @Order(1)
     @RepeatedTest(20) // Executar 20x para detectar flakiness
     @DisplayName("🔴 CRÍTICO: 2 atendentes entregando MESMO subpedido simultaneamente")
@@ -172,7 +170,7 @@ public class ConcurrenciaRealE2ETest {
             latch.countDown(); // Sinaliza que está pronto
             latch.await(); // Aguarda ambos estarem prontos
             
-            String url = baseUrl + "/subpedidos/" + subPedidoId + "/marcar-entregue";
+            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/marcar-entregue";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "atendenteA");
             headers.set("X-User-Role", "ATENDENTE");
@@ -191,7 +189,7 @@ public class ConcurrenciaRealE2ETest {
             latch.await();
             Thread.sleep(50); // 50ms depois (clique quase simultâneo)
             
-            String url = baseUrl + "/subpedidos/" + subPedidoId + "/marcar-entregue";
+            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/marcar-entregue";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "atendenteB");
             headers.set("X-User-Role", "ATENDENTE");
@@ -285,6 +283,7 @@ public class ConcurrenciaRealE2ETest {
         System.out.println("═══════════════════════════════════════════════════\n");
     }
 
+    @Test
     @Order(2)
     @RepeatedTest(20)
     @DisplayName("🔴 CRÍTICO: 2 cozinheiros assumindo MESMO subpedido simultaneamente")
@@ -307,7 +306,7 @@ public class ConcurrenciaRealE2ETest {
             latch.countDown();
             latch.await();
             
-            String url = baseUrl + "/subpedidos/" + subPedidoId + "/assumir";
+            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/assumir";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "cozinheiroA");
             headers.set("X-User-Role", "COZINHA");
@@ -321,7 +320,7 @@ public class ConcurrenciaRealE2ETest {
             latch.await();
             Thread.sleep(30);
             
-            String url = baseUrl + "/subpedidos/" + subPedidoId + "/assumir";
+            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/assumir";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "cozinheiroB");
             headers.set("X-User-Role", "COZINHA");

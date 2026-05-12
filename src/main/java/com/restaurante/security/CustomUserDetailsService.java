@@ -77,6 +77,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 Role role = switch (atendente.getTipoUsuario()) {
                     case ADMIN -> Role.ROLE_ADMIN;
                     case GERENTE -> Role.ROLE_GERENTE;
+                    case COZINHA -> Role.ROLE_COZINHA;
                     case ATENDENTE -> Role.ROLE_ATENDENTE;
                     case CLIENTE -> Role.ROLE_CLIENTE; // Não deveria acontecer em atendentes, mas precisa cobrir todos os casos
                 };

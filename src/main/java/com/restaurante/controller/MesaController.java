@@ -15,6 +15,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Controller para gerenciamento de Mesas físicas.
@@ -93,6 +94,13 @@ public class MesaController {
     @Operation(summary = "Listar todas as mesas com status DERIVADO (DISPONIVEL/OCUPADA)")
     public ResponseEntity<ApiResponse<List<MesaResponse>>> listarTodas() {
         return ResponseEntity.ok(ApiResponse.success("Sucesso", mesaService.listarTodas()));
+    }
+
+    @GetMapping("/tipos")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
+    @Operation(summary = "Listar tipos de mesa/unidade de consumo disponíveis")
+    public ResponseEntity<ApiResponse<List<Map<String, String>>>> listarTipos() {
+        return ResponseEntity.ok(ApiResponse.success("Sucesso", mesaService.listarTipos()));
     }
 
     @GetMapping("/{id}")

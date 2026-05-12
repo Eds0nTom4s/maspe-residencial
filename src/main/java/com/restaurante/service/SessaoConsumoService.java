@@ -14,15 +14,20 @@ import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.util.PhoneNumberUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.restaurante.notificacao.service.NotificacaoService;
 
@@ -71,6 +76,7 @@ public class SessaoConsumoService {
     private final QrCodeService qrCodeService;
     private final NotificacaoService notificacaoService;
     private final InstituicaoRepository instituicaoRepository;
+    private static final Pattern CODIGO_NUMERICO_MESA = Pattern.compile(".*(?:MESA[-\\s]?)(\\d+)$");
 
     public SessaoConsumoService(SessaoConsumoRepository sessaoConsumoRepository,
                                 MesaRepository mesaRepository,
@@ -385,6 +391,38 @@ public class SessaoConsumoService {
         return fechar(id);
     }
 
+    @Transactional(readOnly = true)
+    public void enviarFaturaPorSms(Long id, String telefone) {
+        SessaoConsumo sessao = buscarEntidadePorId(id);
+        String telefoneNormalizado = PhoneNumberUtil.normalize(telefone);
+        SessaoConsumoResponse resumo = converterParaResponse(sessao);
+
+        BigDecimal saldoFundo = resumo.getSaldoFundo() != null ? resumo.getSaldoFundo() : BigDecimal.ZERO;
+        BigDecimal totalConsumo = resumo.getTotalConsumo() != null ? resumo.getTotalConsumo() : BigDecimal.ZERO;
+        BigDecimal totalPagar = totalConsumo.subtract(saldoFundo.max(BigDecimal.ZERO)).max(BigDecimal.ZERO);
+        String referenciaMesa = resumo.getReferenciaMesa() != null ? resumo.getReferenciaMesa() : "Sessão " + resumo.getId();
+
+        String mensagem = String.format(
+                "Conta/Fatura Proforma%n" +
+                "%s%n" +
+                "Sessao: %s%n" +
+                "Total consumido: %s%n" +
+                "Saldo/fundo: %s%n" +
+                "Total a pagar: %s%n" +
+                "Sistema de Restauracao",
+                referenciaMesa,
+                resumo.getQrCodeSessao() != null ? resumo.getQrCodeSessao() : resumo.getId(),
+                formatarMoeda(totalConsumo),
+                formatarMoeda(saldoFundo),
+                formatarMoeda(totalPagar)
+        );
+
+        boolean enviado = notificacaoService.enviarSms(telefoneNormalizado, mensagem, "FATURA_MESA");
+        if (!enviado) {
+            throw new BusinessException("Não foi possível enviar a fatura por SMS. Tente novamente.");
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Consultas
     // ──────────────────────────────────────────────────────────────────────────
@@ -439,23 +477,14 @@ public class SessaoConsumoService {
     public SessaoConsumoResponse iniciarSessaoCliente(String qrToken, String telefoneCliente) {
         log.info("Cliente {} iniciando sessão via QR Code {}", telefoneCliente, qrToken);
 
-        // Valida o QR Code
-        var validacao = qrCodeService.validarQrCode(qrToken);
-        if (!validacao.getValido()) {
-            throw new BusinessException("QR Code inválido ou expirado: " + validacao.getMensagem());
-        }
-
-        var qrCode = validacao.getQrCode();
-        if (qrCode.getTipo() != com.restaurante.model.enums.TipoQrCode.MESA || qrCode.getMesaId() == null) {
-            throw new BusinessException("QR Code não é de uma mesa válida");
-        }
+        Mesa mesaAcesso = resolverMesaPorCodigoAcesso(qrToken);
 
         Cliente cliente = clienteService.buscarOuCriarPorTelefone(telefoneCliente);
 
         // Verifica se cliente já tem sessão aberta noutro lugar
         sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())
                 .ifPresent(sessaoExistente -> {
-                    if (sessaoExistente.getMesa() == null || !sessaoExistente.getMesa().getId().equals(qrCode.getMesaId())) {
+                    if (sessaoExistente.getMesa() == null || !sessaoExistente.getMesa().getId().equals(mesaAcesso.getId())) {
                         String localSessao = sessaoExistente.getMesa() != null
                                 ? "mesa '" + sessaoExistente.getMesa().getReferencia() + "'"
                                 : "sessão #" + sessaoExistente.getId();
@@ -465,7 +494,7 @@ public class SessaoConsumoService {
                 });
 
         // Verifica se a mesa atual já tem sessão aberta
-        var sessaoOpt = sessaoConsumoRepository.findByMesaIdAndStatus(qrCode.getMesaId(), StatusSessaoConsumo.ABERTA);
+        var sessaoOpt = sessaoConsumoRepository.findByMesaIdAndStatus(mesaAcesso.getId(), StatusSessaoConsumo.ABERTA);
 
         SessaoConsumo sessao;
         if (sessaoOpt.isPresent()) {
@@ -495,7 +524,7 @@ public class SessaoConsumoService {
         } else {
             // Abre nova sessão para o cliente
             AbrirSessaoRequest req = AbrirSessaoRequest.builder()
-                    .mesaId(qrCode.getMesaId())
+                    .mesaId(mesaAcesso.getId())
                     .modoAnonimo(false)
                     .telefoneCliente(telefoneCliente)
                     // No fluxo de QR code, por enquanto não temos campo de nome no parâmetro
@@ -506,6 +535,48 @@ public class SessaoConsumoService {
             return abrir(req);
         }
 
+        return converterParaResponse(sessao);
+    }
+
+    /**
+     * Cliente sem identificação inicia consumo anónimo via QR Code da mesa.
+     * A sessão criada é sempre PRE_PAGO e exige recarga de fundo antes de pedidos.
+     */
+    @Transactional
+    public SessaoConsumoResponse iniciarSessaoAnonima(String qrToken) {
+        log.info("Iniciando sessão anónima via QR Code {}", qrToken);
+
+        Mesa mesaAcesso = resolverMesaPorCodigoAcesso(qrToken);
+
+        var sessaoOpt = sessaoConsumoRepository.findByMesaIdAndStatus(mesaAcesso.getId(), StatusSessaoConsumo.ABERTA);
+        if (sessaoOpt.isPresent()) {
+            SessaoConsumo sessao = sessaoOpt.get();
+            if (sessao.getCliente() != null) {
+                throw new BusinessException("Esta mesa já possui uma sessão identificada aberta.");
+            }
+            return converterParaResponse(sessao);
+        }
+
+        AbrirSessaoRequest req = AbrirSessaoRequest.builder()
+                .mesaId(mesaAcesso.getId())
+                .modoAnonimo(true)
+                .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
+                .build();
+        return abrir(req);
+    }
+
+    @Transactional(readOnly = true)
+    public SessaoConsumoResponse buscarSessaoAnonimaPorToken(String qrCodeSessao) {
+        SessaoConsumo sessao = sessaoConsumoRepository.findByQrCodeSessao(qrCodeSessao)
+                .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada"));
+
+        if (!Boolean.TRUE.equals(sessao.getModoAnonimo())) {
+            throw new BusinessException("Sessão informada não é anónima.");
+        }
+        if (sessao.getStatus() != StatusSessaoConsumo.ABERTA
+                && sessao.getStatus() != StatusSessaoConsumo.AGUARDANDO_PAGAMENTO) {
+            throw new BusinessException("Sessão anónima não está ativa. Status: " + sessao.getStatus());
+        }
         return converterParaResponse(sessao);
     }
 
@@ -680,6 +751,47 @@ public class SessaoConsumoService {
                 .saldoFundo(fundo != null ? fundo.getSaldoAtual() : BigDecimal.ZERO)
                 .totalConsumo(totalConsumo)
                 .build();
+    }
+
+    private String formatarMoeda(BigDecimal valor) {
+        return NumberFormat.getCurrencyInstance(Locale.forLanguageTag("pt-AO"))
+                .format(valor != null ? valor : BigDecimal.ZERO);
+    }
+
+    private Mesa resolverMesaPorCodigoAcesso(String codigo) {
+        if (codigo == null || codigo.isBlank()) {
+            throw new BusinessException("Código da mesa é obrigatório");
+        }
+
+        var validacao = qrCodeService.validarQrCode(codigo);
+        if (validacao.getValido()) {
+            var qrCode = validacao.getQrCode();
+            if (qrCode.getTipo() != com.restaurante.model.enums.TipoQrCode.MESA || qrCode.getMesaId() == null) {
+                throw new BusinessException("QR Code não é de uma mesa válida");
+            }
+            return mesaRepository.findById(qrCode.getMesaId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Mesa não encontrada para o QR Code informado"));
+        }
+
+        String codigoNormalizado = codigo.trim().toUpperCase();
+        return mesaRepository.findByQrCode(codigoNormalizado)
+                .or(() -> mesaRepository.findByReferenciaIgnoreCase(codigo.trim()))
+                .or(() -> buscarMesaPorNumeroNoCodigo(codigoNormalizado))
+                .orElseThrow(() -> new BusinessException("Código de mesa inválido: " + validacao.getMensagem()));
+    }
+
+    private Optional<Mesa> buscarMesaPorNumeroNoCodigo(String codigoNormalizado) {
+        Matcher matcher = CODIGO_NUMERICO_MESA.matcher(codigoNormalizado);
+        if (!matcher.matches()) {
+            return Optional.empty();
+        }
+
+        try {
+            Integer numero = Integer.valueOf(matcher.group(1));
+            return mesaRepository.findFirstByNumero(numero);
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
     }
 
     /**

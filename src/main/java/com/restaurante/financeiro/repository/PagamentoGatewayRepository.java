@@ -53,6 +53,15 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
      * Busca pagamentos pendentes (para monitoramento)
      */
     List<Pagamento> findByStatusOrderByCreatedAtAsc(StatusPagamentoGateway status);
+
+    /**
+     * Busca pagamentos em status PENDENTE vinculados a um fundo.
+     * Usado pelo expirarComSeguranca() para bloquear expiração quando há
+     * pagamentos AppyPay em curso (ex: referência bancária ainda não paga).
+     */
+    @Query("SELECT p FROM Pagamento p WHERE p.fundoConsumo.id = :fundoId " +
+           "AND p.status = 'PENDENTE'")
+    List<Pagamento> findPagamentosPendentesByFundoId(Long fundoId);
     
     /**
      * Busca último pagamento confirmado do fundo

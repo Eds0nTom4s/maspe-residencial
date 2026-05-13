@@ -170,6 +170,16 @@ public class PagamentoGatewayService {
             ip,
             "Recarga de fundo solicitada: " + com.restaurante.util.MoneyFormatter.format(valor)
         );
+
+        // Sprint 1: Regista actividade na sessão — pagamento PENDENTE criado.
+        // Crítico para evitar que o scheduler expire a sessão enquanto o cliente
+        // está a pagar a referência bancária no Multicaixa (fluxo REF assíncrono).
+        if (fundo.getSessaoConsumo() != null) {
+            sessaoConsumoService.registrarAtividade(
+                    fundo.getSessaoConsumo().getId(),
+                    "Pagamento PENDENTE criado: " + com.restaurante.util.MoneyFormatter.format(valor)
+                    + " (ref=" + externalRef + ")");
+        }
         
         // Chama AppyPay
         try {

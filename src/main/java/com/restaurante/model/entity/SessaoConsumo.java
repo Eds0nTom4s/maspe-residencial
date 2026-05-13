@@ -105,6 +105,23 @@ public class SessaoConsumo extends BaseEntity {
     private LocalDateTime abertaEm = LocalDateTime.now();
 
     /**
+     * Timestamp da última actividade operacional registada nesta sessão.
+     *
+     * <p>Critério usado pelo {@code SessaoExpiracaoScheduler} para determinar
+     * inatividade real, em substituição ao simples {@code abertaEm}.
+     * Actualizado sempre que:
+     * <ul>
+     *   <li>Um pedido é criado ou muda de estado.</li>
+     *   <li>O FundoConsumo recebe crédito, débito ou estorno.</li>
+     *   <li>Um pagamento é criado ou confirmado.</li>
+     * </ul>
+     *
+     * <p>Inicializado com o mesmo valor de {@code abertaEm} na criação da sessão.
+     */
+    @Column(name = "ultima_atividade_em", nullable = false)
+    private LocalDateTime ultimaAtividadeEm = LocalDateTime.now();
+
+    /**
      * Timestamp de encerramento da sessão (null enquanto ABERTA).
      */
     @Column(name = "fechada_em")
@@ -164,7 +181,9 @@ public class SessaoConsumo extends BaseEntity {
         this.instituicao = instituicao;
         this.cliente = cliente;
         this.aberturaPor = aberturaPor;
-        this.abertaEm = abertaEm != null ? abertaEm : LocalDateTime.now();
+        LocalDateTime agora = abertaEm != null ? abertaEm : LocalDateTime.now();
+        this.abertaEm = agora;
+        this.ultimaAtividadeEm = agora; // Sempre inicializado junto com abertaEm
         this.fechadaEm = fechadaEm;
         this.status = status != null ? status : StatusSessaoConsumo.ABERTA;
         this.modoAnonimo = modoAnonimo != null ? modoAnonimo : false;
@@ -196,7 +215,10 @@ public class SessaoConsumo extends BaseEntity {
     
     public LocalDateTime getAbertaEm() { return abertaEm; }
     public void setAbertaEm(LocalDateTime abertaEm) { this.abertaEm = abertaEm; }
-    
+
+    public LocalDateTime getUltimaAtividadeEm() { return ultimaAtividadeEm; }
+    public void setUltimaAtividadeEm(LocalDateTime ultimaAtividadeEm) { this.ultimaAtividadeEm = ultimaAtividadeEm; }
+
     public LocalDateTime getFechadaEm() { return fechadaEm; }
     public void setFechadaEm(LocalDateTime fechadaEm) { this.fechadaEm = fechadaEm; }
     
@@ -239,6 +261,7 @@ public class SessaoConsumo extends BaseEntity {
         private Cliente cliente;
         private Atendente aberturaPor;
         private LocalDateTime abertaEm;
+        private LocalDateTime ultimaAtividadeEm;
         private LocalDateTime fechadaEm;
         private StatusSessaoConsumo status;
         private Boolean modoAnonimo;
@@ -285,6 +308,11 @@ public class SessaoConsumo extends BaseEntity {
 
         public SessaoConsumoBuilder abertaEm(LocalDateTime abertaEm) {
             this.abertaEm = abertaEm;
+            return this;
+        }
+
+        public SessaoConsumoBuilder ultimaAtividadeEm(LocalDateTime ultimaAtividadeEm) {
+            this.ultimaAtividadeEm = ultimaAtividadeEm;
             return this;
         }
 
@@ -351,6 +379,39 @@ public class SessaoConsumo extends BaseEntity {
         if (this.unidadeAtendimento != null) return this.unidadeAtendimento;
         if (this.mesa != null) return this.mesa.getUnidadeAtendimento();
         return null;
+    }
+
+    /**
+     * Regista actividade operacional na sessão.
+     * Deve ser chamado sempre que ocorrer operação real (pedido, pagamento, etc.).
+     * Seguro para uso concorrente — apenas actualiza o timestamp, não altera status.
+     */
+    public void registrarAtividade() {
+        if (this.status == StatusSessaoConsumo.ABERTA ||
+            this.status == StatusSessaoConsumo.AGUARDANDO_PAGAMENTO) {
+            this.ultimaAtividadeEm = LocalDateTime.now();
+        }
+    }
+
+    /**
+     * Regista actividade com timestamp explícito (útil para testes).
+     */
+    public void registrarAtividade(LocalDateTime momento) {
+        if (momento == null) return;
+        if (this.status == StatusSessaoConsumo.ABERTA ||
+            this.status == StatusSessaoConsumo.AGUARDANDO_PAGAMENTO) {
+            this.ultimaAtividadeEm = momento;
+        }
+    }
+
+    /**
+     * Expira a sessão por inatividade automática.
+     * Diferente de {@link #encerrar()} — não encerra o fundo automaticamente aqui;
+     * o service decide se o fundo tem saldo e age em conformidade.
+     */
+    public void expirar() {
+        this.status = StatusSessaoConsumo.EXPIRADA;
+        this.fechadaEm = LocalDateTime.now();
     }
 
     /**

@@ -10,6 +10,7 @@ import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.entity.PagamentoEventLog;
 import com.restaurante.notificacao.service.NotificacaoService;
+import com.restaurante.service.SessaoConsumoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,14 @@ public class PagamentoCallbackService {
     private final NotificacaoService notificacaoService;
     private final AppyPayHmacValidator hmacValidator;
     private final ObjectMapper objectMapper;
+    // Injectado via setter para quebrar ciclo SessaoConsumoService ↔ PagamentoCallbackService
+    private SessaoConsumoService sessaoConsumoService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    public void setSessaoConsumoService(SessaoConsumoService sessaoConsumoService) {
+        this.sessaoConsumoService = sessaoConsumoService;
+    }
 
     /**
      * Processa callback da AppyPay.
@@ -98,6 +107,14 @@ public class PagamentoCallbackService {
                                 "APPYPAY_CALLBACK",
                                 "SYSTEM",
                                 null);
+                        // Sprint 1: Regista actividade na sessão — blinda contra expiração
+                        // durante o processamento assíncrono do webhook AppyPay
+                        if (pagamento.getFundoConsumo() != null &&
+                                pagamento.getFundoConsumo().getSessaoConsumo() != null) {
+                            sessaoConsumoService.registrarAtividade(
+                                    pagamento.getFundoConsumo().getSessaoConsumo().getId(),
+                                    "Pagamento AppyPay confirmado: " + callback.getMerchantTransactionId());
+                        }
                     } else {
                         // TODO: Implementar confirmação pós-pago
                         log.warn("[CALLBACK] Callback para pós-pago ainda não implementado.");

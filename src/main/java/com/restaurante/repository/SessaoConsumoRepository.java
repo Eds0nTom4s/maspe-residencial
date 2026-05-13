@@ -70,9 +70,25 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
 
     /**
      * Busca sessões com status específico que foram abertas ANTES de determinada data.
-     * Utilizado pelo Scheduler para inativar (EXPIRAR) sessões zumbi.
+     * @deprecated Usar {@link #findCandidatasParaExpiracao(LocalDateTime)} que filtra por inatividade real.
      */
+    @Deprecated
     List<SessaoConsumo> findByStatusAndAbertaEmBefore(StatusSessaoConsumo status, LocalDateTime data);
+
+    /**
+     * Busca sessões ABERTAS cuja ÚLTIMA ACTIVIDADE tenha ocorrido antes do limite de inactividade.
+     *
+     * <p>Utilizado pelo {@code SessaoExpiracaoScheduler} para identificar candidatas seguras
+     * à expiração automática. A validação final (saldo, pedidos pendentes, pagamentos)
+     * é realizada em {@code SessaoConsumoService#expirarComSeguranca}.
+     *
+     * @param limiteInatividade data/hora a partir da qual se considera inatividade
+     */
+    @Query("SELECT s FROM SessaoConsumo s " +
+           "WHERE s.status = 'ABERTA' " +
+           "AND s.ultimaAtividadeEm < :limiteInatividade")
+    List<SessaoConsumo> findCandidatasParaExpiracao(
+            @Param("limiteInatividade") LocalDateTime limiteInatividade);
 
     /**
      * Conta todas as sessões abertas hoje (independente de status atual).

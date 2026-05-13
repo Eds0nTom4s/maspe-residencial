@@ -62,6 +62,13 @@ public class JwtTokenProvider {
      * Gera token JWT com roles
      */
     public String generateToken(String username, String roles) {
+        return generateToken(username, roles, null);
+    }
+
+    /**
+     * Gera token JWT com roles e nome da instituição
+     */
+    public String generateToken(String username, String roles, String instituicaoNome) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpiration);
 
@@ -73,6 +80,9 @@ public class JwtTokenProvider {
 
         if (roles != null) {
             builder.claim("roles", roles);
+        }
+        if (instituicaoNome != null) {
+            builder.claim("instituicao", instituicaoNome);
         }
 
         return builder.compact();

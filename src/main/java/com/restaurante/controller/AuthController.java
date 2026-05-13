@@ -9,6 +9,7 @@ import com.restaurante.dto.response.ClienteResponse;
 import com.restaurante.dto.response.LoginAtendenteResponse;
 import com.restaurante.service.AuthService;
 import com.restaurante.service.ClienteService;
+import com.restaurante.service.InstituicaoService;
 import com.restaurante.security.JwtTokenProvider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -35,6 +36,7 @@ public class AuthController {
     private final ClienteService clienteService;
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final InstituicaoService instituicaoService;
 
     /**
      * Solicita OTP para o telefone informado
@@ -67,8 +69,9 @@ public class AuthController {
         // 1. Valida o OTP e busca o cliente
         ClienteResponse cliente = clienteService.validarOtp(request);
         
-        // 2. Gera o Token JWT. A sessão de consumo é aberta apenas por QR/mesa.
-        String token = jwtTokenProvider.generateToken(cliente.getTelefone(), "ROLE_CLIENTE");
+        // 2. Gera o Token JWT incluindo o nome da Instituição ativa
+        String instNome = instituicaoService.getInstituicaoAtiva().getNome();
+        String token = jwtTokenProvider.generateToken(cliente.getTelefone(), "ROLE_CLIENTE", instNome);
         
         // 3. Constrói o Response com dados de autenticação.
         AuthResponse authResponse = AuthResponse.builder()

@@ -14,6 +14,7 @@ import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
+import org.springframework.context.annotation.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -53,6 +54,8 @@ public class FundoConsumoService {
     private final ClienteRepository clienteRepository;
     private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
     private final com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService;
+    // @Lazy quebra o ciclo SessaoConsumoService ↔ FundoConsumoService
+    private final SessaoConsumoService sessaoConsumoService;
 
     public FundoConsumoService(FundoConsumoRepository fundoConsumoRepository,
                               TransacaoFundoRepository transacaoFundoRepository,
@@ -60,7 +63,8 @@ public class FundoConsumoService {
                               SessaoConsumoRepository sessaoConsumoRepository,
                               ClienteRepository clienteRepository,
                               ConfiguracaoFinanceiraService configuracaoFinanceiraService,
-                              com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService) {
+                              com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService,
+                              @Lazy SessaoConsumoService sessaoConsumoService) {
         this.fundoConsumoRepository = fundoConsumoRepository;
         this.transacaoFundoRepository = transacaoFundoRepository;
         this.pedidoRepository = pedidoRepository;
@@ -68,6 +72,7 @@ public class FundoConsumoService {
         this.clienteRepository = clienteRepository;
         this.configuracaoFinanceiraService = configuracaoFinanceiraService;
         this.webSocketNotificacaoService = webSocketNotificacaoService;
+        this.sessaoConsumoService = sessaoConsumoService;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -353,7 +358,10 @@ public class FundoConsumoService {
         // Para acionar o optimistic locking no fundo e notificar que mudou:
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
-        
+
+        // Sprint 1: Regista actividade na sessão — debitar fundo blinda contra expiração
+        sessaoConsumoService.registrarAtividade(sessao, "Débito de " + com.restaurante.util.MoneyFormatter.format(valor) + " — Pedido #" + pedidoId);
+
         // Notifica atualização de saldo via WebSocket
         webSocketNotificacaoService.notificarAtualizacaoSaldo(sessao.getId(), sessao.getQrCodeSessao(), fundo.getSaldoAtual());
 
@@ -441,7 +449,12 @@ public class FundoConsumoService {
 
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
-        
+
+        // Sprint 1: Regista actividade na sessão — estorno de pedido blinda contra expiração
+        sessaoConsumoService.registrarAtividade(
+                fundo.getSessaoConsumo().getId(),
+                "Estorno de " + com.restaurante.util.MoneyFormatter.format(valorEstorno));
+
         // Notifica atualização de saldo via WebSocket
         webSocketNotificacaoService.notificarAtualizacaoSaldo(fundo.getSessaoConsumo().getId(), fundo.getSessaoConsumo().getQrCodeSessao(), fundo.getSaldoAtual());
 
@@ -646,7 +659,12 @@ public class FundoConsumoService {
 
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
-        
+
+        // Sprint 1: Regista actividade na sessão — recarga blinda contra expiração automática
+        sessaoConsumoService.registrarAtividade(
+                fundo.getSessaoConsumo().getId(),
+                "Recarga de " + com.restaurante.util.MoneyFormatter.format(valor));
+
         // Notifica atualização de saldo via WebSocket
         webSocketNotificacaoService.notificarAtualizacaoSaldo(fundo.getSessaoConsumo().getId(), fundo.getSessaoConsumo().getQrCodeSessao(), fundo.getSaldoAtual());
 

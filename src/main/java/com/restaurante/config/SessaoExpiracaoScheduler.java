@@ -1,31 +1,38 @@
 package com.restaurante.config;
 
-import com.restaurante.model.entity.SessaoConsumo;
-import com.restaurante.model.enums.StatusSessaoConsumo;
+import com.restaurante.model.enums.ExpiracaoSessaoResultado;
 import com.restaurante.repository.SessaoConsumoRepository;
+import com.restaurante.service.SessaoConsumoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Scheduler responsável por expirar sessões de consumo abandonadas.
+ * Scheduler responsável por expirar sessões de consumo inactivas.
  *
- * <p>Regra de negócio (prompt-fase1.txt):
- * "Sessões abertas sem operações devem expirar automaticamente conforme
- *  configuração do sistema."
+ * <p><strong>Sprint 1 — Blindagem da Expiração</strong>:
+ * O scheduler passou a:
+ * <ol>
+ *   <li>Usar {@code ultimaAtividadeEm} em vez de {@code abertaEm} como critério temporal.</li>
+ *   <li>Delegar cada decisão de expiração ao {@link SessaoConsumoService#expirarComSeguranca},
+ *       que executa em transacção própria com validações completas.</li>
+ *   <li>Nunca alterar entidades directamente.</li>
+ *   <li>Processar cada sessão de forma isolada: falha numa não impede as restantes.</li>
+ *   <li>Registar métricas de resultado (expiradas, bloqueadas, erros).</li>
+ * </ol>
  *
- * <p>Critério de expiração:
- * Sessão com status ABERTA e {@code abertaEm} anterior ao tempo de corte
- * (padrão: 12 horas, configurável via {@code sessao.expiracao.horas}).
- *
- * <p>Ciclo de vida aplicado:
+ * <p>Configuração:
  * <pre>
- *   ABERTA (sem actividade por N horas) → EXPIRADA
+ *   sessao.expiracao.horas=12
+ *   # Agora interpretado como horas desde ultimaAtividadeEm (inatividade real),
+ *   # não apenas desde abertaEm.
  * </pre>
  */
 @Component
@@ -34,73 +41,73 @@ public class SessaoExpiracaoScheduler {
     private static final Logger log = LoggerFactory.getLogger(SessaoExpiracaoScheduler.class);
 
     /**
-     * Janela máxima de inactividade antes de expirar sessão (em horas).
-     * Valor conservador para ambientes de restaurante/bar.
+     * Horas de inactividade (desde ultimaAtividadeEm) para considerar sessão expirada.
+     * Anteriormente media a idade desde abertaEm; agora mede inactividade real.
      */
-    private static final int HORAS_ATE_EXPIRAR = 12;
+    @Value("${sessao.expiracao.horas:12}")
+    private int horasDeInatividade;
 
     private final SessaoConsumoRepository sessaoConsumoRepository;
+    private final SessaoConsumoService sessaoConsumoService;
 
-    public SessaoExpiracaoScheduler(SessaoConsumoRepository sessaoConsumoRepository) {
+    public SessaoExpiracaoScheduler(SessaoConsumoRepository sessaoConsumoRepository,
+                                     SessaoConsumoService sessaoConsumoService) {
         this.sessaoConsumoRepository = sessaoConsumoRepository;
+        this.sessaoConsumoService = sessaoConsumoService;
     }
 
     /**
-     * Varre sessões abandonadas a cada hora e transita-as para EXPIRADA.
+     * Varre sessões inactivas a cada hora e delega a decisão ao service.
      *
-     * <p>Execução: a cada 60 minutos (cron: topo de cada hora).
-     * Cada sessão é processada de forma isolada — falha num não afecta os restantes.
+     * <p>A validação efectiva (saldo, pedidos, pagamentos) é feita em
+     * {@link SessaoConsumoService#expirarComSeguranca}, garantindo atomicidade e auditoria.
      */
     @Scheduled(cron = "0 0 * * * *")
-    @Transactional
     public void expirarSessoesAbandonadas() {
-        LocalDateTime corte = LocalDateTime.now().minusHours(HORAS_ATE_EXPIRAR);
+        LocalDateTime limiteInatividade = LocalDateTime.now().minusHours(horasDeInatividade);
 
-        List<SessaoConsumo> sessoesAntigas = sessaoConsumoRepository
-                .findByStatusAndAbertaEmBefore(StatusSessaoConsumo.ABERTA, corte);
+        List<Long> candidatasIds = sessaoConsumoRepository
+                .findCandidatasParaExpiracao(limiteInatividade)
+                .stream()
+                .map(s -> s.getId())
+                .toList();
 
-        if (sessoesAntigas.isEmpty()) {
-            log.debug("Nenhuma sessão a expirar (corte: {} horas de inactividade)", HORAS_ATE_EXPIRAR);
+        if (candidatasIds.isEmpty()) {
+            log.debug("Nenhuma sessão candidata à expiração (inactividade > {} h)", horasDeInatividade);
             return;
         }
 
-        log.info("Iniciando expiração de {} sessões abandonadas (abertas há mais de {} horas)",
-                sessoesAntigas.size(), HORAS_ATE_EXPIRAR);
+        log.info("Iniciando ciclo de expiração: {} candidata(s) com inatividade > {} h",
+                candidatasIds.size(), horasDeInatividade);
 
-        int expiradas = 0;
-        int falhas = 0;
+        // Contadores por resultado
+        Map<ExpiracaoSessaoResultado, Integer> contadores = new EnumMap<>(ExpiracaoSessaoResultado.class);
+        for (ExpiracaoSessaoResultado r : ExpiracaoSessaoResultado.values()) {
+            contadores.put(r, 0);
+        }
 
-        for (SessaoConsumo sessao : sessoesAntigas) {
+        for (Long sessaoId : candidatasIds) {
+            ExpiracaoSessaoResultado resultado;
             try {
-                expirarSessao(sessao);
-                expiradas++;
+                resultado = sessaoConsumoService.expirarComSeguranca(sessaoId, limiteInatividade);
             } catch (Exception e) {
-                falhas++;
-                log.error("Erro ao expirar sessão ID={}: {}", sessao.getId(), e.getMessage(), e);
+                resultado = ExpiracaoSessaoResultado.ERRO;
+                log.error("Erro ao processar sessão ID={} no scheduler: {}", sessaoId, e.getMessage(), e);
             }
+            contadores.merge(resultado, 1, Integer::sum);
         }
 
-        log.info("Expiração concluída: {} expiradas, {} falhas", expiradas, falhas);
-    }
-
-    /**
-     * Transita uma sessão individual para EXPIRADA e encerra o seu fundo.
-     */
-    private void expirarSessao(SessaoConsumo sessao) {
-        log.info("Expirando sessão ID={}, aberta em={}, QR={}",
-                sessao.getId(), sessao.getAbertaEm(), sessao.getQrCodeSessao());
-
-        sessao.setStatus(StatusSessaoConsumo.EXPIRADA);
-        sessao.setFechadaEm(LocalDateTime.now());
-
-        // Encerra também o fundo associado, se existir e estiver activo
-        if (sessao.getFundoConsumo() != null && Boolean.TRUE.equals(sessao.getFundoConsumo().getAtivo())) {
-            sessao.getFundoConsumo().encerrar();
-            log.info("  Fundo ID={} encerrado junto com sessão expirada", sessao.getFundoConsumo().getId());
-        }
-
-        sessaoConsumoRepository.save(sessao);
-
-        log.info("  Sessão ID={} expirada com sucesso", sessao.getId());
+        // Relatório final do ciclo
+        log.info("Ciclo de expiração concluído: total={}, expiradas={}, ignoradas_status={}, " +
+                 "bloqueadas_atividade={}, bloqueadas_saldo={}, bloqueadas_pedido={}, " +
+                 "bloqueadas_pagamento={}, erros={}",
+                candidatasIds.size(),
+                contadores.get(ExpiracaoSessaoResultado.EXPIRADA),
+                contadores.get(ExpiracaoSessaoResultado.IGNORADA_STATUS_NAO_ABERTA),
+                contadores.get(ExpiracaoSessaoResultado.BLOQUEADA_ATIVIDADE_RECENTE),
+                contadores.get(ExpiracaoSessaoResultado.BLOQUEADA_SALDO_POSITIVO),
+                contadores.get(ExpiracaoSessaoResultado.BLOQUEADA_PEDIDO_PENDENTE),
+                contadores.get(ExpiracaoSessaoResultado.BLOQUEADA_PAGAMENTO_PENDENTE),
+                contadores.get(ExpiracaoSessaoResultado.ERRO));
     }
 }

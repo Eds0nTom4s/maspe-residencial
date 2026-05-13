@@ -236,6 +236,9 @@ public class PedidoService {
         // ✅ Salvar Pedido com SubPedidos (cascade salva tudo)
         pedidoRepository.save(pedido);
 
+        // Sprint 1: Regista actividade na sessão para blindar contra expiração automática
+        sessaoConsumoService.registrarAtividade(sessaoConsumo, "Pedido #" + pedido.getNumero() + " criado");
+
         log.info("📦 SUBPEDIDOS CRIADOS");
         log.info("  ┣ Total de SubPedidos: {}", requestsPorCozinha.size());
         log.info("  ┗ Total do Pedido: {}", com.restaurante.util.MoneyFormatter.format(pedido.getTotal()));

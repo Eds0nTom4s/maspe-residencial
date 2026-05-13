@@ -13,6 +13,7 @@ public enum TipoEventoSessao {
     FUNDO_DEBITADO("Fundo Debitado"),
     PAGAMENTO_SOLICITADO("Aguardando Pagamento"),
     SESSAO_ENCERRADA("Sessão Encerrada"),
+    SESSAO_EXPIRADA_AUTOMATICAMENTE("Sessão Expirada Automaticamente por Scheduler"),
     OUTRO("Outro Evento");
 
     private final String descricao;

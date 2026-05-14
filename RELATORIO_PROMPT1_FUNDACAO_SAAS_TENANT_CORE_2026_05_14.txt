@@ -1,0 +1,156 @@
+CONSUMA Backend — Prompt 1 (Fundação do Domínio SaaS / Tenant Core)
+Data: 2026-05-14 (Africa/Luanda)
+
+1) RESUMO EXECUTIVO
+- Implementada a fundação SaaS em paralelo ao domínio operacional existente (sem alterar fluxos legados).
+- Criadas entidades: Tenant, Plano, Subscricao, TenantUser, TenantLimiteOverride + enums e repositórios.
+- Criada migration Flyway `V2__create_tenant_core.sql` com seed obrigatório do Plano PILOTO.
+- Criados testes de persistência para validar constraints críticas em PostgreSQL (via Testcontainers, profile `it-postgres`).
+- Compilação e testes executados com sucesso no ambiente atual.
+
+2) ENTIDADES CRIADAS
+src/main/java/com/restaurante/model/entity/Tenant.java
+- Campos: nome, slug (unique), tenantCode (unique), nif, telefone, email, tipo, estado
+
+src/main/java/com/restaurante/model/entity/Plano.java
+- Campos: codigo (unique), nome, descricao, precoMensal, limites e flags (POS/QR/offline etc.), ativo
+
+src/main/java/com/restaurante/model/entity/Subscricao.java
+- Relaciona Tenant → Plano
+- Regra: 1 subscrição ATIVA por tenant (implementada via índice parcial no PostgreSQL)
+
+src/main/java/com/restaurante/model/entity/TenantUser.java
+- Relaciona Tenant ↔ User
+- Campos: role, estado, unidadeAtendimentoDefault (opcional)
+- Regra: unique(tenant_id, user_id, role)
+
+src/main/java/com/restaurante/model/entity/TenantLimiteOverride.java
+- Relaciona Tenant → overrides de limites (nullable para “herdar plano”)
+- Regra: 1 override ativo por tenant (índice parcial no PostgreSQL)
+
+3) ENUMS CRIADOS
+src/main/java/com/restaurante/model/enums/TenantEstado.java
+src/main/java/com/restaurante/model/enums/TenantTipo.java
+src/main/java/com/restaurante/model/enums/SubscricaoEstado.java
+src/main/java/com/restaurante/model/enums/TenantUserRole.java
+src/main/java/com/restaurante/model/enums/TenantUserEstado.java
+
+4) REPOSITORIES CRIADOS
+src/main/java/com/restaurante/repository/TenantRepository.java
+- findBySlug, findByTenantCode, existsBySlug, existsByTenantCode
+
+src/main/java/com/restaurante/repository/PlanoRepository.java
+- findByCodigo, existsByCodigo, findByAtivoTrue
+
+src/main/java/com/restaurante/repository/SubscricaoRepository.java
+- findByTenantIdAndEstado, findByTenantId
+
+src/main/java/com/restaurante/repository/TenantUserRepository.java
+- findByTenantId, findByUserId, findByTenantIdAndUserId, existsByTenantIdAndUserId
+
+src/main/java/com/restaurante/repository/TenantLimiteOverrideRepository.java
+- findByTenantIdAndAtivoTrue
+
+5) MIGRATION V2 CRIADA (FLYWAY)
+src/main/resources/db/migration/V2__create_tenant_core.sql
+- Cria tabelas:
+  - tenants
+  - planos
+  - subscricoes
+  - tenant_users
+  - tenant_limite_overrides
+- Inclui:
+  - PKs/FKs
+  - uniques e índices
+  - índices parciais (PostgreSQL) para:
+    - 1 subscrição ATIVA por tenant
+    - 1 override ativo por tenant
+- Seed do Plano PILOTO via INSERT.
+
+6) SEED DO PLANO PILOTO
+- codigo = PILOTO
+- precoMensal = 0
+- maxInstituicoes = 1
+- maxUnidadesAtendimento = 3
+- maxProdutos = 100
+- maxUsuarios = 5
+- maxQrCodes = 10
+- maxDispositivos = 3
+- permiteMultiInstituicao = false
+- permitePedidosQr = true
+- permitePOS = true
+- permiteOffline = false
+- ativo = true
+
+7) TESTES CRIADOS
+src/test/java/com/restaurante/tenantcore/TenantCorePersistenceIT.java
+- Profile: it-postgres
+- Valida em PostgreSQL real (Testcontainers):
+  - seed do Plano PILOTO existe
+  - unique(slug) e unique(tenant_code) em Tenant
+  - 1 subscrição ATIVA por tenant (índice parcial)
+  - unique(tenant_id, user_id, role) em TenantUser
+  - 1 override ativo por tenant (índice parcial)
+
+Observação:
+- Sem Docker disponível, testes IT são ignorados automaticamente (`disabledWithoutDocker=true`).
+
+8) COMANDOS EXECUTADOS
+- mvn -q -DskipTests compile -> OK
+- mvn test -q -> OK
+
+9) ARQUIVOS CRIADOS/ALTERADOS
+- Entidades/enums/repositories:
+  - src/main/java/com/restaurante/model/entity/Tenant.java
+  - src/main/java/com/restaurante/model/entity/Plano.java
+  - src/main/java/com/restaurante/model/entity/Subscricao.java
+  - src/main/java/com/restaurante/model/entity/TenantUser.java
+  - src/main/java/com/restaurante/model/entity/TenantLimiteOverride.java
+  - src/main/java/com/restaurante/model/enums/TenantEstado.java
+  - src/main/java/com/restaurante/model/enums/TenantTipo.java
+  - src/main/java/com/restaurante/model/enums/SubscricaoEstado.java
+  - src/main/java/com/restaurante/model/enums/TenantUserRole.java
+  - src/main/java/com/restaurante/model/enums/TenantUserEstado.java
+  - src/main/java/com/restaurante/repository/TenantRepository.java
+  - src/main/java/com/restaurante/repository/PlanoRepository.java
+  - src/main/java/com/restaurante/repository/SubscricaoRepository.java
+  - src/main/java/com/restaurante/repository/TenantUserRepository.java
+  - src/main/java/com/restaurante/repository/TenantLimiteOverrideRepository.java
+- Migration:
+  - src/main/resources/db/migration/V2__create_tenant_core.sql
+- Testes/documentação:
+  - src/test/java/com/restaurante/tenantcore/TenantCorePersistenceIT.java
+  - docs/tenant-core/01-fundacao-dominio-saas.md
+
+10) DECISÕES TÉCNICAS TOMADAS
+- IDs em BIGSERIAL/IDENTITY (Long), alinhado com o schema existente (V1 baseline).
+- Enums persistidos como VARCHAR (EnumType.STRING), evitando dependência de enum nativo PostgreSQL nesta fase.
+- Constraints críticas implementadas no banco (uniques + índices parciais), para não depender de validação em service (ainda não implementado).
+
+11) RISCOS RESTANTES
+- Ainda não existe vínculo `Instituicao.tenant_id` (isso fica para o Prompt 2 / Fase 2).
+- Ainda não existe TenantContext/TenantResolver/TenantGuard (Fase 4+).
+- Testes de constraints PostgreSQL exigem Docker disponível no CI para serem efetivamente executados (senão ficam SKIP).
+
+12) CHECKLIST DE ACEITAÇÃO (PROMPT 1)
+[OK] V2__create_tenant_core.sql existe
+[OK] Tenant existe
+[OK] Plano existe
+[OK] Subscricao existe
+[OK] TenantUser existe
+[OK] TenantLimiteOverride existe
+[OK] Enums existem
+[OK] Repositories existem
+[OK] Plano PILOTO criado via migration
+[OK] Testes básicos de persistência criados (Postgres/Testcontainers)
+[OK] Nenhuma entidade operacional antiga foi alterada
+[OK] Instituicao não foi alterada
+[OK] Projeto compila
+[OK] Testes executam (IT pode ser SKIP sem Docker)
+[OK] Documentação criada
+
+13) PRÓXIMO PROMPT RECOMENDADO
+Prompt 2 — Vincular Instituicao ao Tenant (Fase 2):
+- Migration V3 adicionando `tenant_id` em `instituicoes` com compatibilidade (default/fallback controlado)
+- Preparar transição incremental dos services críticos sem quebrar o modo legado
+

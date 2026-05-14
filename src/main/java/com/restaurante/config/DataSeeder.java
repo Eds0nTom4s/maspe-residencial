@@ -38,6 +38,9 @@ public class DataSeeder {
     private final ClienteRepository clienteRepository;
     private final PasswordEncoder passwordEncoder;
     private final InstituicaoRepository instituicaoRepository;
+    private final TenantRepository tenantRepository;
+    private final PlanoRepository planoRepository;
+    private final SubscricaoRepository subscricaoRepository;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Ponto de entrada
@@ -74,7 +77,10 @@ public class DataSeeder {
             return;
         }
 
+        Tenant tenant = seedLegacyTenantIfNeeded();
+
         Instituicao inst = Instituicao.builder()
+            .tenant(tenant)
             .nome("MesaDigital / MASPE")
             .sigla("MASPE")
             .nif("5000000000") // NIF fictício
@@ -85,6 +91,36 @@ public class DataSeeder {
 
         instituicaoRepository.save(inst);
         log.info("  [instituicao]     ✅ 1 criada  (MASPE)");
+    }
+
+    private Tenant seedLegacyTenantIfNeeded() {
+        return tenantRepository.findByTenantCode("LEGACY")
+            .orElseGet(() -> {
+                Tenant t = new Tenant();
+                t.setNome("LEGACY (single-tenant)");
+                t.setSlug("legacy-single-tenant");
+                t.setTenantCode("LEGACY");
+                t.setTipo(TenantTipo.INSTITUCIONAL);
+                t.setEstado(TenantEstado.ATIVO);
+                Tenant saved = tenantRepository.save(t);
+
+                Plano piloto = planoRepository.findByCodigo("PILOTO")
+                    .orElseThrow(() -> new IllegalStateException("Plano PILOTO não encontrado (Flyway V2)"));
+
+                // Evita violar índice parcial (1 ATIVA por tenant)
+                subscricaoRepository.findByTenantIdAndEstado(saved.getId(), SubscricaoEstado.ATIVA)
+                    .orElseGet(() -> {
+                        Subscricao s = new Subscricao();
+                        s.setTenant(saved);
+                        s.setPlano(piloto);
+                        s.setEstado(SubscricaoEstado.ATIVA);
+                        s.setInicioEm(java.time.LocalDate.now());
+                        s.setRenovacaoAutomatica(false);
+                        return subscricaoRepository.save(s);
+                    });
+
+                return saved;
+            });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -397,4 +433,3 @@ public class DataSeeder {
             .build();
     }
 }
-

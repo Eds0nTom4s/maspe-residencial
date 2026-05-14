@@ -46,6 +46,9 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
     @Autowired
     private TenantLimiteOverrideRepository tenantLimiteOverrideRepository;
 
+    @Autowired
+    private InstituicaoRepository instituicaoRepository;
+
     @Test
     void planoPilotoMustExistFromMigrationSeed() {
         assertTrue(planoRepository.findByCodigo("PILOTO").isPresent());
@@ -150,5 +153,48 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         tCodeDup.setEstado(TenantEstado.ATIVO);
         assertThrows(DataIntegrityViolationException.class, () -> tenantRepository.saveAndFlush(tCodeDup));
     }
-}
 
+    @Test
+    @Transactional
+    void tenantCanOwnMultipleInstituicoesAndInstituicaoRequiresTenant() {
+        Tenant tenant = new Tenant();
+        tenant.setNome("Tenant Test 1N");
+        tenant.setSlug("tenant-test-1n");
+        tenant.setTenantCode("T1N");
+        tenant.setTipo(TenantTipo.RESTAURANTE);
+        tenant.setEstado(TenantEstado.ATIVO);
+        tenant = tenantRepository.saveAndFlush(tenant);
+
+        Instituicao i1 = Instituicao.builder()
+                .tenant(tenant)
+                .nome("Instituição A")
+                .sigla("T1NA")
+                .nif("T1N-A-001")
+                .telefoneAutorizacao("+244900000010")
+                .ativa(true)
+                .build();
+        instituicaoRepository.saveAndFlush(i1);
+
+        Instituicao i2 = Instituicao.builder()
+                .tenant(tenant)
+                .nome("Instituição B")
+                .sigla("T1NB")
+                .nif("T1N-B-001")
+                .telefoneAutorizacao("+244900000011")
+                .ativa(true)
+                .build();
+        instituicaoRepository.saveAndFlush(i2);
+
+        assertEquals(2, instituicaoRepository.findByTenantId(tenant.getId()).size());
+        assertTrue(instituicaoRepository.findFirstByTenantIdAndAtivaTrue(tenant.getId()).isPresent());
+
+        Instituicao semTenant = Instituicao.builder()
+                .nome("Sem Tenant")
+                .sigla("NOTEN")
+                .nif("NO-TENANT-001")
+                .telefoneAutorizacao("+244900000012")
+                .ativa(true)
+                .build();
+        assertThrows(DataIntegrityViolationException.class, () -> instituicaoRepository.saveAndFlush(semTenant));
+    }
+}

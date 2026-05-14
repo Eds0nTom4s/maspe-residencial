@@ -45,6 +45,9 @@ class PosPagoServiceTest {
     @Mock
     private EventLogService eventLogService;
 
+    @Mock
+    private AuditoriaFinanceiraService auditoriaFinanceiraService;
+
     @InjectMocks
     private PedidoFinanceiroService pedidoFinanceiroService;
 

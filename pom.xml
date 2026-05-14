@@ -23,6 +23,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <lombok.version>1.18.30</lombok.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
+        <flyway.version>10.22.0</flyway.version>
     </properties>
 
     <dependencies>
@@ -53,6 +54,18 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- Flyway (schema migrations) -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
         </dependency>
 
 
@@ -159,6 +172,18 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Testcontainers (PostgreSQL integration tests) -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Spring Retry for Optimistic Locking -->
         <dependency>
             <groupId>org.springframework.retry</groupId>
@@ -196,6 +221,24 @@
                             <version>0.2.0</version>
                         </path>
                     </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      Mantém `mvn test` previsível e rápido.
+                      Testes E2E/concorrência devem ser executados em profile separado (ex.: `-Pe2e`),
+                      pois dependem de ambiente/infra e tendem a ser flakey por natureza.
+                    -->
+                    <excludes>
+                        <exclude>**/e2e/**</exclude>
+                        <exclude>**/*E2E*Test.java</exclude>
+                    </excludes>
+                    <properties>
+                        <excludeTags>manual</excludeTags>
+                    </properties>
                 </configuration>
             </plugin>
             <plugin>

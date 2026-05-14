@@ -31,7 +31,7 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       DB_USERNAME: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
       SPRING_SQL_INIT_MODE: never
       APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL obrigatório}
       CLIENT_APP_URL: ${CLIENT_APP_URL:-http://localhost:3000}

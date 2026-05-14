@@ -1,0 +1,728 @@
+CONSUMA — PROMPT 0 (Preparação Técnica Tenant Core)
+Data: 2026-05-14
+Objetivo: mapear estado atual, classes impactadas, riscos, dependências single-tenant e ordem segura de refatoração (sem implementar).
+Regra cumprida: nenhuma entidade, migration, service, controller ou repository foi alterado neste prompt.
+
+================================================================================
+1) RESUMO EXECUTIVO
+================================================================================
+Diagnóstico atual confirmado no código: NÃO PRONTO / BLOQUEADOR PARA PILOTO multi-tenant em base de dados compartilhada.
+
+Razões técnicas (confirmadas):
+1) Dependência de “Instituição ativa” global (findFirstByAtivaTrue / getInstituicaoAtiva / buscarInstituicaoAtiva) em fluxos críticos (auth cliente, sessão, mesa, unidade, QR). Severidade: CRÍTICA.
+2) Catálogo (Produto + CategoriaProduto enum) é global e não possui tenant/instituicao; Produto.codigo é UNIQUE global. Severidade: CRÍTICA.
+3) Repositories/queries (incluindo agregações de dashboard/relatórios) não têm qualquer escopo de tenant. Severidade: CRÍTICA.
+4) Segurança JWT autentica usuário, mas não resolve tenant; não existe TenantContext/TenantResolver/TenantGuard; roles são globais. Severidade: CRÍTICA.
+5) QR de mesa é previsível/enumerável e tem fallback para “instituição ativa”. Severidade: CRÍTICA.
+
+Decisão arquitetural alvo (definida): Tenant 1:N Instituicao.
+Este relatório prepara o impacto para executar a Fase 1 com refatoração incremental e compatibilidade com o estado atual.
+
+================================================================================
+2) ESTADO ATUAL DO BACKEND (baseline observado)
+================================================================================
+2.1 Persistência / migrations
+- Não há `src/main/resources/db/migration/` (Flyway/Liquibase não está em uso).
+- Em DEV: `spring.jpa.hibernate.ddl-auto=create-drop` (src/main/resources/application.properties:19).
+- Em PROD: `spring.jpa.hibernate.ddl-auto=validate` (src/main/resources/application-prod.properties:5).
+Impacto: a evolução para multi-tenant exigirá introduzir migrations explícitas (Flyway recomendado) antes de tocar em constraints/índices multi-tenant.
+
+2.2 Segurança
+- Autenticação: JWT HS256 (JwtTokenProvider) + filtro OncePerRequestFilter (JwtAuthenticationFilter).
+- JWT claims: `roles` e, opcionalmente, `instituicao` (nome), mas NÃO há tenantId/tenantCode.
+  Evidências: JwtTokenProvider (src/main/java/com/restaurante/security/JwtTokenProvider.java) e AuthController valida OTP emitindo claim “instituicao” via Instituicao ativa (src/main/java/com/restaurante/controller/AuthController.java:~50–60).
+- Não existe modelo de PLATFORM_ADMIN vs TENANT_*.
+
+2.3 Testes
+- Não há testes automatizados em `src/test/java/` (apenas `src/test/resources/application.properties`).
+Impacto: a refatoração multi-tenant precisa começar adicionando testes de isolamento antes de mudanças amplas de schema/queries.
+
+================================================================================
+3) INVENTÁRIO DE ENTIDADES JPA (com classificação e risco multi-tenant)
+================================================================================
+Legenda de classificação (pode acumular):
+PLATFORM_GLOBAL, TENANT_OWNED, TENANT_SCOPED_VIA_PARENT, SHARED_TEMPLATE,
+LEGACY_SINGLE_TENANT, HIGH_RISK_SECURITY, HIGH_RISK_FINANCIAL, HIGH_RISK_OPERATIONAL.
+
+Observação: atualmente NÃO existe `tenant_id` em nenhuma entidade.
+O isolamento ocorre (parcialmente) por `instituicao_id` em algumas tabelas — mas SEM enforcement em queries/guards.
+
+3.1 Lista completa (entidades em `src/main/java/com/restaurante/model/entity/`)
+
+1) Instituicao
+- Tabela: `instituicoes` (src/main/java/com/restaurante/model/entity/Instituicao.java:19)
+- Responsabilidade: “instituição/estabelecimento” + branding (sigla/logo) + OTP de autorização.
+- tenant_id: NÃO
+- instituicao_id: N/A
+- unidade_atendimento_id: N/A
+- Pertencimento: hoje é “tenant implícito” (LEGACY_SINGLE_TENANT).
+- Classificação: LEGACY_SINGLE_TENANT, HIGH_RISK_SECURITY
+- Risco: resolução global via `findFirstByAtivaTrue` cria colapso para multi-tenant (tenant resolution failure).
+- Alteração futura: criar `Tenant` e vincular `Instituicao.tenant_id` (Tenant 1:N Instituicao).
+
+2) UnidadeAtendimento
+- Tabela: `unidades_atendimento` (src/main/java/com/restaurante/model/entity/UnidadeAtendimento.java:25)
+- Responsabilidade: área operacional de atendimento (ponto de entrada de pedidos); agrega mesas e cozinhas.
+- tenant_id: NÃO
+- instituicao_id: SIM (FK)
+- unidade_atendimento_id: N/A
+- Pertencimento: indireto ao tenant via Instituicao (incompleto sem guard).
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_OPERATIONAL, HIGH_RISK_SECURITY
+- Risco: listagens globais e roteamentos podem cruzar tenants.
+- Alteração futura: adicionar `tenant_id` e manter `instituicao_id` (defense in depth e performance).
+
+3) Mesa
+- Tabela: `mesas` (src/main/java/com/restaurante/model/entity/Mesa.java:28)
+- Responsabilidade: recurso físico permanente; QR fixo; status derivado via SessaoConsumo.
+- tenant_id: NÃO
+- instituicao_id: SIM (nullable hoje)
+- unidade_atendimento_id: SIM (obrigatório)
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_SECURITY, HIGH_RISK_OPERATIONAL
+- Risco: lookup público por QR/código sem tenant → cross-tenant.
+- Alteração futura: adicionar `tenant_id`; tornar `qr_code` UNIQUE por tenant; remover dependência de “instituição ativa”.
+
+4) SessaoConsumo
+- Tabela: `sessoes_consumo` (src/main/java/com/restaurante/model/entity/SessaoConsumo.java:38)
+- Responsabilidade: núcleo operacional; evento de consumo; agrega pedidos e fundo; base de auditoria.
+- tenant_id: NÃO
+- instituicao_id: SIM
+- unidade_atendimento_id: SIM (nullable)
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_FINANCIAL, HIGH_RISK_SECURITY
+- Risco: abertura/consulta/relatórios sem tenant → vazamento e efeitos cruzados.
+- Alteração futura: adicionar `tenant_id` e obrigar resolução por request (JWT/QR/device).
+
+5) Pedido
+- Tabela: `pedidos` (src/main/java/com/restaurante/model/entity/Pedido.java:20)
+- Responsabilidade: agregador de consumo; status operacional + status financeiro.
+- tenant_id: NÃO
+- instituicao_id: NÃO (somente indireto via SessaoConsumo)
+- unidade_atendimento_id: NÃO (indireto via SessaoConsumo→Mesa/UA)
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_FINANCIAL, HIGH_RISK_SECURITY
+- Risco: queries por status/dia/período são globais.
+- Alteração futura: adicionar `tenant_id` e tornar `numero` UNIQUE por tenant.
+
+6) SubPedido
+- Tabela: `sub_pedidos` (src/main/java/com/restaurante/model/entity/SubPedido.java:29)
+- Responsabilidade: unidade operacional de execução (cozinha/produção).
+- tenant_id: NÃO
+- instituicao_id: NÃO (indireto)
+- unidade_atendimento_id: SIM
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_OPERATIONAL, HIGH_RISK_SECURITY
+- Risco: queries por cozinha/unidade/status sem tenant.
+- Alteração futura: adicionar `tenant_id`; tornar `numero` UNIQUE por tenant.
+
+7) ItemPedido
+- Tabela: `itens_pedido` (src/main/java/com/restaurante/model/entity/ItemPedido.java:16)
+- Responsabilidade: item do subpedido; preço/subtotal.
+- tenant_id: NÃO
+- instituicao_id: NÃO
+- unidade_atendimento_id: NÃO
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_FINANCIAL
+- Risco: analytics/top produtos e consultas podem cruzar tenants por Produto global.
+- Alteração futura: adicionar `tenant_id` e garantir que Produto seja tenant-owned.
+
+8) Produto
+- Tabela: `produtos` (src/main/java/com/restaurante/model/entity/Produto.java:17)
+- Responsabilidade: item do catálogo/cardápio.
+- tenant_id: NÃO
+- instituicao_id: NÃO
+- unidade_atendimento_id: NÃO
+- Classificação: LEGACY_SINGLE_TENANT, HIGH_RISK_SECURITY, HIGH_RISK_OPERATIONAL
+- Risco: catálogo global; `codigo` UNIQUE global → colisão e vazamento.
+- Alteração futura: introduzir CategoriaProduto como entidade e `Produto.tenant_id` + UNIQUE por tenant.
+
+9) CategoriaProduto
+- Estado atual: ENUM (com.restaurante.model.enums.CategoriaProduto), não entidade.
+- Classificação: LEGACY_SINGLE_TENANT (limita multi-tenant real)
+- Alteração futura: criar entidade `CategoriaProduto` TENANT_OWNED.
+
+10) Pagamento
+- Tabela: `pagamentos_gateway` (src/main/java/com/restaurante/model/entity/Pagamento.java:31)
+- Responsabilidade: transação financeira (recarga fundo/pedido), integração AppyPay, status gateway.
+- tenant_id: NÃO
+- instituicao_id: NÃO
+- Classificação: HIGH_RISK_FINANCIAL, HIGH_RISK_SECURITY
+- Risco: callback resolve pagamento por externalReference global; ausência de tenant_id reduz “defense in depth”.
+- Alteração futura: adicionar `tenant_id` + correlationId + callback raw log (ver seção 9).
+
+11) FundoConsumo
+- Tabela: `fundos_consumo` (src/main/java/com/restaurante/model/entity/FundoConsumo.java:27)
+- Responsabilidade: saldo pré-pago por sessão.
+- tenant_id: NÃO
+- instituicao_id: NÃO (indireto)
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_FINANCIAL
+- Alteração futura: adicionar `tenant_id`.
+
+12) TransacaoFundo
+- Tabela: `transacoes_fundo` (src/main/java/com/restaurante/model/entity/TransacaoFundo.java:33)
+- Responsabilidade: ledger append-only; auditoria financeira.
+- tenant_id: NÃO
+- instituicao_id: NÃO (indireto)
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_FINANCIAL
+- Alteração futura: adicionar `tenant_id` para reconciliação/relatórios por tenant.
+
+13) QrCodeToken
+- Tabela: `qr_code_tokens` (src/main/java/com/restaurante/model/entity/QrCodeToken.java:14)
+- Responsabilidade: token QR com expiração/uso; vincula mesa/pedido; tem instituicao.
+- tenant_id: NÃO
+- instituicao_id: SIM
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_SECURITY
+- Risco: token de mesa previsível e enumerável; fallback de instituição ativa.
+- Alteração futura: introduzir `QrCodeOperacional` (token aleatório revogável) e manter QrCodeToken para efêmeros.
+
+14) Cliente
+- Tabela: `clientes` (src/main/java/com/restaurante/model/entity/Cliente.java:20)
+- Responsabilidade: consumidor final (telefone/OTP) para QR/app.
+- tenant_id: NÃO
+- instituicao_id: NÃO
+- Classificação atual: indefinida; hoje é GLOBAL por desenho.
+- Risco: telefone UNIQUE global implica “cliente global” sem modelagem de consentimento/escopo.
+- Alteração futura (piloto): preferir TENANT_OWNED (telefone UNIQUE por tenant) OU introduzir Cliente global + associação ClienteTenant.
+
+15) User
+- Tabela: `users` (src/main/java/com/restaurante/model/entity/User.java:21)
+- Responsabilidade: autenticação/autorização (Spring Security UserDetails) do painel.
+- tenant_id: NÃO
+- instituicao_id: NÃO (só unidade_atendimento_id)
+- unidade_atendimento_id: SIM
+- Classificação: LEGACY_SINGLE_TENANT, HIGH_RISK_SECURITY
+- Alteração futura: introduzir TenantUser (membership por tenant) + separar PLATFORM_ADMIN.
+
+16) Atendente
+- Tabela: `atendentes` (src/main/java/com/restaurante/model/entity/Atendente.java:19)
+- Responsabilidade: operador legado (senha própria) e abre sessões.
+- Classificação: LEGACY_SINGLE_TENANT, HIGH_RISK_SECURITY
+- Alteração futura: convergir para User/TenantUser (reduzir duplicação).
+
+17) Cozinha
+- Tabela: `cozinhas` (src/main/java/com/restaurante/model/entity/Cozinha.java:24)
+- Responsabilidade: “unidade de produção” (na prática) mas sem modelagem formal; ManyToMany com UnidadeAtendimento.
+- tenant_id: NÃO
+- instituicao_id: NÃO
+- Classificação: TENANT_SCOPED_VIA_PARENT (via unidades), HIGH_RISK_OPERATIONAL
+- Risco: sem tenant, uma cozinha pode ser associada indevidamente entre tenants.
+- Alteração futura: introduzir `UnidadeProducao` TENANT_OWNED (ou instituicao-owned) e refatorar Cozinha como tipo de produção.
+
+18) ConfiguracaoFinanceiraSistema
+- Tabela: `configuracao_financeira_sistema` (src/main/java/com/restaurante/model/entity/ConfiguracaoFinanceiraSistema.java:15)
+- Responsabilidade: políticas financeiras (posPagoAtivo, limite, valor mínimo).
+- Classificação: PLATFORM_GLOBAL (hoje), mas isso conflita com SaaS multi-tenant.
+- Risco: política global aplicada a todos os tenants.
+- Alteração futura: TenantConfigFinanceiro + limites por plano/tenant.
+
+19) EventoSessao
+- Tabela: `eventos_sessao` (src/main/java/com/restaurante/model/entity/EventoSessao.java:15)
+- Responsabilidade: auditoria append-only por sessão.
+- Classificação: TENANT_SCOPED_VIA_PARENT
+- Alteração futura: adicionar tenant_id (opcional, mas recomendado).
+
+20) PedidoEventLog
+- Tabela: `pedido_event_log` (src/main/java/com/restaurante/model/entity/PedidoEventLog.java:17)
+- Responsabilidade: auditoria de transições do Pedido.
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_SECURITY (exposição)
+- Alteração futura: adicionar tenant_id e filtrar consultas.
+
+21) SubPedidoEventLog
+- Tabela: `subpedido_event_log` (src/main/java/com/restaurante/model/entity/SubPedidoEventLog.java:17)
+- Responsabilidade: auditoria de transições do SubPedido.
+- Classificação: TENANT_SCOPED_VIA_PARENT
+- Alteração futura: tenant_id (opcional, recomendado).
+
+22) PagamentoEventLog
+- Tabela: `pagamento_event_log` (src/main/java/com/restaurante/model/entity/PagamentoEventLog.java:26)
+- Responsabilidade: auditoria financeira.
+- Classificação: TENANT_SCOPED_VIA_PARENT, HIGH_RISK_FINANCIAL
+- Alteração futura: tenant_id.
+
+23) ConfiguracaoFinanceiraEventLog
+- Tabela: `configuracao_financeira_event_log` (src/main/java/com/restaurante/model/entity/ConfiguracaoFinanceiraEventLog.java:26)
+- Responsabilidade: auditoria de mudanças financeiras.
+- Classificação: PLATFORM_GLOBAL (hoje) / futuro: TENANT_OWNED (se config por tenant).
+
+24) UnidadeDeConsumo
+- Tabela: `unidades_consumo` (src/main/java/com/restaurante/model/entity/UnidadeDeConsumo.java:19)
+- Responsabilidade: entidade “legada” de consumo (status persistido) — coexistente com Mesa+SessaoConsumo.
+- Classificação: LEGACY_SINGLE_TENANT, HIGH_RISK_OPERATIONAL
+- Risco: duplicação conceitual com Mesa/Sessao; sem tenant.
+- Alteração futura: decidir deprecação/migração para Mesa+Sessao como fonte única.
+
+================================================================================
+4) DEPENDÊNCIAS DE “INSTITUIÇÃO ATIVA” (single-tenant hard-coded)
+================================================================================
+Padrões buscados: getInstituicaoAtiva(), findFirstByAtivaTrue(), buscarInstituicaoAtiva(), fallbacks para instituição.
+Ocorrências confirmadas (arquivo:linha do `rg -n`):
+
+4.1 InstituicaoRepository (ponto raiz)
+- Arquivo: src/main/java/com/restaurante/repository/InstituicaoRepository.java:15
+- Método: findFirstByAtivaTrue()
+- Fluxo afetado: todos os serviços que resolvem “instituição ativa”.
+- Criticidade: CRÍTICA
+- Impacto multi-tenant: “tenant resolution failure” sistêmica.
+- Refatoração futura: remover como mecanismo de resolução; manter apenas em migração/compat (ex: bootstrap single-tenant) ou eliminar.
+
+4.2 InstituicaoService (API de “instituição ativa”)
+- Arquivo: src/main/java/com/restaurante/service/InstituicaoService.java:30–31
+- Método: getInstituicaoAtiva()
+- Fluxo afetado: auth cliente (OTP), endpoints públicos, config/branding.
+- Criticidade: CRÍTICA
+- Refatoração futura: substituir por TenantContext + Instituicao selecionada por tenant (ou por subdomínio/admin selection).
+
+4.3 SessaoConsumoService (core operacional)
+- Arquivo: src/main/java/com/restaurante/service/SessaoConsumoService.java:138
+  - Dentro de abrir(): `Instituicao instituicao = buscarInstituicaoAtiva();`
+- Arquivo: src/main/java/com/restaurante/service/SessaoConsumoService.java:955–956
+  - Método: buscarInstituicaoAtiva() → findFirstByAtivaTrue()
+- Arquivo: src/main/java/com/restaurante/service/SessaoConsumoService.java:940
+  - Uso de sigla via instituicao ativa (provável geração/numeração/QR).
+- Fluxo afetado: abertura de sessão (inclui público/anon), geração de QR/sigla, lógica de fallback.
+- Criticidade: CRÍTICA
+- Impacto multi-tenant: sessão pode nascer no tenant errado; risco de vazamento + efeitos financeiros (fundo/pedido).
+
+4.4 MesaService
+- Arquivo: src/main/java/com/restaurante/service/MesaService.java:81
+  - Fallback de instituição ativa quando UA não tem instituição.
+- Arquivo: src/main/java/com/restaurante/service/MesaService.java:274–275
+  - Método buscarInstituicaoAtiva() → findFirstByAtivaTrue()
+- Fluxo afetado: criação/admin de mesas e lookup público por código.
+- Criticidade: CRÍTICA
+- Impacto: mesa/QR pode ser associado à instituição errada.
+
+4.5 UnidadeAtendimentoService
+- Arquivo: src/main/java/com/restaurante/service/UnidadeAtendimentoService.java:57
+  - criação de unidade usa buscarInstituicaoAtiva()
+- Arquivo: src/main/java/com/restaurante/service/UnidadeAtendimentoService.java:203–204
+  - método buscarInstituicaoAtiva() → findFirstByAtivaTrue()
+- Criticidade: ALTA (torna UA dependente do single-tenant).
+
+4.6 QrCodeService (QR crítico)
+- Arquivo: src/main/java/com/restaurante/service/QrCodeService.java:434
+  - resolverInstituicao() cai para findFirstByAtivaTrue()
+- Criticidade: CRÍTICA
+- Impacto: QR “normalizarTokenMesa” e geração de token dependem de tenant errado.
+
+4.7 Controllers que expõem “instituição ativa”
+- AuthController:
+  - Arquivo: src/main/java/com/restaurante/controller/AuthController.java:~52–55
+  - Uso: emitir JWT com claim “instituicao” baseado em getInstituicaoAtiva()
+  - Criticidade: CRÍTICA (JWT do cliente fica acoplado a “instituição ativa global”).
+- PublicInstituicaoController:
+  - Arquivo: src/main/java/com/restaurante/controller/PublicInstituicaoController.java:26
+  - Criticidade: ALTA (endpoint público sem tenant).
+- InstituicaoController:
+  - Arquivo: src/main/java/com/restaurante/controller/InstituicaoController.java:21 (GET /instituicoes/ativa)
+  - Criticidade: ALTA (exposição e dependência single-tenant).
+
+================================================================================
+5) REPOSITORIES PERIGOSOS (multi-tenant) — métodos globais e queries sem tenant
+================================================================================
+Critério: qualquer método que lista/busca/agrega sem tenant/instituicao é perigoso quando exposto a TENANT_ADMIN/TENANT_USER.
+Como NÃO existe tenant_id hoje, o risco é estrutural.
+
+5.1 ProdutoRepository (Produto global)
+- Arquivo: src/main/java/com/restaurante/repository/ProdutoRepository.java
+- Métodos perigosos:
+  - findByCodigo (global)
+  - existsByCodigo (global)
+  - findByAtivoTrue / findByDisponivelTrueAndAtivoTrue / findByCategoria... (globais)
+- Risco de vazamento: CRÍTICO (catálogo compartilhado)
+- Futuro seguro (exemplos):
+  - findByCodigoAndTenantId(...)
+  - existsByCodigoAndTenantId(...)
+  - findByTenantIdAndDisponivelTrueAndAtivoTrue(...)
+
+5.2 PedidoRepository (agregações globais)
+- Arquivo: src/main/java/com/restaurante/repository/PedidoRepository.java
+- Métodos perigosos:
+  - findByNumero (numero UNIQUE global → lookup cross-tenant)
+  - findByStatus / findByStatusIn (globais)
+  - findPedidosDeHojePorStatus / findPedidosDeHoje / countPedidosHoje / calcularReceitaHoje / calcularReceitaPorPeriodo (todos globais)
+  - findComFiltros (sem tenant; usado por admin)
+- Risco: CRÍTICO (data leakage + relatórios financeiros cross-tenant)
+- Futuro seguro:
+  - findByNumeroAndTenantId(...)
+  - calcularReceitaHoje(tenantId) / por tenant
+  - findComFiltros(tenantId,...)
+
+5.3 SessaoConsumoRepository
+- Arquivo: src/main/java/com/restaurante/repository/SessaoConsumoRepository.java
+- Métodos perigosos:
+  - findByQrCodeSessao (token global, sem tenant)
+  - findByStatus (global)
+  - countByStatus (global; dashboard/relatórios)
+  - findCandidatasParaExpiracao (global; scheduler poderia expirar sessões de outros tenants)
+- Risco: CRÍTICO
+- Futuro seguro:
+  - findByQrCodeSessaoAndTenantId(...)
+  - findByStatusAndTenantId(...)
+
+5.4 MesaRepository
+- Arquivo: src/main/java/com/restaurante/repository/MesaRepository.java
+- Métodos perigosos:
+  - findByQrCode (global)
+  - findDisponiveis/findOcupadas/isOcupada (globais)
+  - findByUnidadeAtendimentoId (sem tenant; deve exigir tenant)
+- Risco: CRÍTICO (lookup público por código)
+- Futuro: (tenant_id, qr_code UNIQUE), findByQrCodeAndTenantId(...)
+
+5.5 QrCodeTokenRepository
+- Arquivo: src/main/java/com/restaurante/repository/QrCodeTokenRepository.java
+- Métodos perigosos:
+  - findByToken (global)
+  - findByTipoAndStatus (global)
+  - findExpirados (global)
+  - findByUnidadeAtendimentoId (sem tenant)
+- Risco: CRÍTICO (PUBLIC_QR + enumeração)
+- Futuro: findByTokenAndTenantId(...) + separar QrCodeOperacional.
+
+5.6 PagamentoGatewayRepository
+- Arquivo: src/main/java/com/restaurante/financeiro/repository/PagamentoGatewayRepository.java
+- Métodos perigosos:
+  - findByExternalReference (global; callback usa isso)
+  - existsByExternalReference (global)
+  - findByGatewayChargeId (global)
+  - findByStatusOrderByCreatedAtAsc (global)
+- Risco: CRÍTICO (financial cross effect + callback)
+- Futuro: findByExternalReferenceAndTenantId(...) + índices por tenant.
+
+5.7 ItemPedidoRepository (analytics global)
+- Arquivo: src/main/java/com/restaurante/repository/ItemPedidoRepository.java
+- Métodos perigosos:
+  - findTopProdutosPorQuantidade / findTopProdutosPorPeriodo (agregação global)
+  - findByProdutoId (global)
+- Risco: ALTA/CRÍTICA (dashboard/relatório cross-tenant)
+- Futuro: queries tenant-scoped.
+
+5.8 SubPedidoRepository (operações globais por cozinha/unidade/status)
+- Arquivo: src/main/java/com/restaurante/repository/SubPedidoRepository.java
+- Métodos perigosos: praticamente todos (status/cozinha/unidade) sem tenant.
+- Risco: CRÍTICO (operational misrouting + vazamento)
+- Futuro: incluir tenantId em todas as queries.
+
+5.9 UnidadeAtendimentoRepository / CozinhaRepository / UnidadeDeConsumoRepository
+- Arquivos: src/main/java/com/restaurante/repository/UnidadeAtendimentoRepository.java, CozinhaRepository.java, UnidadeDeConsumoRepository.java
+- Métodos perigosos:
+  - listagens globais e queries por unidadeId sem tenant.
+- Risco: ALTA
+
+5.10 Repositórios de auditoria (PedidoEventLogRepository, SubPedidoEventLogRepository, PagamentoEventLogRepository, EventoSessaoRepository)
+- Risco: MÉDIA → ALTA (dependendo de exposição por endpoints)
+- Futuro: filtrar por tenant/escopo; exposição somente platform/tenant finance/admin.
+
+================================================================================
+6) SERVICES AFETADOS (responsabilidade, riscos e ordem de refatoração)
+================================================================================
+6.1 CRÍTICOS (CORE/FINANCEIRO/QR) — prioridade máxima de refatoração
+
+SessaoConsumoService (src/main/java/com/restaurante/service/SessaoConsumoService.java)
+- Responsabilidade: abrir/fechar sessão, criar fundo, expiração segura, endpoints cliente/anon.
+- Depende de instituição ativa: SIM (buscarInstituicaoAtiva em abrir()).
+- Usa repositories globais: SIM (findByStatus, findAll, countByStatus etc.).
+- Precisa TenantContext: SIM (Fase 4).
+- Precisa TenantGuard: SIM (Fase 4/8/9).
+- Risco: DATA_LEAKAGE + TENANT_RESOLUTION_FAILURE + efeitos financeiros. Severidade: CRÍTICA.
+
+QrCodeService (src/main/java/com/restaurante/service/QrCodeService.java)
+- Responsabilidade: gerar/validar/usar/renovar/cancelar QR tokens.
+- Depende de instituição ativa: SIM (resolverInstituicao fallback; normalizarTokenMesa).
+- Token previsível/enumerável: SIM (`SIGLA-MESA-%04d` com mesaId).
+- Risco: QR_ENUMERATION + TENANT_RESOLUTION_FAILURE. Severidade: CRÍTICA.
+
+PagamentoGatewayService (src/main/java/com/restaurante/financeiro/service/PagamentoGatewayService.java)
+- Responsabilidade: criar pagamentos, integrar AppyPay, confirmar recarga, registrar auditoria.
+- Depende de tenant: NÃO (inexistente) → risco estrutural.
+- externalReference: global, curta (<=15) e gerada sem tenant.
+  Evidência: gerarExternalReference() em PagamentoGatewayService:491.
+- Risco: FINANCIAL_CROSS_EFFECT + GLOBAL_QUERY + reconciliação frágil. Severidade: CRÍTICA.
+
+PagamentoCallbackService (src/main/java/com/restaurante/financeiro/service/PagamentoCallbackService.java)
+- Responsabilidade: validar HMAC, localizar pagamento por merchantTransactionId, processar confirmação.
+- Idempotência: SIM (não confirma novamente se já confirmado).
+- Resolve tenant: NÃO (busca pagamento global por externalReference).
+- Armazena payload bruto: NÃO (apenas event log resumido).
+- Risco: FINANCIAL_CROSS_EFFECT + TENANT_RESOLUTION_FAILURE. Severidade: ALTA→CRÍTICA.
+
+ProdutoService (src/main/java/com/restaurante/service/ProdutoService.java)
+- Responsabilidade: CRUD de catálogo.
+- Usa repositories globais: SIM (existsByCodigo global; listagens globais).
+- Risco: DATA_LEAKAGE (catálogo). Severidade: CRÍTICA.
+
+PedidoService / PedidoFinanceiroService / FundoConsumoService (src/main/java/com/restaurante/service/*)
+- PedidoService: cria pedidos, separa subpedidos, notifica, consulta.
+- PedidoFinanceiroService: debita/estorna, confirma POS_PAGO.
+- FundoConsumoService: ledger, crédito/débito serializable, lock otimista, tokens.
+- Dependência de tenant: inexistente; baseia-se em sessão/fundo/pedido global.
+- Risco: DATA_LEAKAGE + FINANCIAL_CROSS_EFFECT. Severidade: CRÍTICA.
+
+6.2 ALTA prioridade (admin/reporting/security)
+
+InstituicaoService / UnidadeAtendimentoService / MesaService
+- Dependem de instituição ativa e/ou executam operações que criam vínculos de escopo.
+- Severidade: ALTA/CRÍTICA.
+
+DashboardService (src/main/java/com/restaurante/service/DashboardService.java)
+- Agrega contagens e receitas globais (PedidoRepository/SessaoConsumoRepository/TransacaoFundoRepository).
+- Severidade: CRÍTICA para SaaS (dashboard tenant-admin não pode ver global).
+
+UserService / AuthService
+- JWT não carrega tenant; User não tem membership; AuthController coloca claim “instituicao” de instituição ativa global.
+- Severidade: CRÍTICA (security role leakage + tenant resolution failure).
+
+================================================================================
+7) CONTROLLERS / ENDPOINTS (classificação, autenticação e risco)
+================================================================================
+Observação: `server.servlet.context-path=/api` (src/main/resources/application.properties:5).
+Logo, paths efetivos são `/api/<RequestMapping>`.
+
+7.1 Lista de controllers e base path (src/main/java)
+
+PUBLIC_QR / PUBLIC (sem autenticação JWT):
+- PublicCardapioController: `/api/public/cardapio` (catálogo público global hoje). Risco: CRÍTICO (deveria ser por tenant/QR).
+- PublicMesaController: `/api/public/mesa/{codigo}` (lookup de mesa por QR/código). Risco: CRÍTICO (deveria resolver tenant por token).
+- PublicConsumoAnonimoController: `/api/public/consumo-anonimo/**` (inicia sessão anónima por tokenMesa, recarrega fundo, cria pedidos). Risco: CRÍTICO (principal superfície de cross-tenant).
+- PublicInstituicaoController: `/api/public/instituicao` (instituição ativa global). Risco: ALTA.
+
+PAYMENT_CALLBACK:
+- PagamentoCallbackController (financeiro): `/api/pagamentos/callback` (permitAll em SecurityConfig).
+  Risco: ALTA/CRÍTICA sem tenant binding adicional.
+
+TENANT_OPERATIONAL / TENANT_ADMIN (hoje são “single-tenant admin”):
+- ProdutoController: `/api/produtos` (+ `/api/produtos/admin`) — deve ser tenant-scoped.
+- PedidoController: `/api/pedidos` — deve ser tenant-scoped.
+- SessaoConsumoController: `/api/sessoes-consumo` — deve ser tenant-scoped.
+- QrCodeController: `/api/qrcode` — deve ser tenant-scoped.
+- MesaController: `/api/mesas` — deve ser tenant-scoped.
+- UnidadeAtendimentoController: `/api/unidades-atendimento` — deve ser tenant-scoped.
+- CozinhaController: `/api/cozinhas` — deve ser tenant-scoped.
+- FundoConsumoController: `/api/fundos` — deve ser tenant-scoped.
+- PagamentoController: `/api/pagamentos` — deve ser tenant-scoped.
+- RelatorioController: `/api/relatorios` — CRÍTICO (hoje agrega global).
+- DashboardController: `/api/dashboard` — CRÍTICO (agrega global).
+
+SECURITY/AUTH:
+- AuthController: `/api/auth` (OTP cliente + login admin). Risco: CRÍTICO por “instituição ativa” no token do cliente.
+- JwtAuthController: `/api/auth/jwt` (controller existe; não auditado em detalhe aqui).
+- UserController: `/api/usuarios` — hoje restrito a ADMIN global; não existe TENANT_ADMIN.
+
+PLATFORM/LEGACY:
+- InstituicaoController: `/api/instituicoes` (GET /ativa expõe single-tenant). Deve virar PLATFORM_ADMIN (ou tenant scoped).
+- ConfiguracaoFinanceiraController: `/api/configuracoes-financeiras` (política global hoje). Deve virar tenant config + plano.
+- AuditoriaController / EventLogController / NotificacaoController / DebugController: avaliar exposição (risco médio/alto).
+
+7.2 Regras de autenticação observadas
+- SecurityConfig permite `/api/public/**` e `/public/**` (permitAll).
+- Callback: SecurityConfig permite `/api/pagamentos/callback`, mas o controller real está em `/pagamentos/callback` sob context-path `/api` → OK.
+- O resto: authenticated + @PreAuthorize por role.
+Risco estrutural: “role” não carrega tenant; logo, um TENANT_ADMIN poderia acessar dados de outro tenant se houver endpoints cross-tenant.
+
+================================================================================
+8) DIAGNÓSTICO DE SEGURANÇA ATUAL (JWT, roles, ausência Tenant Core)
+================================================================================
+Perguntas do escopo (respostas objetivas):
+- JWT carrega tenantId? NÃO.
+- JWT carrega roles por tenant? NÃO (roles globais apenas).
+- Existe PLATFORM_ADMIN? NÃO formalmente. Há `hasRole('ADMIN')`, mas é global e não distingue plataforma vs tenant.
+- Existe TENANT_ADMIN? NÃO formalmente (há GERENTE/ADMIN, mas globais).
+- Existe TenantUser? NÃO.
+- Roles são globais? SIM (Role enum em User; @PreAuthorize usa roles globais).
+- Como usuário associa-se a unidade/instituição? Indiretamente via `User.unidadeAtendimento_id` (src/main/java/com/restaurante/model/entity/User.java).
+- Risco de um usuário acessar outro tenant? SIM, inevitável quando houver múltiplos tenants, pois não há enforcement de escopo.
+
+Mudanças necessárias (mapeamento por fase, sem implementar):
+Fase 1–2:
+- Introduzir entidades: Tenant, Plano, Subscricao, TenantUser (membership).
+Fase 4:
+- Implementar TenantContext/TenantResolver/TenantGuard.
+  - Resolver via JWT (tenantId claim), via QR token (PUBLIC_QR), via deviceToken (POS futuro), via callback (externalReference encodando tenant).
+Fase 5:
+- Separar roles PLATFORM_ADMIN e TENANT_* no domínio e nas regras @PreAuthorize (ideal: authorities derivadas de TenantUser + tenantId).
+
+================================================================================
+9) DIAGNÓSTICO DE PAGAMENTOS (multi-tenant readiness)
+================================================================================
+Respostas do escopo:
+- Pagamento possui tenant_id? NÃO.
+- Pagamento possui instituicao_id? NÃO.
+- externalReference é global? SIM e UNIQUE global (Pagamento.externalReference unique).
+- externalReference possui limite? SIM (length=15) (src/main/java/com/restaurante/model/entity/Pagamento.java).
+- callback resolve tenant? NÃO. Resolve por merchantTransactionId → findByExternalReference (global).
+  Evidência: PagamentoCallbackService.processarCallback() busca por externalReference.
+- callback valida idempotência? SIM (não confirma se já confirmado).
+- callback grava payload bruto? NÃO (apenas event log resumido; rawBody não persistido como entidade própria).
+- existe correlationId? NÃO formal.
+- existe risco de callback afetar tenant errado? SIM (na arquitetura atual, falta “defense in depth” por tenant; riscos crescem com N tenants).
+- existe separação consumo vs subscrição? NÃO (não existem entidades Plano/Subscricao nem PagamentoSubscricao).
+- existe reconciliação por tenant? NÃO (apenas reconciliação configurada em properties; não há domínio de conciliação por tenant).
+
+Impacto direto na Fase 1 (planejamento):
+- Definir desde já que haverá PagamentoConsumo (TENANT_OWNED) e PagamentoSubscricao (PLATFORM_GLOBAL).
+- Definir tenant binding obrigatório em Pagamento antes do piloto com 2 tenants.
+- Definir estratégia de externalReference curta “tenant-aware” (deve caber em 15 chars).
+
+================================================================================
+10) DIAGNÓSTICO DE QR CODE (operacional vs efêmero; enumeração; cross-tenant)
+================================================================================
+Estado atual:
+- Entidade existente: QrCodeToken (tabela `qr_code_tokens`) — parece mistura QR operacional e tokens efêmeros.
+- Token é previsível? SIM para MESA.
+  Evidência: QrCodeService.gerarTokenMesa(): `SIGLA-MESA-%04d` com mesa.getId() (src/main/java/com/restaurante/service/QrCodeService.java:407–409).
+- Token é aleatório? SIM para tokens não-MESA (UUID em @PrePersist) (src/main/java/com/restaurante/model/entity/QrCodeToken.java).
+- QR possui tenant? NÃO; possui instituicao_id.
+- QR cai para Instituicao ativa? SIM (resolverInstituicao fallback) (src/main/java/com/restaurante/service/QrCodeService.java:427–434).
+- QR resolve mesa? SIM (QrCodeToken.mesa + Mesa.qrCode).
+- QR resolve unidade? Indiretamente (Mesa.unidadeAtendimento).
+- QR resolve pedido? Para tipos não-MESA (pedido_id).
+- QR pode ser revogado? Parcialmente (status CANCELADO).
+- Risco de enumeração: CRÍTICO (token derivado de id + sigla).
+- Risco cross-tenant: CRÍTICO (PUBLIC endpoints aceitam tokens e resolvem por repos globais).
+
+Recomendação futura (mapeamento, sem implementar):
+- Criar `QrCodeOperacional` TENANT_OWNED com token aleatório longo/curto não-enumerável, revogável, e metadados:
+  tenant_id, instituicao_id, unidade_atendimento_id, mesa_id opcional, tipo, ativo, token_hash.
+- Usar QrCodeToken apenas para tokens efêmeros (pagamento/entrega) e sempre com tenant_id.
+
+================================================================================
+11) UNIDADE DE ATENDIMENTO vs PRODUÇÃO (modelo atual e gaps)
+================================================================================
+Estado atual observado:
+- UnidadeAtendimento representa “atendimento” e também porta de associação de cozinhas.
+- Cozinha é uma entidade genérica de produção e pode atender múltiplas unidades (ManyToMany) (src/main/java/com/restaurante/model/entity/UnidadeAtendimento.java e Cozinha.java).
+- Não existe entidade UnidadeProducao.
+- Roteamento CategoriaProduto → Cozinha é indireto e baseado em enum CategoriaProduto + TipoCozinha (SubPedidoService.determinarTipoCozinha) (src/main/java/com/restaurante/service/SubPedidoService.java:~50–70).
+
+Conclusão:
+- Modelo atual suporta “cozinha servir várias unidades” (sim), mas sem tenant isso vira risco de misrouting.
+- Para a arquitetura alvo (bar, pastelaria, expedição etc.), é recomendado:
+  - Introduzir UnidadeProducao (TENANT_OWNED ou Instituicao-owned) e “RotasProducao”.
+  - Tornar o roteamento configurável por tenant/template (não hardcoded em enum).
+Não implementar agora; apenas mapear impacto: SubPedidoService e Cozinha/UA serão tocados na Fase 6.
+
+================================================================================
+12) MATRIZ DE RISCO (área, item, tipo, severidade, correção futura)
+================================================================================
+1) Tenant Resolution / Instituição ativa
+- Item: InstituicaoRepository.findFirstByAtivaTrue + InstituicaoService.getInstituicaoAtiva
+- Tipo: TENANT_RESOLUTION_FAILURE, LEGACY_SINGLE_TENANT
+- Severidade: CRÍTICA
+- Correção: TenantResolver + eliminar fallbacks; Instituicao vinculada a Tenant.
+
+2) Catálogo
+- Item: Produto/ProdutoService/ProdutoRepository + PublicCardapioController
+- Tipo: DATA_LEAKAGE, GLOBAL_QUERY, LEGACY_SINGLE_TENANT
+- Severidade: CRÍTICA
+- Correção: CategoriaProduto entidade + Produto tenant_id + queries tenant-scoped.
+
+3) Pedidos/Sessões
+- Item: PedidoRepository e SessaoConsumoRepository queries globais
+- Tipo: DATA_LEAKAGE, GLOBAL_QUERY
+- Severidade: CRÍTICA
+- Correção: tenant_id + “...AndTenantId” + TenantGuard.
+
+4) QR enumeração
+- Item: QrCodeService.gerarTokenMesa + endpoints públicos
+- Tipo: QR_ENUMERATION, DATA_LEAKAGE, TENANT_RESOLUTION_FAILURE
+- Severidade: CRÍTICA
+- Correção: QrCodeOperacional token aleatório + resolução tenant por token.
+
+5) Pagamentos/callback
+- Item: Pagamento.externalReference global + callback lookup global + ausência tenant_id
+- Tipo: FINANCIAL_CROSS_EFFECT, TENANT_RESOLUTION_FAILURE
+- Severidade: ALTA→CRÍTICA
+- Correção: tenant binding em Pagamento + externalReference tenant-aware (15 chars) + callback raw log.
+
+6) Roles globais
+- Item: @PreAuthorize com ADMIN/GERENTE sem tenant
+- Tipo: SECURITY_ROLE_LEAKAGE
+- Severidade: CRÍTICA
+- Correção: TenantUser + authorities por tenant + enforcement no guard.
+
+7) Dashboard/Relatórios
+- Item: DashboardService/RelatorioController agregações globais
+- Tipo: GLOBAL_QUERY, DATA_LEAKAGE
+- Severidade: CRÍTICA
+- Correção: separar visão PLATFORM_ADMIN e tenant-scoped; queries por tenant.
+
+8) Scheduler/expiração
+- Item: SessaoConsumoRepository.findCandidatasParaExpiracao global
+- Tipo: GLOBAL_QUERY, FINANCIAL_CROSS_EFFECT (indireto)
+- Severidade: ALTA
+- Correção: filtrar por tenant + isolamento por partição.
+
+================================================================================
+13) ORDEM RECOMENDADA DE REFATORAÇÃO (safe-by-default, incremental)
+================================================================================
+Observação: a ordem abaixo respeita o seu roadmap, mas adiciona “gates” de compatibilidade para não quebrar o sistema atual.
+
+Fase 1 — Fundação do domínio SaaS (sem tocar operações ainda)
+- Criar: Tenant, Plano, Subscricao, TenantUser, TenantLimiteOverride
+- Gate de compatibilidade: manter operação single-tenant funcional com “Tenant default” (apenas para DEV/local) SEM expor findFirstByAtivaTrue como resolução permanente.
+
+Fase 2 — Vincular Instituicao ao Tenant (1:N)
+- Adicionar Instituicao.tenant_id (nullable no começo) + backfill para tenant default.
+- Definir Plano PILOTO + Subscricao ativa.
+
+Fase 3 — Limites por Tenant
+- Introduzir TenantLimitService e enforcement inicial (ex: maxInstituicoes) no provisioning.
+
+Fase 4 — TenantContext / Resolver / Guard (ponto de virada)
+- TenantContext (request-scoped)
+- TenantResolver:
+  - JWT (tenantId claim)
+  - PUBLIC_QR (qrToken resolve tenant)
+  - PAYMENT_CALLBACK (externalReference resolve tenant)
+  - POS_DEVICE (deviceToken futuro)
+- TenantGuard aplicado nos services críticos antes de qualquer “listAll”.
+
+Fase 5 — Separação de permissões
+- PLATFORM_ADMIN vs TENANT_* (roles e endpoints)
+- User passa a autenticar e carregar memberships (TenantUser) no JWT.
+
+Fase 6 — Estrutura operacional de produção
+- Criar UnidadeProducao + rotas (Categoria/Produto → UnidadeProducao)
+- Refatorar Cozinha para compor UnidadeProducao (ou migrar).
+
+Fase 7 — Catálogo Tenant-Aware
+- CategoriaProduto entidade (TENANT_OWNED)
+- Produto.tenant_id + UNIQUE(codigo, tenant_id)
+
+Fase 8 — Repositories Tenant-Scoped
+- Introduzir “...AndTenantId” em todos repositórios tenant-owned
+- Bloquear/evitar findAll sem tenant em domínio operacional
+
+Fase 9 — Operação Tenant-Aware
+- SessaoConsumo/Pedido/SubPedido/ItemPedido/Fundo/Transacao/Pagamento com tenant_id
+- Ajustar scheduler e relatórios
+
+Fase 10 — Provisionamento Manual Administrado
+- ProvisioningTemplate + TenantProvisioningService + endpoints PLATFORM_ADMIN
+
+Fase 11 — QR operacional tenant-safe
+- QrCodeOperacional + tokens aleatórios revogáveis
+
+Fase 12 — Testes de isolamento
+- Dois tenants locais (Banca da Tia Rosa vs Bar do João) + suíte de vazamento/cross-effect.
+
+================================================================================
+14) BLOQUEADORES PARA INICIAR A FASE 1 (no estado atual)
+================================================================================
+Bloqueador A: ausência de migrations (Flyway) → não há base segura para evoluir schema.
+Bloqueador B: ausência de testes → risco alto de regressão na refatoração incremental.
+Bloqueador C: endpoints públicos (PUBLIC_QR) dependem de tokens previsíveis + repos globais.
+
+Mitigação mínima (antes de codar Fase 1, ainda sem refatorar operações):
+- Adotar Flyway e criar baseline migration (somente depois, em outro prompt/fase).
+- Criar testes de isolamento (mesmo antes de tenant_id existir, pelo menos testes de “resolução”).
+- Definir estratégia de tenant resolution (fonte de verdade por fluxo).
+
+================================================================================
+15) CHECKLIST DE ACEITAÇÃO (PROMPT 0)
+================================================================================
+[OK] Lista de entidades classificadas (seção 3)
+[OK] Lista de usos de getInstituicaoAtiva/findFirstByAtivaTrue/buscarInstituicaoAtiva (seção 4)
+[OK] Lista de repositories perigosos (seção 5)
+[OK] Lista de services afetados (seção 6)
+[OK] Lista de endpoints afetados (seção 7)
+[OK] Matriz de riscos (seção 12)
+[OK] Ordem segura de refatoração (seção 13)
+[OK] Recomendação clara do que implementar na Fase 1 (seções 13–14)
+[OK] Confirmação: nenhuma alteração de código foi feita (cabeçalho)
+

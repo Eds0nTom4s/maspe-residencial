@@ -1,0 +1,535 @@
+CONSUMA — Revisão Profunda Multi-Tenant (Backend)
+Data: 2026-05-14
+Escopo: domínio, entidades, relacionamentos, services, fluxos transacionais, repos/queries, segurança, pagamentos, QR/POS, preparação para SaaS administrado multi-tenant.
+Observação importante: este documento é apenas diagnóstico e plano técnico. Nenhuma alteração de código foi feita.
+
+================================================================================
+1) RESUMO EXECUTIVO
+================================================================================
+Diagnóstico: NÃO PRONTO / BLOQUEADOR PARA PILOTO multi-tenant em DB compartilhada.
+
+Por quê (5 fatores bloqueadores, em ordem de severidade):
+1. “Instituição ativa” (single-tenant implícito): há uso explícito de findFirstByAtivaTrue()/getInstituicaoAtiva() e derivação de instituição default em fluxos críticos (sessão, mesa, QR, público). Isso inviabiliza isolamento lógico por tenant e cria risco CRÍTICO de vazamento entre empresas.
+   Evidências: InstituicaoRepository.findFirstByAtivaTrue() (src/main/java/com/restaurante/repository/InstituicaoRepository.java)
+              InstituicaoService.getInstituicaoAtiva() (src/main/java/com/restaurante/service/InstituicaoService.java)
+              SessaoConsumoService.buscarInstituicaoAtiva() e abrir() default (src/main/java/com/restaurante/service/SessaoConsumoService.java)
+              QrCodeService.resolverInstituicao() / normalizarTokenMesa() (src/main/java/com/restaurante/service/QrCodeService.java)
+
+2. Catálogo NÃO tenant-aware: Produto é global, com “codigo” UNIQUE global e sem vínculo com Instituicao/Tenant. CategoriaProduto é enum (não entidade), impossibilitando catálogo por tenant (nomes iguais, preços diferentes, disponibilidade por cliente, etc.).
+   Evidências: Produto (src/main/java/com/restaurante/model/entity/Produto.java) + ProdutoRepository (src/main/java/com/restaurante/repository/ProdutoRepository.java) + ProdutoService (src/main/java/com/restaurante/service/ProdutoService.java)
+
+3. Repositórios e queries não aplicam escopo de tenant: há muitos findAll/findByStatus/findByTipo e @Query sem filtro por instituicao/tenant. Em multi-tenant, isso vira vazamento silencioso e recorrente.
+   Evidências: PedidoRepository (src/main/java/com/restaurante/repository/PedidoRepository.java) e demais repositories em src/main/java/com/restaurante/repository/
+
+4. Segurança/autorização não modela tenant: JWT não carrega tenantId/tenantCode e não existe TenantContext/TenantResolver/TenantGuard. Roles são globais e não há separação formal de PLATFORM_ADMIN vs TENANT_*.
+   Evidências: JwtTokenProvider/JwtAuthenticationFilter (src/main/java/com/restaurante/security/*) + User entity (src/main/java/com/restaurante/model/entity/User.java)
+
+5. QR Code de mesa é PREDITIVO e enumerável: token = “{SIGLA}-MESA-{mesaId}”. Em um SaaS, isso facilita varredura/cross-tenant. Além disso, o fallback para “instituição ativa” torna o fluxo público frágil.
+   Evidências: QrCodeService.gerarTokenMesa() (src/main/java/com/restaurante/service/QrCodeService.java)
+
+O que está BOM e deve ser preservado (pontos de fundação):
+- Separação conceitual do eixo OPERACIONAL (Pedido/SubPedido/Sessao) vs FINANCEIRO (Pagamento/TransacaoFundo) e uso de ledger append-only em TransacaoFundo.
+  Evidências: Pagamento (src/main/java/com/restaurante/model/entity/Pagamento.java), TransacaoFundo (src/main/java/com/restaurante/model/entity/TransacaoFundo.java), FundoConsumo (src/main/java/com/restaurante/model/entity/FundoConsumo.java)
+- Callback de pagamento com validação HMAC (boa prática) e idempotência por referência externa (ainda precisa ser tenant-safe).
+  Evidências: PagamentoCallbackService (src/main/java/com/restaurante/financeiro/service/PagamentoCallbackService.java)
+
+================================================================================
+2) DIAGNÓSTICO GERAL (por camada)
+================================================================================
+Banco de dados:
+- Estado atual: single-tenant “por convenção”. Há colunas de instituicao_id em algumas tabelas, mas não é aplicado de forma consistente nem reforçado por constraints/queries.
+- Risco: alto vazamento por queries globais; índices multi-tenant ainda inexistentes (composites por tenant).
+- Recomendação: padrão “tenantId obrigatório” em entidades tenant-owned, com constraints e índices (tenant_id, <chave>), e refatoração progressiva de queries.
+
+Entidades:
+- Estado atual: mistura de entidades globais, tenant-scoped indiretas e entidades completamente globais (Produto, Cozinha, ConfiguracaoFinanceiraSistema).
+- Risco: CRÍTICO para Produto/Pedido/Pagamento/QR, e ALTO para User/Unidade/Cozinha por escopo indireto sem guard.
+
+Services:
+- Estado atual: lógica depende de instituição ativa e/ou carrega dados globais. Não existe injeção explícita de tenant no contrato dos services.
+- Risco: CRÍTICO em SessaoConsumoService, QrCodeService, ProdutoService, DashboardService, RelatorioController.
+
+Repositories/queries:
+- Estado atual: métodos Spring Data e JPQL global; ausência de “...AndTenantId” / “...AndInstituicaoId”.
+- Risco: CRÍTICO de data leakage.
+
+Segurança:
+- Estado atual: JWT autentica usuário, mas não isola tenant; roles são globais; não há TenantContext.
+- Risco: CRÍTICO (principalmente com endpoints de relatório e listagens).
+
+Pagamentos:
+- Estado atual: bom baseline (HMAC + logs + ledger), porém falta vinculação/validação de tenant e “referência interna multi-tenant” (além do limite 15 chars).
+- Risco: CRÍTICO (callback poderia confirmar efeito colateral em entidade errada caso haja bug/colisão; relatórios e reconciliação por tenant são fracos).
+
+QR Code:
+- Estado atual: token de mesa previsível, fallback para “instituição ativa”, e modelagem atual (QrCodeToken) mistura QR operacional e QR efêmero.
+- Risco: CRÍTICO para ambiente SaaS.
+
+POS Android:
+- Estado atual: não há entidade de DispositivoOperacional nem fluxo de deviceToken.
+- Risco: não pronto para o objetivo descrito.
+
+Conclusão macro:
+- Classificação: BLOQUEADOR PARA PILOTO multi-tenant (DB compartilhada), antes de iniciar qualquer piloto com duas empresas simultâneas.
+
+================================================================================
+3) MATRIZ DE ENTIDADES (classificação + recomendações)
+================================================================================
+Legenda de classificação (pode acumular tags):
+- PLATFORM_GLOBAL: global da plataforma (não pertence a um tenant)
+- TENANT_OWNED: pertence diretamente ao tenant (deve ter tenant_id)
+- TENANT_SCOPED_VIA_PARENT: escopo vem por relacionamento pai, mas exige guard/validação forte
+- SHARED_TEMPLATE: dado “template” replicável para provisionamento (não operacional)
+- LEGACY_SINGLE_TENANT: assume instituição ativa / single tenant
+- HIGH_RISK_FINANCIAL: risco financeiro alto sem isolamento
+- HIGH_RISK_SECURITY: risco de vazamento/permissão alto sem isolamento
+
+Observação: hoje o sistema usa “Instituicao” como proxy de tenant em alguns pontos, mas de forma inconsistente.
+
+-------------------------------------------------------------------------------
+Instituicao
+-------------------------------------------------------------------------------
+Responsabilidade: identidade do estabelecimento + branding + OTP de autorização.
+Classificação atual: LEGACY_SINGLE_TENANT / HIGH_RISK_SECURITY
+Ligação ao tenant: N/A (é a própria entidade “tenant” implícita).
+Problema: há “Instituicao ativa” global (findFirstByAtivaTrue) — isso é single-tenant e conflita com SaaS.
+Precisa tenant_id direto? (se criar Tenant novo): SIM, Instituicao deve ter tenant_id.
+Risco de vazamento: ALTO (todas as resoluções default podem apontar para o tenant errado).
+Índices necessários (multi-tenant): (tenant_id, sigla) UNIQUE; (tenant_id, nif) UNIQUE; (tenant_id, ativa) para uso administrativo.
+
+-------------------------------------------------------------------------------
+UnidadeAtendimento
+-------------------------------------------------------------------------------
+Responsabilidade: ponto operacional (restaurante/bar/evento) que agrupa mesas, cozinhas e fluxo de pedidos.
+Classificação: TENANT_SCOPED_VIA_PARENT (via instituicao) / HIGH_RISK_SECURITY
+Ligação atual: ManyToOne Instituicao (ok), porém services/repos listam sem filtro por instituição.
+Precisa tenant_id direto? Recomendável SIM (para reduzir joins e “blindar” queries).
+Risco operacional: ALTO (listar unidades de outro tenant; roteamento de cozinha cruzado).
+Índices: (tenant_id, ativa), (tenant_id, tipo), (tenant_id, nome_lower UNIQUE opcional).
+
+-------------------------------------------------------------------------------
+Mesa
+-------------------------------------------------------------------------------
+Responsabilidade: recurso físico permanente com QR fixo; status derivado via SessaoConsumo.
+Classificação: TENANT_SCOPED_VIA_PARENT (unidade/instituicao) / HIGH_RISK_SECURITY
+Ligação atual: unidade_atendimento_id obrigatório + instituicao_id opcional.
+Problema: QR code/token é previsível e repos não filtram por tenant.
+Precisa tenant_id direto? SIM (por segurança e performance em lookup por qr_code).
+Risco: CRÍTICO (QR público pode resolver mesa errada e abrir sessão no tenant errado).
+Índices: (tenant_id, qr_code UNIQUE), (tenant_id, unidade_atendimento_id), (tenant_id, ativa).
+
+-------------------------------------------------------------------------------
+SessaoConsumo
+-------------------------------------------------------------------------------
+Responsabilidade: núcleo operacional; evento de consumo; carrega fundo, pedidos, cliente; base de rastreabilidade.
+Classificação: TENANT_SCOPED_VIA_PARENT (mesa/unidade/instituicao) + HIGH_RISK_FINANCIAL + HIGH_RISK_SECURITY
+Ligação atual: instituicao_id presente, porém abrir() usa buscarInstituicaoAtiva() como default.
+Precisa tenant_id direto? SIM (principal agregador para isolamento e relatórios).
+Risco: CRÍTICO (sessões de outros tenants podem ser listadas/consultadas por queries globais).
+Índices: (tenant_id, qr_code_sessao UNIQUE), (tenant_id, status), (tenant_id, mesa_id, status), (tenant_id, aberta_em).
+
+-------------------------------------------------------------------------------
+Pedido
+-------------------------------------------------------------------------------
+Responsabilidade: agregador lógico do consumo; status operacional + status financeiro separados.
+Classificação: TENANT_SCOPED_VIA_PARENT (via SessaoConsumo) + HIGH_RISK_FINANCIAL + HIGH_RISK_SECURITY
+Ligação atual: só via sessao_consumo_id. “numero” é UNIQUE global.
+Problemas:
+- numero UNIQUE global não suporta multi-tenant (colisão e/ou vazamento por lookup).
+- Repositório tem múltiplas queries por status/data sem tenant.
+Precisa tenant_id direto? SIM (alta criticidade; reforça isolamento e índices).
+SubPedido/ItemPedido: podem herdar do Pedido, mas é recomendável manter tenant_id também (ver abaixo) para eficiência e “defense in depth”.
+Índices: (tenant_id, numero UNIQUE), (tenant_id, status), (tenant_id, status_financeiro), (tenant_id, created_at).
+
+-------------------------------------------------------------------------------
+SubPedido
+-------------------------------------------------------------------------------
+Responsabilidade: unidade operacional de execução; máquina de estados da cozinha; entrega parcial.
+Classificação: TENANT_SCOPED_VIA_PARENT (via Pedido/UnidadeAtendimento) + HIGH_RISK_SECURITY
+Ligação atual: pedido_id + unidade_atendimento_id + cozinha_id; “numero” UNIQUE global.
+Problemas:
+- numero UNIQUE global (colisão multi-tenant).
+- Queries por status/cozinha/unidade sem tenant.
+Precisa tenant_id direto? SIM (segurança, performance e simplificação de queries).
+Índices: (tenant_id, numero UNIQUE), (tenant_id, status), (tenant_id, cozinha_id, status), (tenant_id, unidade_atendimento_id).
+
+-------------------------------------------------------------------------------
+ItemPedido
+-------------------------------------------------------------------------------
+Responsabilidade: itens do subpedido/pedido; preço unitário e subtotal.
+Classificação: TENANT_SCOPED_VIA_PARENT + HIGH_RISK_FINANCIAL
+Ligação atual: produto_id + sub_pedido_id (obrigatório) + pedido_id (nullable/legado). Sem tenant.
+Problema: Produto é global; relatórios por produto ficam cross-tenant.
+Precisa tenant_id direto? Recomendável SIM (principalmente para analytics e filtros por tenant).
+Índices: (tenant_id, sub_pedido_id), (tenant_id, produto_id), (tenant_id, pedido_id).
+
+-------------------------------------------------------------------------------
+Produto (Cardápio)
+-------------------------------------------------------------------------------
+Responsabilidade: item do catálogo.
+Classificação: LEGACY_SINGLE_TENANT + HIGH_RISK_SECURITY (hoje é efetivamente PLATFORM_GLOBAL, mas isso é incorreto para SaaS).
+Ligação atual: nenhuma ligação com Instituicao/Tenant. “codigo” UNIQUE global.
+Problema: dois clientes NÃO podem ter produtos com mesmo código; e todos compartilham o mesmo catálogo.
+Precisa tenant_id direto? SIM, obrigatório.
+Campos a adicionar (mínimo):
+- produto.tenant_id (ou instituicao_id se optar por Instituicao=Tenant)
+- produto.slug (opcional) UNIQUE por tenant
+- produto.codigo UNIQUE por tenant (substituir UNIQUE global)
+- (opcional) produto.preco_por_unidade_atendimento_id se houver variação por unidade
+Índices: (tenant_id, ativo), (tenant_id, disponivel), (tenant_id, categoria), (tenant_id, codigo UNIQUE).
+
+-------------------------------------------------------------------------------
+CategoriaProduto
+-------------------------------------------------------------------------------
+Estado atual: enum (com.restaurante.model.enums.CategoriaProduto).
+Impacto: não existe CategoriaProduto tenant-owned; não suporta categorias customizadas por tenant, nem ordenação/visibilidade por cliente.
+Recomendação: criar entidade CategoriaProduto (TENANT_OWNED) e migrar Produto.categoria para FK.
+Campos mínimos propostos:
+- id, tenant_id, nome, slug, ordem, ativo, tipoCozinhaDefault (se aplicável)
+Índices: (tenant_id, slug UNIQUE), (tenant_id, ativo).
+
+-------------------------------------------------------------------------------
+Cliente (consumidor via QR)
+-------------------------------------------------------------------------------
+Responsabilidade: identidade do consumidor final (telefone/OTP).
+Classificação recomendada: PLATFORM_GLOBAL (opcional) OU TENANT_OWNED (dependendo da regra de negócio).
+Ligação atual: nenhuma ligação ao tenant; telefone UNIQUE global.
+Riscos/decisão:
+- Se o mesmo telefone puder consumir em vários tenants, tratar Cliente como PLATFORM_GLOBAL é aceitável, mas exige regras claras:
+  * dados pessoais e consentimento; rate-limit OTP global; auditoria; e associação “ClienteTenant” para preferências/histórico.
+- Se deseja isolar clientes por empresa (mais simples), Cliente deve ser TENANT_OWNED e telefone UNIQUE por tenant.
+Recomendação inicial para piloto: TENANT_OWNED (reduz riscos e simplifica suporte) + permitir migração futura para global.
+Índices: (tenant_id, telefone UNIQUE) ou (telefone UNIQUE) se global.
+
+-------------------------------------------------------------------------------
+User (painel admin/operadores)
+-------------------------------------------------------------------------------
+Responsabilidade: autenticação/autorização do painel (Spring Security UserDetails).
+Classificação: LEGACY_SINGLE_TENANT + HIGH_RISK_SECURITY
+Ligação atual: unidade_atendimento_id (indireto a instituicao). username/email/telefone UNIQUE global.
+Problemas:
+- Não existe distinção explícita de PLATFORM_ADMIN vs TENANT_*.
+- Usuário não tem tenant explícito; roles são globais; risco de acesso cross-tenant.
+Recomendação: criar TenantUser (ou UserTenantMembership) e separar:
+- User (identidade global, credenciais)
+- TenantUser (tenant_id, user_id, roles, status, unidade default, permissões)
+Índices: (tenant_id, user_id UNIQUE), (tenant_id, role), (tenant_id, ativo).
+
+-------------------------------------------------------------------------------
+Atendente (legado)
+-------------------------------------------------------------------------------
+Responsabilidade: operador “antigo” com senha própria; parece duplicar User.
+Classificação: LEGACY_SINGLE_TENANT / HIGH_RISK_SECURITY
+Risco: duplicação de modelos de autenticação; difícil evoluir para multi-tenant.
+Recomendação: convergir para um único modelo (User + TenantUser).
+
+-------------------------------------------------------------------------------
+FundoConsumo
+-------------------------------------------------------------------------------
+Responsabilidade: saldo pré-pago por sessão; ledger append-only via TransacaoFundo.
+Classificação: TENANT_SCOPED_VIA_PARENT (via SessaoConsumo) + HIGH_RISK_FINANCIAL
+Ligação atual: via sessao_consumo_id; sem tenant.
+Precisa tenant_id direto? Recomendável SIM (isolamento + índices).
+Índices: (tenant_id, sessao_consumo_id UNIQUE), (tenant_id, ativo).
+
+-------------------------------------------------------------------------------
+TransacaoFundo
+-------------------------------------------------------------------------------
+Responsabilidade: ledger imutável; auditoria financeira.
+Classificação: TENANT_SCOPED_VIA_PARENT + HIGH_RISK_FINANCIAL
+Ligação atual: via fundo_consumo_id; merchant_transaction_id UNIQUE global.
+Precisa tenant_id direto? Recomendável SIM (consultas por tenant; reconciliação).
+Índices: (tenant_id, fundo_consumo_id), (tenant_id, pedido_id), (tenant_id, created_at), (tenant_id, merchant_transaction_id UNIQUE se fizer sentido).
+
+-------------------------------------------------------------------------------
+Pagamento (gateway)
+-------------------------------------------------------------------------------
+Responsabilidade: transação financeira (pré-pago/pós-pago), integração AppyPay, rastreio de callback.
+Classificação: HIGH_RISK_FINANCIAL + HIGH_RISK_SECURITY
+Ligação atual: liga a Pedido/FundoConsumo/Cliente, mas não a tenant. external_reference UNIQUE global e curta (<=15).
+Problemas:
+- Sem tenantId, relatórios e guards são frágeis.
+- Callback resolve por externalReference apenas; precisa “defense in depth” para evitar efeitos cruzados.
+Precisa tenant_id direto? SIM, obrigatório.
+Índices: (tenant_id, status), (tenant_id, external_reference UNIQUE), (tenant_id, gateway_charge_id), (tenant_id, created_at).
+
+-------------------------------------------------------------------------------
+QrCodeToken
+-------------------------------------------------------------------------------
+Responsabilidade: token QR com expiração/uso/associação (mesa/pedido) + instituicao.
+Classificação: TENANT_SCOPED_VIA_PARENT + HIGH_RISK_SECURITY
+Ligação atual: instituicao_id (ok) + mesa/pedido.
+Problemas:
+- Token de mesa previsível (SIGLA + mesaId).
+- ResolverInstituicao cai para “instituição ativa”.
+Recomendação: separar “QrCodeOperacional” (longo prazo, revogável) de tokens efêmeros; usar token aleatório não enumerável.
+
+-------------------------------------------------------------------------------
+ConfiguracaoFinanceiraSistema / logs
+-------------------------------------------------------------------------------
+Responsabilidade: políticas financeiras (posPagoAtivo, limite, valor mínimo) hoje globais.
+Classificação atual: PLATFORM_GLOBAL (mas isso conflita com multi-tenant real)
+Problema: em SaaS, políticas devem ser por tenant/plano (ex: limite pós-pago diferente).
+Recomendação: TenantConfigFinanceira (TENANT_OWNED) e manter “defaults do plano”.
+
+-------------------------------------------------------------------------------
+Dashboard/Relatórios (não é entidade, mas é risco)
+-------------------------------------------------------------------------------
+Estado atual: queries agregadas globais (ex: receita do dia, top produtos).
+Classificação: HIGH_RISK_SECURITY
+Recomendação: todo agregador deve ser tenant-scoped e expor visão platform-wide apenas para PLATFORM_ADMIN.
+
+================================================================================
+4) GARGALOS CRÍTICOS (antes do piloto)
+================================================================================
+1) Remover a noção de “instituição ativa” como resolução padrão de domínio.
+- Qualquer método que use findFirstByAtivaTrue() deve ser tratado como LEGACY_SINGLE_TENANT.
+- Substituir por TenantResolver + TenantContext (ver seção 9).
+
+2) Tornar o catálogo tenant-aware (Produto + CategoriaProduto).
+- Sem isso, o piloto com dois tenants inevitavelmente vazará cardápio e métricas.
+
+3) Introduzir TenantId em entidades de alto risco (Pedido, Pagamento, SessaoConsumo, Produto, SubPedido, Mesa).
+- “Via parent” apenas não é suficiente: é frágil em queries e tende a falhar em relatórios/joins.
+
+4) Introduzir “modelo de memberships” de usuário por tenant (TenantUser) e separar admin da plataforma.
+
+5) Tornar QR tokens não enumeráveis e vinculados a tenant (e revogáveis).
+
+================================================================================
+5) RISCOS DE VAZAMENTO DE DADOS (matriz)
+================================================================================
+Formato: Entidade/Área | Tipo de risco | Exemplo de vazamento | Severidade | Correção recomendada
+
+Produto | Catálogo global | Tenant A vê produtos do Tenant B via /produtos/listarDisponiveis (ProdutoService/ProdutoRepository) | CRÍTICA | Adicionar tenant_id + queries por tenant + remover UNIQUE global de codigo
+Pedido | Query global | Relatório de receita do dia soma todos os tenants (PedidoRepository.calcularReceitaHoje) | CRÍTICA | Adicionar tenant_id + queries com tenant + separar visão PLATFORM_ADMIN
+SessaoConsumo | Resolução default | abrir() usa instituição ativa e pode criar sessão no tenant errado | CRÍTICA | TenantResolver obrigatório por request (JWT/QR/device)
+QrCode mesa | Token previsível | Enumerar “SIGLA-MESA-0001..” e iniciar sessão/consultar mesa de outro tenant | CRÍTICA | Token aleatório e revogável + validação tenant no endpoint público
+Pagamento callback | Efeito colateral | Callback confirma recarga e impacta sessão errada se houver bug de associação/lookup | ALTA | Pagamento.tenant_id obrigatório + validações invariantes antes de aplicar efeitos
+Dashboard/Relatórios | Agregação global | Admin do tenant vê receita global da plataforma | CRÍTICA | Sempre filtrar por tenant, exceto PLATFORM_ADMIN
+User | Roles globais sem tenant | Um usuário com ROLE_ADMIN (global) pode operar dados de outros tenants | CRÍTICA | TenantUser + Role por tenant + enforcement no guard
+UnidadeAtendimento/Cozinha | Listagens globais | “findAllWithCozinhas” retorna unidades de outros tenants | ALTA | Filtrar por tenant + índices
+Cliente | Identidade global não definida | Telefone único global pode “mesclar” histórico de consumo entre empresas sem consentimento | MÉDIA/ALTA | Definir estratégia: TENANT_OWNED no piloto
+
+================================================================================
+6) AVALIAÇÃO DE PAGAMENTOS (financeiro, callbacks, reconciliação)
+================================================================================
+Estado atual (pontos positivos):
+- HMAC no callback (bom).
+- Idempotência no callback (não confirma novamente).
+- Ledger (TransacaoFundo) com merchantTransactionId único (bom).
+  Evidências: PagamentoCallbackService (src/main/java/com/restaurante/financeiro/service/PagamentoCallbackService.java),
+              TransacaoFundo (src/main/java/com/restaurante/model/entity/TransacaoFundo.java)
+
+Gaps críticos para multi-tenant:
+1) Pagamento não tem tenant_id.
+2) externalReference não carrega tenant e tem limite de 15 chars; o gerador é “REC{timestamp}{random}”.
+   Evidência: Pagamento.externalReference (src/main/java/com/restaurante/model/entity/Pagamento.java) e gerarExternalReference() (src/main/java/com/restaurante/financeiro/service/PagamentoGatewayService.java)
+3) Não existe “log bruto” de callback persistido (apenas evento resumido). Para investigação forense, é recomendável armazenar payload bruto + headers (com retenção).
+
+Recomendação de referência interna multi-tenant (respeitando 15 chars):
+- Objetivo: permitir resolver tenant rapidamente, reduzir colisão e preparar sharding futuro.
+- Sugestão prática (15 chars): "{T2}{X}{SEQ5}{R7}"
+  * T2: tenantCode base36 (2 chars) ou hash curto do tenant
+  * X: tipo (R=recarga, P=pedido)
+  * SEQ5: sequência base36 (por tenant/tipo) ou timestamp base36 truncado
+  * R7: random base36
+Exemplo: "A9R0K3Z8P2M7Q1" (15)
+Observação: para isso, precisa manter “tenant_code” curto e estável (e.g., 2–4 chars) ou usar hash.
+
+Separação de domínios recomendada:
+- PagamentoConsumo (TENANT_OWNED, ligado a Pedido/FundoConsumo)
+- PagamentoSubscricao (PLATFORM_GLOBAL, ligado a Subscricao)
+- PagamentoCallbackLog (TENANT_OWNED ou PLATFORM_GLOBAL, mas sempre com tenant resolvido)
+- ConciliacaoFinanceira (TENANT_OWNED, por período; reconciliação por tenant)
+
+Idempotência e correlação:
+- Já há idempotência por externalReference e por merchantTransactionId no ledger, mas falta correlationId explícito e log bruto de callback.
+- Recomendação: adicionar correlation_id em Pagamento e persistir callback_raw_body + signature + received_at.
+
+================================================================================
+7) AVALIAÇÃO DE USUÁRIOS E PERMISSÕES
+================================================================================
+Estado atual:
+- User tem unidade_atendimento_id (indireto) e roles globais via ElementCollection (user_roles).
+  Evidência: User (src/main/java/com/restaurante/model/entity/User.java)
+- Existe também Atendente (modelo paralelo) com senha própria (legado).
+  Evidência: Atendente (src/main/java/com/restaurante/model/entity/Atendente.java), AuthService (src/main/java/com/restaurante/service/AuthService.java)
+
+Problemas multi-tenant:
+- Não existe “membership” por tenant (TenantUser).
+- Não existe separação formal de PLATFORM_ADMIN vs TENANT_ADMIN.
+- Unicidade global de username/email/telefone pode ser aceitável, mas precisa ser decisão consciente.
+- Sem tenant claim no JWT, services não conseguem validar acesso por tenant de forma segura.
+
+Modelo recomendado (mínimo viável):
+1) User (identidade global)
+   - id, username, passwordHash, email, telefone, ativo, ultimoAcesso
+2) TenantUser (membership por tenant)
+   - id, tenant_id, user_id, status, roles (TENANT_OWNER, TENANT_ADMIN, TENANT_OPERATOR, TENANT_FINANCE, TENANT_KITCHEN, TENANT_CASHIER)
+   - unidade_atendimento_default_id (opcional)
+   - permissões extras (opcional)
+3) PLATFORM_ADMIN
+   - pode ser role global em User (ex: ROLE_PLATFORM_ADMIN) OU membership em “tenant plataforma”.
+   - recomendação: role global explícita + endpoints separados.
+
+Papéis esperados (mapeamento):
+- PLATFORM_ADMIN: acesso cross-tenant, provisionamento, planos, auditoria global.
+- TENANT_OWNER: dono do tenant, gestão de admins, configurações críticas.
+- TENANT_ADMIN: gestão operacional (unidades/mesas/cozinhas/produtos/usuários).
+- TENANT_OPERATOR: operação de balcão/pedidos.
+- TENANT_FINANCE: relatórios/financeiro, conciliação, estornos (com guard).
+- TENANT_KITCHEN: subpedidos e produção.
+- TENANT_CASHIER: checkout POS_PAGO/caixa, confirmação de pagamentos manuais.
+
+================================================================================
+8) AVALIAÇÃO DE SERVICES/REPOSITORIES (padrões perigosos + refatoração)
+================================================================================
+Padrões perigosos identificados:
+- Uso de “instituição ativa” como default: findFirstByAtivaTrue()/getInstituicaoAtiva().
+  Impacta: SessaoConsumoService, UnidadeAtendimentoService, MesaService, QrCodeService, endpoints públicos.
+- Uso de findAll()/findByStatus() sem escopo: múltiplos services listam tudo.
+  Evidência: ocorrências de .findAll() em services (ex: ProdutoService, MesaService, DashboardService) e repositories com métodos globais.
+
+Repositórios que precisam ser “bloqueados” para uso global (ou encapsulados):
+- ProdutoRepository: todos os métodos devem virar “...AndTenantId”.
+- PedidoRepository: queries agregadas devem virar tenant-scoped; visão global somente para PLATFORM_ADMIN.
+- SessaoConsumoRepository: métodos por status/mesa/qrCode devem sempre incluir tenant.
+- SubPedidoRepository: todas queries por status/cozinha/unidade devem incluir tenant.
+- MesaRepository/QrCodeTokenRepository: lookup público deve ser por token aleatório e tenant-safe.
+
+Assinaturas seguras recomendadas (exemplos):
+- findByIdAndTenantId(id, tenantId)
+- findByNumeroAndTenantId(numero, tenantId)
+- findAllByTenantId(tenantId, pageable)
+- findByStatusAndTenantId(status, tenantId, pageable)
+- existsByCodigoAndTenantId(codigo, tenantId)
+
+Guardas recomendadas:
+- TenantContext: tenantId resolvido no início da request (ThreadLocal/Request scoped).
+- TenantGuard: valida que entidade consultada pertence ao tenant corrente.
+- (Opcional forte) Hibernate Filter / @Filter + Interceptor para injetar tenant automaticamente, mas ainda manter métodos explícitos em áreas críticas.
+
+================================================================================
+9) RECOMENDAÇÃO: TENANT vs INSTITUICAO
+================================================================================
+Opção A (usar Instituicao diretamente como Tenant) — vantagens:
+- Menos entidades novas no curto prazo.
+- Já existem instituicao_id em algumas tabelas (UnidadeAtendimento, Mesa, SessaoConsumo, QrCodeToken).
+
+Opção A — problemas técnicos sérios (observados no código):
+- “Instituição ativa” (ativa=true) implementa um singleton global (single-tenant). Em multi-tenant, “ativa” vira atributo por tenant, não chave de seleção.
+- Instituicao mistura responsabilidades: identidade do cliente + branding + OTP de autorização (que é mais “tenant/admin contact” do que unidade operacional).
+- Não há espaço claro para “um cliente possuir múltiplas instituições/unidades” (cadeia, franquia, múltiplas marcas).
+
+Opção B (criar Tenant e vincular Instituicao a Tenant) — recomendação:
+RECOMENDADO (Opção B).
+
+Justificativa técnica:
+- Tenant modela “conta do cliente” (customer) e permite múltiplas Instituicoes/UnidadesAtendimento abaixo (ex: rede com várias lojas).
+- Permite domínio de SaaS: Plano, Subscricao, TenantConfig, Billing, Suspensão, auditoria por tenant.
+- Evita poluir Instituicao com responsabilidades de plataforma (plano, subscrição, limites).
+- Permite provisionamento administrado “criar Tenant → criar Instituicao principal → criar Unidade → criar OWNER”.
+
+Migração suave:
+- Manter Instituicao como “estabelecimento” e introduzir Tenant gradualmente.
+- No piloto, pode haver 1:1 Tenant↔Instituicao, mas a modelagem não fica travada.
+
+================================================================================
+10) PLANO DE MIGRAÇÃO (mínimo para piloto sem vazamento)
+================================================================================
+Fase 0 (pré-requisito): Definir o tenant key
+- Escolha: tenant_id (UUID ou BIGINT) + tenant_code curto para uso em referências e QR.
+- Definir “tenant resolvido” por request: JWT (admin/operador), qrToken (cliente), deviceToken (POS), callback (pagamento).
+
+Fase 1: Introduzir domínio SaaS mínimo
+- Entidades: Tenant, Plano, Subscricao, TenantUser, TenantConfig (financeiro + branding + limites).
+- Segurança: JWT incluir tenantId e roles de tenant.
+
+Fase 2: Tornar catálogo tenant-aware
+- Criar CategoriaProduto (entidade).
+- Produto: adicionar tenant_id e remover UNIQUE global de codigo (tornar UNIQUE por tenant).
+
+Fase 3: Tornar operações tenant-aware
+- Adicionar tenant_id em SessaoConsumo, Mesa, Pedido, SubPedido, ItemPedido, FundoConsumo, TransacaoFundo, Pagamento, QrCodeToken.
+- Refatorar repositories para usar tenant.
+- Garantir constraints e índices.
+
+Fase 4: QR operacional e público
+- Criar QrCodeOperacional (token aleatório, revogável, com tenant_id).
+- Separar tokens efêmeros (pagamento/entrega) dos operacionais.
+
+Fase 5: POS/dispositivos
+- Criar DispositivoOperacional, deviceToken revogável, sync meta.
+
+================================================================================
+11) SPRINTS RECOMENDADAS (técnicas, alinhadas ao objetivo)
+================================================================================
+Sprint 1 — Fundação Tenant
+- Criar Tenant, Plano, Subscricao, TenantUser
+- Vincular Instituicao → Tenant
+- Criar TenantContext + TenantResolver + TenantGuard
+- Criar migrations + seed do plano PILOTO
+
+Sprint 2 — Catálogo Tenant-Aware
+- Criar CategoriaProduto (entidade)
+- Adicionar tenant_id em Produto e CategoriaProduto
+- Refatorar ProdutoService/ProdutoRepository
+- Criar testes de isolamento (2 tenants)
+
+Sprint 3 — Provisionamento Manual Administrado
+- Criar ProvisioningTemplate + TenantProvisioningService
+- Endpoint PLATFORM_ADMIN para criar tenant + template + plano
+- Provisionar: Tenant, Instituicao principal, UnidadeAtendimento padrão, usuário OWNER, config padrão, QR principal
+
+Sprint 4 — Pedidos e Pagamentos Tenant-Aware
+- Adicionar tenant_id em SessaoConsumo, Pedido, SubPedido, ItemPedido
+- Adicionar tenant_id em Pagamento, FundoConsumo, TransacaoFundo
+- Ajustar callback e referências internas multi-tenant
+- Testes: callback não afeta outro tenant
+
+Sprint 5 — QR Público
+- Criar QrCodeOperacional (token aleatório)
+- Endpoint público por token: resolve tenant + unidade/mesa
+- Catálogo público por QR (somente tenant)
+- Criar pedido por QR (tenant-safe)
+- Testar 2 tenants localmente
+
+Sprint 6 — Hardening
+- Eliminar usos de getInstituicaoAtiva()/findFirstByAtivaTrue()
+- Remover findAll perigosos e criar métodos tenant-scoped
+- Auditoria adicional e logs brutos de callback
+- Validar tenant suspenso (bloqueio de operação)
+- Fortalecer permissões e testes de isolamento
+
+================================================================================
+12) TESTES OBRIGATÓRIOS (automação, 2 tenants)
+================================================================================
+Tenants:
+- Tenant A: “Banca da Tia Rosa”
+- Tenant B: “Bar do João”
+
+Testes mínimos (integração, base de dados real ou Testcontainers PostgreSQL):
+1) Produto criado no Tenant A não aparece no Tenant B
+2) Categoria criada no Tenant A não aparece no Tenant B
+3) Pedido criado no Tenant A não aparece no Tenant B
+4) QR do Tenant A não carrega produtos do Tenant B
+5) Usuário do Tenant A não altera produto do Tenant B (403/404)
+6) Pagamento do Tenant A não confirma pedido do Tenant B
+7) POS (deviceToken) do Tenant A não envia operação para Tenant B
+8) Tenant suspenso não recebe novos pedidos (bloqueio no guard)
+9) Admin plataforma lista todos (visão cross-tenant controlada)
+10) Admin tenant lista apenas seu tenant
+
+================================================================================
+13) DECISÃO FINAL (pronto ou não pronto para piloto multi-tenant)
+================================================================================
+Decisão: NÃO PRONTO — BLOQUEADOR PARA PILOTO multi-tenant (DB compartilhada).
+
+Condições mínimas para considerar “PARCIALMENTE PRONTO”:
+- TenantContext/TenantResolver/TenantGuard implementados e aplicados
+- Produto e CategoriaProduto tenant-aware
+- Pedido/Sessao/Pagamento com tenant_id + queries filtradas
+- QR tokens não enumeráveis + resolução de tenant por token
+- Separação PLATFORM_ADMIN vs TENANT_* (TenantUser)
+

@@ -1,8 +1,10 @@
 package com.restaurante.tenantcore;
 
 import com.restaurante.model.entity.*;
+import com.restaurante.exception.BusinessException;
 import com.restaurante.model.enums.*;
 import com.restaurante.repository.*;
+import com.restaurante.service.InstituicaoService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +50,9 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
 
     @Autowired
     private InstituicaoRepository instituicaoRepository;
+
+    @Autowired
+    private InstituicaoService instituicaoService;
 
     @Test
     void planoPilotoMustExistFromMigrationSeed() {
@@ -164,6 +169,7 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         tenant.setTipo(TenantTipo.RESTAURANTE);
         tenant.setEstado(TenantEstado.ATIVO);
         tenant = tenantRepository.saveAndFlush(tenant);
+        final Long tenantId = tenant.getId();
 
         Instituicao i1 = Instituicao.builder()
                 .tenant(tenant)
@@ -196,5 +202,83 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
                 .ativa(true)
                 .build();
         assertThrows(DataIntegrityViolationException.class, () -> instituicaoRepository.saveAndFlush(semTenant));
+    }
+
+    @Test
+    @Transactional
+    void planoPilotoMustLimitInstituicoesUnlessOverride() {
+        // Tenant com plano PILOTO (seed V2)
+        Plano piloto = planoRepository.findByCodigo("PILOTO").orElseThrow();
+
+        Tenant tenant = new Tenant();
+        tenant.setNome("Tenant Limites");
+        tenant.setSlug("tenant-limites");
+        tenant.setTenantCode("TLIM");
+        tenant.setTipo(TenantTipo.RESTAURANTE);
+        tenant.setEstado(TenantEstado.ATIVO);
+        tenant = tenantRepository.saveAndFlush(tenant);
+
+        Subscricao subs = new Subscricao();
+        subs.setTenant(tenant);
+        subs.setPlano(piloto);
+        subs.setEstado(SubscricaoEstado.ATIVA);
+        subs.setInicioEm(LocalDate.now());
+        subs.setRenovacaoAutomatica(false);
+        subscricaoRepository.saveAndFlush(subs);
+
+        // 1a Instituicao: OK (limite do PILOTO = 1)
+        instituicaoService.criarInstituicao(
+                tenantId,
+                "Inst 1",
+                "TLIM1",
+                "TLIM-NIF-1",
+                null,
+                "+244900000020"
+        );
+
+        // 2a Instituicao: deve falhar sem override
+        assertThrows(BusinessException.class, () -> instituicaoService.criarInstituicao(
+                tenantId,
+                "Inst 2",
+                "TLIM2",
+                "TLIM-NIF-2",
+                null,
+                "+244900000021"
+        ));
+
+        // Override maxInstituicoes = 3
+        TenantLimiteOverride override = new TenantLimiteOverride();
+        override.setTenant(tenant);
+        override.setMaxInstituicoes(3);
+        override.setAtivo(true);
+        tenantLimiteOverrideRepository.saveAndFlush(override);
+
+        // 2a e 3a: OK agora
+        instituicaoService.criarInstituicao(
+                tenantId,
+                "Inst 2",
+                "TLIM2B",
+                "TLIM-NIF-2B",
+                null,
+                "+244900000022"
+        );
+        instituicaoService.criarInstituicao(
+                tenantId,
+                "Inst 3",
+                "TLIM3",
+                "TLIM-NIF-3",
+                null,
+                "+244900000023"
+        );
+
+        // 4a: falha
+        assertThrows(BusinessException.class, () -> instituicaoService.criarInstituicao(
+                tenantId,
+                "Inst 4",
+                "TLIM4",
+                "TLIM-NIF-4",
+                null,
+                "+244900000024"
+        ));
     }
 }

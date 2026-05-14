@@ -2,8 +2,10 @@ package com.restaurante.service;
 
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.Instituicao;
+import com.restaurante.model.entity.Tenant;
 import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class InstituicaoService {
 
     private final InstituicaoRepository instituicaoRepository;
+    private final TenantRepository tenantRepository;
+    private final TenantLimitService tenantLimitService;
     private final NotificacaoService notificacaoService;
 
     @Value("${otp.length:4}")
@@ -30,6 +34,32 @@ public class InstituicaoService {
     public Instituicao getInstituicaoAtiva() {
         return instituicaoRepository.findFirstByAtivaTrue()
                 .orElseThrow(() -> new RuntimeException("Nenhuma instituição ativa encontrada no sistema"));
+    }
+
+    /**
+     * Cria uma Instituicao para um Tenant (Prompt 3: valida limite maxInstituicoes).
+     *
+     * Observação:
+     * - ainda não existe TenantContext; portanto, tenantId deve ser informado explicitamente.
+     * - fluxos legados não foram removidos.
+     */
+    @Transactional
+    public Instituicao criarInstituicao(Long tenantId, String nome, String sigla, String nif, String urlLogo, String telefoneAutorizacao) {
+        tenantLimitService.assertCanCreateInstituicao(tenantId);
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new BusinessException("Tenant não encontrado: " + tenantId));
+
+        Instituicao instituicao = Instituicao.builder()
+                .tenant(tenant)
+                .nome(nome)
+                .sigla(sigla)
+                .nif(nif)
+                .urlLogo(urlLogo)
+                .telefoneAutorizacao(telefoneAutorizacao)
+                .ativa(true)
+                .build();
+
+        return instituicaoRepository.save(instituicao);
     }
 
     @Transactional

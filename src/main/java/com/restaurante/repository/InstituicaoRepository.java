@@ -19,4 +19,6 @@ public interface InstituicaoRepository extends JpaRepository<Instituicao, Long> 
     List<Instituicao> findByTenantId(Long tenantId);
 
     Optional<Instituicao> findFirstByTenantIdAndAtivaTrue(Long tenantId);
+
+    long countByTenantId(Long tenantId);
 }

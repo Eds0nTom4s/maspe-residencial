@@ -170,6 +170,7 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         tenant.setEstado(TenantEstado.ATIVO);
         tenant = tenantRepository.saveAndFlush(tenant);
         final Long tenantId = tenant.getId();
+        final Long tenantId = tenant.getId();
 
         Instituicao i1 = Instituicao.builder()
                 .tenant(tenant)

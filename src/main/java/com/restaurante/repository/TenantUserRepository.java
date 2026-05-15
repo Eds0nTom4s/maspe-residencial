@@ -1,6 +1,7 @@
 package com.restaurante.repository;
 
 import com.restaurante.model.entity.TenantUser;
+import com.restaurante.model.enums.TenantUserEstado;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -15,5 +16,11 @@ public interface TenantUserRepository extends JpaRepository<TenantUser, Long> {
     Optional<TenantUser> findByTenantIdAndUserId(Long tenantId, Long userId);
 
     boolean existsByTenantIdAndUserId(Long tenantId, Long userId);
-}
 
+    // Tenant-aware membership checks (Prompt 4)
+    List<TenantUser> findByUserIdAndEstado(Long userId, TenantUserEstado estado);
+
+    Optional<TenantUser> findByTenantIdAndUserIdAndEstado(Long tenantId, Long userId, TenantUserEstado estado);
+
+    boolean existsByTenantIdAndUserIdAndEstado(Long tenantId, Long userId, TenantUserEstado estado);
+}

@@ -3,8 +3,10 @@ package com.restaurante.config;
 import com.restaurante.security.CustomUserDetailsService;
 import com.restaurante.security.JwtAuthenticationFilter;
 import com.restaurante.security.JwtSecurityExceptionHandlers;
+import com.restaurante.security.tenant.TenantContextFilter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -39,6 +41,7 @@ public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ObjectProvider<TenantContextFilter> tenantContextFilterProvider;
     private final JwtSecurityExceptionHandlers.JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtSecurityExceptionHandlers.JwtAccessDeniedHandler jwtAccessDeniedHandler;
     private final CorsConfigurationSource corsConfigurationSource;
@@ -87,6 +90,11 @@ public class SecurityConfig {
                 )
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
+        TenantContextFilter tenantContextFilter = tenantContextFilterProvider.getIfAvailable();
+        if (tenantContextFilter != null) {
+            http.addFilterAfter(tenantContextFilter, JwtAuthenticationFilter.class);
+        }
 
         // Permitir H2 Console (desenvolvimento) - desabilita frame protection e relaxa CSP
         http.headers(headers -> headers

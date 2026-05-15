@@ -1,6 +1,6 @@
 -- CONSUMA baseline schema
 -- Generated from current JPA/Hibernate metadata before Tenant Core refactor
--- Date: 2026-05-14
+-- Date: 2026-05-15
 -- Do not edit manually unless reviewed
 create table atendentes (ativo boolean not null, created_at timestamp(6) not null, id bigserial not null, updated_at timestamp(6), version bigint, telefone varchar(20), created_by varchar(100), email varchar(100) not null unique, modified_by varchar(100), nome varchar(100) not null, senha varchar(255) not null, tipo_usuario varchar(255) not null check (tipo_usuario in ('CLIENTE','ATENDENTE','COZINHA','GERENTE','ADMIN')), primary key (id));
 create table clientes (ativo boolean not null, telefone_verificado boolean not null, created_at timestamp(6) not null, id bigserial not null, otp_expiration timestamp(6), updated_at timestamp(6), version bigint, otp_code varchar(10), telefone varchar(20) not null unique, created_by varchar(100), modified_by varchar(100), nome varchar(100), tipo_usuario varchar(255) not null check (tipo_usuario in ('CLIENTE','ATENDENTE','COZINHA','GERENTE','ADMIN')), primary key (id));

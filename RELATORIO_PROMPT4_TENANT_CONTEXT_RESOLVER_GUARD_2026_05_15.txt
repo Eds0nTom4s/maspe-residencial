@@ -1,0 +1,119 @@
+CONSUMA Backend — Prompt 4 (TenantContext / Resolver / Guard — Infra de Tenancy por Request)
+Data: 2026-05-15 (Africa/Luanda)
+
+1) RESUMO EXECUTIVO
+- Criada infraestrutura de resolução contextual de tenant por request, integrada ao Spring Security (JWT) sem alterar JWT claims ainda.
+- Implementados: TenantContext, Holder, Resolver, Guard e Filter (com limpeza em finally).
+- Suporte inicial:
+  - resolução por JWT (via Authentication + TenantUser)
+  - seleção explícita por PLATFORM_ADMIN via header `X-Tenant-Id`/`X-Tenant-Code`
+  - modo legado: ausência de contexto não quebra endpoints antigos
+- Adicionados testes unitários para TenantResolver.
+- Garantido que testes existentes continuam passando (`mvn test` OK).
+
+2) COMPONENTES CRIADOS
+src/main/java/com/restaurante/security/tenant/TenantContext.java
+- record imutável: tenantId, tenantCode, userId, roles, source, platformAdmin, selectedByPlatformAdmin
+
+src/main/java/com/restaurante/security/tenant/TenantContextHolder.java
+- ThreadLocal com:
+  - set/get/require/clear
+- `clear()` executado obrigatoriamente pelo filtro em `finally` (sem vazamento entre requests)
+
+src/main/java/com/restaurante/security/tenant/TenantResolutionSource.java
+- Enum: JWT, PLATFORM_ADMIN_SELECTION, QR_TOKEN, DEVICE_TOKEN, PAYMENT_CALLBACK, LEGACY_NONE
+- Implementado efetivamente nesta fase: JWT + PLATFORM_ADMIN_SELECTION (outros apenas preparados)
+
+src/main/java/com/restaurante/security/tenant/TenantResolver.java
+- Resolve tenant a partir de:
+  - Authentication (JWT validado pelo JwtAuthenticationFilter)
+  - headers `X-Tenant-Id` / `X-Tenant-Code`
+- Regras:
+  - Usuário não-admin com 1 TenantUser ATIVO -> auto-resolve
+  - Usuário não-admin com múltiplos -> exige header (mas não quebra legado se header ausente)
+  - PLATFORM_ADMIN (provisório: ROLE_ADMIN) -> só resolve com header; não valida membership
+  - valida tenant ATIVO quando selecionado
+- Depende de repos via ObjectProvider para não quebrar testes slice (@WebMvcTest)
+
+src/main/java/com/restaurante/security/tenant/TenantGuard.java
+- API de validação contextual (infra):
+  - assertTenantActive, assertCurrentTenant, assertCurrentUserBelongsToTenant, assertResourceBelongsToTenant, assertPlatformAdmin, requireContext
+- Não aplicado globalmente ainda (uso incremental em fases futuras)
+
+src/main/java/com/restaurante/security/tenant/TenantContextFilter.java
+- OncePerRequestFilter que:
+  - resolve e seta TenantContext quando possível
+  - limpa sempre ao final
+- `@ConditionalOnBean(TenantResolver.class)` para não quebrar slices sem resolver
+
+3) INTEGRAÇÃO INICIAL COM SPRING SECURITY
+src/main/java/com/restaurante/config/SecurityConfig.java
+- `TenantContextFilter` passou a ser opcional via `ObjectProvider`, e é registrado no chain somente quando disponível.
+- Ordem:
+  - JwtAuthenticationFilter (autentica)
+  - TenantContextFilter (resolve tenant a partir do SecurityContext + headers)
+
+4) REPOSITORY / MEMBERSHIP
+src/main/java/com/restaurante/repository/TenantUserRepository.java
+- Adicionados métodos para resolução/membership:
+  - findByUserIdAndEstado
+  - existsByTenantIdAndUserIdAndEstado
+  - findByTenantIdAndUserIdAndEstado
+
+5) TESTES
+src/test/java/com/restaurante/security/tenant/TenantResolverTest.java
+- Casos cobertos:
+  - auto-resolve com membership único
+  - múltiplos memberships => exige header (resolve vazio)
+  - header com tenantId => valida membership
+  - ROLE_ADMIN (PLATFORM_ADMIN provisório) pode selecionar tenant sem membership
+  - header inválido => erro
+
+6) DOCUMENTAÇÃO
+docs/tenant-core/04-tenant-context-resolver-guard.md
+- Documenta a estratégia e as regras desta fase.
+
+7) COMANDOS EXECUTADOS
+- `mvn -q -DskipTests compile` -> OK
+- `mvn test -q` -> OK
+
+8) ARQUIVOS CRIADOS/ALTERADOS
+- Criados:
+  - src/main/java/com/restaurante/security/tenant/TenantContext.java
+  - src/main/java/com/restaurante/security/tenant/TenantContextHolder.java
+  - src/main/java/com/restaurante/security/tenant/TenantResolutionSource.java
+  - src/main/java/com/restaurante/security/tenant/TenantResolver.java
+  - src/main/java/com/restaurante/security/tenant/TenantGuard.java
+  - src/main/java/com/restaurante/security/tenant/TenantContextFilter.java
+  - src/test/java/com/restaurante/security/tenant/TenantResolverTest.java
+  - docs/tenant-core/04-tenant-context-resolver-guard.md
+- Alterados:
+  - src/main/java/com/restaurante/config/SecurityConfig.java
+  - src/main/java/com/restaurante/repository/TenantUserRepository.java
+
+9) DECISÕES TÉCNICAS IMPORTANTES
+- Não adicionamos tenantId no JWT nesta fase (evita mudanças invasivas em Auth/JWT).
+- Resolver usa banco (`TenantUser`) para inferir tenant quando possível.
+- Não aplicamos TenantGuard globalmente em todos endpoints para não quebrar legado.
+- ROLE_ADMIN tratado provisoriamente como PLATFORM_ADMIN (até existir role dedicado).
+
+10) RISCOS RESTANTES
+- Enquanto endpoints/repositories operacionais não forem tenant-scoped, ainda existe risco de data leakage.
+- Usuários autenticados via Atendente/Cliente (principal não persistido em `users`) não resolvem tenant automaticamente nesta fase.
+- Validação de roles tenant (TenantUserRole) fica para etapa onde JWT for tenant-aware (claims/authorities por tenant).
+
+11) CHECKLIST DE ACEITAÇÃO (PROMPT 4)
+[OK] TenantContext criado
+[OK] TenantContextHolder criado com clear em finally (filtro)
+[OK] TenantResolutionSource criado
+[OK] TenantResolver criado (JWT + seleção PLATFORM_ADMIN)
+[OK] TenantGuard criado
+[OK] Filtro/interceptor criado e integrado de forma não-invasiva
+[OK] Membership TenantUser validado quando seleção explícita for usada
+[OK] Suporte inicial para selection via header por ROLE_ADMIN (PLATFORM_ADMIN provisório)
+[OK] Testes criados e `mvn test` passa
+
+12) PRÓXIMO PROMPT RECOMENDADO
+Prompt 5 — Aplicação incremental de TenantGuard + início de “repositories tenant-scoped” (começando por Catálogo/Produto),
+com introdução gradual de `X-Tenant-Id`/JWT tenant-aware e hardening de endpoints.
+

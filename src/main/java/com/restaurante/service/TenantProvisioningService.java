@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ProvisioningException;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
@@ -36,8 +37,11 @@ import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.provisioning.ProvisioningPlan;
+import com.restaurante.service.provisioning.ProvisioningPlanCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -71,6 +75,7 @@ public class TenantProvisioningService {
     private final QrCodeOperacionalService qrCodeOperacionalService;
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
+    private final ProvisioningPlanCalculator planCalculator;
 
     @Value("${consuma.public-base-url:http://localhost:8080}")
     private String publicBaseUrl;
@@ -80,26 +85,41 @@ public class TenantProvisioningService {
         tenantGuard.assertPlatformAdmin();
 
         if (request.getTenant() == null) {
-            throw new BusinessException("Dados do tenant são obrigatórios.");
+            throw new ProvisioningException(HttpStatus.BAD_REQUEST, "TENANT_DADOS_OBRIGATORIOS", "tenant",
+                    "Dados do tenant são obrigatórios.");
         }
 
         Plano plano = planoRepository.findByCodigo(request.getPlanoCodigo())
                 .filter(Plano::getAtivo)
-                .orElseThrow(() -> new BusinessException("Plano inválido/inativo: " + request.getPlanoCodigo()));
+                .orElseThrow(() -> new ProvisioningException(HttpStatus.BAD_REQUEST, "PLANO_INVALIDO", "planoCodigo",
+                        "Plano inválido/inativo: " + request.getPlanoCodigo()));
 
         ProvisioningTemplate template = templateRepository.findByCodigoAndAtivoTrue(request.getTemplateCodigo())
-                .orElseThrow(() -> new BusinessException("Template inválido/inativo: " + request.getTemplateCodigo()));
+                .orElseThrow(() -> new ProvisioningException(HttpStatus.BAD_REQUEST, "TEMPLATE_INEXISTENTE_OU_INATIVO", "templateCodigo",
+                        "Template inválido/inativo: " + request.getTemplateCodigo()));
 
-        String slug = normalizeSlug(request.getTenant().getSlug());
-        if (tenantRepository.existsBySlug(slug)) {
-            throw new BusinessException("Slug já existe: " + slug);
+        ProvisioningPlan plan = planCalculator.calculate(
+                request,
+                template,
+                tenantRepository::existsBySlug,
+                tenantRepository::existsByTenantCode
+        );
+
+        String slug = plan.slugNormalized();
+        if (slug == null || slug.isBlank()) {
+            throw new ProvisioningException(HttpStatus.BAD_REQUEST, "TENANT_SLUG_INVALIDO", "tenant.slug", "Slug inválido.");
+        }
+        if (plan.slugAlreadyExists()) {
+            throw new ProvisioningException(HttpStatus.CONFLICT, "TENANT_SLUG_DUPLICADO", "tenant.slug",
+                    "Slug já existe: " + slug);
         }
 
-        String tenantCode = normalizeTenantCode(request.getTenant().getTenantCode());
+        String tenantCode = plan.tenantCodeNormalized();
         if (tenantCode == null || tenantCode.isBlank()) {
-            tenantCode = gerarTenantCodeUnico(slug);
-        } else if (tenantRepository.existsByTenantCode(tenantCode)) {
-            throw new BusinessException("tenantCode já existe: " + tenantCode);
+            tenantCode = plan.tenantCodeGenerated();
+        } else if (plan.tenantCodeAlreadyExists()) {
+            throw new ProvisioningException(HttpStatus.CONFLICT, "TENANT_CODE_DUPLICADO", "tenant.tenantCode",
+                    "tenantCode já existe: " + tenantCode);
         }
 
         boolean ativarTenant = request.getOpcoes() == null || request.getOpcoes().getAtivarTenant() == null || request.getOpcoes().getAtivarTenant();
@@ -144,42 +164,57 @@ public class TenantProvisioningService {
             tenantLimiteOverrideRepository.saveAndFlush(ov);
         }
 
-        // Resolve config final (template + overrides do request)
-        TemplateConfig cfg = parseTemplateConfig(template.getConfiguracaoJson());
-        boolean criarUnidade = request.getOpcoes() == null || Boolean.TRUE.equals(request.getOpcoes().getCriarUnidadeAtendimentoDefault());
-        boolean criarQrPrincipal = request.getOpcoes() == null || Boolean.TRUE.equals(request.getOpcoes().getCriarQrPrincipal());
-        boolean criarCategoriaDefault = request.getOpcoes() == null || Boolean.TRUE.equals(request.getOpcoes().getCriarCategoriaDefault());
+        // Resolve config final (template + overrides do request) via planCalculator
+        boolean criarUnidade = plan.criarUnidadeAtendimentoDefault();
+        boolean criarQrPrincipal = plan.criarQrPrincipal();
+        boolean criarCategoriaDefault = plan.criarCategoriaDefault();
+        boolean criarMesas = plan.criarMesas();
+        int quantidadeMesas = plan.quantidadeMesas();
+        boolean criarQrPorMesa = plan.criarQrPorMesa();
+        String prefixoMesa = plan.prefixoMesa();
 
-        boolean criarMesas = (request.getOpcoes() != null && request.getOpcoes().getCriarMesas() != null)
-                ? request.getOpcoes().getCriarMesas()
-                : (cfg != null && Boolean.TRUE.equals(cfg.criarMesas));
+        if (quantidadeMesas < 0) {
+            throw new ProvisioningException(HttpStatus.BAD_REQUEST, "QUANTIDADE_MESAS_INVALIDA", "opcoes.quantidadeMesas",
+                    "quantidadeMesas inválida.");
+        }
+        if (quantidadeMesas > 200) {
+            throw new ProvisioningException(HttpStatus.BAD_REQUEST, "QUANTIDADE_MESAS_EXCEDE_TETO", "opcoes.quantidadeMesas",
+                    "quantidadeMesas excede teto técnico (200).");
+        }
+        if (criarQrPorMesa && !criarMesas) {
+            throw new ProvisioningException(HttpStatus.BAD_REQUEST, "CRIAR_QR_POR_MESA_SEM_MESAS", "opcoes.criarQrPorMesa",
+                    "criarQrPorMesa exige criarMesas=true.");
+        }
 
-        int quantidadeMesas = (request.getOpcoes() != null && request.getOpcoes().getQuantidadeMesas() != null)
-                ? request.getOpcoes().getQuantidadeMesas()
-                : (cfg != null && cfg.quantidadeMesas != null ? cfg.quantidadeMesas : 0);
+        int unidadesNovas = plan.unidadesNovas();
+        int usuariosNovos = plan.usuariosNovos();
+        int qrNovos = plan.qrNovos();
 
-        boolean criarQrPorMesa = (request.getOpcoes() != null && request.getOpcoes().getCriarQrPorMesa() != null)
-                ? request.getOpcoes().getCriarQrPorMesa()
-                : (cfg != null && Boolean.TRUE.equals(cfg.criarQrPorMesa));
-
-        String prefixoMesa = (request.getOpcoes() != null && request.getOpcoes().getPrefixoMesa() != null && !request.getOpcoes().getPrefixoMesa().isBlank())
-                ? request.getOpcoes().getPrefixoMesa()
-                : (cfg != null ? cfg.prefixoMesa : null);
-        if (prefixoMesa == null || prefixoMesa.isBlank()) prefixoMesa = "Mesa";
-
-        if (quantidadeMesas < 0) throw new BusinessException("quantidadeMesas inválida.");
-        if (quantidadeMesas > 200) throw new BusinessException("quantidadeMesas excede teto técnico (200).");
-        if (criarQrPorMesa && !criarMesas) throw new BusinessException("criarQrPorMesa exige criarMesas=true.");
-
-        int unidadesNovas = criarUnidade ? 1 : 0;
-        int usuariosNovos = (request.getResponsavel() != null && (request.getResponsavel().getCriarUsuario() == null || request.getResponsavel().getCriarUsuario())) ? 1 : 0;
-        int qrNovos = (criarQrPrincipal ? 1 : 0) + (criarQrPorMesa ? quantidadeMesas : 0);
-
-        // Aplica limites: criação de Instituicao deve obedecer maxInstituicoes (mesmo no primeiro provisionamento).
-        tenantLimitService.assertCanCreateInstituicao(tenant.getId());
-        tenantLimitService.assertCanCreateUnidadeAtendimento(tenant.getId(), unidadesNovas);
-        tenantLimitService.assertCanCreateUser(tenant.getId(), usuariosNovos);
-        tenantLimitService.assertCanCreateQrCode(tenant.getId(), qrNovos);
+        // Aplica limites: valida antes de criar recursos operacionais.
+        try {
+            tenantLimitService.assertCanCreateInstituicao(tenant.getId());
+        } catch (BusinessException ex) {
+            throw new ProvisioningException(HttpStatus.CONFLICT, "MAX_INSTITUICOES_EXCEDIDO", "limites.maxInstituicoes",
+                    "Limite de instituições excedido para o tenant.");
+        }
+        try {
+            tenantLimitService.assertCanCreateUnidadeAtendimento(tenant.getId(), unidadesNovas);
+        } catch (BusinessException ex) {
+            throw new ProvisioningException(HttpStatus.CONFLICT, "MAX_UNIDADES_EXCEDIDO", "limites.maxUnidadesAtendimento",
+                    "Limite de unidades de atendimento excedido para o tenant.");
+        }
+        try {
+            tenantLimitService.assertCanCreateUser(tenant.getId(), usuariosNovos);
+        } catch (BusinessException ex) {
+            throw new ProvisioningException(HttpStatus.CONFLICT, "MAX_USUARIOS_EXCEDIDO", "limites.maxUsuarios",
+                    "Limite de usuários excedido para o tenant.");
+        }
+        try {
+            tenantLimitService.assertCanCreateQrCode(tenant.getId(), qrNovos);
+        } catch (BusinessException ex) {
+            throw new ProvisioningException(HttpStatus.CONFLICT, "MAX_QR_CODES_EXCEDIDO", "limites.maxQrCodes",
+                    "Limite de QR Codes excedido para o tenant.");
+        }
 
         Instituicao instituicao = criarInstituicao(tenant, request);
         UnidadeAtendimento unidade = null;
@@ -196,6 +231,10 @@ public class TenantProvisioningService {
         User owner = null;
         TenantUser tenantOwner = null;
         if (usuariosNovos > 0) {
+            if (request.getResponsavel() == null) {
+                throw new ProvisioningException(HttpStatus.BAD_REQUEST, "OWNER_DADOS_OBRIGATORIOS", "responsavel",
+                        "responsavel é obrigatório quando criarUsuario=true.");
+            }
             owner = criarOuReusarOwnerUser(request, unidade);
             tenantOwner = criarTenantOwner(tenant, owner, unidade);
         }
@@ -217,7 +256,8 @@ public class TenantProvisioningService {
         ArrayList<ProvisionarTenantResponse.MesaProvisionadaResponse> mesasResp = new ArrayList<>();
         if (criarMesas) {
             if (unidade == null) {
-                throw new BusinessException("Template exige mesas, mas unidade de atendimento não foi criada.");
+                throw new ProvisioningException(HttpStatus.BAD_REQUEST, "MESA_EXIGE_UNIDADE", "opcoes.criarUnidadeAtendimentoDefault",
+                        "Template exige mesas, mas unidade de atendimento não foi criada.");
             }
             for (int i = 1; i <= quantidadeMesas; i++) {
                 Mesa m = new Mesa();

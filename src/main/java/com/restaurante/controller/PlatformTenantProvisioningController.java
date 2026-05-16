@@ -2,11 +2,13 @@ package com.restaurante.controller;
 
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ApiResponse;
+import com.restaurante.dto.response.ProvisionarTenantPreviewResponse;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.ProvisioningTemplate;
 import com.restaurante.repository.ProvisioningTemplateRepository;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.TenantProvisioningService;
+import com.restaurante.service.TenantProvisioningPreviewService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +31,7 @@ public class PlatformTenantProvisioningController {
 
     private final TenantGuard tenantGuard;
     private final TenantProvisioningService provisioningService;
+    private final TenantProvisioningPreviewService provisioningPreviewService;
     private final ProvisioningTemplateRepository templateRepository;
 
     @PostMapping("/provisionar")
@@ -39,6 +42,14 @@ public class PlatformTenantProvisioningController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Tenant provisionado", resp));
     }
 
+    @PostMapping("/provisionar/preview")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<ProvisionarTenantPreviewResponse>> preview(@Valid @RequestBody ProvisionarTenantRequest request) {
+        tenantGuard.assertPlatformAdmin();
+        ProvisionarTenantPreviewResponse resp = provisioningPreviewService.preview(request);
+        return ResponseEntity.ok(ApiResponse.success("Preview de provisionamento", resp));
+    }
+
     @GetMapping("/templates")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<ProvisioningTemplate>>> listarTemplates() {
@@ -46,4 +57,3 @@ public class PlatformTenantProvisioningController {
         return ResponseEntity.ok(ApiResponse.success("Templates", templateRepository.findByAtivoTrue()));
     }
 }
-

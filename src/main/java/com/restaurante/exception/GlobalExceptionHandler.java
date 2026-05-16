@@ -16,6 +16,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Tratador global de exceções da aplicação
@@ -208,6 +209,33 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    /**
+     * Trata ProvisioningException (erros padronizados para endpoints platform de provisionamento).
+     */
+    @ExceptionHandler(ProvisioningException.class)
+    public ResponseEntity<ProvisioningErrorResponse> handleProvisioningException(
+            ProvisioningException ex, WebRequest request
+    ) {
+        HttpStatus status = ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.BAD_REQUEST;
+        String path = request.getDescription(false).replace("uri=", "");
+        String correlationId = UUID.randomUUID().toString();
+
+        ProvisioningErrorResponse resp = new ProvisioningErrorResponse(
+                LocalDateTime.now(),
+                status.value(),
+                "Provisioning error",
+                ex.getMessage(),
+                ex.getCode(),
+                ex.getField(),
+                ex.getDetail(),
+                ex.getRecommendedAction(),
+                path,
+                correlationId,
+                ex.getExtra()
+        );
+        return ResponseEntity.status(status).body(resp);
     }
 
     /**

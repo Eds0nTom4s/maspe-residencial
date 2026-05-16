@@ -67,6 +67,46 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Trata ConflictException (409) — idempotência/concorrência.
+     */
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflictException(
+            ConflictException ex, WebRequest request) {
+
+        log.warn("Conflito: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Conflito")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    /**
+     * Trata InvalidSignatureException (401) — callback com assinatura inválida.
+     */
+    @ExceptionHandler(InvalidSignatureException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidSignatureException(
+            InvalidSignatureException ex, WebRequest request) {
+
+        log.warn("Assinatura inválida: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .error("Assinatura inválida")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    /**
      * Trata erros de validação (Bean Validation)
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)

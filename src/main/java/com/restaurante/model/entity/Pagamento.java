@@ -29,6 +29,7 @@ import java.util.Objects;
  */
 @Entity
 @Table(name = "pagamentos_gateway", indexes = {
+    @Index(name = "idx_pagamento_tenant", columnList = "tenant_id"),
     @Index(name = "idx_pagamento_pedido", columnList = "pedido_id"),
     @Index(name = "idx_pagamento_fundo", columnList = "fundo_consumo_id"),
     @Index(name = "idx_pagamento_status", columnList = "status"),
@@ -36,6 +37,10 @@ import java.util.Objects;
     @Index(name = "idx_pagamento_gateway_charge", columnList = "gateway_charge_id")
 })
 public class Pagamento extends BaseEntity {
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
 
     /**
      * Pedido relacionado (nullable)
@@ -161,6 +166,7 @@ public class Pagamento extends BaseEntity {
     public Pedido getPedido() { return pedido; }
     public FundoConsumo getFundoConsumo() { return fundoConsumo; }
     public Cliente getCliente() { return cliente; }
+    public Tenant getTenant() { return tenant; }
     public TipoPagamentoFinanceiro getTipoPagamento() { return tipoPagamento; }
     public MetodoPagamentoAppyPay getMetodo() { return metodo; }
     public BigDecimal getAmount() { return amount; }
@@ -177,6 +183,7 @@ public class Pagamento extends BaseEntity {
     public void setPedido(Pedido pedido) { this.pedido = pedido; }
     public void setFundoConsumo(FundoConsumo fundoConsumo) { this.fundoConsumo = fundoConsumo; }
     public void setCliente(Cliente cliente) { this.cliente = cliente; }
+    public void setTenant(Tenant tenant) { this.tenant = tenant; }
     public void setTipoPagamento(TipoPagamentoFinanceiro tipoPagamento) { this.tipoPagamento = tipoPagamento; }
     public void setMetodo(MetodoPagamentoAppyPay metodo) { this.metodo = metodo; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
@@ -209,6 +216,7 @@ public class Pagamento extends BaseEntity {
     public static Builder builder() { return new Builder(); }
 
     public static class Builder {
+        private Tenant tenant;
         private Pedido pedido;
         private FundoConsumo fundoConsumo;
         private Cliente cliente;
@@ -224,6 +232,7 @@ public class Pagamento extends BaseEntity {
         private String gatewayResponse;
         private String observacoes;
 
+        public Builder tenant(Tenant tenant) { this.tenant = tenant; return this; }
         public Builder pedido(Pedido pedido) { this.pedido = pedido; return this; }
         public Builder fundoConsumo(FundoConsumo fundoConsumo) { this.fundoConsumo = fundoConsumo; return this; }
         public Builder cliente(Cliente cliente) { this.cliente = cliente; return this; }
@@ -240,9 +249,11 @@ public class Pagamento extends BaseEntity {
         public Builder observacoes(String observacoes) { this.observacoes = observacoes; return this; }
 
         public Pagamento build() {
-            return new Pagamento(pedido, fundoConsumo, cliente, tipoPagamento, metodo, amount, status,
+            Pagamento p = new Pagamento(pedido, fundoConsumo, cliente, tipoPagamento, metodo, amount, status,
                     externalReference, gatewayChargeId, entidade, referencia,
                     confirmedAt, gatewayResponse, observacoes);
+            p.setTenant(tenant);
+            return p;
         }
     }
 

@@ -20,6 +20,7 @@ import com.restaurante.model.enums.TipoTransacaoFundo;
 import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
 import com.restaurante.service.PedidoService;
 import org.slf4j.Logger;
@@ -69,6 +70,7 @@ public class PagamentoGatewayService {
     private final com.restaurante.service.SessaoConsumoService sessaoConsumoService;
     private final com.restaurante.repository.ClienteRepository clienteRepository;
     private final AppyPayProperties appyPayProperties;
+    private final TenantRepository tenantRepository;
 
 
     @Autowired
@@ -84,7 +86,8 @@ public class PagamentoGatewayService {
         NotificacaoService notificacaoService,
         com.restaurante.service.SessaoConsumoService sessaoConsumoService,
         com.restaurante.repository.ClienteRepository clienteRepository,
-        AppyPayProperties appyPayProperties
+        AppyPayProperties appyPayProperties,
+        TenantRepository tenantRepository
     ) {
         this.pagamentoRepository = pagamentoRepository;
         this.eventLogRepository = eventLogRepository;
@@ -98,6 +101,7 @@ public class PagamentoGatewayService {
         this.sessaoConsumoService = sessaoConsumoService;
         this.clienteRepository = clienteRepository;
         this.appyPayProperties = appyPayProperties;
+        this.tenantRepository = tenantRepository;
     }
     /**
      * Cria pagamento para recarga de fundo (PRÉ-PAGO)
@@ -148,6 +152,7 @@ public class PagamentoGatewayService {
         
         // Cria Pagamento (PENDENTE)
         Pagamento pagamento = Pagamento.builder()
+            .tenant(determinarTenantParaPagamento(fundo, null))
             .fundoConsumo(fundo)
             .pedido(null)
             .tipoPagamento(TipoPagamentoFinanceiro.PRE_PAGO)
@@ -290,6 +295,7 @@ public class PagamentoGatewayService {
         String externalRef = gerarExternalReference();
 
         Pagamento pagamento = Pagamento.builder()
+            .tenant(determinarTenantParaPagamento(null, cliente))
             .cliente(cliente)
             .tipoPagamento(TipoPagamentoFinanceiro.PRE_PAGO)
             .metodo(metodo)
@@ -492,6 +498,22 @@ public class PagamentoGatewayService {
         long timestamp = System.currentTimeMillis() % 100000000; // 8 dígitos
         int random = (int)(Math.random() * 1000); // 3 dígitos
         return String.format("REC%08d%03d", timestamp, random);
+    }
+
+    private Tenant determinarTenantParaPagamento(FundoConsumo fundo, Cliente cliente) {
+        try {
+            if (fundo != null && fundo.getSessaoConsumo() != null) {
+                Instituicao inst = fundo.getSessaoConsumo().getInstituicao();
+                if (inst == null && fundo.getSessaoConsumo().getMesa() != null) {
+                    inst = fundo.getSessaoConsumo().getMesa().getInstituicao();
+                }
+                if (inst != null && inst.getTenant() != null) {
+                    return inst.getTenant();
+                }
+            }
+        } catch (Exception ignored) {}
+        return tenantRepository.findByTenantCode("LEGACY")
+                .orElseThrow(() -> new IllegalStateException("Tenant LEGACY não encontrado para compatibilidade."));
     }
     
     /**

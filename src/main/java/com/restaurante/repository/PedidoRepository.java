@@ -22,6 +22,8 @@ import java.util.Optional;
 @Repository
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
+    Optional<Pedido> findByIdAndTenantId(Long id, Long tenantId);
+
     /**
      * Busca pedido por número
      */
@@ -140,4 +142,3 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
                                 @Param("inicio") LocalDateTime inicio,
                                 @Param("fim") LocalDateTime fim);
 }
-

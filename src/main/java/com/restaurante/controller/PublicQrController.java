@@ -3,8 +3,11 @@ package com.restaurante.controller;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.PublicCardapioResponse;
 import com.restaurante.dto.request.PublicQrPedidoRequest;
+import com.restaurante.dto.request.PublicQrPagamentoRequest;
 import com.restaurante.dto.response.PublicQrPedidoResponse;
+import com.restaurante.dto.response.PublicQrPagamentoResponse;
 import com.restaurante.dto.response.QrPublicContext;
+import com.restaurante.service.PublicQrPagamentoService;
 import com.restaurante.service.PublicQrPedidoService;
 import com.restaurante.service.QrCodeOperacionalService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -19,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 /**
  * Controller REST PÚBLICO para leitura de QR Codes operacionais.
@@ -33,6 +37,7 @@ public class PublicQrController {
 
     private final QrCodeOperacionalService qrCodeOperacionalService;
     private final PublicQrPedidoService publicQrPedidoService;
+    private final PublicQrPagamentoService publicQrPagamentoService;
 
     @GetMapping("/{token}")
     @Operation(summary = "Resolver QR operacional por token", description = "Retorna metadados públicos (tenant/instituição/unidade/mesa) a partir do token não enumerável.")
@@ -52,9 +57,22 @@ public class PublicQrController {
     @Operation(summary = "Criar pedido público por QR", description = "Cria pedido tenant-safe resolvendo tenant/instituição/unidade/mesa pelo token. Não processa pagamento.")
     public ResponseEntity<ApiResponse<PublicQrPedidoResponse>> criarPedido(
             @PathVariable String token,
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody PublicQrPedidoRequest request
     ) {
-        PublicQrPedidoResponse resp = publicQrPedidoService.criarPedidoPublicoPorQrToken(token, request);
+        PublicQrPedidoResponse resp = publicQrPedidoService.criarPedidoPublicoPorQrToken(token, idempotencyKey, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Pedido criado", resp));
+    }
+
+    @PostMapping("/{token}/pedidos/{pedidoId}/pagamentos")
+    @Operation(summary = "Iniciar pagamento de pedido por QR", description = "Inicia pagamento digital para um pedido já criado no fluxo público por QR. Não confirma pagamento nesta fase.")
+    public ResponseEntity<ApiResponse<PublicQrPagamentoResponse>> iniciarPagamento(
+            @PathVariable String token,
+            @PathVariable Long pedidoId,
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody PublicQrPagamentoRequest request
+    ) {
+        PublicQrPagamentoResponse resp = publicQrPagamentoService.iniciarPagamentoPedidoPorQr(token, pedidoId, idempotencyKey, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Pagamento iniciado", resp));
     }
 }

@@ -1,31 +1,43 @@
 package com.restaurante.financeiro.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.restaurante.exception.BusinessException;
 import com.restaurante.financeiro.enums.TipoEventoFinanceiro;
+import com.restaurante.financeiro.exception.InvalidCallbackSignatureException;
 import com.restaurante.financeiro.gateway.appypay.AppyPayHmacValidator;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayCallback;
+import com.restaurante.financeiro.repository.PagamentoCallbackLogRepository;
 import com.restaurante.financeiro.repository.PagamentoEventLogRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.Pagamento;
+import com.restaurante.model.entity.PagamentoCallbackLog;
 import com.restaurante.model.entity.PagamentoEventLog;
-import com.restaurante.notificacao.service.NotificacaoService;
+import com.restaurante.model.entity.Pedido;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.enums.CallbackProcessingStatus;
+import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.repository.PedidoRepository;
 import com.restaurante.service.SessaoConsumoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.Map;
+
 /**
- * Serviço para processar callbacks da AppyPay.
+ * Processa callbacks (webhooks) do gateway AppyPay.
  *
- * <p>Responsabilidades:
+ * <p>Requisitos críticos:
  * <ul>
- *   <li>Validar assinatura HMAC-SHA256 do payload recebido.</li>
- *   <li>Desserializar e localizar pagamento por merchantTransactionId.</li>
- *   <li>Confirmar, falhar ou cancelar o pagamento conforme status.</li>
- *   <li>Idempotência: callbacks duplicados são silenciosamente ignorados.</li>
- *   <li>Registrar auditoria de todos os eventos.</li>
+ *   <li>Segurança: validação HMAC/secret antes de alterar estado financeiro.</li>
+ *   <li>Auditoria: persistir log bruto do callback para suporte/reconciliação.</li>
+ *   <li>Idempotência: callbacks duplicados não podem confirmar duas vezes.</li>
+ *   <li>Concorrência: lock pessimista por externalReference.</li>
+ *   <li>Tenant safety: pagamento deve ter tenant e (se houver pedido) tenant deve bater.</li>
+ *   <li>Validação de valor: amount recebido (centavos) deve bater com pagamento.amount.</li>
  * </ul>
  */
 @Service
@@ -35,10 +47,12 @@ public class PagamentoCallbackService {
 
     private final PagamentoGatewayRepository pagamentoRepository;
     private final PagamentoEventLogRepository eventLogRepository;
+    private final PagamentoCallbackLogRepository callbackLogRepository;
     private final PagamentoGatewayService pagamentoGatewayService;
-    private final NotificacaoService notificacaoService;
     private final AppyPayHmacValidator hmacValidator;
     private final ObjectMapper objectMapper;
+    private final PedidoRepository pedidoRepository;
+
     // Injectado via setter para quebrar ciclo SessaoConsumoService ↔ PagamentoCallbackService
     private SessaoConsumoService sessaoConsumoService;
 
@@ -48,99 +62,162 @@ public class PagamentoCallbackService {
         this.sessaoConsumoService = sessaoConsumoService;
     }
 
-    /**
-     * Processa callback da AppyPay.
-     *
-     * <p>Fluxo:
-     * <ol>
-     *   <li>Valida assinatura HMAC-SHA256.</li>
-     *   <li>Desserializa payload em {@link AppyPayCallback}.</li>
-     *   <li>Busca pagamento por externalReference.</li>
-     *   <li>Processa conforme status (CONFIRMED / FAILED / CANCELLED).</li>
-     *   <li>Registra evento de auditoria.</li>
-     * </ol>
-     *
-     * @param rawBody   corpo bruto da requisição HTTP
-     * @param signature valor do header {@code X-AppyPay-Signature}
-     * @throws BusinessException se assinatura inválida ou pagamento não encontrado
-     */
     @Transactional
     public void processarCallback(String rawBody, String signature) {
+        processarCallback(rawBody, signature, Map.of());
+    }
 
-        // 1. Validação HMAC — rejeita qualquer payload não assinado pela AppyPay
+    @Transactional
+    public void processarCallback(String rawBody, String signature, Map<String, String> headers) {
+        PagamentoCallbackLog callbackLog = criarLogRecebido(rawBody, headers);
+
+        // 1) Validação HMAC (assinatura/secret)
         if (!hmacValidator.validar(rawBody, signature)) {
-            log.error("[CALLBACK] Assinatura HMAC inválida. Callback rejeitado.");
-            throw new BusinessException("Assinatura do callback inválida.");
+            callbackLog.setSignatureValid(false);
+            finalizarLog(callbackLog, CallbackProcessingStatus.INVALID_SIGNATURE, null);
+            throw new InvalidCallbackSignatureException("Assinatura do callback inválida.");
         }
+        callbackLog.setSignatureValid(true);
+        callbackLogRepository.save(callbackLog);
 
-        // 2. Desserializa payload
+        // 2) Parse do payload
         AppyPayCallback callback;
         try {
             callback = objectMapper.readValue(rawBody, AppyPayCallback.class);
         } catch (Exception e) {
-            log.error("[CALLBACK] Erro ao desserializar payload: {}", e.getMessage());
-            throw new BusinessException("Payload do callback inválido: " + e.getMessage());
+            finalizarLog(callbackLog, CallbackProcessingStatus.FAILED, "Payload inválido: " + e.getMessage());
+            return;
         }
 
-        log.info("[CALLBACK] Processando: merchantTxId={}, status={}",
-                callback.getMerchantTransactionId(), callback.getStatus());
+        callbackLog.setExternalReference(callback.getMerchantTransactionId());
+        callbackLog.setGatewayChargeId(callback.getChargeId());
+        callbackLog.setStatusRecebido(callback.getStatus());
+        callbackLog.setPayloadJson(serializeSilently(callback));
+        callbackLogRepository.save(callbackLog);
 
-        // 3. Busca pagamento
+        // 3) Resolver pagamento por externalReference, com lock pessimista
         Pagamento pagamento = pagamentoRepository
-                .findByExternalReference(callback.getMerchantTransactionId())
-                .orElseThrow(() -> new BusinessException(
-                        "Pagamento não encontrado: " + callback.getMerchantTransactionId()));
+                .findForUpdateByExternalReference(callback.getMerchantTransactionId())
+                .orElse(null);
 
-        // 4. Registra recebimento do callback
-        registrarEvento(
-                TipoEventoFinanceiro.CALLBACK_RECEBIDO,
-                pagamento,
-                "Callback AppyPay: status=" + callback.getStatus());
-
-        // 5. Processa conforme status
-        switch (callback.getStatus()) {
-            case "CONFIRMED" -> {
-                if (!pagamento.isConfirmado()) {
-                    if (pagamento.isPrePago()) {
-                        pagamentoGatewayService.confirmarPagamentoRecargaFundo(
-                                pagamento.getId(),
-                                "APPYPAY_CALLBACK",
-                                "SYSTEM",
-                                null);
-                        // Sprint 1: Regista actividade na sessão — blinda contra expiração
-                        // durante o processamento assíncrono do webhook AppyPay
-                        if (pagamento.getFundoConsumo() != null &&
-                                pagamento.getFundoConsumo().getSessaoConsumo() != null) {
-                            sessaoConsumoService.registrarAtividade(
-                                    pagamento.getFundoConsumo().getSessaoConsumo().getId(),
-                                    "Pagamento AppyPay confirmado: " + callback.getMerchantTransactionId());
-                        }
-                    } else {
-                        // TODO: Implementar confirmação pós-pago
-                        log.warn("[CALLBACK] Callback para pós-pago ainda não implementado.");
-                    }
-                } else {
-                    log.info("[CALLBACK] Pagamento já confirmado anteriormente. Callback duplicado ignorado.");
-                }
-            }
-            case "FAILED", "CANCELLED" -> {
-                if (!pagamento.getStatus().isTerminal()) {
-                    pagamento.marcarComoFalho("Gateway: " + callback.getStatus());
-                    pagamentoRepository.save(pagamento);
-                    registrarEvento(
-                            TipoEventoFinanceiro.PAGAMENTO_FALHOU,
-                            pagamento,
-                            "Pagamento falhou via callback: " + callback.getStatus());
-                }
-            }
-            default -> log.warn("[CALLBACK] Status desconhecido: {}", callback.getStatus());
+        if (pagamento == null) {
+            finalizarLog(callbackLog, CallbackProcessingStatus.PAYMENT_NOT_FOUND, null);
+            return;
         }
 
-        log.info("[CALLBACK] Processado com sucesso: merchantTxId={}",
-                callback.getMerchantTransactionId());
+        Tenant tenant = pagamento.getTenant();
+        callbackLog.setPagamento(pagamento);
+        callbackLog.setTenant(tenant);
+        callbackLogRepository.save(callbackLog);
+
+        if (tenant == null) {
+            finalizarLog(callbackLog, CallbackProcessingStatus.FAILED, "Pagamento sem tenant vinculado.");
+            return;
+        }
+
+        // Defesa em profundidade: se for pagamento de pedido, tenant deve bater
+        if (pagamento.getPedido() != null && pagamento.getPedido().getTenant() != null) {
+            if (!pagamento.getPedido().getTenant().getId().equals(tenant.getId())) {
+                finalizarLog(callbackLog, CallbackProcessingStatus.FAILED, "Tenant mismatch: pagamento.tenant != pedido.tenant");
+                return;
+            }
+        }
+
+        // 4) Auditoria de recebimento
+        registrarEvento(TipoEventoFinanceiro.CALLBACK_RECEBIDO, pagamento, "Callback AppyPay: status=" + callback.getStatus());
+
+        // 5) Processamento idempotente por status do gateway
+        switch (callback.getStatus()) {
+            case "CONFIRMED" -> processarConfirmed(callbackLog, callback, pagamento);
+            case "FAILED", "CANCELLED" -> processarFailedOrCancelled(callbackLog, callback, pagamento);
+            default -> finalizarLog(callbackLog, CallbackProcessingStatus.FAILED, "Status desconhecido: " + callback.getStatus());
+        }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
+    private void processarConfirmed(PagamentoCallbackLog callbackLog, AppyPayCallback callback, Pagamento pagamento) {
+        if (pagamento.isConfirmado()) {
+            finalizarLog(callbackLog, CallbackProcessingStatus.IGNORED_DUPLICATE, null);
+            return;
+        }
+
+        // Validação de valor (amount vem em centavos)
+        if (callback.getAmount() != null) {
+            long expectedCents = toCentavos(pagamento.getAmount());
+            if (!callback.getAmount().equals(expectedCents)) {
+                finalizarLog(callbackLog, CallbackProcessingStatus.FAILED,
+                        "Valor divergente. Esperado=" + expectedCents + " recebido=" + callback.getAmount());
+                return;
+            }
+        }
+
+        if (pagamento.isPrePago()) {
+            pagamentoGatewayService.confirmarPagamentoRecargaFundo(pagamento.getId(), "APPYPAY_CALLBACK", "SYSTEM", null);
+            if (pagamento.getFundoConsumo() != null && pagamento.getFundoConsumo().getSessaoConsumo() != null) {
+                sessaoConsumoService.registrarAtividade(
+                        pagamento.getFundoConsumo().getSessaoConsumo().getId(),
+                        "Pagamento AppyPay confirmado: " + callback.getMerchantTransactionId());
+            }
+        } else if (pagamento.isPosPago()) {
+            confirmarPagamentoPedidoQr(pagamento);
+        } else {
+            finalizarLog(callbackLog, CallbackProcessingStatus.FAILED, "Tipo de pagamento não suportado no callback: " + pagamento.getTipoPagamento());
+            return;
+        }
+
+        finalizarLog(callbackLog, CallbackProcessingStatus.PROCESSED, null);
+    }
+
+    private void processarFailedOrCancelled(PagamentoCallbackLog callbackLog, AppyPayCallback callback, Pagamento pagamento) {
+        if (!pagamento.getStatus().isTerminal()) {
+            pagamento.marcarComoFalho("Gateway: " + callback.getStatus());
+            pagamentoRepository.save(pagamento);
+            registrarEvento(TipoEventoFinanceiro.PAGAMENTO_FALHOU, pagamento, "Pagamento falhou via callback: " + callback.getStatus());
+        }
+        finalizarLog(callbackLog, CallbackProcessingStatus.PROCESSED, null);
+    }
+
+    private void confirmarPagamentoPedidoQr(Pagamento pagamento) {
+        Pedido pedido = pagamento.getPedido();
+        if (pedido == null) {
+            throw new IllegalStateException("Pagamento POS_PAGO sem pedido vinculado.");
+        }
+        if (pedido.getTenant() == null || pagamento.getTenant() == null ||
+                !pedido.getTenant().getId().equals(pagamento.getTenant().getId())) {
+            throw new IllegalStateException("Tenant mismatch ao confirmar pagamento POS_PAGO.");
+        }
+
+        // Confirma pagamento (idempotente)
+        pagamento.confirmar();
+        pagamentoRepository.save(pagamento);
+
+        // Marca pedido como pago (idempotente)
+        if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
+            pedido.marcarComoPago();
+            pedidoRepository.save(pedido);
+        }
+
+        registrarEvento(TipoEventoFinanceiro.CONFIRMACAO_PAGAMENTO, pagamento,
+                "Pagamento de pedido confirmado via callback: " + pagamento.getExternalReference());
+    }
+
+    private PagamentoCallbackLog criarLogRecebido(String rawBody, Map<String, String> headers) {
+        PagamentoCallbackLog logEntity = new PagamentoCallbackLog();
+        logEntity.setProvider("APPYPAY");
+        logEntity.setRawBody(rawBody);
+        logEntity.setHeadersJson(serializeSilently(headers));
+        logEntity.setProcessingStatus(CallbackProcessingStatus.RECEIVED);
+        logEntity.setProcessed(false);
+        logEntity.setReceivedAt(LocalDateTime.now());
+        return callbackLogRepository.save(logEntity);
+    }
+
+    private void finalizarLog(PagamentoCallbackLog logEntity, CallbackProcessingStatus status, String error) {
+        logEntity.setProcessingStatus(status);
+        logEntity.setProcessed(true);
+        logEntity.setProcessedAt(LocalDateTime.now());
+        logEntity.setProcessingError(error);
+        callbackLogRepository.save(logEntity);
+    }
 
     private void registrarEvento(TipoEventoFinanceiro tipo, Pagamento pagamento, String motivo) {
         PagamentoEventLog event = PagamentoEventLog.builder()
@@ -154,4 +231,22 @@ public class PagamentoCallbackService {
                 .build();
         eventLogRepository.save(event);
     }
+
+    private String serializeSilently(Object value) {
+        if (value == null) return null;
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static long toCentavos(BigDecimal amount) {
+        if (amount == null) return 0L;
+        return amount
+                .movePointRight(2)
+                .setScale(0, RoundingMode.HALF_UP)
+                .longValueExact();
+    }
 }
+

@@ -80,6 +80,8 @@ public class SecurityConfig {
                         
                         // Webhooks e callbacks (AppyPay)
                         .requestMatchers("/api/pagamentos/callback").permitAll()
+                        // Com server.servlet.context-path=/api, o servletPath exposto ao Spring Security é "/pagamentos/callback"
+                        .requestMatchers("/pagamentos/callback").permitAll()
                         .requestMatchers("/pagamentos/webhook").permitAll()
                         
                         // WebSocket endpoints (SockJS handshake deve ser permitido)

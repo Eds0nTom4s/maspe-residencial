@@ -15,6 +15,11 @@ import java.util.List;
 @Builder
 public class PublicQrPedidoRequest {
 
+    /**
+     * Chave de idempotência opcional no body (o header Idempotency-Key tem prioridade).
+     */
+    private String idempotencyKey;
+
     private String clienteNome;
     private String clienteTelefone;
     private String observacao;
@@ -23,4 +28,3 @@ public class PublicQrPedidoRequest {
     @Valid
     private List<PublicQrPedidoItemRequest> itens;
 }
-

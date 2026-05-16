@@ -18,6 +18,7 @@ package com.restaurante.model.enums;
  */
 public enum StatusFinanceiroPedido {
     NAO_PAGO("Não Pago"),
+    PENDENTE_PAGAMENTO("Pendente Pagamento"),
     PAGO("Pago"),
     ESTORNADO("Estornado");
 
@@ -36,6 +37,10 @@ public enum StatusFinanceiroPedido {
      */
     public boolean isPago() {
         return this == PAGO;
+    }
+
+    public boolean isPendente() {
+        return this == PENDENTE_PAGAMENTO;
     }
 
     /**

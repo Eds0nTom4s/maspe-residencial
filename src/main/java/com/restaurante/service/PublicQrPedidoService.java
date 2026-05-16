@@ -5,6 +5,7 @@ import com.restaurante.dto.request.PublicQrPedidoRequest;
 import com.restaurante.dto.response.PublicQrPedidoItemResponse;
 import com.restaurante.dto.response.PublicQrPedidoResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
@@ -12,6 +13,7 @@ import com.restaurante.model.entity.ItemPedido;
 import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
+import com.restaurante.model.entity.PublicQrOrderRequest;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
@@ -32,8 +34,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -51,9 +51,11 @@ public class PublicQrPedidoService {
     private final SubPedidoService subPedidoService;
     private final FundoConsumoService fundoConsumoService;
     private final SessaoConsumoService sessaoConsumoService;
+    private final PedidoNumberService pedidoNumberService;
+    private final PublicQrOrderIdempotencyService idempotencyService;
 
     @Transactional
-    public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, PublicQrPedidoRequest request) {
+    public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
         QrCodeOperacional qr = qrCodeOperacionalService.resolverOperacionalAtivoParaOperacao(token);
 
         Tenant tenant = qr.getTenant();
@@ -61,92 +63,109 @@ public class PublicQrPedidoService {
         UnidadeAtendimento unidadeAtendimento = unidadeAtendimentoEfetiva(qr);
         Mesa mesa = qr.getMesa();
 
+        String idemKey = idempotencyService.requireKey(idempotencyKeyHeader, request.getIdempotencyKey());
+        String requestHash = idempotencyService.computeRequestHash(request);
+
+        PublicQrOrderIdempotencyService.StartResult start = idempotencyService.startOrGet(tenant, qr, idemKey, requestHash);
+        if (start.isCompleted()) {
+            return mapPedidoToResponse(start.completedPedido());
+        }
+
         List<Produto> produtos = validarECarregarProdutosDoTenant(tenant.getId(), request.getItens());
 
         SessaoConsumo sessao = resolverOuCriarSessaoMinima(qr, instituicao, unidadeAtendimento, mesa);
 
-        Pedido pedido = new Pedido();
-        pedido.setTenant(tenant);
-        pedido.setNumero(gerarNumeroPedido());
-        pedido.setSessaoConsumo(sessao);
-        pedido.setStatus(StatusPedido.CRIADO);
-        pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
-        pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
-        pedido.setObservacoes(request.getObservacao());
+        PublicQrOrderRequest idemReq = start.request();
+        try {
+            Pedido pedido = new Pedido();
+            pedido.setTenant(tenant);
+            pedido.setNumero(pedidoNumberService.gerarNumeroPedido(tenant.getId()));
+            pedido.setSessaoConsumo(sessao);
+            pedido.setStatus(StatusPedido.CRIADO);
+            pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
+            pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
+            pedido.setObservacoes(request.getObservacao());
 
-        Map<Cozinha, List<PublicQrPedidoItemRequest>> requestsPorCozinha = agruparItensPorCozinha(unidadeAtendimento.getId(), request.getItens(), produtos);
+            Map<Cozinha, List<PublicQrPedidoItemRequest>> requestsPorCozinha = agruparItensPorCozinha(unidadeAtendimento.getId(), request.getItens(), produtos);
 
-        pedido = pedidoRepository.save(pedido);
+            pedido = pedidoRepository.save(pedido);
 
-        List<PublicQrPedidoItemResponse> itensResponse = new ArrayList<>();
-        int contadorSubPedido = 1;
+            List<PublicQrPedidoItemResponse> itensResponse = new ArrayList<>();
+            int contadorSubPedido = 1;
 
-        for (Map.Entry<Cozinha, List<PublicQrPedidoItemRequest>> entry : requestsPorCozinha.entrySet()) {
-            Cozinha cozinha = entry.getKey();
-            List<PublicQrPedidoItemRequest> itensReq = entry.getValue();
+            for (Map.Entry<Cozinha, List<PublicQrPedidoItemRequest>> entry : requestsPorCozinha.entrySet()) {
+                Cozinha cozinha = entry.getKey();
+                List<PublicQrPedidoItemRequest> itensReq = entry.getValue();
 
-            SubPedido subPedido = SubPedido.builder()
-                    .numero(pedido.getNumero() + "-" + contadorSubPedido)
-                    .pedido(pedido)
-                    .cozinha(cozinha)
-                    .unidadeAtendimento(unidadeAtendimento)
-                    .status(StatusSubPedido.CRIADO)
-                    .build();
-            subPedido.setTenant(tenant);
-            contadorSubPedido++;
-
-            for (PublicQrPedidoItemRequest itemReq : itensReq) {
-                Produto produto = produtos.stream()
-                        .filter(p -> p.getId().equals(itemReq.getProdutoId()))
-                        .findFirst()
-                        .orElseThrow(() -> new BusinessException("Produto inválido ou indisponível."));
-
-                ItemPedido item = ItemPedido.builder()
+                SubPedido subPedido = SubPedido.builder()
+                        .numero(pedido.getNumero() + "-" + contadorSubPedido)
                         .pedido(pedido)
-                        .subPedido(subPedido)
-                        .produto(produto)
-                        .quantidade(itemReq.getQuantidade())
-                        .precoUnitario(produto.getPreco())
-                        .observacoes(itemReq.getObservacao())
+                        .cozinha(cozinha)
+                        .unidadeAtendimento(unidadeAtendimento)
+                        .status(StatusSubPedido.CRIADO)
                         .build();
-                item.setTenant(tenant);
-                item.calcularSubtotal();
+                subPedido.setTenant(tenant);
+                contadorSubPedido++;
 
-                pedido.adicionarItem(item);
-                subPedido.adicionarItem(item);
+                for (PublicQrPedidoItemRequest itemReq : itensReq) {
+                    Produto produto = produtos.stream()
+                            .filter(p -> p.getId().equals(itemReq.getProdutoId()))
+                            .findFirst()
+                            .orElseThrow(() -> new BusinessException("Produto inválido ou indisponível."));
 
-                itensResponse.add(PublicQrPedidoItemResponse.builder()
-                        .produtoId(produto.getId())
-                        .nome(produto.getNome())
-                        .quantidade(itemReq.getQuantidade())
-                        .precoUnitario(produto.getPreco())
-                        .subtotal(item.getSubtotal())
-                        .build());
+                    ItemPedido item = ItemPedido.builder()
+                            .pedido(pedido)
+                            .subPedido(subPedido)
+                            .produto(produto)
+                            .quantidade(itemReq.getQuantidade())
+                            .precoUnitario(produto.getPreco())
+                            .observacoes(itemReq.getObservacao())
+                            .build();
+                    item.setTenant(tenant);
+                    item.calcularSubtotal();
+
+                    pedido.adicionarItem(item);
+                    subPedido.adicionarItem(item);
+
+                    itensResponse.add(PublicQrPedidoItemResponse.builder()
+                            .produtoId(produto.getId())
+                            .nome(produto.getNome())
+                            .quantidade(itemReq.getQuantidade())
+                            .precoUnitario(produto.getPreco())
+                            .subtotal(item.getSubtotal())
+                            .build());
+                }
+
+                subPedido.calcularTotal();
+                pedido.getSubPedidos().add(subPedido);
             }
 
-            subPedido.calcularTotal();
-            pedido.getSubPedidos().add(subPedido);
+            pedido.calcularTotal();
+            pedidoRepository.save(pedido);
+
+            sessaoConsumoService.registrarAtividade(sessao, "Pedido público por QR criado: " + pedido.getNumero());
+            idempotencyService.markCompleted(idemReq, pedido);
+
+            return PublicQrPedidoResponse.builder()
+                    .pedidoId(pedido.getId())
+                    .numero(pedido.getNumero())
+                    .statusOperacional(pedido.getStatus())
+                    .statusFinanceiro(pedido.getStatusFinanceiro())
+                    .tenantNome(tenant.getNome())
+                    .instituicaoNome(instituicao.getNome())
+                    .unidadeAtendimentoNome(unidadeAtendimento.getNome())
+                    .mesaReferencia(mesa != null ? mesa.getReferencia() : null)
+                    .mesaNumero(mesa != null ? mesa.getNumero() : null)
+                    .total(pedido.getTotal())
+                    .itens(itensResponse)
+                    .mensagem("Pedido criado com sucesso")
+                    .build();
+        } catch (ConflictException e) {
+            throw e;
+        } catch (Exception e) {
+            idempotencyService.markFailed(idemReq);
+            throw e;
         }
-
-        pedido.calcularTotal();
-        pedidoRepository.save(pedido);
-
-        sessaoConsumoService.registrarAtividade(sessao, "Pedido público por QR criado: " + pedido.getNumero());
-
-        return PublicQrPedidoResponse.builder()
-                .pedidoId(pedido.getId())
-                .numero(pedido.getNumero())
-                .statusOperacional(pedido.getStatus())
-                .statusFinanceiro(pedido.getStatusFinanceiro())
-                .tenantNome(tenant.getNome())
-                .instituicaoNome(instituicao.getNome())
-                .unidadeAtendimentoNome(unidadeAtendimento.getNome())
-                .mesaReferencia(mesa != null ? mesa.getReferencia() : null)
-                .mesaNumero(mesa != null ? mesa.getNumero() : null)
-                .total(pedido.getTotal())
-                .itens(itensResponse)
-                .mensagem("Pedido criado com sucesso")
-                .build();
     }
 
     private UnidadeAtendimento unidadeAtendimentoEfetiva(QrCodeOperacional qr) {
@@ -196,9 +215,18 @@ public class PublicQrPedidoService {
             Mesa mesa
     ) {
         if (qr.getTipo() == QrCodeOperacionalTipo.MESA && mesa != null) {
-            return sessaoConsumoRepository.findByMesaIdAndStatus(mesa.getId(), StatusSessaoConsumo.ABERTA)
-                    .filter(s -> s.getInstituicao() != null && s.getInstituicao().getId().equals(instituicao.getId()))
-                    .orElseGet(() -> criarSessaoMinima(instituicao, unidadeAtendimento, mesa));
+            List<SessaoConsumo> abertas = sessaoConsumoRepository.findAllByMesaIdAndStatus(mesa.getId(), StatusSessaoConsumo.ABERTA);
+            if (abertas.size() > 1) {
+                throw new BusinessException("Mesa possui mais de uma sessão aberta.");
+            }
+            if (abertas.size() == 1) {
+                SessaoConsumo s = abertas.get(0);
+                if (s.getInstituicao() == null || !s.getInstituicao().getId().equals(instituicao.getId())) {
+                    throw new BusinessException("Sessão aberta inválida para a mesa.");
+                }
+                return s;
+            }
+            return criarSessaoMinima(instituicao, unidadeAtendimento, mesa);
         }
         return criarSessaoMinima(instituicao, unidadeAtendimento, mesa);
     }
@@ -218,9 +246,42 @@ public class PublicQrPedidoService {
         return salva;
     }
 
-    private String gerarNumeroPedido() {
-        String dataAtual = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        long count = pedidoRepository.count() + 1;
-        return String.format("PED-%s-%03d", dataAtual, count);
+    private PublicQrPedidoResponse mapPedidoToResponse(Pedido pedido) {
+        if (pedido == null) {
+            throw new ResourceNotFoundException("Pedido", "id", null);
+        }
+
+        SessaoConsumo sessao = pedido.getSessaoConsumo();
+        Instituicao inst = sessao != null ? sessao.getInstituicao() : null;
+        UnidadeAtendimento ua = sessao != null ? (sessao.getUnidadeAtendimento() != null ? sessao.getUnidadeAtendimento()
+                : (sessao.getMesa() != null ? sessao.getMesa().getUnidadeAtendimento() : null)) : null;
+        Mesa mesa = sessao != null ? sessao.getMesa() : null;
+
+        List<PublicQrPedidoItemResponse> itens = pedido.getItens() != null
+                ? pedido.getItens().stream()
+                .map(i -> PublicQrPedidoItemResponse.builder()
+                        .produtoId(i.getProduto() != null ? i.getProduto().getId() : null)
+                        .nome(i.getProduto() != null ? i.getProduto().getNome() : null)
+                        .quantidade(i.getQuantidade())
+                        .precoUnitario(i.getPrecoUnitario())
+                        .subtotal(i.getSubtotal())
+                        .build())
+                .toList()
+                : List.of();
+
+        return PublicQrPedidoResponse.builder()
+                .pedidoId(pedido.getId())
+                .numero(pedido.getNumero())
+                .statusOperacional(pedido.getStatus())
+                .statusFinanceiro(pedido.getStatusFinanceiro())
+                .tenantNome(pedido.getTenant() != null ? pedido.getTenant().getNome() : null)
+                .instituicaoNome(inst != null ? inst.getNome() : null)
+                .unidadeAtendimentoNome(ua != null ? ua.getNome() : null)
+                .mesaReferencia(mesa != null ? mesa.getReferencia() : null)
+                .mesaNumero(mesa != null ? mesa.getNumero() : null)
+                .total(pedido.getTotal())
+                .itens(itens)
+                .mensagem("Pedido já criado anteriormente")
+                .build();
     }
 }

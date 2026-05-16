@@ -34,6 +34,12 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
     Optional<SessaoConsumo> findByMesaIdAndStatus(Long mesaId, StatusSessaoConsumo status);
 
     /**
+     * Busca todas as sessões de uma mesa com determinado status.
+     * Útil para hardening quando invariantes foram quebradas (ex: múltiplas ABERTAS).
+     */
+    List<SessaoConsumo> findAllByMesaIdAndStatus(Long mesaId, StatusSessaoConsumo status);
+
+    /**
      * Histórico de sessões de uma mesa, ordenado da mais recente para a mais antiga.
      */
     List<SessaoConsumo> findByMesaIdOrderByAbertaEmDesc(Long mesaId);

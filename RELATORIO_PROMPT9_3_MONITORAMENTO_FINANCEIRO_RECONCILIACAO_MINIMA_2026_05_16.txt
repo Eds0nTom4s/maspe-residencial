@@ -1,0 +1,111 @@
+CONSUMA Backend — Prompt 9.3
+Monitoramento financeiro mínimo e reconciliação operacional leve (tenant-aware)
+Data: 2026-05-16 (Africa/Luanda)
+
+1) Resumo executivo
+- Implementada camada de leitura para:
+  - pagamentos por tenant (tenant-scoped)
+  - callback logs por tenant
+  - visão global para PLATFORM_ADMIN (inclui callbacks sem tenant)
+  - sinalização de pendências antigas por timeout configurável
+  - resumos operacionais (tenant e platform)
+- Nenhuma lógica de criação/confirmação de pagamento/callback foi alterada nesta fase (apenas consultas/DTOs/endpoints).
+
+2) DTOs criados
+- `src/main/java/com/restaurante/financeiro/monitoramento/dto/PagamentoResumoDTO.java`
+- `src/main/java/com/restaurante/financeiro/monitoramento/dto/CallbackLogResumoDTO.java`
+- `src/main/java/com/restaurante/financeiro/monitoramento/dto/CallbackLogDetalheDTO.java` (apenas platform)
+- `src/main/java/com/restaurante/financeiro/monitoramento/dto/FinanceiroTenantResumoDTO.java`
+- `src/main/java/com/restaurante/financeiro/monitoramento/dto/FinanceiroPlatformResumoDTO.java`
+- `src/main/java/com/restaurante/financeiro/monitoramento/dto/PagamentoMonitoramentoFiltro.java`
+
+3) Service criado
+- `src/main/java/com/restaurante/financeiro/service/PagamentoMonitoramentoService.java`
+  - timeout configurável: `consuma.pagamentos.monitoramento.pendente-timeout-minutos` (default 30)
+  - tenant safety: valida tenant ativo + membership via `TenantGuard.assertCurrentUserBelongsToTenant`
+  - platform safety: valida `TenantGuard.assertPlatformAdmin`
+  - divergências básicas são computadas (heurística), não persistidas
+
+4) Repositories / queries adicionadas
+- `src/main/java/com/restaurante/financeiro/repository/PagamentoGatewayRepository.java`
+  - métodos tenant-scoped (`findByIdAndTenantId`, `findByTenantId*`)
+  - buscas com filtros (`searchTenantPagamentos`, `searchPlatformPagamentos`)
+  - contagens/somas e pendentes antigos (`countPendentesAntigos*`)
+- `src/main/java/com/restaurante/financeiro/repository/PagamentoCallbackLogRepository.java`
+  - paginação por tenant/status
+  - `findByTenantIdIsNull` (somente platform)
+  - `findFirstByPagamentoIdOrderByReceivedAtDesc` (último callback por pagamento)
+
+5) Controllers criados
+Tenant:
+- `src/main/java/com/restaurante/financeiro/controller/TenantFinanceiroController.java`
+  - `GET /api/tenant/financeiro/pagamentos`
+  - `GET /api/tenant/financeiro/pagamentos/{pagamentoId}`
+  - `GET /api/tenant/financeiro/callbacks`
+  - `GET /api/tenant/financeiro/resumo`
+
+Platform:
+- `src/main/java/com/restaurante/financeiro/controller/PlatformFinanceiroController.java`
+  - `GET /api/platform/financeiro/pagamentos`
+  - `GET /api/platform/financeiro/callbacks`
+  - `GET /api/platform/financeiro/callbacks/sem-tenant`
+  - `GET /api/platform/financeiro/callbacks/{id}`
+  - `GET /api/platform/financeiro/resumo`
+
+6) Estratégia de segurança
+- Tenant endpoints dependem de `TenantContext` e membership via `TenantGuard` (sem aceitar `tenantId` em query).
+- Platform endpoints exigem `TenantGuard.assertPlatformAdmin` e permitem filtro opcional por `tenantId`.
+- Raw callback (`headers_json`/`payload_json`/`raw_body`) só é retornado no detalhe platform.
+
+7) Estratégia de pendências antigas
+- Pagamento pendente antigo:
+  - `status = PENDENTE`
+  - `createdAt < now - timeoutMinutos`
+- Apenas sinalização (DTO/resumo). Não cancela nem altera estados.
+
+8) Estratégia de divergências básicas
+- Heurística (computada no DTO), por exemplo:
+  - callback `FAILED/INVALID_SIGNATURE/PAYMENT_NOT_FOUND`
+  - erro contendo “Valor divergente”
+  - pagamento CONFIRMADO com pedido não PAGO
+  - pagamento pendente antigo
+
+9) Testes criados
+- `src/test/java/com/restaurante/financeiro/TenantFinanceiroControllerIT.java`
+  - tenant A lista apenas pagamentos/callbacks do tenant A
+  - tenant A não consegue buscar pagamento do tenant B
+- `src/test/java/com/restaurante/financeiro/PlatformFinanceiroControllerIT.java`
+  - platform admin lista pagamentos globais
+  - platform admin vê callbacks sem tenant e detalhe
+
+10) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+11) Resultado dos comandos
+- BUILD SUCCESS
+
+12) Documentação
+- `docs/tenant-core/09-3-monitoramento-reconciliacao-minima.md`
+
+13) Riscos restantes (deliberados)
+- Divergências de valor ainda não são agregadas em métrica (resumo usa 0 por enquanto).
+- Não há polling/consulta ativa ao gateway para pendências REF (fase futura).
+- Não há painel visual/admin completo; endpoints são base para UI.
+
+14) Checklist de aceitação
+- [x] tenant admin lista apenas pagamentos do próprio tenant
+- [x] tenant admin não busca pagamento de outro tenant
+- [x] platform admin lista pagamentos globais
+- [x] callback logs listáveis por tenant
+- [x] logs sem tenant visíveis apenas para platform admin
+- [x] pendentes antigos sinalizados (timeout)
+- [x] divergências básicas sinalizadas (heurística)
+- [x] raw body/headers não expostos no tenant
+- [x] resumo por tenant e platform disponível
+- [x] testes de isolamento passam
+- [x] conciliação bancária formal não implementada
+
+15) Próximo prompt recomendado
+- Prompt 9.4 — Polling controlado/consulta ativa ao gateway para pendências REF + alertas operacionais (sem settlement)
+

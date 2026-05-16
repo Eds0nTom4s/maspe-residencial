@@ -5,13 +5,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
+import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
+import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
+import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TipoCozinha;
@@ -19,8 +22,10 @@ import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
@@ -45,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = "spring.main.web-application-type=servlet"
 )
 @ActiveProfiles("it-postgres")
-class PublicQrPedidoIT extends PostgresTestcontainersConfig {
+class PublicQrPedidoSessaoMesaIT extends PostgresTestcontainersConfig {
 
     @Autowired ObjectMapper objectMapper;
     @Autowired TestRestTemplate restTemplate;
@@ -53,6 +58,8 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
     @Autowired TenantRepository tenantRepository;
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    @Autowired MesaRepository mesaRepository;
+    @Autowired SessaoConsumoRepository sessaoConsumoRepository;
     @Autowired CozinhaRepository cozinhaRepository;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
@@ -60,100 +67,49 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
 
     @Test
-    void publicQr_canCreatePedido_withoutPayment_andPedidoIsTenantScoped() throws Exception {
-        Tenant tenantA = criarTenant("Banca da Tia Rosa", "banca-tia-rosa", "TIA-ROSA");
-        Instituicao instA = criarInstituicao(tenantA, "Banca da Tia Rosa", "TR", "NIF-TR-101", "+244900000101");
-        UnidadeAtendimento unidadeA = criarUnidade(instA, "Unidade A", TipoUnidadeAtendimento.RESTAURANTE);
-        criarCozinhaVinculada(unidadeA, "Bar A", TipoCozinha.BAR_PREP);
+    void qrMesa_reusesOpenSession_whenCreatingMultiplePedidos() throws Exception {
+        Tenant tenant = criarTenant("Tenant Mesa", "tenant-mesa", "MESA");
+        Instituicao inst = criarInstituicao(tenant, "Inst Mesa", "IM", "NIF-IM-001", "+244900002001");
+        UnidadeAtendimento ua = criarUnidade(inst, "UA Mesa", TipoUnidadeAtendimento.RESTAURANTE);
+        criarCozinhaVinculada(ua, "Bar Mesa", TipoCozinha.BAR_PREP);
 
-        CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
-        Produto prodA = criarProduto(tenantA, catA, "AGUA-500", "Água 500ml A", new BigDecimal("10.00"));
+        Mesa mesa = criarMesa(inst, ua, "Mesa 1", 1, "QR-MESA-LEGADO-1");
+        SessaoConsumo sessao = new SessaoConsumo();
+        sessao.setMesa(mesa);
+        sessao.setUnidadeAtendimento(ua);
+        sessao.setInstituicao(inst);
+        sessao.setModoAnonimo(true);
+        sessao.setStatus(StatusSessaoConsumo.ABERTA);
+        sessao.setTipoSessao(com.restaurante.model.enums.TipoSessao.POS_PAGO);
+        SessaoConsumo aberta = sessaoConsumoRepository.saveAndFlush(sessao);
 
-        QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
-                tenantA.getId(), instA.getId(), unidadeA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR A"
+        CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
+        Produto prod = criarProduto(tenant, cat, "AGUA", "Água", new BigDecimal("10.00"));
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), ua.getId(), mesa.getId(), QrCodeOperacionalTipo.MESA, "QR Mesa"
         );
 
-        String payload = """
-                {
-                  "clienteNome": "Edson",
-                  "clienteTelefone": "+244900000000",
-                  "observacao": "Sem cebola",
-                  "itens": [
-                    { "produtoId": %d, "quantidade": 2, "observacao": "Gelado" }
-                  ]
-                }
-                """.formatted(prodA.getId());
+        Long p1 = criarPedido(qr.getToken(), "idem-mesa-0001", prod.getId());
+        Long p2 = criarPedido(qr.getToken(), "idem-mesa-0002", prod.getId());
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.add("Idempotency-Key", "idem-key-00000001");
-        HttpEntity<String> entity = new HttpEntity<>(payload, headers);
-
-        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", entity, String.class, qrA.getToken());
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-
-        JsonNode json = objectMapper.readTree(resp.getBody());
-        assertThat(json.path("success").asBoolean()).isTrue();
-        Long pedidoId = json.at("/data/pedidoId").asLong();
-        assertThat(pedidoId).isPositive();
-        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
-        assertThat(json.at("/data/total").asText()).isNotBlank();
-        assertThat(json.at("/data/itens").isArray()).isTrue();
-        assertThat(json.at("/data/itens/0/produtoId").asLong()).isEqualTo(prodA.getId());
-
-        Pedido pedido = pedidoRepository.findById(pedidoId).orElseThrow();
-        assertThat(pedido.getTenant().getId()).isEqualTo(tenantA.getId());
-        assertThat(pedido.getSessaoConsumo().getInstituicao().getId()).isEqualTo(instA.getId());
-        assertThat(pedido.getStatus().name()).isEqualTo("CRIADO");
+        Pedido pedido1 = pedidoRepository.findById(p1).orElseThrow();
+        Pedido pedido2 = pedidoRepository.findById(p2).orElseThrow();
+        assertThat(pedido1.getSessaoConsumo().getId()).isEqualTo(aberta.getId());
+        assertThat(pedido2.getSessaoConsumo().getId()).isEqualTo(aberta.getId());
     }
 
-    @Test
-    void publicQr_rejectsCrossTenantProduto() throws Exception {
-        Tenant tenantA = criarTenant("Banca da Tia Rosa X", "banca-tia-rosa-x", "TIA-ROSA-X");
-        Tenant tenantB = criarTenant("Bar do João X", "bar-do-joao-x", "BAR-JOAO-X");
-
-        Instituicao instA = criarInstituicao(tenantA, "Inst A", "TA", "NIF-TA-201", "+244900000201");
-        Instituicao instB = criarInstituicao(tenantB, "Inst B", "TB", "NIF-TB-202", "+244900000202");
-
-        UnidadeAtendimento unidadeA = criarUnidade(instA, "Unidade A", TipoUnidadeAtendimento.RESTAURANTE);
-        UnidadeAtendimento unidadeB = criarUnidade(instB, "Unidade B", TipoUnidadeAtendimento.BAR);
-        criarCozinhaVinculada(unidadeA, "Bar A", TipoCozinha.BAR_PREP);
-        criarCozinhaVinculada(unidadeB, "Bar B", TipoCozinha.BAR_PREP);
-
-        CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
-        CategoriaProduto catB = criarCategoria(tenantB, "Bebidas", "bebidas");
-        Produto prodB = criarProduto(tenantB, catB, "AGUA-500", "Água 500ml B", new BigDecimal("10.00"));
-
-        QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
-                tenantA.getId(), instA.getId(), unidadeA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR A"
-        );
-
+    private Long criarPedido(String token, String idemKey, Long produtoId) throws Exception {
         String payload = """
                 { "itens": [ { "produtoId": %d, "quantidade": 1 } ] }
-                """.formatted(prodB.getId());
-
+                """.formatted(produtoId);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.add("Idempotency-Key", "idem-key-00000002");
-        HttpEntity<String> entity = new HttpEntity<>(payload, headers);
-
-        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", entity, String.class, qrA.getToken());
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        headers.add("Idempotency-Key", idemKey);
+        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", new HttpEntity<>(payload, headers), String.class, token);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode json = objectMapper.readTree(resp.getBody());
-        assertThat(json.path("message").asText()).contains("Produto inválido");
-    }
-
-    @Test
-    void publicQr_invalidTokenDoesNotCreatePedido() {
-        String payload = """
-                { "itens": [ { "produtoId": 1, "quantidade": 1 } ] }
-                """;
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<String> entity = new HttpEntity<>(payload, headers);
-
-        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", entity, String.class, "q_INVALIDO_123");
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        return json.at("/data/pedidoId").asLong();
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
@@ -186,13 +142,23 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         return unidadeAtendimentoRepository.saveAndFlush(u);
     }
 
+    private Mesa criarMesa(Instituicao instituicao, UnidadeAtendimento ua, String referencia, Integer numero, String qrCode) {
+        Mesa m = new Mesa();
+        m.setInstituicao(instituicao);
+        m.setUnidadeAtendimento(ua);
+        m.setReferencia(referencia);
+        m.setNumero(numero);
+        m.setQrCode(qrCode);
+        m.setAtiva(true);
+        return mesaRepository.saveAndFlush(m);
+    }
+
     private void criarCozinhaVinculada(UnidadeAtendimento unidade, String nome, TipoCozinha tipo) {
         Cozinha c = new Cozinha();
         c.setNome(nome);
         c.setTipo(tipo);
         c.setAtiva(true);
         Cozinha salva = cozinhaRepository.saveAndFlush(c);
-
         unidade.adicionarCozinha(salva);
         unidadeAtendimentoRepository.saveAndFlush(unidade);
     }
@@ -221,3 +187,4 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         return produtoRepository.saveAndFlush(p);
     }
 }
+

@@ -38,5 +38,21 @@ public class ProvisionarTenantResponse {
 
     private List<String> categoriasCriadas;
     private List<String> mensagens;
-}
 
+    private Integer totalMesasCriadas;
+    private Integer totalQrCodesCriados;
+    private List<MesaProvisionadaResponse> mesas;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class MesaProvisionadaResponse {
+        private Long mesaId;
+        private Integer numero;
+        private String referencia;
+        private Long qrCodeId;
+        private String qrToken;
+        private String qrUrlPublica;
+    }
+}

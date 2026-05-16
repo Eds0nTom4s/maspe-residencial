@@ -6,11 +6,13 @@ import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Instituicao;
+import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.Plano;
 import com.restaurante.model.entity.ProvisioningTemplate;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Subscricao;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantLimiteOverride;
 import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.User;
@@ -21,11 +23,14 @@ import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
+import com.restaurante.model.enums.TipoUnidadeConsumo;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.PlanoRepository;
 import com.restaurante.repository.ProvisioningTemplateRepository;
 import com.restaurante.repository.SubscricaoRepository;
+import com.restaurante.repository.TenantLimiteOverrideRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
@@ -58,9 +63,11 @@ public class TenantProvisioningService {
     private final TenantLimitService tenantLimitService;
     private final InstituicaoRepository instituicaoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    private final MesaRepository mesaRepository;
     private final CategoriaProdutoRepository categoriaProdutoRepository;
     private final UserRepository userRepository;
     private final TenantUserRepository tenantUserRepository;
+    private final TenantLimiteOverrideRepository tenantLimiteOverrideRepository;
     private final QrCodeOperacionalService qrCodeOperacionalService;
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
@@ -121,30 +128,80 @@ public class TenantProvisioningService {
         subscricao.setRenovacaoAutomatica(false);
         subscricao = subscricaoRepository.saveAndFlush(subscricao);
 
+        // Override de limites (opcional) para pilotos (ex.: mais QR codes)
+        if (request.getLimitesOverride() != null) {
+            TenantLimiteOverride ov = new TenantLimiteOverride();
+            ov.setTenant(tenant);
+            ov.setAtivo(true);
+            ov.setMaxInstituicoes(request.getLimitesOverride().getMaxInstituicoes());
+            ov.setMaxUnidadesAtendimento(request.getLimitesOverride().getMaxUnidadesAtendimento());
+            ov.setMaxUsuarios(request.getLimitesOverride().getMaxUsuarios());
+            ov.setMaxQrCodes(request.getLimitesOverride().getMaxQrCodes());
+            ov.setMaxDispositivos(request.getLimitesOverride().getMaxDispositivos());
+            ov.setMotivo(request.getLimitesOverride().getMotivo());
+            ov.setConfiguradoPor(request.getLimitesOverride().getConfiguradoPor());
+            ov.setConfiguradoEm(java.time.LocalDateTime.now());
+            tenantLimiteOverrideRepository.saveAndFlush(ov);
+        }
+
+        // Resolve config final (template + overrides do request)
+        TemplateConfig cfg = parseTemplateConfig(template.getConfiguracaoJson());
+        boolean criarUnidade = request.getOpcoes() == null || Boolean.TRUE.equals(request.getOpcoes().getCriarUnidadeAtendimentoDefault());
+        boolean criarQrPrincipal = request.getOpcoes() == null || Boolean.TRUE.equals(request.getOpcoes().getCriarQrPrincipal());
+        boolean criarCategoriaDefault = request.getOpcoes() == null || Boolean.TRUE.equals(request.getOpcoes().getCriarCategoriaDefault());
+
+        boolean criarMesas = (request.getOpcoes() != null && request.getOpcoes().getCriarMesas() != null)
+                ? request.getOpcoes().getCriarMesas()
+                : (cfg != null && Boolean.TRUE.equals(cfg.criarMesas));
+
+        int quantidadeMesas = (request.getOpcoes() != null && request.getOpcoes().getQuantidadeMesas() != null)
+                ? request.getOpcoes().getQuantidadeMesas()
+                : (cfg != null && cfg.quantidadeMesas != null ? cfg.quantidadeMesas : 0);
+
+        boolean criarQrPorMesa = (request.getOpcoes() != null && request.getOpcoes().getCriarQrPorMesa() != null)
+                ? request.getOpcoes().getCriarQrPorMesa()
+                : (cfg != null && Boolean.TRUE.equals(cfg.criarQrPorMesa));
+
+        String prefixoMesa = (request.getOpcoes() != null && request.getOpcoes().getPrefixoMesa() != null && !request.getOpcoes().getPrefixoMesa().isBlank())
+                ? request.getOpcoes().getPrefixoMesa()
+                : (cfg != null ? cfg.prefixoMesa : null);
+        if (prefixoMesa == null || prefixoMesa.isBlank()) prefixoMesa = "Mesa";
+
+        if (quantidadeMesas < 0) throw new BusinessException("quantidadeMesas inválida.");
+        if (quantidadeMesas > 200) throw new BusinessException("quantidadeMesas excede teto técnico (200).");
+        if (criarQrPorMesa && !criarMesas) throw new BusinessException("criarQrPorMesa exige criarMesas=true.");
+
+        int unidadesNovas = criarUnidade ? 1 : 0;
+        int usuariosNovos = (request.getResponsavel() != null && (request.getResponsavel().getCriarUsuario() == null || request.getResponsavel().getCriarUsuario())) ? 1 : 0;
+        int qrNovos = (criarQrPrincipal ? 1 : 0) + (criarQrPorMesa ? quantidadeMesas : 0);
+
         // Aplica limites: criação de Instituicao deve obedecer maxInstituicoes (mesmo no primeiro provisionamento).
         tenantLimitService.assertCanCreateInstituicao(tenant.getId());
+        tenantLimitService.assertCanCreateUnidadeAtendimento(tenant.getId(), unidadesNovas);
+        tenantLimitService.assertCanCreateUser(tenant.getId(), usuariosNovos);
+        tenantLimitService.assertCanCreateQrCode(tenant.getId(), qrNovos);
 
         Instituicao instituicao = criarInstituicao(tenant, request);
         UnidadeAtendimento unidade = null;
-        if (request.getOpcoes() == null || Boolean.TRUE.equals(request.getOpcoes().getCriarUnidadeAtendimentoDefault())) {
+        if (criarUnidade) {
             unidade = criarUnidadeAtendimentoDefault(instituicao, template);
         }
 
         ArrayList<String> categoriasCriadas = new ArrayList<>();
-        if (request.getOpcoes() == null || Boolean.TRUE.equals(request.getOpcoes().getCriarCategoriaDefault())) {
+        if (criarCategoriaDefault) {
             CategoriaProduto cat = criarCategoriaDefault(tenant, template);
             categoriasCriadas.add(cat.getSlug());
         }
 
         User owner = null;
         TenantUser tenantOwner = null;
-        if (request.getResponsavel() != null && (request.getResponsavel().getCriarUsuario() == null || request.getResponsavel().getCriarUsuario())) {
+        if (usuariosNovos > 0) {
             owner = criarOuReusarOwnerUser(request, unidade);
             tenantOwner = criarTenantOwner(tenant, owner, unidade);
         }
 
         QrCodeOperacional qr = null;
-        if (request.getOpcoes() == null || Boolean.TRUE.equals(request.getOpcoes().getCriarQrPrincipal())) {
+        if (criarQrPrincipal) {
             QrCodeOperacionalTipo qrTipo = resolveQrTipoFromTemplate(template);
             String qrNome = resolveQrNomeFromTemplate(template);
             qr = qrCodeOperacionalService.criarQr(
@@ -155,6 +212,46 @@ public class TenantProvisioningService {
                     qrTipo,
                     qrNome
             );
+        }
+
+        ArrayList<ProvisionarTenantResponse.MesaProvisionadaResponse> mesasResp = new ArrayList<>();
+        if (criarMesas) {
+            if (unidade == null) {
+                throw new BusinessException("Template exige mesas, mas unidade de atendimento não foi criada.");
+            }
+            for (int i = 1; i <= quantidadeMesas; i++) {
+                Mesa m = new Mesa();
+                m.setNumero(i);
+                m.setReferencia(prefixoMesa + " " + i);
+                m.setQrCode(null); // QR legado não usado
+                m.setCapacidade(null);
+                m.setAtiva(true);
+                m.setTipo(TipoUnidadeConsumo.MESA_FISICA);
+                m.setUnidadeAtendimento(unidade);
+                m.setInstituicao(instituicao);
+                m = mesaRepository.saveAndFlush(m);
+
+                ProvisionarTenantResponse.MesaProvisionadaResponse.MesaProvisionadaResponseBuilder mb =
+                        ProvisionarTenantResponse.MesaProvisionadaResponse.builder()
+                                .mesaId(m.getId())
+                                .numero(m.getNumero())
+                                .referencia(m.getReferencia());
+
+                if (criarQrPorMesa) {
+                    QrCodeOperacional qrm = qrCodeOperacionalService.criarQr(
+                            tenant.getId(),
+                            instituicao.getId(),
+                            unidade.getId(),
+                            m.getId(),
+                            QrCodeOperacionalTipo.MESA,
+                            "QR " + m.getReferencia()
+                    );
+                    mb.qrCodeId(qrm.getId());
+                    mb.qrToken(qrm.getToken());
+                    mb.qrUrlPublica(buildPublicQrUrl(qrm.getToken()));
+                }
+                mesasResp.add(mb.build());
+            }
         }
 
         if (!ativarTenant) {
@@ -188,6 +285,9 @@ public class TenantProvisioningService {
             resp.qrToken(qr.getToken());
             resp.qrUrlPublica(buildPublicQrUrl(qr.getToken()));
         }
+        resp.totalMesasCriadas(mesasResp.isEmpty() ? 0 : mesasResp.size());
+        resp.totalQrCodesCriados(qrNovos);
+        resp.mesas(mesasResp);
         return resp.build();
     }
 
@@ -406,6 +506,8 @@ public class TenantProvisioningService {
         public QrPrincipal qrPrincipal;
         public Boolean criarMesas;
         public Integer quantidadeMesas;
+        public Boolean criarQrPorMesa;
+        public String prefixoMesa;
     }
 
     public static class UnidadeAtendimentoDefault {
@@ -423,4 +525,3 @@ public class TenantProvisioningService {
         public QrCodeOperacionalTipo tipo;
     }
 }
-

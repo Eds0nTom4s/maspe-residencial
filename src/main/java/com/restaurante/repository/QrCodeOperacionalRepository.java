@@ -15,5 +15,6 @@ public interface QrCodeOperacionalRepository extends JpaRepository<QrCodeOperaci
     List<QrCodeOperacional> findByTenantId(Long tenantId);
 
     boolean existsByToken(String token);
-}
 
+    long countByTenantId(Long tenantId);
+}

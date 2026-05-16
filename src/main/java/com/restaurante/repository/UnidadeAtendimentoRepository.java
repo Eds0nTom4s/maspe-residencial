@@ -72,4 +72,7 @@ public interface UnidadeAtendimentoRepository extends JpaRepository<UnidadeAtend
     @Query("SELECT COUNT(uc) FROM UnidadeDeConsumo uc " +
            "WHERE uc.unidadeAtendimento.id = :unidadeId AND uc.status IN ('OCUPADA', 'AGUARDANDO_PAGAMENTO')")
     Long contarUnidadesConsumoAtivasPorUnidade(@Param("unidadeId") Long unidadeId);
+
+    @Query("SELECT COUNT(u) FROM UnidadeAtendimento u WHERE u.instituicao.tenant.id = :tenantId")
+    long countByTenantId(@Param("tenantId") Long tenantId);
 }

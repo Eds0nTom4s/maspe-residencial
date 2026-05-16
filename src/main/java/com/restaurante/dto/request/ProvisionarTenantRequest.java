@@ -35,6 +35,13 @@ public class ProvisionarTenantRequest {
     @Valid
     private OpcoesProvisionamento opcoes;
 
+    /**
+     * Override opcional de limites (TenantLimiteOverride) aplicado no provisionamento.
+     * Útil para pilotos que excedem limites do plano (ex.: restaurante com QR por mesa).
+     */
+    @Valid
+    private LimitesOverride limitesOverride;
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
@@ -90,6 +97,25 @@ public class ProvisionarTenantRequest {
         private Boolean criarUnidadeAtendimentoDefault = true;
         @Builder.Default
         private Boolean ativarTenant = true;
+
+        // Overrides operacionais do template (opcionais)
+        private Boolean criarMesas;
+        private Integer quantidadeMesas;
+        private Boolean criarQrPorMesa;
+        private String prefixoMesa;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class LimitesOverride {
+        private Integer maxInstituicoes;
+        private Integer maxUnidadesAtendimento;
+        private Integer maxUsuarios;
+        private Integer maxQrCodes;
+        private Integer maxDispositivos;
+        private String motivo;
+        private String configuradoPor;
     }
 }
-

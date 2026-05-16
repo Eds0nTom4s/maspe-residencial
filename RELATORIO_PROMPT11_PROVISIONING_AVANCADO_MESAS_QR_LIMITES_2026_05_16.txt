@@ -1,0 +1,110 @@
+CONSUMA Backend — Prompt 11
+Provisioning avançado: mesas + QR por mesa + enforcement de limites
+Data: 2026-05-16 (Africa/Luanda)
+
+1) Resumo executivo
+- Provisionamento manual administrado (Prompt 10) foi evoluído para:
+  - criar mesas (opcional) no provisionamento
+  - criar QR por mesa (opcional) usando `QrCodeOperacional`
+  - aplicar limites adicionais do plano/override ANTES de criar recursos operacionais:
+    - maxUnidadesAtendimento
+    - maxUsuarios (TenantUsers)
+    - maxQrCodes (QrCodeOperacional)
+- Qualquer falha (limite excedido, input inválido, UNIQUE violation) causa rollback total.
+
+2) Migration criada
+- `src/main/resources/db/migration/V12__update_provisioning_templates_advanced.sql`
+  - atualiza `configuracao_json` dos templates para suportar:
+    - criarMesas / quantidadeMesas / prefixoMesa / criarQrPorMesa
+  - `RESTAURANTE_SIMPLES` default = 9 mesas + QR principal (compatível com PILOTO maxQrCodes=10)
+
+3) Decisão sobre tenant_id em Mesa
+- DECISÃO: não adicionar `tenant_id` direto em `mesas` nesta fase.
+- Motivo: Mesa já está vinculada a `UnidadeAtendimento` (→ `Instituicao` → `Tenant`) e o escopo desta fase é provisioning + QR operacional.
+- Dívida técnica documentada: tenant_id direto em Mesa pode ser adicionado em fase futura para reforço/índices tenant-scoped.
+
+4) TenantLimitService (enforcement expandido)
+- Arquivo: `src/main/java/com/restaurante/service/TenantLimitService.java`
+- Novos métodos:
+  - `assertCanCreateUnidadeAtendimento(tenantId, quantidadeNova)`
+  - `assertCanCreateUser(tenantId, quantidadeNova)`
+  - `assertCanCreateQrCode(tenantId, quantidadeNova)`
+- Repositórios/queries adicionados:
+  - `UnidadeAtendimentoRepository.countByTenantId(...)`
+  - `TenantUserRepository.countByTenantIdAndEstado(...)`
+  - `QrCodeOperacionalRepository.countByTenantId(...)`
+
+5) Provisionamento (mesas + QR por mesa + limites)
+- Arquivo: `src/main/java/com/restaurante/service/TenantProvisioningService.java`
+- Alterações:
+  - resolve template + overrides do request (`opcoes.criarMesas`, `quantidadeMesas`, `criarQrPorMesa`, `prefixoMesa`)
+  - valida input (quantidadeMesas >= 0, teto técnico 200, criarQrPorMesa exige criarMesas)
+  - calcula recursos planejados e valida limites via TenantLimitService:
+    - unidades novas
+    - usuários (TenantUsers) novos
+    - QR codes novos (principal + por mesa)
+  - cria mesas vinculadas à unidade/instituição
+  - cria QR por mesa via `QrCodeOperacionalService.criarQr(..., tipo=MESA, mesaId=...)`
+  - adiciona ao response lista de mesas provisionadas com QR (quando aplicável)
+  - suporta override administrativo de limites no mesmo provisionamento (`limitesOverride`)
+
+6) DTOs ajustados
+- Request: `src/main/java/com/restaurante/dto/request/ProvisionarTenantRequest.java`
+  - adicionados `opcoes.criarMesas`, `quantidadeMesas`, `criarQrPorMesa`, `prefixoMesa`
+  - adicionado `limitesOverride` (cria TenantLimiteOverride ativo)
+- Response: `src/main/java/com/restaurante/dto/response/ProvisionarTenantResponse.java`
+  - adicionados `totalMesasCriadas`, `totalQrCodesCriados` e lista `mesas[]` com QR por mesa
+
+7) Testes adicionados (PostgreSQL/Testcontainers)
+- `src/test/java/com/restaurante/provisioning/TenantProvisioningAdvancedTemplateIT.java`
+  - RESTAURANTE_SIMPLES default cria 9 mesas + 10 QRs (PILOTO)
+  - exceder maxQrCodes com 10 mesas+QR por mesa falha e faz rollback
+  - override `maxQrCodes=11` permite 10 mesas + 11 QRs
+  - override `maxUsuarios=0` bloqueia provisionamento (rollback)
+
+8) Documentação
+- `docs/tenant-core/11-provisioning-avancado-mesas-qrs-limites.md`
+
+9) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+10) Resultado
+- BUILD SUCCESS
+
+11) Arquivos criados/alterados
+- Criados:
+  - `src/main/resources/db/migration/V12__update_provisioning_templates_advanced.sql`
+  - `docs/tenant-core/11-provisioning-avancado-mesas-qrs-limites.md`
+  - `RELATORIO_PROMPT11_PROVISIONING_AVANCADO_MESAS_QR_LIMITES_2026_05_16.txt`
+  - `src/test/java/com/restaurante/provisioning/TenantProvisioningAdvancedTemplateIT.java`
+- Alterados:
+  - `src/main/java/com/restaurante/service/TenantProvisioningService.java`
+  - `src/main/java/com/restaurante/service/TenantLimitService.java`
+  - `src/main/java/com/restaurante/dto/request/ProvisionarTenantRequest.java`
+  - `src/main/java/com/restaurante/dto/response/ProvisionarTenantResponse.java`
+  - `src/main/java/com/restaurante/repository/UnidadeAtendimentoRepository.java`
+  - `src/main/java/com/restaurante/repository/TenantUserRepository.java`
+  - `src/main/java/com/restaurante/repository/QrCodeOperacionalRepository.java`
+
+12) Riscos restantes (deliberados)
+- Sem preview endpoint (dry-run) — recomendado para evitar tentativa/erro manual em produção.
+- Mesas ainda não têm tenant_id direto (isolamento por relacionamento indireto).
+- Limites para mesas não existem explicitamente; mesa é limitada indiretamente por maxQrCodes quando criarQrPorMesa=true.
+
+13) Checklist de aceitação
+- [x] templates atualizados com criarMesas/criarQrPorMesa/prefixoMesa
+- [x] RESTAURANTE_SIMPLES cria mesas e QR por mesa
+- [x] QR por mesa resolve mesa correta (via FK mesa_id no QrCodeOperacional)
+- [x] maxQrCodes aplicado no provisionamento
+- [x] maxUsuarios aplicado no provisionamento
+- [x] maxUnidadesAtendimento aplicado no provisionamento
+- [x] exceder limite falha e faz rollback total
+- [x] response retorna mesas e QR criados
+- [x] VENDEDOR_RUA permanece simples
+- [x] testes passam
+- [x] onboarding público/POS/billing não implementados
+
+14) Próximo prompt recomendado
+- Prompt 12 — Preview de provisionamento + UI admin (ou endpoint dry-run) + hardening de mensagens/erros para operação
+

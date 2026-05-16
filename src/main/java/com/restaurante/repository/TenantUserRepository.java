@@ -23,4 +23,6 @@ public interface TenantUserRepository extends JpaRepository<TenantUser, Long> {
     Optional<TenantUser> findByTenantIdAndUserIdAndEstado(Long tenantId, Long userId, TenantUserEstado estado);
 
     boolean existsByTenantIdAndUserIdAndEstado(Long tenantId, Long userId, TenantUserEstado estado);
+
+    long countByTenantIdAndEstado(Long tenantId, TenantUserEstado estado);
 }

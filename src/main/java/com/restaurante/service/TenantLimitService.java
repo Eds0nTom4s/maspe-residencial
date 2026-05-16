@@ -8,9 +8,13 @@ import com.restaurante.model.entity.TenantLimiteOverride;
 import com.restaurante.model.enums.SubscricaoEstado;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.QrCodeOperacionalRepository;
 import com.restaurante.repository.SubscricaoRepository;
 import com.restaurante.repository.TenantLimiteOverrideRepository;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.model.enums.TenantUserEstado;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +38,9 @@ public class TenantLimitService {
     private final SubscricaoRepository subscricaoRepository;
     private final TenantLimiteOverrideRepository tenantLimiteOverrideRepository;
     private final InstituicaoRepository instituicaoRepository;
+    private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    private final TenantUserRepository tenantUserRepository;
+    private final QrCodeOperacionalRepository qrCodeOperacionalRepository;
 
     @Transactional(readOnly = true)
     public EffectiveTenantLimits getEffectiveLimits(Long tenantId) {
@@ -95,10 +102,38 @@ public class TenantLimitService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public void assertCanCreateUnidadeAtendimento(Long tenantId, int quantidadeNova) {
+        EffectiveTenantLimits limits = getEffectiveLimits(tenantId);
+        long current = unidadeAtendimentoRepository.countByTenantId(tenantId);
+        long projected = current + Math.max(0, quantidadeNova);
+        if (limits.maxUnidadesAtendimento() != null && projected > limits.maxUnidadesAtendimento()) {
+            throw new BusinessException("Limite de unidades de atendimento excedido para o tenant.");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanCreateUser(Long tenantId, int quantidadeNova) {
+        EffectiveTenantLimits limits = getEffectiveLimits(tenantId);
+        long current = tenantUserRepository.countByTenantIdAndEstado(tenantId, TenantUserEstado.ATIVO);
+        long projected = current + Math.max(0, quantidadeNova);
+        if (limits.maxUsuarios() != null && projected > limits.maxUsuarios()) {
+            throw new BusinessException("Limite de usuários excedido para o tenant.");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanCreateQrCode(Long tenantId, int quantidadeNova) {
+        EffectiveTenantLimits limits = getEffectiveLimits(tenantId);
+        long current = qrCodeOperacionalRepository.countByTenantId(tenantId);
+        long projected = current + Math.max(0, quantidadeNova);
+        if (limits.maxQrCodes() != null && projected > limits.maxQrCodes()) {
+            throw new BusinessException("Limite de QR Codes excedido para o tenant.");
+        }
+    }
+
     // Placeholders para fases futuras (não usados ainda)
     public void assertCanCreateProduto(Long tenantId) { /* Fase futura */ }
-    public void assertCanCreateUser(Long tenantId) { /* Fase futura */ }
-    public void assertCanCreateQrCode(Long tenantId) { /* Fase futura */ }
     public void assertCanCreateDispositivo(Long tenantId) { /* Fase futura */ }
 
     private Integer pickOverrideOrPlano(Integer overrideValue, Integer planoValue) {
@@ -116,4 +151,3 @@ public class TenantLimitService {
     ) {
     }
 }
-

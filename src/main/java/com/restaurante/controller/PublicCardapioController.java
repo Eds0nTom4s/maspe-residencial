@@ -2,7 +2,7 @@ package com.restaurante.controller;
 
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.ProdutoResponse;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.service.ProdutoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -46,7 +46,7 @@ public class PublicCardapioController {
     @GetMapping("/categoria/{categoria}")
     @Operation(summary = "Listar produtos por categoria", description = "Filtra produtos públicos por categoria específica")
     public ResponseEntity<ApiResponse<List<ProdutoResponse>>> listarPorCategoria(
-            @PathVariable CategoriaProduto categoria) {
+            @PathVariable CategoriaProdutoLegacy categoria) {
         List<ProdutoResponse> produtos = produtoService.listarPorCategoria(categoria, PageRequest.of(0, 500)).getContent();
         return ResponseEntity.ok(ApiResponse.success("Produtos filtrados por categoria", produtos));
     }
@@ -69,7 +69,7 @@ public class PublicCardapioController {
     @GetMapping("/categorias")
     @Operation(summary = "Listar categorias do cardápio", description = "Retorna a lista de todas as categorias de produtos disponíveis para a interface")
     public ResponseEntity<ApiResponse<List<Map<String, String>>>> listarCategoriasEnum() {
-        List<Map<String, String>> categorias = Arrays.stream(CategoriaProduto.values())
+        List<Map<String, String>> categorias = Arrays.stream(CategoriaProdutoLegacy.values())
                 .map(cat -> Map.of("id", cat.name(), "descricao", cat.getDescricao()))
                 .collect(Collectors.toList());
                 

@@ -34,6 +34,7 @@ public class DataSeeder {
     private final CozinhaRepository cozinhaRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final ProdutoRepository produtoRepository;
+    private final CategoriaProdutoRepository categoriaProdutoRepository;
     private final MesaRepository mesaRepository;
     private final ClienteRepository clienteRepository;
     private final PasswordEncoder passwordEncoder;
@@ -329,65 +330,84 @@ public class DataSeeder {
             return;
         }
 
+        Tenant tenant = seedLegacyTenantIfNeeded();
+        CategoriaProduto geral = seedCategoriaGeralIfNeeded(tenant);
+
         produtoRepository.saveAll(List.of(
 
             // ── Entradas ─────────────────────────────────────────────────────
-            produto("ENT-001", "Pastéis de Bacalhau",    "Pastéis de bacalhau desfiado crocantes",            3500, null, CategoriaProduto.ENTRADA, true),
-            produto("ENT-002", "Salada Tropical",        "Mix de folhas, manga, abacate e molho de maracujá", 2800, null, CategoriaProduto.ENTRADA, true),
-            produto("ENT-003", "Pataniscas de Bacalhau", "Bolinhos de bacalhau com molho de piri-piri",       4200, null, CategoriaProduto.ENTRADA, true),
+            produto(tenant, geral, "ENT-001", "Pastéis de Bacalhau",    "Pastéis de bacalhau desfiado crocantes",            3500, null, CategoriaProdutoLegacy.ENTRADA, true),
+            produto(tenant, geral, "ENT-002", "Salada Tropical",        "Mix de folhas, manga, abacate e molho de maracujá", 2800, null, CategoriaProdutoLegacy.ENTRADA, true),
+            produto(tenant, geral, "ENT-003", "Pataniscas de Bacalhau", "Bolinhos de bacalhau com molho de piri-piri",       4200, null, CategoriaProdutoLegacy.ENTRADA, true),
 
             // ── Pratos Principais ─────────────────────────────────────────────
-            produto("PRATO-001", "Muamba de Galinha",  "Galinha refogada com quiabo e dendê",                 8500, 35, CategoriaProduto.PRATO_PRINCIPAL, true),
-            produto("PRATO-002", "Calulu de Peixe",    "Peixe fresco com batata doce, quiabo e óleo de palma",9200, 30, CategoriaProduto.PRATO_PRINCIPAL, true),
-            produto("PRATO-003", "Cabidela de Frango", "Frango no próprio sangue com arroz",                  7800, 40, CategoriaProduto.PRATO_PRINCIPAL, true),
-            produto("PRATO-004", "Churrasco Misto",    "Picanha, linguiça e frango grelhados",               12500, 35, CategoriaProduto.PRATO_PRINCIPAL, true),
+            produto(tenant, geral, "PRATO-001", "Muamba de Galinha",  "Galinha refogada com quiabo e dendê",                 8500, 35, CategoriaProdutoLegacy.PRATO_PRINCIPAL, true),
+            produto(tenant, geral, "PRATO-002", "Calulu de Peixe",    "Peixe fresco com batata doce, quiabo e óleo de palma",9200, 30, CategoriaProdutoLegacy.PRATO_PRINCIPAL, true),
+            produto(tenant, geral, "PRATO-003", "Cabidela de Frango", "Frango no próprio sangue com arroz",                  7800, 40, CategoriaProdutoLegacy.PRATO_PRINCIPAL, true),
+            produto(tenant, geral, "PRATO-004", "Churrasco Misto",    "Picanha, linguiça e frango grelhados",               12500, 35, CategoriaProdutoLegacy.PRATO_PRINCIPAL, true),
 
             // ── Acompanhamentos ───────────────────────────────────────────────
-            produto("ACOMP-001", "Funge com Feijão",  "Funge tradicional com feijão temperado",               800,  15, CategoriaProduto.ACOMPANHAMENTO, true),
-            produto("ACOMP-002", "Arroz Branco",      "Arroz cozido no ponto",                                 500,  10, CategoriaProduto.ACOMPANHAMENTO, true),
+            produto(tenant, geral, "ACOMP-001", "Funge com Feijão",  "Funge tradicional com feijão temperado",               800,  15, CategoriaProdutoLegacy.ACOMPANHAMENTO, true),
+            produto(tenant, geral, "ACOMP-002", "Arroz Branco",      "Arroz cozido no ponto",                                 500,  10, CategoriaProdutoLegacy.ACOMPANHAMENTO, true),
 
             // ── Pizzas ────────────────────────────────────────────────────────
-            produto("PIZZA-001", "Pizza Margherita",          "Molho de tomate, mussarela, manjericão",          6500, 20, CategoriaProduto.PIZZA, true),
-            produto("PIZZA-002", "Pizza Frango com Catupiry", "Frango desfiado, catupiry e azeitonas",           7200, 20, CategoriaProduto.PIZZA, true),
-            produto("PIZZA-003", "Pizza Quatro Queijos",      "Mussarela, gorgonzola, parmesão, provolone",      7800, 20, CategoriaProduto.PIZZA, true),
+            produto(tenant, geral, "PIZZA-001", "Pizza Margherita",          "Molho de tomate, mussarela, manjericão",          6500, 20, CategoriaProdutoLegacy.PIZZA, true),
+            produto(tenant, geral, "PIZZA-002", "Pizza Frango com Catupiry", "Frango desfiado, catupiry e azeitonas",           7200, 20, CategoriaProdutoLegacy.PIZZA, true),
+            produto(tenant, geral, "PIZZA-003", "Pizza Quatro Queijos",      "Mussarela, gorgonzola, parmesão, provolone",      7800, 20, CategoriaProdutoLegacy.PIZZA, true),
 
             // ── Sobremesas ────────────────────────────────────────────────────
-            produto("SOB-001", "Cocada Angolana",    "Cocada cremosa tradicional angolana",        2500, 10, CategoriaProduto.SOBREMESA, true),
-            produto("SOB-002", "Bolo de Ginguba",    "Bolo de amendoim com cobertura de chocolate",2800, 10, CategoriaProduto.SOBREMESA, true),
-            produto("SOB-003", "Mousse de Maracujá", "Mousse cremoso de maracujá com calda",       3200, 15, CategoriaProduto.SOBREMESA, true),
+            produto(tenant, geral, "SOB-001", "Cocada Angolana",    "Cocada cremosa tradicional angolana",        2500, 10, CategoriaProdutoLegacy.SOBREMESA, true),
+            produto(tenant, geral, "SOB-002", "Bolo de Ginguba",    "Bolo de amendoim com cobertura de chocolate",2800, 10, CategoriaProdutoLegacy.SOBREMESA, true),
+            produto(tenant, geral, "SOB-003", "Mousse de Maracujá", "Mousse cremoso de maracujá com calda",       3200, 15, CategoriaProdutoLegacy.SOBREMESA, true),
 
             // ── Bebidas Não Alcoólicas ────────────────────────────────────────
-            produto("BEB-001", "Refrigerante Lata",  "Coca-Cola, Pepsi, Fanta (350ml)",            800,  null, CategoriaProduto.BEBIDA_NAO_ALCOOLICA, true),
-            produto("BEB-002", "Sumo Natural",       "Laranja, Maracujá ou Abacaxi (500ml)",      1500,  null, CategoriaProduto.BEBIDA_NAO_ALCOOLICA, true),
-            produto("BEB-003", "Água Mineral",       "Com ou sem gás (500ml)",                     600,  null, CategoriaProduto.BEBIDA_NAO_ALCOOLICA, true),
-            produto("BEB-004", "Kissangua",          "Bebida tradicional de milho fermentado",    1200,  null, CategoriaProduto.BEBIDA_NAO_ALCOOLICA, true),
+            produto(tenant, geral, "BEB-001", "Refrigerante Lata",  "Coca-Cola, Pepsi, Fanta (350ml)",            800,  null, CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, true),
+            produto(tenant, geral, "BEB-002", "Sumo Natural",       "Laranja, Maracujá ou Abacaxi (500ml)",      1500,  null, CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, true),
+            produto(tenant, geral, "BEB-003", "Água Mineral",       "Com ou sem gás (500ml)",                     600,  null, CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, true),
+            produto(tenant, geral, "BEB-004", "Kissangua",          "Bebida tradicional de milho fermentado",    1200,  null, CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, true),
 
             // ── Bebidas Alcoólicas ────────────────────────────────────────────
-            produto("ALC-001", "Cerveja Cuca",          "Cerveja angolana (330ml)",                1500, null, CategoriaProduto.BEBIDA_ALCOOLICA, true),
-            produto("ALC-002", "Cerveja Ngola",         "Cerveja angolana premium (330ml)",        1800, null, CategoriaProduto.BEBIDA_ALCOOLICA, true),
-            produto("ALC-003", "Caipirinha",            "Cachaça, limão, açúcar",                  2500, null, CategoriaProduto.BEBIDA_ALCOOLICA, true),
-            produto("ALC-004", "Vinho Português (taça)","Tinto ou branco (150ml)",                 3200, null, CategoriaProduto.BEBIDA_ALCOOLICA, true),
+            produto(tenant, geral, "ALC-001", "Cerveja Cuca",          "Cerveja angolana (330ml)",                1500, null, CategoriaProdutoLegacy.BEBIDA_ALCOOLICA, true),
+            produto(tenant, geral, "ALC-002", "Cerveja Ngola",         "Cerveja angolana premium (330ml)",        1800, null, CategoriaProdutoLegacy.BEBIDA_ALCOOLICA, true),
+            produto(tenant, geral, "ALC-003", "Caipirinha",            "Cachaça, limão, açúcar",                  2500, null, CategoriaProdutoLegacy.BEBIDA_ALCOOLICA, true),
+            produto(tenant, geral, "ALC-004", "Vinho Português (taça)","Tinto ou branco (150ml)",                 3200, null, CategoriaProdutoLegacy.BEBIDA_ALCOOLICA, true),
 
             // ── Produto inativo — para testes de validação ───────────────────
-            produto("TEST-999", "Produto Indisponível (Teste)", "Usado em testes — nunca deve aparecer no cardápio", 100, null, CategoriaProduto.OUTROS, false)
+            produto(tenant, geral, "TEST-999", "Produto Indisponível (Teste)", "Usado em testes — nunca deve aparecer no cardápio", 100, null, CategoriaProdutoLegacy.OUTROS, false)
         ));
 
         log.info("  [produtos]        ✅ 23 criados  (22 disponíveis + 1 inativo para testes)");
     }
 
-    private Produto produto(String codigo, String nome, String descricao,
+    private Produto produto(Tenant tenant, CategoriaProduto categoriaProduto, String codigo, String nome, String descricao,
                             int preco, Integer tempoPreparo,
-                            CategoriaProduto categoria, boolean disponivel) {
-        return Produto.builder()
-            .codigo(codigo)
-            .nome(nome)
-            .descricao(descricao)
-            .preco(new BigDecimal(preco))
-            .tempoPreparoMinutos(tempoPreparo)
-            .categoria(categoria)
-            .disponivel(disponivel)
-            .ativo(true)
-            .build();
+                            CategoriaProdutoLegacy categoria, boolean disponivel) {
+        Produto p = new Produto();
+        p.setTenant(tenant);
+        p.setCategoriaProduto(categoriaProduto);
+        p.setCodigo(codigo);
+        p.setNome(nome);
+        p.setDescricao(descricao);
+        p.setPreco(new BigDecimal(preco));
+        p.setTempoPreparoMinutos(tempoPreparo);
+        p.setCategoria(categoria);
+        p.setDisponivel(disponivel);
+        p.setAtivo(true);
+        return p;
+    }
+
+    private CategoriaProduto seedCategoriaGeralIfNeeded(Tenant tenant) {
+        return categoriaProdutoRepository.findBySlugAndTenantId("geral", tenant.getId())
+                .orElseGet(() -> {
+                    CategoriaProduto cp = new CategoriaProduto();
+                    cp.setTenant(tenant);
+                    cp.setNome("Geral");
+                    cp.setSlug("geral");
+                    cp.setDescricao("Categoria default");
+                    cp.setOrdem(0);
+                    cp.setAtivo(true);
+                    return categoriaProdutoRepository.save(cp);
+                });
     }
 
     // ─────────────────────────────────────────────────────────────────────────

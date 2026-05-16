@@ -3,7 +3,7 @@ package com.restaurante.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.ProdutoRequest;
 import com.restaurante.dto.response.ProdutoResponse;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.security.JwtAuthenticationFilter;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.service.ProdutoService;
@@ -67,7 +67,7 @@ class ProdutoControllerTest {
                 .nome("Hambúrguer Artesanal")
                 .descricao("Hambúrguer com carne de 180g")
                 .preco(new BigDecimal("32.90"))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .disponivel(true)
                 .build();
 
@@ -76,7 +76,7 @@ class ProdutoControllerTest {
                 .nome("Hambúrguer Artesanal")
                 .descricao("Hambúrguer com carne de 180g")
                 .preco(new BigDecimal("32.90"))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .disponivel(true)
                 .build();
 
@@ -103,7 +103,7 @@ class ProdutoControllerTest {
         ProdutoRequest request = ProdutoRequest.builder()
                 .codigo("PROD-001")
                 .preco(new BigDecimal("32.90"))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .build();
 
         // Act & Assert
@@ -124,7 +124,7 @@ class ProdutoControllerTest {
                 .codigo("HAMB-PREM")
                 .nome("Hambúrguer Premium")
                 .preco(new BigDecimal("39.90"))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .disponivel(true)
                 .build();
 
@@ -132,7 +132,7 @@ class ProdutoControllerTest {
                 .id(produtoId)
                 .nome("Hambúrguer Premium")
                 .preco(new BigDecimal("39.90"))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .disponivel(true)
                 .build();
 
@@ -160,14 +160,14 @@ class ProdutoControllerTest {
                         .id(1L)
                         .nome("Hambúrguer")
                         .preco(new BigDecimal("32.90"))
-                        .categoria(CategoriaProduto.PRATO_PRINCIPAL)
+                        .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                         .disponivel(true)
                         .build(),
                 ProdutoResponse.builder()
                         .id(2L)
                         .nome("Refrigerante")
                         .preco(new BigDecimal("7.50"))
-                        .categoria(CategoriaProduto.BEBIDA_NAO_ALCOOLICA)
+                        .categoria(CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA)
                         .disponivel(true)
                         .build()
         );
@@ -254,7 +254,7 @@ class ProdutoControllerTest {
     @DisplayName("GET /produtos/categoria/{categoria} - deve listar produtos por categoria")
     void deveListarProdutosPorCategoria() throws Exception {
         // Arrange
-        CategoriaProduto categoria = CategoriaProduto.BEBIDA_NAO_ALCOOLICA;
+        CategoriaProdutoLegacy categoria = CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA;
         List<ProdutoResponse> produtos = Arrays.asList(
                 ProdutoResponse.builder()
                         .id(1L)

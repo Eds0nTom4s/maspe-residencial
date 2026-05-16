@@ -173,7 +173,7 @@ public class PedidoService {
             if (ua == null) {
                 throw new BusinessException("Sessão ID=" + sessaoConsumo.getId() + " não possui unidade de atendimento configurada");
             }
-            Cozinha cozinha = subPedidoService.determinarCozinha(produto.getCategoria(), ua.getId());
+            Cozinha cozinha = subPedidoService.determinarCozinha(produto, ua.getId());
             
             // ✅ VALIDAÇÃO CRÍTICA: Cozinha deve estar ATIVA
             if (cozinha.getAtiva() == null || !cozinha.getAtiva()) {

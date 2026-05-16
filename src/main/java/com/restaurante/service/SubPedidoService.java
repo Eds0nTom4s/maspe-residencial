@@ -3,7 +3,7 @@ package com.restaurante.service;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.*;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.notificacao.service.NotificacaoService;
@@ -73,7 +73,7 @@ public class SubPedidoService {
      * LÓGICA DE ROTEAMENTO AUTOMÁTICO
      * Determina qual cozinha deve preparar baseado na categoria do produto
      */
-    public TipoCozinha determinarTipoCozinha(CategoriaProduto categoria) {
+    public TipoCozinha determinarTipoCozinha(CategoriaProdutoLegacy categoria) {
         return switch (categoria) {
             case ENTRADA, PRATO_PRINCIPAL, ACOMPANHAMENTO, LANCHE -> TipoCozinha.CENTRAL;
             case PIZZA -> TipoCozinha.PIZZARIA;
@@ -96,7 +96,7 @@ public class SubPedidoService {
      * Busca cozinha ativa do tipo adequado vinculada à unidade de atendimento
      */
     @Transactional(readOnly = true)
-    public Cozinha determinarCozinha(CategoriaProduto categoria, Long unidadeAtendimentoId) {
+    public Cozinha determinarCozinha(CategoriaProdutoLegacy categoria, Long unidadeAtendimentoId) {
         TipoCozinha tipoCozinha = determinarTipoCozinha(categoria);
         
         log.debug("Determinando cozinha para categoria {} -> tipo {}", categoria, tipoCozinha);
@@ -127,6 +127,43 @@ public class SubPedidoService {
                 return Long.compare(carga1, carga2);
             })
             .orElse(cozinhas.get(0));
+    }
+
+    /**
+     * Overload incremental (Prompt 6):
+     * - Preferir categoriaProduto (entidade) como fonte principal.
+     * - Manter fallback para enum legado enquanto rotas de produção não existem.
+     */
+    @Transactional(readOnly = true)
+    public Cozinha determinarCozinha(Produto produto, Long unidadeAtendimentoId) {
+        CategoriaProdutoLegacy legacy = produto != null ? produto.getCategoria() : null;
+        if (produto != null && produto.getCategoriaProduto() != null) {
+            CategoriaProdutoLegacy derived = slugToLegacyEnum(produto.getCategoriaProduto().getSlug());
+            if (derived != null) {
+                legacy = derived;
+            }
+        }
+        if (legacy == null) {
+            legacy = CategoriaProdutoLegacy.OUTROS;
+        }
+        return determinarCozinha(legacy, unidadeAtendimentoId);
+    }
+
+    private static CategoriaProdutoLegacy slugToLegacyEnum(String slug) {
+        if (slug == null) return null;
+        return switch (slug) {
+            case "entrada" -> CategoriaProdutoLegacy.ENTRADA;
+            case "prato-principal" -> CategoriaProdutoLegacy.PRATO_PRINCIPAL;
+            case "acompanhamento" -> CategoriaProdutoLegacy.ACOMPANHAMENTO;
+            case "sobremesa" -> CategoriaProdutoLegacy.SOBREMESA;
+            case "bebida-alcoolica" -> CategoriaProdutoLegacy.BEBIDA_ALCOOLICA;
+            case "bebida-nao-alcoolica" -> CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA;
+            case "lanche" -> CategoriaProdutoLegacy.LANCHE;
+            case "pizza" -> CategoriaProdutoLegacy.PIZZA;
+            case "outros" -> CategoriaProdutoLegacy.OUTROS;
+            case "geral" -> CategoriaProdutoLegacy.OUTROS;
+            default -> null;
+        };
     }
 
     /**

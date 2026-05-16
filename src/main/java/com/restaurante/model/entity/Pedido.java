@@ -25,6 +25,10 @@ import java.util.List;
 })
 public class Pedido extends BaseEntity {
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
+
     @Column(nullable = false, unique = true)
     private String numero; // Ex: PED-20260208-001
 
@@ -77,6 +81,32 @@ public class Pedido extends BaseEntity {
     @Column(name = "total", precision = 10, scale = 2)
     private BigDecimal total;
 
+    @PrePersist
+    @PreUpdate
+    private void preencherTenantSeNecessario() {
+        if (tenant != null) return;
+        if (sessaoConsumo == null) {
+            throw new IllegalStateException("Pedido sem tenant e sem sessão de consumo.");
+        }
+        Instituicao inst = sessaoConsumo.getInstituicao();
+        if (inst == null) {
+            Mesa mesa = sessaoConsumo.getMesa();
+            if (mesa != null) {
+                inst = mesa.getInstituicao();
+            }
+        }
+        if (inst == null) {
+            UnidadeAtendimento ua = sessaoConsumo.getUnidadeAtendimento();
+            if (ua != null) {
+                inst = ua.getInstituicao();
+            }
+        }
+        if (inst == null || inst.getTenant() == null) {
+            throw new IllegalStateException("Não foi possível derivar tenant do Pedido a partir da sessão de consumo.");
+        }
+        this.tenant = inst.getTenant();
+    }
+
     public Pedido() {}
 
     public Pedido(String numero, SessaoConsumo sessaoConsumo, StatusPedido status, StatusFinanceiroPedido statusFinanceiro, TipoPagamentoPedido tipoPagamento, LocalDateTime pagoEm, String observacoes, List<ItemPedido> itens, List<SubPedido> subPedidos, BigDecimal total) {
@@ -94,6 +124,9 @@ public class Pedido extends BaseEntity {
 
     public void setNumero(String numero) { this.numero = numero; }
     public void setSessaoConsumo(SessaoConsumo sessaoConsumo) { this.sessaoConsumo = sessaoConsumo; }
+
+    public Tenant getTenant() { return tenant; }
+    public void setTenant(Tenant tenant) { this.tenant = tenant; }
 
     public StatusFinanceiroPedido getStatusFinanceiro() { return statusFinanceiro; }
     public void setStatusFinanceiro(StatusFinanceiroPedido statusFinanceiro) { this.statusFinanceiro = statusFinanceiro; }

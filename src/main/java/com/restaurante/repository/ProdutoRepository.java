@@ -1,7 +1,7 @@
 package com.restaurante.repository;
 
 import com.restaurante.model.entity.Produto;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -36,14 +36,38 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
      */
     Page<Produto> findByDisponivelTrueAndAtivoTrue(Pageable pageable);
 
+    Page<Produto> findByTenantIdAndDisponivelTrueAndAtivoTrue(Long tenantId, Pageable pageable);
+
     /**
      * Busca produtos por categoria com paginação
      */
-    Page<Produto> findByCategoriaAndDisponivelTrueAndAtivoTrue(CategoriaProduto categoria, Pageable pageable);
+    Page<Produto> findByCategoriaAndDisponivelTrueAndAtivoTrue(CategoriaProdutoLegacy categoria, Pageable pageable);
+
+    Page<Produto> findByTenantIdAndCategoriaAndDisponivelTrueAndAtivoTrue(Long tenantId, CategoriaProdutoLegacy categoria, Pageable pageable);
 
     /**
      * Busca produtos por nome (busca parcial) com paginação
      */
     Page<Produto> findByNomeContainingIgnoreCaseAndDisponivelTrueAndAtivoTrue(String nome, Pageable pageable);
-}
 
+    Page<Produto> findByTenantIdAndNomeContainingIgnoreCaseAndDisponivelTrueAndAtivoTrue(Long tenantId, String nome, Pageable pageable);
+
+    // Tenant-aware (Prompt 5)
+    Optional<Produto> findByIdAndTenantId(Long id, Long tenantId);
+
+    Optional<Produto> findByCodigoAndTenantId(String codigo, Long tenantId);
+
+    boolean existsByCodigoAndTenantId(String codigo, Long tenantId);
+
+    List<Produto> findByTenantId(Long tenantId);
+
+    Page<Produto> findByTenantId(Long tenantId, Pageable pageable);
+
+    List<Produto> findByTenantIdAndAtivoTrue(Long tenantId);
+
+    List<Produto> findByTenantIdAndDisponivelTrueAndAtivoTrue(Long tenantId);
+
+    List<Produto> findByTenantIdAndCategoriaProdutoIdAndAtivoTrue(Long tenantId, Long categoriaProdutoId);
+
+    Page<Produto> findByTenantIdAndCategoriaProdutoIdAndDisponivelTrueAndAtivoTrue(Long tenantId, Long categoriaProdutoId, Pageable pageable);
+}

@@ -4,9 +4,15 @@ import com.restaurante.dto.request.ProdutoRequest;
 import com.restaurante.dto.response.ProdutoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Produto;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
+import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.security.tenant.TenantContextHolder;
+import com.restaurante.security.tenant.TenantGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.restaurante.service.storage.StorageService;
@@ -29,26 +35,113 @@ public class ProdutoService {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ProdutoService.class);
 
     private final ProdutoRepository produtoRepository;
+    private final CategoriaProdutoRepository categoriaProdutoRepository;
+    private final CategoriaProdutoService categoriaProdutoService;
+    private final TenantRepository tenantRepository;
+    private final TenantGuard tenantGuard;
     private final StorageService storageService;
 
+    private static final String LEGACY_TENANT_CODE = "LEGACY";
+
+
+    /**
+     * [Tenant-aware] Cria produto usando TenantContext obrigatório (sem fallback LEGACY).
+     */
+    @Transactional
+    public ProdutoResponse criarTenantAware(ProdutoRequest request) {
+        Long tenantId = TenantContextHolder.require().tenantId();
+        if (tenantId == null) {
+            throw new BusinessException("TenantContext ausente para criação de produto.");
+        }
+        tenantGuard.assertTenantActive(tenantId);
+        tenantGuard.assertCurrentUserBelongsToTenant(tenantId);
+
+        if (produtoRepository.existsByCodigoAndTenantId(request.getCodigo(), tenantId)) {
+            throw new BusinessException("Já existe um produto com o código: " + request.getCodigo() + " neste tenant.");
+        }
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new BusinessException("Tenant não encontrado: " + tenantId));
+
+        Produto produto = new Produto();
+        produto.setTenant(tenant);
+        produto.setCodigo(request.getCodigo());
+        produto.setNome(request.getNome());
+        produto.setDescricao(request.getDescricao());
+        produto.setPreco(request.getPreco());
+        CategoriaProduto categoriaProduto = resolveCategoriaProdutoTenantAware(tenantId, request);
+        produto.setCategoriaProduto(categoriaProduto);
+        produto.setCategoria(resolveLegacyEnumForCompat(request.getCategoria(), categoriaProduto));
+        produto.setUrlImagem(request.getUrlImagem());
+        produto.setTempoPreparoMinutos(request.getTempoPreparoMinutos());
+        produto.setDisponivel(request.getDisponivel() != null ? request.getDisponivel() : true);
+        produto.setAtivo(true);
+
+        return mapToResponse(produtoRepository.save(produto));
+    }
+
+    /**
+     * [Tenant-aware] Lista produtos disponíveis do tenant atual (TenantContext obrigatório).
+     */
+    @Transactional(readOnly = true)
+    public Page<ProdutoResponse> listarDisponiveisDoTenant(Pageable pageable) {
+        Long tenantId = TenantContextHolder.require().tenantId();
+        if (tenantId == null) {
+            throw new BusinessException("TenantContext ausente para listagem de produtos.");
+        }
+        tenantGuard.assertTenantActive(tenantId);
+        tenantGuard.assertCurrentUserBelongsToTenant(tenantId);
+        return produtoRepository.findByTenantIdAndDisponivelTrueAndAtivoTrue(tenantId, pageable)
+                .map(this::mapToResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ProdutoResponse> listarDisponiveisDoTenantPorCategoriaProduto(Long categoriaProdutoId, Pageable pageable) {
+        Long tenantId = TenantContextHolder.require().tenantId();
+        if (tenantId == null) {
+            throw new BusinessException("TenantContext ausente para listagem de produtos.");
+        }
+        tenantGuard.assertTenantActive(tenantId);
+        tenantGuard.assertCurrentUserBelongsToTenant(tenantId);
+        return produtoRepository.findByTenantIdAndCategoriaProdutoIdAndDisponivelTrueAndAtivoTrue(tenantId, categoriaProdutoId, pageable)
+                .map(this::mapToResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public ProdutoResponse buscarPorIdDoTenant(Long id) {
+        Long tenantId = TenantContextHolder.require().tenantId();
+        if (tenantId == null) {
+            throw new BusinessException("TenantContext ausente para leitura de produto.");
+        }
+        tenantGuard.assertTenantActive(tenantId);
+        tenantGuard.assertCurrentUserBelongsToTenant(tenantId);
+        return mapToResponse(buscarPorIdTenantAware(id, tenantId));
+    }
 
     /**
      * Cria um novo produto
      */
     @Transactional
     public ProdutoResponse criar(ProdutoRequest request) {
-        log.info("Criando novo produto: {}", request.getCodigo());
+        Tenant tenant = resolveTenantForWriteOperation();
+        log.info("Criando novo produto (tenantId={}): {}", tenant.getId(), request.getCodigo());
 
-        if (produtoRepository.existsByCodigo(request.getCodigo())) {
-            throw new BusinessException("Já existe um produto com o código: " + request.getCodigo());
+        if (produtoRepository.existsByCodigoAndTenantId(request.getCodigo(), tenant.getId())) {
+            throw new BusinessException("Já existe um produto com o código: " + request.getCodigo() + " neste tenant.");
+        }
+
+        if (request.getCategoria() == null) {
+            throw new BusinessException("Categoria (legado) é obrigatória para endpoints legados.");
         }
 
         Produto produto = new Produto();
+        produto.setTenant(tenant);
         produto.setCodigo(request.getCodigo());
         produto.setNome(request.getNome());
         produto.setDescricao(request.getDescricao());
         produto.setPreco(request.getPreco());
         produto.setCategoria(request.getCategoria());
+        produto.setCategoriaProduto(resolveCategoriaProdutoFromLegacyEnum(tenant.getId(), request.getCategoria()));
         produto.setUrlImagem(request.getUrlImagem());
         produto.setTempoPreparoMinutos(request.getTempoPreparoMinutos());
         produto.setDisponivel(request.getDisponivel() != null ? request.getDisponivel() : true);
@@ -65,15 +158,16 @@ public class ProdutoService {
      */
     @Transactional
     public ProdutoResponse atualizar(Long id, ProdutoRequest request) {
-        log.info("Atualizando produto ID: {}", id);
+        Tenant tenant = resolveTenantForWriteOperation();
+        log.info("Atualizando produto ID: {} (tenantId={})", id, tenant.getId());
 
-        Produto produto = buscarPorId(id);
+        Produto produto = buscarPorIdTenantAware(id, tenant.getId());
 
         // Verifica se o código já existe em outro produto
-        produtoRepository.findByCodigo(request.getCodigo())
+        produtoRepository.findByCodigoAndTenantId(request.getCodigo(), tenant.getId())
                 .ifPresent(p -> {
                     if (!p.getId().equals(id)) {
-                        throw new BusinessException("Já existe outro produto com o código: " + request.getCodigo());
+                        throw new BusinessException("Já existe outro produto com o código: " + request.getCodigo() + " neste tenant.");
                     }
                 });
 
@@ -81,7 +175,11 @@ public class ProdutoService {
         produto.setNome(request.getNome());
         produto.setDescricao(request.getDescricao());
         produto.setPreco(request.getPreco());
+        if (request.getCategoria() == null) {
+            throw new BusinessException("Categoria (legado) é obrigatória para endpoints legados.");
+        }
         produto.setCategoria(request.getCategoria());
+        produto.setCategoriaProduto(resolveCategoriaProdutoFromLegacyEnum(tenant.getId(), request.getCategoria()));
         produto.setUrlImagem(request.getUrlImagem());
         produto.setTempoPreparoMinutos(request.getTempoPreparoMinutos());
         
@@ -100,8 +198,8 @@ public class ProdutoService {
      */
     @Transactional(readOnly = true)
     public Produto buscarPorId(Long id) {
-        return produtoRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Produto", "id", id));
+        Long tenantId = resolveTenantIdForRead().orElseGet(this::resolveLegacyTenantId);
+        return buscarPorIdTenantAware(id, tenantId);
     }
 
     /**
@@ -109,8 +207,9 @@ public class ProdutoService {
      */
     @Transactional(readOnly = true)
     public Page<ProdutoResponse> listarDisponiveis(Pageable pageable) {
-        log.info("Listando produtos disponíveis - Página: {}", pageable.getPageNumber());
-        return produtoRepository.findByDisponivelTrueAndAtivoTrue(pageable)
+        Long tenantId = resolveTenantIdForRead().orElseGet(this::resolveLegacyTenantId);
+        log.info("Listando produtos disponíveis (tenantId={}) - Página: {}", tenantId, pageable.getPageNumber());
+        return produtoRepository.findByTenantIdAndDisponivelTrueAndAtivoTrue(tenantId, pageable)
                 .map(this::mapToResponse);
     }
 
@@ -119,8 +218,9 @@ public class ProdutoService {
      */
     @Transactional(readOnly = true)
     public Page<ProdutoResponse> listarTodos(Pageable pageable) {
-        log.info("Listando todos os produtos (admin) - Página: {}", pageable.getPageNumber());
-        return produtoRepository.findAll(pageable)
+        Long tenantId = resolveTenantIdForRead().orElseGet(this::resolveLegacyTenantId);
+        log.info("Listando todos os produtos (admin) (tenantId={}) - Página: {}", tenantId, pageable.getPageNumber());
+        return produtoRepository.findByTenantId(tenantId, pageable)
                 .map(this::mapToResponse);
     }
 
@@ -136,9 +236,10 @@ public class ProdutoService {
      * Busca produtos por categoria com paginação
      */
     @Transactional(readOnly = true)
-    public Page<ProdutoResponse> listarPorCategoria(CategoriaProduto categoria, Pageable pageable) {
-        log.info("Listando produtos da categoria: {} - Página: {}", categoria, pageable.getPageNumber());
-        return produtoRepository.findByCategoriaAndDisponivelTrueAndAtivoTrue(categoria, pageable)
+    public Page<ProdutoResponse> listarPorCategoria(CategoriaProdutoLegacy categoria, Pageable pageable) {
+        Long tenantId = resolveTenantIdForRead().orElseGet(this::resolveLegacyTenantId);
+        log.info("Listando produtos da categoria: {} (tenantId={}) - Página: {}", categoria, tenantId, pageable.getPageNumber());
+        return produtoRepository.findByTenantIdAndCategoriaAndDisponivelTrueAndAtivoTrue(tenantId, categoria, pageable)
                 .map(this::mapToResponse);
     }
 
@@ -147,8 +248,9 @@ public class ProdutoService {
      */
     @Transactional(readOnly = true)
     public Page<ProdutoResponse> buscarPorNome(String nome, Pageable pageable) {
-        log.info("Buscando produtos com nome: {} - Página: {}", nome, pageable.getPageNumber());
-        return produtoRepository.findByNomeContainingIgnoreCaseAndDisponivelTrueAndAtivoTrue(nome, pageable)
+        Long tenantId = resolveTenantIdForRead().orElseGet(this::resolveLegacyTenantId);
+        log.info("Buscando produtos com nome: {} (tenantId={}) - Página: {}", nome, tenantId, pageable.getPageNumber());
+        return produtoRepository.findByTenantIdAndNomeContainingIgnoreCaseAndDisponivelTrueAndAtivoTrue(tenantId, nome, pageable)
                 .map(this::mapToResponse);
     }
 
@@ -158,9 +260,10 @@ public class ProdutoService {
      */
     @Transactional
     public ProdutoResponse alterarDisponibilidade(Long id, Boolean disponivel) {
-        log.info("Alterando disponibilidade do produto ID: {} para {}", id, disponivel);
-        
-        Produto produto = buscarPorId(id);
+        Tenant tenant = resolveTenantForWriteOperation();
+        log.info("Alterando disponibilidade do produto ID: {} para {} (tenantId={})", id, disponivel, tenant.getId());
+
+        Produto produto = buscarPorIdTenantAware(id, tenant.getId());
         produto.setDisponivel(disponivel);
         produto = produtoRepository.save(produto);
 
@@ -172,9 +275,10 @@ public class ProdutoService {
      */
     @Transactional
     public void desativar(Long id) {
-        log.info("Desativando produto ID: {}", id);
-        
-        Produto produto = buscarPorId(id);
+        Tenant tenant = resolveTenantForWriteOperation();
+        log.info("Desativando produto ID: {} (tenantId={})", id, tenant.getId());
+
+        Produto produto = buscarPorIdTenantAware(id, tenant.getId());
         produto.setAtivo(false);
         produto.setDisponivel(false);
         produtoRepository.save(produto);
@@ -188,9 +292,10 @@ public class ProdutoService {
      */
     @Transactional
     public ProdutoResponse atualizarImagem(Long id, MultipartFile file) {
-        log.info("Iniciando processo de upload de imagem para o produto ID: {}", id);
-        
-        Produto produto = buscarPorId(id);
+        Tenant tenant = resolveTenantForWriteOperation();
+        log.info("Iniciando processo de upload de imagem para o produto ID: {} (tenantId={})", id, tenant.getId());
+
+        Produto produto = buscarPorIdTenantAware(id, tenant.getId());
         
         // Se já tiver uma imagem, removemos a anterior do MinIO para poupar espaço
         if (produto.getUrlImagem() != null && !produto.getUrlImagem().isEmpty()) {
@@ -220,6 +325,11 @@ public class ProdutoService {
         response.setDescricao(produto.getDescricao());
         response.setPreco(produto.getPreco());
         response.setCategoria(produto.getCategoria());
+        if (produto.getCategoriaProduto() != null) {
+            response.setCategoriaProdutoId(produto.getCategoriaProduto().getId());
+            response.setCategoriaProdutoNome(produto.getCategoriaProduto().getNome());
+            response.setCategoriaProdutoSlug(produto.getCategoriaProduto().getSlug());
+        }
         response.setUrlImagem(produto.getUrlImagem());
         response.setTempoPreparoMinutos(produto.getTempoPreparoMinutos());
         response.setDisponivel(produto.getDisponivel());
@@ -227,5 +337,92 @@ public class ProdutoService {
         response.setCreatedAt(produto.getCreatedAt());
         response.setUpdatedAt(produto.getUpdatedAt());
         return response;
+    }
+
+    private CategoriaProduto resolveCategoriaProdutoTenantAware(Long tenantId, ProdutoRequest request) {
+        if (request.getCategoriaProdutoId() != null) {
+            return categoriaProdutoRepository.findByIdAndTenantId(request.getCategoriaProdutoId(), tenantId)
+                    .orElseThrow(() -> new BusinessException("CategoriaProduto não encontrada no tenant."));
+        }
+        return categoriaProdutoService.getOrCreateDefaultDoTenant(tenantId);
+    }
+
+    private CategoriaProduto resolveCategoriaProdutoFromLegacyEnum(Long tenantId, CategoriaProdutoLegacy legacy) {
+        String slug = legacyEnumToSlug(legacy);
+        return categoriaProdutoRepository.findBySlugAndTenantId(slug, tenantId)
+                .orElseGet(() -> categoriaProdutoService.getOrCreateDefaultDoTenant(tenantId));
+    }
+
+    private CategoriaProdutoLegacy resolveLegacyEnumForCompat(CategoriaProdutoLegacy provided, CategoriaProduto categoriaProduto) {
+        if (provided != null) {
+            return provided;
+        }
+        // Compatibilidade: tenta derivar do slug; se não houver match, usa OUTROS.
+        CategoriaProdutoLegacy derived = slugToLegacyEnum(categoriaProduto != null ? categoriaProduto.getSlug() : null);
+        return derived != null ? derived : CategoriaProdutoLegacy.OUTROS;
+    }
+
+    private static String legacyEnumToSlug(CategoriaProdutoLegacy legacy) {
+        return switch (legacy) {
+            case ENTRADA -> "entrada";
+            case PRATO_PRINCIPAL -> "prato-principal";
+            case ACOMPANHAMENTO -> "acompanhamento";
+            case SOBREMESA -> "sobremesa";
+            case BEBIDA_ALCOOLICA -> "bebida-alcoolica";
+            case BEBIDA_NAO_ALCOOLICA -> "bebida-nao-alcoolica";
+            case LANCHE -> "lanche";
+            case PIZZA -> "pizza";
+            case OUTROS -> "outros";
+        };
+    }
+
+    private static CategoriaProdutoLegacy slugToLegacyEnum(String slug) {
+        if (slug == null) return null;
+        return switch (slug) {
+            case "entrada" -> CategoriaProdutoLegacy.ENTRADA;
+            case "prato-principal" -> CategoriaProdutoLegacy.PRATO_PRINCIPAL;
+            case "acompanhamento" -> CategoriaProdutoLegacy.ACOMPANHAMENTO;
+            case "sobremesa" -> CategoriaProdutoLegacy.SOBREMESA;
+            case "bebida-alcoolica" -> CategoriaProdutoLegacy.BEBIDA_ALCOOLICA;
+            case "bebida-nao-alcoolica" -> CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA;
+            case "lanche" -> CategoriaProdutoLegacy.LANCHE;
+            case "pizza" -> CategoriaProdutoLegacy.PIZZA;
+            case "outros" -> CategoriaProdutoLegacy.OUTROS;
+            case "geral" -> CategoriaProdutoLegacy.OUTROS;
+            default -> null;
+        };
+    }
+
+    private Produto buscarPorIdTenantAware(Long id, Long tenantId) {
+        return produtoRepository.findByIdAndTenantId(id, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Produto", "id", id));
+    }
+
+    private java.util.Optional<Long> resolveTenantIdForRead() {
+        return TenantContextHolder.get()
+                .map(ctx -> ctx.tenantId())
+                .filter(java.util.Objects::nonNull);
+    }
+
+    private Tenant resolveTenantForWriteOperation() {
+        return TenantContextHolder.get()
+                .map(ctx -> ctx.tenantId())
+                .filter(java.util.Objects::nonNull)
+                .map(this::resolveTenantValidatedForWrite)
+                .orElseGet(() -> tenantRepository.findByTenantCode(LEGACY_TENANT_CODE)
+                        .orElseThrow(() -> new BusinessException("Tenant LEGACY não encontrado para compatibilidade.")));
+    }
+
+    private Tenant resolveTenantValidatedForWrite(Long tenantId) {
+        tenantGuard.assertTenantActive(tenantId);
+        tenantGuard.assertCurrentUserBelongsToTenant(tenantId);
+        return tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new BusinessException("Tenant não encontrado: " + tenantId));
+    }
+
+    private Long resolveLegacyTenantId() {
+        return tenantRepository.findByTenantCode(LEGACY_TENANT_CODE)
+                .map(Tenant::getId)
+                .orElseThrow(() -> new BusinessException("Tenant LEGACY não encontrado para compatibilidade."));
     }
 }

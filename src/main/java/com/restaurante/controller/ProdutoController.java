@@ -3,7 +3,7 @@ package com.restaurante.controller;
 import com.restaurante.dto.request.ProdutoRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.ProdutoResponse;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.service.ProdutoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -81,7 +81,7 @@ public class ProdutoController {
     @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
     @Operation(summary = "Listar produtos por categoria", description = "Filtra produtos por categoria específica com paginação")
     public ResponseEntity<ApiResponse<Page<ProdutoResponse>>> listarPorCategoria(
-            @PathVariable CategoriaProduto categoria,
+            @PathVariable CategoriaProdutoLegacy categoria,
             @PageableDefault(size = 20) Pageable pageable) {
         Page<ProdutoResponse> produtos = produtoService.listarPorCategoria(categoria, pageable);
         return ResponseEntity.ok(ApiResponse.success("Produtos listados com sucesso", produtos));

@@ -70,6 +70,12 @@ public class ConcurrenciaRealE2ETest {
     private ProdutoRepository produtoRepository;
 
     @Autowired
+    private TenantRepository tenantRepository;
+
+    @Autowired
+    private CategoriaProdutoRepository categoriaProdutoRepository;
+
+    @Autowired
     private CozinhaRepository cozinhaRepository;
 
     @Autowired
@@ -458,15 +464,37 @@ public class ConcurrenciaRealE2ETest {
     }
 
     private Produto criarProduto() {
-        return produtoRepository.save(
-            Produto.builder()
-                .codigo("PROD-" + System.currentTimeMillis())
-                .nome("Produto Teste")
-                .preco(BigDecimal.valueOf(10.0))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
-                .disponivel(true)
-                .build()
-        );
+        Tenant tenant = tenantRepository.findByTenantCode("LEGACY").orElseGet(() -> {
+            Tenant t = new Tenant();
+            t.setNome("LEGACY (test)");
+            t.setSlug("legacy-test");
+            t.setTenantCode("LEGACY");
+            t.setTipo(TenantTipo.INSTITUCIONAL);
+            t.setEstado(TenantEstado.ATIVO);
+            return tenantRepository.save(t);
+        });
+
+        CategoriaProduto geral = categoriaProdutoRepository.findBySlugAndTenantId("geral", tenant.getId())
+                .orElseGet(() -> {
+                    CategoriaProduto cp = new CategoriaProduto();
+                    cp.setTenant(tenant);
+                    cp.setNome("Geral");
+                    cp.setSlug("geral");
+                    cp.setOrdem(0);
+                    cp.setAtivo(true);
+                    return categoriaProdutoRepository.save(cp);
+                });
+
+        Produto p = new Produto();
+        p.setTenant(tenant);
+        p.setCategoriaProduto(geral);
+        p.setCodigo("PROD-" + System.currentTimeMillis());
+        p.setNome("Produto Teste");
+        p.setPreco(BigDecimal.valueOf(10.0));
+        p.setCategoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL);
+        p.setDisponivel(true);
+        p.setAtivo(true);
+        return produtoRepository.save(p);
     }
 
     private Cozinha criarCozinha() {

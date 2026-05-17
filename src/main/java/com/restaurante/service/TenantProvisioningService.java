@@ -73,6 +73,8 @@ public class TenantProvisioningService {
     private final TenantUserRepository tenantUserRepository;
     private final TenantLimiteOverrideRepository tenantLimiteOverrideRepository;
     private final QrCodeOperacionalService qrCodeOperacionalService;
+    private final com.restaurante.service.producao.UnidadeProducaoService unidadeProducaoService;
+    private final com.restaurante.service.producao.RotaProducaoService rotaProducaoService;
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
     private final ProvisioningPlanCalculator planCalculator;
@@ -223,9 +225,10 @@ public class TenantProvisioningService {
         }
 
         ArrayList<String> categoriasCriadas = new ArrayList<>();
+        CategoriaProduto categoriaDefault = null;
         if (criarCategoriaDefault) {
-            CategoriaProduto cat = criarCategoriaDefault(tenant, template);
-            categoriasCriadas.add(cat.getSlug());
+            categoriaDefault = criarCategoriaDefault(tenant, template);
+            categoriasCriadas.add(categoriaDefault.getSlug());
         }
 
         User owner = null;
@@ -251,6 +254,19 @@ public class TenantProvisioningService {
                     qrTipo,
                     qrNome
             );
+        }
+
+        // Unidade de produção default + rota default para categoria "geral" (quando criada)
+        // Mantém tenants prontos para operação de produção sem configuração manual inicial.
+        var unidadeProducaoDefault = unidadeProducaoService.criarDefaultGeral(
+                tenant.getId(),
+                instituicao.getId(),
+                unidade != null ? unidade.getId() : null,
+                "Produção Geral",
+                com.restaurante.model.enums.UnidadeProducaoTipo.OUTRO
+        );
+        if (categoriaDefault != null) {
+            rotaProducaoService.configurarRota(tenant.getId(), categoriaDefault.getId(), unidadeProducaoDefault.getId(), 0);
         }
 
         ArrayList<ProvisionarTenantResponse.MesaProvisionadaResponse> mesasResp = new ArrayList<>();

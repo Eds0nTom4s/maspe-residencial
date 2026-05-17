@@ -53,6 +53,8 @@ public class PublicQrPedidoService {
     private final SessaoConsumoService sessaoConsumoService;
     private final PedidoNumberService pedidoNumberService;
     private final PublicQrOrderIdempotencyService idempotencyService;
+    private final com.restaurante.service.producao.RotaProducaoService rotaProducaoService;
+    private final com.restaurante.service.producao.UnidadeProducaoService unidadeProducaoService;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -105,6 +107,30 @@ public class PublicQrPedidoService {
                         .status(StatusSubPedido.CRIADO)
                         .build();
                 subPedido.setTenant(tenant);
+
+                // Roteamento de produção:
+                // - resolve unidade por categoria para cada item
+                // - se houver mais de uma unidade no mesmo SubPedido, usa fallback "GERAL" da instituição
+                com.restaurante.model.entity.UnidadeProducao unidadeProducao = null;
+                for (PublicQrPedidoItemRequest itemReq : itensReq) {
+                    Produto prod = produtos.stream()
+                            .filter(p -> p.getId().equals(itemReq.getProdutoId()))
+                            .findFirst()
+                            .orElseThrow(() -> new BusinessException("Produto inválido ou indisponível."));
+                    if (prod.getCategoriaProduto() == null) {
+                        throw new BusinessException("Produto inválido ou indisponível.");
+                    }
+                    var resolved = rotaProducaoService.resolverUnidadeProducaoParaCategoria(
+                            tenant.getId(), instituicao.getId(), prod.getCategoriaProduto().getId()
+                    );
+                    if (unidadeProducao == null) {
+                        unidadeProducao = resolved;
+                    } else if (!unidadeProducao.getId().equals(resolved.getId())) {
+                        unidadeProducao = unidadeProducaoService.obterDefaultParaInstituicao(tenant.getId(), instituicao.getId());
+                        break;
+                    }
+                }
+                subPedido.setUnidadeProducao(unidadeProducao);
                 contadorSubPedido++;
 
                 for (PublicQrPedidoItemRequest itemReq : itensReq) {

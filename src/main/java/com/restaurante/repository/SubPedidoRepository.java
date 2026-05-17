@@ -172,4 +172,28 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
     @Query("SELECT COUNT(sp) FROM SubPedido sp WHERE sp.cozinha.id = :cozinhaId " +
            "AND sp.status IN ('PENDENTE', 'RECEBIDO', 'EM_PREPARACAO')")
     Long contarSubPedidosAtivosPorCozinha(@Param("cozinhaId") Long cozinhaId);
+
+    // ---------------------------------------------------------------------
+    // Tenant-scoped + Produção (Prompt 17)
+    // ---------------------------------------------------------------------
+
+    Optional<SubPedido> findByIdAndTenantId(Long id, Long tenantId);
+
+    @Query("SELECT sp FROM SubPedido sp " +
+           "WHERE sp.tenant.id = :tenantId " +
+           "AND sp.unidadeProducao.id = :unidadeProducaoId " +
+           "ORDER BY sp.createdAt DESC")
+    List<SubPedido> findByTenantIdAndUnidadeProducaoIdOrderByCreatedAtDesc(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId);
+
+    @Query("SELECT sp FROM SubPedido sp " +
+           "WHERE sp.tenant.id = :tenantId " +
+           "AND sp.unidadeProducao.id = :unidadeProducaoId " +
+           "AND (:status IS NULL OR sp.status = :status) " +
+           "ORDER BY sp.createdAt DESC")
+    List<SubPedido> findByTenantIdAndUnidadeProducaoIdAndStatusOrderByCreatedAtDesc(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status);
 }

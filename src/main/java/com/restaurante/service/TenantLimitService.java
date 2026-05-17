@@ -8,6 +8,7 @@ import com.restaurante.model.entity.TenantLimiteOverride;
 import com.restaurante.model.enums.SubscricaoEstado;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.QrCodeOperacionalRepository;
 import com.restaurante.repository.SubscricaoRepository;
 import com.restaurante.repository.TenantLimiteOverrideRepository;
@@ -15,6 +16,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.model.enums.DispositivoStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +43,7 @@ public class TenantLimitService {
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final TenantUserRepository tenantUserRepository;
     private final QrCodeOperacionalRepository qrCodeOperacionalRepository;
+    private final DispositivoOperacionalRepository dispositivoOperacionalRepository;
 
     @Transactional(readOnly = true)
     public EffectiveTenantLimits getEffectiveLimits(Long tenantId) {
@@ -115,7 +118,9 @@ public class TenantLimitService {
     @Transactional(readOnly = true)
     public void assertCanCreateUser(Long tenantId, int quantidadeNova) {
         EffectiveTenantLimits limits = getEffectiveLimits(tenantId);
-        long current = tenantUserRepository.countByTenantIdAndEstado(tenantId, TenantUserEstado.ATIVO);
+        // Regra (Prompt 19): contar usuários distintos com pelo menos um vínculo não-REMOVIDO.
+        // SUSPENSO ainda consome limite; REMOVIDO não consome.
+        long current = tenantUserRepository.countDistinctUsersByTenantIdAndEstadoNot(tenantId, TenantUserEstado.REMOVIDO);
         long projected = current + Math.max(0, quantidadeNova);
         if (limits.maxUsuarios() != null && projected > limits.maxUsuarios()) {
             throw new BusinessException("Limite de usuários excedido para o tenant.");
@@ -134,7 +139,16 @@ public class TenantLimitService {
 
     // Placeholders para fases futuras (não usados ainda)
     public void assertCanCreateProduto(Long tenantId) { /* Fase futura */ }
-    public void assertCanCreateDispositivo(Long tenantId) { /* Fase futura */ }
+
+    @Transactional(readOnly = true)
+    public void assertCanCreateDispositivo(Long tenantId, int quantidadeNova) {
+        EffectiveTenantLimits limits = getEffectiveLimits(tenantId);
+        long current = dispositivoOperacionalRepository.countByTenantIdAndStatusNot(tenantId, DispositivoStatus.REVOGADO);
+        long projected = current + Math.max(0, quantidadeNova);
+        if (limits.maxDispositivos() != null && projected > limits.maxDispositivos()) {
+            throw new BusinessException("Limite de dispositivos excedido para o tenant.");
+        }
+    }
 
     private Integer pickOverrideOrPlano(Integer overrideValue, Integer planoValue) {
         return overrideValue != null ? overrideValue : planoValue;

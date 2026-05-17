@@ -22,6 +22,7 @@ import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
@@ -57,6 +58,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired PedidoRepository pedidoRepository;
+    @Autowired SubPedidoRepository subPedidoRepository;
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
 
     @Test
@@ -105,6 +107,11 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(pedido.getTenant().getId()).isEqualTo(tenantA.getId());
         assertThat(pedido.getSessaoConsumo().getInstituicao().getId()).isEqualTo(instA.getId());
         assertThat(pedido.getStatus().name()).isEqualTo("CRIADO");
+
+        // Produção: subpedidos devem ter unidadeProducao resolvida (rota ou default)
+        var subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedido.getId());
+        assertThat(subs).isNotEmpty();
+        assertThat(subs).allMatch(sp -> sp.getUnidadeProducao() != null);
     }
 
     @Test

@@ -73,6 +73,14 @@ public class SubPedido extends BaseEntity {
     private Cozinha cozinha;
 
     /**
+     * Unidade de produção responsável (tenant-aware).
+     * Nesta fase pode ser nula para subpedidos antigos (backfill incremental).
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "unidade_producao_id")
+    private UnidadeProducao unidadeProducao;
+
+    /**
      * Status do SubPedido (independente)
      */
     @Enumerated(EnumType.STRING)
@@ -242,6 +250,9 @@ public class SubPedido extends BaseEntity {
 
     public Cozinha getCozinha() { return cozinha; }
     public void setCozinha(Cozinha cozinha) { this.cozinha = cozinha; }
+
+    public UnidadeProducao getUnidadeProducao() { return unidadeProducao; }
+    public void setUnidadeProducao(UnidadeProducao unidadeProducao) { this.unidadeProducao = unidadeProducao; }
 
     public StatusSubPedido getStatus() { return status; }
     public void setStatus(StatusSubPedido status) { this.status = status; }

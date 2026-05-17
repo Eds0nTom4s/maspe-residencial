@@ -108,6 +108,48 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * DeviceUnauthorizedException (401) — autenticação de dispositivo inválida/ausente.
+     */
+    @ExceptionHandler(DeviceUnauthorizedException.class)
+    public ResponseEntity<ErrorResponse> handleDeviceUnauthorizedException(
+            DeviceUnauthorizedException ex, WebRequest request) {
+
+        log.warn("Device não autenticado: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .error("Não autenticado")
+                .code("DEVICE_UNAUTHORIZED")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    /**
+     * DeviceForbiddenException (403) — dispositivo autenticado mas não permitido (suspenso/revogado).
+     */
+    @ExceptionHandler(DeviceForbiddenException.class)
+    public ResponseEntity<ErrorResponse> handleDeviceForbiddenException(
+            DeviceForbiddenException ex, WebRequest request) {
+
+        log.warn("Device proibido: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.FORBIDDEN.value())
+                .error("Acesso negado")
+                .code("DEVICE_FORBIDDEN")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+    }
+
+    /**
      * Trata erros de validação (Bean Validation)
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)

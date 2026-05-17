@@ -1,0 +1,177 @@
+RELATÓRIO TÉCNICO — PROMPT 19
+Gestão mínima de usuários do tenant + auditoria operacional
+Data: 2026-05-17
+
+1) RESUMO EXECUTIVO
+- Implementada a gestão mínima de equipe do tenant via endpoints `/api/tenant/usuarios`, usando o modelo existente `TenantUser`.
+- Suporta multi-role por usuário (modelo interno 1 linha por role) e expõe roles agregadas no DTO.
+- Aplicado enforcement de `maxUsuarios` por tenant (contagem por usuários distintos não-REMOVIDO).
+- Implementada auditoria operacional mínima (`tenant_audit_logs`) para ações administrativas de gestão de usuários.
+- RBAC aplicado: somente `TENANT_OWNER` e `TENANT_ADMIN`; com regras adicionais de política (ADMIN não mexe em OWNER/ADMIN; proteção do último OWNER).
+
+2) MIGRATION CRIADA
+- `src/main/resources/db/migration/V16__tenant_user_management_audit.sql`
+  - Cria tabela `tenant_audit_logs`
+  - Índices por `tenant_id`, `actor_user_id`, `target_user_id`, `action`, `created_at`
+
+3) ENTIDADE DE AUDITORIA
+- `src/main/java/com/restaurante/model/entity/TenantAuditLog.java`
+  - `tenant_id` (FK), `actor_user_id`, `target_user_id`, `entity_type`, `entity_id`, `action`, `status`, `ip`, `user_agent`, `message`, `metadata_json`
+
+4) ENUMS DE AUDITORIA
+- `src/main/java/com/restaurante/model/enums/TenantAuditAction.java`
+- `src/main/java/com/restaurante/model/enums/TenantAuditStatus.java`
+
+5) REPOSITORIES
+- `src/main/java/com/restaurante/repository/TenantAuditLogRepository.java`
+  - listagem por tenant, action, targetUserId
+- `src/main/java/com/restaurante/repository/TenantUserRepository.java`
+  - `countDistinctUsersByTenantIdAndEstadoNot(...)` (regra maxUsuarios)
+  - `findByTenantIdWithUser(...)` (join fetch para agregação)
+  - `countByTenantIdAndRoleAndEstado(...)` (proteção último OWNER)
+
+6) ENFORCEMENT DE maxUsuarios
+- Ajuste em `src/main/java/com/restaurante/service/TenantLimitService.java`
+  - `assertCanCreateUser(...)` agora conta usuários distintos com `estado != REMOVIDO` (SUSPENSO conta; REMOVIDO não conta).
+- Na API de usuários, excesso de limite retorna `409 Conflict` (via `ConflictException`) e registra auditoria `TENANT_USER_LIMIT_EXCEEDED`.
+
+7) SERVICES / POLICY
+- `src/main/java/com/restaurante/service/tenantadmin/TenantUsuarioService.java`
+  - listar, buscar, criar/vincular, alterar roles, suspender, reativar, remover (remoção lógica)
+  - multi-role por usuário: cria/reativa/remove linhas `TenantUser` por role
+  - validações: email/telefone, usuário já membro (409), limite, último OWNER, cross-tenant 404
+  - compatibilidade com modelo atual de `User` (schema exige `telefone` NOT NULL para criar novo User)
+- `src/main/java/com/restaurante/service/tenantadmin/TenantUsuarioPolicy.java`
+  - regras OWNER vs ADMIN:
+    - ADMIN não pode atribuir OWNER/ADMIN
+    - ADMIN não pode modificar/suspender/remover usuários que tenham OWNER/ADMIN
+    - OWNER não pode suspender/remover o último OWNER ATIVO
+- `src/main/java/com/restaurante/service/tenantadmin/TenantAuditService.java`
+  - grava eventos operacionais sem dados sensíveis (não grava senha)
+
+8) CONTROLLERS / ENDPOINTS
+Base `/api` via `server.servlet.context-path=/api`.
+
+8.1 Gestão de usuários do tenant
+- `src/main/java/com/restaurante/controller/TenantUsuarioController.java`
+  - `GET    /api/tenant/usuarios`
+  - `GET    /api/tenant/usuarios/{userId}`
+  - `POST   /api/tenant/usuarios`
+  - `PUT    /api/tenant/usuarios/{userId}/roles`
+  - `POST   /api/tenant/usuarios/{userId}/suspender`
+  - `POST   /api/tenant/usuarios/{userId}/reativar`
+  - `DELETE /api/tenant/usuarios/{userId}`
+RBAC:
+  - Exige `TENANT_OWNER` ou `TENANT_ADMIN`.
+  - Regras adicionais aplicadas no service/policy (ADMIN não mexe em OWNER/ADMIN; último OWNER protegido).
+
+8.2 Auditoria do tenant
+- `src/main/java/com/restaurante/controller/TenantAuditController.java`
+  - `GET /api/tenant/auditoria?action=&targetUserId=`
+RBAC:
+  - Exige `TENANT_OWNER` ou `TENANT_ADMIN`.
+
+9) DTOs
+- Requests:
+  - `src/main/java/com/restaurante/dto/request/CriarTenantUsuarioRequest.java`
+  - `src/main/java/com/restaurante/dto/request/AlterarTenantUsuarioRolesRequest.java`
+  - `src/main/java/com/restaurante/dto/request/SuspenderTenantUsuarioRequest.java`
+  - `src/main/java/com/restaurante/dto/request/ReativarTenantUsuarioRequest.java`
+- Responses:
+  - `src/main/java/com/restaurante/dto/response/TenantUsuarioResponse.java`
+  - `src/main/java/com/restaurante/dto/response/TenantAuditLogResponse.java`
+
+10) ESTRATÉGIA MULTI-ROLE (MODELO INTERNO)
+- Mantido o modelo atual: `TenantUser` com `unique(tenant_id, user_id, role)`.
+- API agrega roles por usuário e retorna `roles: [TENANT_*]` no `TenantUsuarioResponse`.
+- Alteração de roles faz “set”:
+  - roles removidas -> `REMOVIDO`
+  - roles adicionadas -> cria nova linha
+  - roles já existentes -> reativa/ajusta estado para `ATIVO`
+
+11) PROTEÇÃO DO ÚLTIMO OWNER
+- Bloqueia:
+  - suspensão do último `TENANT_OWNER` com estado `ATIVO`
+  - remoção lógica do último `TENANT_OWNER` com estado `ATIVO`
+
+12) AUDITORIA (O QUE REGISTRA / O QUE NÃO REGISTRA)
+Registra:
+- criação/vínculo e reutilização de usuário
+- alteração de roles
+- suspensão/reativação/remoção
+- bloqueio por limite
+Não registra:
+- senha temporária
+- secrets/tokens
+
+13) TESTES CRIADOS
+- `src/test/java/com/restaurante/tenantadmin/TenantUsuarioControllerIT.java`
+Cobre:
+- OWNER/ADMIN permitido; OPERATOR bloqueado
+- ADMIN não cria OWNER/ADMIN
+- maxUsuarios (distinct) aplicado com 409
+- último OWNER não removível
+- cross-tenant retorna 404
+- auditoria registrada e não contém senha temporária
+
+14) COMANDOS EXECUTADOS
+- `mvn -q -DskipTests compile`
+  - Resultado: OK
+- `mvn test`
+  - Resultado: BUILD SUCCESS (145 tests; 0 failures; 0 errors)
+
+15) ARQUIVOS CRIADOS/ALTERADOS (PRINCIPAIS)
+Criados:
+- `src/main/resources/db/migration/V16__tenant_user_management_audit.sql`
+- `src/main/java/com/restaurante/model/entity/TenantAuditLog.java`
+- `src/main/java/com/restaurante/model/enums/TenantAuditAction.java`
+- `src/main/java/com/restaurante/model/enums/TenantAuditStatus.java`
+- `src/main/java/com/restaurante/repository/TenantAuditLogRepository.java`
+- `src/main/java/com/restaurante/service/tenantadmin/TenantUsuarioService.java`
+- `src/main/java/com/restaurante/service/tenantadmin/TenantUsuarioPolicy.java`
+- `src/main/java/com/restaurante/service/tenantadmin/TenantAuditService.java`
+- `src/main/java/com/restaurante/controller/TenantUsuarioController.java`
+- `src/main/java/com/restaurante/controller/TenantAuditController.java`
+- `docs/tenant-core/19-gestao-usuarios-tenant-auditoria.md`
+- `src/test/java/com/restaurante/tenantadmin/TenantUsuarioControllerIT.java`
+
+Alterados:
+- `src/main/java/com/restaurante/repository/TenantUserRepository.java`
+- `src/main/java/com/restaurante/service/TenantLimitService.java`
+
+16) DECISÕES TÉCNICAS TOMADAS
+- Mantido o modelo “1 linha por role” em `TenantUser` (compatível com schema atual).
+- DTO expõe roles agregadas para DX do frontend.
+- `maxUsuarios` aplicado por usuários distintos com `estado != REMOVIDO` (SUSPENSO consome).
+- Limite excedido retorna `409` nos endpoints de usuários (sem mudar o comportamento global do `TenantLimitService` para outras áreas).
+- Auditoria com `metadata_json` (JSON) para “rolesAntes/rolesDepois/motivo”, sem dados sensíveis.
+- Criação de `User` novo exige telefone (restrição do schema atual: `users.telefone` NOT NULL).
+
+17) RISCOS RESTANTES (CONSCIENTES)
+- JWT tenant-scoped pode ficar “stale” após mudança de roles até expirar o token (tokenVersion/refreshtoken fica para fase futura).
+- Convite por email/SMS e reset de senha ainda não existem (intencionalmente fora do escopo).
+
+18) CHECKLIST DE ACEITAÇÃO (PROMPT 19)
+- GET /api/tenant/usuarios: OK
+- GET /api/tenant/usuarios/{userId}: OK
+- POST /api/tenant/usuarios: OK
+- PUT /api/tenant/usuarios/{userId}/roles: OK
+- POST /api/tenant/usuarios/{userId}/suspender: OK
+- POST /api/tenant/usuarios/{userId}/reativar: OK
+- DELETE /api/tenant/usuarios/{userId}: OK
+- OWNER gere usuários: OK
+- ADMIN gere apenas roles operacionais: OK
+- OPERATOR/FINANCE/KITCHEN/CASHIER não gerem usuários: OK
+- maxUsuarios aplicado: OK
+- último OWNER não removível/suspensível: OK
+- usuário removido não acessa tenant (via regras de membership): OK
+- auditoria registra ações e não grava senha/secrets: OK
+- cross-tenant 404: OK
+- role insuficiente 403: OK
+- testes passam: OK
+
+19) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 20: “Aprimorar status operacional de Pedido/SubPedido + event log operacional”
+  - Endpoints mínimos para avançar estados (recebido/preparando/pronto/entregue) com RBAC e auditoria,
+    sem tocar em financeiro/pagamento.
+

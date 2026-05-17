@@ -61,6 +61,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/tenant/select", "/auth/tenant/select").authenticated()
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
                         .requestMatchers("/api/public/**", "/public/**").permitAll()
+                        .requestMatchers("/api/device/**", "/device/**").permitAll()
 
                         // Debug endpoints: restritos por @Profile("!prod") + @PreAuthorize("ADMIN") no controller
                         // Sem regra de permitAll aqui — autenticação obrigatória

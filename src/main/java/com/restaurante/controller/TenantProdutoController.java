@@ -3,6 +3,8 @@ package com.restaurante.controller;
 import com.restaurante.dto.request.ProdutoRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.ProdutoResponse;
+import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.ProdutoService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 @Tag(name = "Tenant Produtos", description = "Endpoints tenant-aware para produtos do catálogo")
 public class TenantProdutoController {
 
+    private final TenantGuard tenantGuard;
     private final ProdutoService produtoService;
 
     @GetMapping
@@ -35,6 +38,12 @@ public class TenantProdutoController {
             @RequestParam(required = false) Long categoriaProdutoId,
             @PageableDefault(size = 50) Pageable pageable
     ) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
         Page<ProdutoResponse> page = (categoriaProdutoId == null)
                 ? produtoService.listarDisponiveisDoTenant(pageable)
                 : produtoService.listarDisponiveisDoTenantPorCategoriaProduto(categoriaProdutoId, pageable);
@@ -44,12 +53,19 @@ public class TenantProdutoController {
     @GetMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ProdutoResponse>> buscarPorId(@PathVariable Long id) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
         return ResponseEntity.ok(ApiResponse.success("Produto", produtoService.buscarPorIdDoTenant(id)));
     }
 
     @PostMapping
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ProdutoResponse>> criar(@Valid @RequestBody ProdutoRequest request) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
         ProdutoResponse created = produtoService.criarTenantAware(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Produto criado", created));
     }

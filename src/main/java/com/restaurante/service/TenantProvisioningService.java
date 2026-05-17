@@ -268,6 +268,7 @@ public class TenantProvisioningService {
                 m.setAtiva(true);
                 m.setTipo(TipoUnidadeConsumo.MESA_FISICA);
                 m.setUnidadeAtendimento(unidade);
+                m.setTenant(tenant);
                 m.setInstituicao(instituicao);
                 m = mesaRepository.saveAndFlush(m);
 

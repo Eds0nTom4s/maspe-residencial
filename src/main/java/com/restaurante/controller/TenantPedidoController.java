@@ -5,6 +5,8 @@ import com.restaurante.dto.response.TenantPedidoDetalheResponse;
 import com.restaurante.dto.response.TenantPedidoResumoResponse;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
+import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.tenantadmin.TenantAdminPedidoService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ import java.time.LocalDateTime;
 @Tag(name = "Tenant Admin - Pedidos", description = "Listagem e detalhe de pedidos do tenant atual")
 public class TenantPedidoController {
 
+    private final TenantGuard tenantGuard;
     private final TenantAdminPedidoService pedidoService;
 
     @GetMapping("/pedidos")
@@ -42,6 +45,13 @@ public class TenantPedidoController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime ate,
             @PageableDefault(size = 50) Pageable pageable
     ) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER,
+                TenantUserRole.TENANT_FINANCE
+        );
         Page<TenantPedidoResumoResponse> page = pedidoService.listarPedidos(
                 statusOperacional, statusFinanceiro, instituicaoId, unidadeAtendimentoId, mesaId, de, ate, pageable
         );
@@ -51,7 +61,13 @@ public class TenantPedidoController {
     @GetMapping("/pedidos/{id}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<TenantPedidoDetalheResponse>> detalhe(@PathVariable Long id) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER,
+                TenantUserRole.TENANT_FINANCE
+        );
         return ResponseEntity.ok(ApiResponse.success("Pedido", pedidoService.buscarDetalhe(id)));
     }
 }
-

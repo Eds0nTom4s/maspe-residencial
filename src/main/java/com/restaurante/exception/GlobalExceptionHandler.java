@@ -172,6 +172,7 @@ public class GlobalExceptionHandler {
                 .timestamp(LocalDateTime.now())
                 .status(HttpStatus.FORBIDDEN.value())
                 .error("Acesso negado")
+                .code("TENANT_ROLE_FORBIDDEN")
                 .message("Você não tem permissão para acessar este recurso.")
                 .path(request.getDescription(false).replace("uri=", ""))
                 .build();
@@ -266,17 +267,19 @@ public class GlobalExceptionHandler {
         private int status;
         private String error;
         private String message;
+        private String code;
         private String path;
         private Map<String, String> validationErrors;
 
         public ErrorResponse() {
         }
 
-        public ErrorResponse(LocalDateTime timestamp, int status, String error, String message, String path, Map<String, String> validationErrors) {
+        public ErrorResponse(LocalDateTime timestamp, int status, String error, String message, String code, String path, Map<String, String> validationErrors) {
             this.timestamp = timestamp;
             this.status = status;
             this.error = error;
             this.message = message;
+            this.code = code;
             this.path = path;
             this.validationErrors = validationErrors;
         }
@@ -289,6 +292,8 @@ public class GlobalExceptionHandler {
         public void setError(String error) { this.error = error; }
         public String getMessage() { return message; }
         public void setMessage(String message) { this.message = message; }
+        public String getCode() { return code; }
+        public void setCode(String code) { this.code = code; }
         public String getPath() { return path; }
         public void setPath(String path) { this.path = path; }
         public Map<String, String> getValidationErrors() { return validationErrors; }
@@ -303,6 +308,7 @@ public class GlobalExceptionHandler {
             private int status;
             private String error;
             private String message;
+            private String code;
             private String path;
             private Map<String, String> validationErrors;
 
@@ -310,11 +316,12 @@ public class GlobalExceptionHandler {
             public ErrorResponseBuilder status(int status) { this.status = status; return this; }
             public ErrorResponseBuilder error(String error) { this.error = error; return this; }
             public ErrorResponseBuilder message(String message) { this.message = message; return this; }
+            public ErrorResponseBuilder code(String code) { this.code = code; return this; }
             public ErrorResponseBuilder path(String path) { this.path = path; return this; }
             public ErrorResponseBuilder validationErrors(Map<String, String> validationErrors) { this.validationErrors = validationErrors; return this; }
 
             public ErrorResponse build() {
-                return new ErrorResponse(timestamp, status, error, message, path, validationErrors);
+                return new ErrorResponse(timestamp, status, error, message, code, path, validationErrors);
             }
         }
     }

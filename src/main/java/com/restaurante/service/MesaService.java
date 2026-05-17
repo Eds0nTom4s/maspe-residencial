@@ -79,6 +79,9 @@ public class MesaService {
         Instituicao instituicao = unidadeAtendimento.getInstituicao() != null
                 ? unidadeAtendimento.getInstituicao()
                 : buscarInstituicaoAtiva();
+        if (instituicao.getTenant() == null) {
+            throw new BusinessException("Instituição inválida para criação de mesa (tenant ausente).");
+        }
 
         Mesa mesa = Mesa.builder()
                 .referencia(request.getReferencia())
@@ -88,6 +91,7 @@ public class MesaService {
                 .capacidade(request.getCapacidade())
                 .ativa(true)
                 .unidadeAtendimento(unidadeAtendimento)
+                .tenant(instituicao.getTenant())
                 .instituicao(instituicao)
                 .build();
 

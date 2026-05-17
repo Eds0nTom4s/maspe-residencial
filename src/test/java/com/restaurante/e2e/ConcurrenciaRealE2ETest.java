@@ -80,6 +80,9 @@ public class ConcurrenciaRealE2ETest {
 
     @Autowired
     private UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+
+    @Autowired
+    private InstituicaoRepository instituicaoRepository;
     
     @Autowired
     private SubPedidoEventLogRepository subPedidoEventLogRepository;
@@ -438,12 +441,30 @@ public class ConcurrenciaRealE2ETest {
     }
 
     private SessaoConsumo criarSessaoConsumo(Cliente cliente) {
+        Tenant tenant = tenantRepository.findByTenantCode("LEGACY").orElseGet(() -> {
+            Tenant t = new Tenant();
+            t.setNome("LEGACY (test)");
+            t.setSlug("legacy-test");
+            t.setTenantCode("LEGACY");
+            t.setTipo(TenantTipo.INSTITUCIONAL);
+            t.setEstado(TenantEstado.ATIVO);
+            return tenantRepository.save(t);
+        });
+
+        Instituicao instituicao = new Instituicao();
+        instituicao.setTenant(tenant);
+        instituicao.setNome("Instituição Teste");
+        instituicao.setSigla("LEG");
+        instituicao.setAtiva(true);
+        instituicao = instituicaoRepository.save(instituicao);
+
         UnidadeAtendimento unidadeAtendimento = unidadeAtendimentoRepository.save(
             UnidadeAtendimento.builder()
                 .nome("Salão Principal")
                 .tipo(TipoUnidadeAtendimento.RESTAURANTE)
                 .descricao("Área de atendimento geral")
                 .ativa(true)
+                .instituicao(instituicao)
                 .build()
         );
 
@@ -451,6 +472,8 @@ public class ConcurrenciaRealE2ETest {
             Mesa.builder()
                 .referencia("Mesa " + System.currentTimeMillis())
                 .unidadeAtendimento(unidadeAtendimento)
+                .tenant(tenant)
+                .instituicao(instituicao)
                 .ativa(true)
                 .build()
         );
@@ -458,7 +481,13 @@ public class ConcurrenciaRealE2ETest {
         return sessaoConsumoRepository.save(
             SessaoConsumo.builder()
                 .mesa(mesa)
+                .tenant(tenant)
+                .instituicao(instituicao)
+                .unidadeAtendimento(unidadeAtendimento)
                 .cliente(cliente)
+                .status(StatusSessaoConsumo.ABERTA)
+                .modoAnonimo(false)
+                .tipoSessao(TipoSessao.PRE_PAGO)
                 .build()
         );
     }

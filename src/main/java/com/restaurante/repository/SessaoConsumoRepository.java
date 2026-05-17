@@ -39,6 +39,20 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
      */
     List<SessaoConsumo> findAllByMesaIdAndStatus(Long mesaId, StatusSessaoConsumo status);
 
+    // ---------------------------------------------------------------------
+    // Tenant-scoped (Prompt 16): preferir estes métodos em fluxos tenant-aware
+    // ---------------------------------------------------------------------
+
+    Optional<SessaoConsumo> findByIdAndTenantId(Long id, Long tenantId);
+
+    Optional<SessaoConsumo> findByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);
+
+    List<SessaoConsumo> findAllByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);
+
+    List<SessaoConsumo> findByTenantIdAndStatus(Long tenantId, StatusSessaoConsumo status);
+
+    boolean existsByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);
+
     /**
      * Histórico de sessões de uma mesa, ordenado da mais recente para a mais antiga.
      */

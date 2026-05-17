@@ -9,6 +9,7 @@ import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.security.JwtTokenProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,12 @@ class TenantResolverTest {
                     @Override public TenantUserRepository getObject() { return tenantUserRepository; }
                     @Override public TenantUserRepository getIfAvailable() { return tenantUserRepository; }
                     @Override public TenantUserRepository getIfUnique() { return tenantUserRepository; }
+                },
+                new org.springframework.beans.factory.ObjectProvider<>() {
+                    @Override public JwtTokenProvider getObject(Object... args) { return null; }
+                    @Override public JwtTokenProvider getObject() { return null; }
+                    @Override public JwtTokenProvider getIfAvailable() { return null; }
+                    @Override public JwtTokenProvider getIfUnique() { return null; }
                 }
         );
     }

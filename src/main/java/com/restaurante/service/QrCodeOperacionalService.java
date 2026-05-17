@@ -80,6 +80,9 @@ public class QrCodeOperacionalService {
         if (mesaId != null) {
             mesa = mesaRepository.findById(mesaId)
                     .orElseThrow(() -> new ResourceNotFoundException("Mesa", "id", mesaId));
+            if (mesa.getTenant() != null && !mesa.getTenant().getId().equals(tenant.getId())) {
+                throw new ResourceNotFoundException("Mesa", "id", mesaId);
+            }
             if (mesa.getInstituicao() != null && !mesa.getInstituicao().getId().equals(instituicao.getId())) {
                 throw new ResourceNotFoundException("Mesa", "id", mesaId);
             }

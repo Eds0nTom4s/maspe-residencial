@@ -63,4 +63,9 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
      */
     @Query("SELECT u FROM User u JOIN u.roles r WHERE r = :role AND u.ativo = true")
     List<User> findByRoleAndAtivoTrue(@Param("role") Role role);
+
+    /**
+     * Validação leve para JWT otimizado: evita carregar User inteiro.
+     */
+    boolean existsByIdAndAtivoTrue(Long id);
 }

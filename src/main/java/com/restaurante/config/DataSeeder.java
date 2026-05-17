@@ -443,6 +443,9 @@ public class DataSeeder {
     }
 
     private Mesa mesa(int numero, String referencia, int capacidade, UnidadeAtendimento unidade) {
+        if (unidade.getInstituicao() == null || unidade.getInstituicao().getTenant() == null) {
+            throw new IllegalStateException("Unidade/Instituição sem tenant para seed de mesas: " + unidade.getNome());
+        }
         return Mesa.builder()
             .numero(numero)
             .referencia(referencia)
@@ -450,6 +453,7 @@ public class DataSeeder {
             .capacidade(capacidade)
             .ativa(true)
             .unidadeAtendimento(unidade)
+            .tenant(unidade.getInstituicao().getTenant())
             .build();
     }
 }

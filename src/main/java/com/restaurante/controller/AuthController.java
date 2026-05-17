@@ -1,15 +1,18 @@
 package com.restaurante.controller;
 
 import com.restaurante.dto.request.LoginAtendenteRequest;
+import com.restaurante.dto.request.SelectTenantRequest;
 import com.restaurante.dto.request.SolicitarOtpRequest;
 import com.restaurante.dto.request.ValidarOtpRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.AuthResponse;
 import com.restaurante.dto.response.ClienteResponse;
 import com.restaurante.dto.response.LoginAtendenteResponse;
+import com.restaurante.dto.response.SelectTenantResponse;
 import com.restaurante.service.AuthService;
 import com.restaurante.service.ClienteService;
 import com.restaurante.service.InstituicaoService;
+import com.restaurante.service.TenantTokenService;
 import com.restaurante.security.JwtTokenProvider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -37,6 +40,7 @@ public class AuthController {
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
     private final InstituicaoService instituicaoService;
+    private final TenantTokenService tenantTokenService;
 
     /**
      * Solicita OTP para o telefone informado
@@ -102,5 +106,17 @@ public class AuthController {
         log.info("Login admin realizado com sucesso - ID: {}, Nome: {}, Tipo: {}", 
                  response.getId(), response.getNome(), response.getTipoUsuario());
         return ResponseEntity.ok(ApiResponse.success("Login realizado com sucesso", response));
+    }
+
+    /**
+     * Seleciona um tenant e emite um token tenant-scoped para uso em /api/tenant/**.
+     *
+     * POST /api/auth/tenant/select
+     */
+    @PostMapping("/tenant/select")
+    @Operation(summary = "Selecionar tenant", description = "Emite token TENANT com claims tenantId/tenantRoles.")
+    public ResponseEntity<ApiResponse<SelectTenantResponse>> selectTenant(@Valid @RequestBody SelectTenantRequest request) {
+        SelectTenantResponse resp = tenantTokenService.selectTenant(request);
+        return ResponseEntity.ok(ApiResponse.success("Tenant selecionado", resp));
     }
 }

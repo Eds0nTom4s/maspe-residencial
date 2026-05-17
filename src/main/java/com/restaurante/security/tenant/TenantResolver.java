@@ -9,6 +9,7 @@ import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.security.JwtTokenProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -40,6 +41,7 @@ public class TenantResolver {
 
     private final ObjectProvider<TenantRepository> tenantRepositoryProvider;
     private final ObjectProvider<TenantUserRepository> tenantUserRepositoryProvider;
+    private final ObjectProvider<JwtTokenProvider> jwtTokenProviderProvider;
 
     public Optional<TenantContext> resolve(HttpServletRequest request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -48,6 +50,12 @@ public class TenantResolver {
         }
 
         boolean platformAdmin = hasAuthority(authentication, Role.ROLE_ADMIN.name());
+
+        // Preferir resolução via JWT tenant-scoped (tokenType=TENANT)
+        Optional<TenantContext> fromTenantToken = resolveFromTenantScopedToken(request, authentication, platformAdmin);
+        if (fromTenantToken.isPresent()) {
+            return fromTenantToken;
+        }
 
         Optional<Long> selectedTenantId = parseTenantIdHeader(request)
                 .or(() -> resolveTenantIdByCodeHeader(request));
@@ -86,11 +94,14 @@ public class TenantResolver {
                 throw new BusinessException("Usuário não pertence ao tenant selecionado.");
             }
 
+            Set<String> roles = extractRoleNames(authentication);
+            roles.addAll(extractTenantRoleNames(tenantUserRepository, tenant.getId(), userId));
+
             return Optional.of(new TenantContext(
                     tenant.getId(),
                     tenant.getTenantCode(),
                     userId,
-                    extractRoleNames(authentication),
+                    roles,
                     TenantResolutionSource.JWT,
                     false,
                     false
@@ -106,11 +117,13 @@ public class TenantResolver {
             List<TenantUser> memberships = tenantUserRepository.findByUserIdAndEstado(userId, TenantUserEstado.ATIVO);
             if (memberships.size() == 1) {
                 Tenant tenant = requireActiveTenant(memberships.get(0).getTenant().getId());
+                Set<String> roles = extractRoleNames(authentication);
+                roles.addAll(extractTenantRoleNames(tenantUserRepository, tenant.getId(), userId));
                 return Optional.of(new TenantContext(
                         tenant.getId(),
                         tenant.getTenantCode(),
                         userId,
-                        extractRoleNames(authentication),
+                        roles,
                         TenantResolutionSource.JWT,
                         false,
                         false
@@ -193,5 +206,74 @@ public class TenantResolver {
             roles.add(a.getAuthority());
         }
         return roles;
+    }
+
+    private Set<String> extractTenantRoleNames(TenantUserRepository tenantUserRepository, Long tenantId, Long userId) {
+        Set<String> roles = new HashSet<>();
+        try {
+            tenantUserRepository.findAllByTenantIdAndUserIdAndEstado(tenantId, userId, TenantUserEstado.ATIVO)
+                    .forEach(tu -> {
+                        if (tu.getRole() != null) {
+                            roles.add(tu.getRole().name());
+                        }
+                    });
+        } catch (Exception ignored) {
+            // não bloquear resolução se repo não suportar; guard fará enforcement.
+        }
+        return roles;
+    }
+
+    private Optional<TenantContext> resolveFromTenantScopedToken(HttpServletRequest request, Authentication authentication, boolean platformAdmin) {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return Optional.empty();
+        }
+        String token = authHeader.substring(7);
+        JwtTokenProvider jwtTokenProvider = jwtTokenProviderProvider.getIfAvailable();
+        if (jwtTokenProvider == null) {
+            return Optional.empty();
+        }
+        try {
+            var claims = jwtTokenProvider.getClaims(token);
+            String tokenType = claims.get("tokenType", String.class);
+            if (!"TENANT".equals(tokenType)) {
+                return Optional.empty();
+            }
+            Long tenantId = claims.get("tenantId", Long.class);
+            String tenantCode = claims.get("tenantCode", String.class);
+            Object tenantRolesObj = claims.get("tenantRoles");
+
+            Long userId = extractUserId(authentication).orElse(claims.get("userId", Long.class));
+            if (tenantId == null || userId == null) {
+                return Optional.empty();
+            }
+
+            // Segurança: valida tenant ATIVO e membership ATIVO (fallback de banco), mas evita buscar lista/roles por request.
+            Tenant tenant = requireActiveTenant(tenantId);
+            TenantUserRepository tenantUserRepository = requireTenantUserRepository();
+            boolean belongs = tenantUserRepository.existsByTenantIdAndUserIdAndEstado(tenant.getId(), userId, TenantUserEstado.ATIVO);
+            if (!belongs) {
+                return Optional.empty();
+            }
+
+            Set<String> roles = extractRoleNames(authentication);
+            if (tenantRolesObj instanceof java.util.List<?> list) {
+                list.forEach(r -> {
+                    if (r != null) roles.add(String.valueOf(r));
+                });
+            }
+
+            return Optional.of(new TenantContext(
+                    tenant.getId(),
+                    tenant.getTenantCode(),
+                    userId,
+                    roles,
+                    TenantResolutionSource.JWT,
+                    platformAdmin,
+                    false
+            ));
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
     }
 }

@@ -8,6 +8,7 @@ import com.restaurante.financeiro.monitoramento.dto.PagamentoResumoDTO;
 import com.restaurante.financeiro.service.PagamentoMonitoramentoService;
 import com.restaurante.model.enums.CallbackProcessingStatus;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -49,6 +50,7 @@ public class TenantFinanceiroController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime ate,
             @PageableDefault(size = 50) Pageable pageable
     ) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
         TenantContext ctx = tenantGuard.requireContext();
         if (ctx.tenantId() == null) {
             throw new com.restaurante.exception.BusinessException("TenantContext obrigatório para listar pagamentos.");
@@ -71,6 +73,7 @@ public class TenantFinanceiroController {
     @GetMapping("/pagamentos/{pagamentoId}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PagamentoResumoDTO>> buscarPagamento(@PathVariable Long pagamentoId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
         TenantContext ctx = tenantGuard.requireContext();
         if (ctx.tenantId() == null) {
             throw new com.restaurante.exception.BusinessException("TenantContext obrigatório para buscar pagamento.");
@@ -85,6 +88,7 @@ public class TenantFinanceiroController {
             @RequestParam(required = false) CallbackProcessingStatus processingStatus,
             @PageableDefault(size = 50) Pageable pageable
     ) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
         TenantContext ctx = tenantGuard.requireContext();
         if (ctx.tenantId() == null) {
             throw new com.restaurante.exception.BusinessException("TenantContext obrigatório para listar callbacks.");
@@ -96,6 +100,7 @@ public class TenantFinanceiroController {
     @GetMapping("/resumo")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<FinanceiroTenantResumoDTO>> resumo() {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
         TenantContext ctx = tenantGuard.requireContext();
         if (ctx.tenantId() == null) {
             throw new com.restaurante.exception.BusinessException("TenantContext obrigatório para resumo.");
@@ -104,4 +109,3 @@ public class TenantFinanceiroController {
         return ResponseEntity.ok(ApiResponse.success("Resumo financeiro", dto));
     }
 }
-

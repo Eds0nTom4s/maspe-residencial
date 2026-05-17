@@ -1,0 +1,57 @@
+RELATÓRIO TÉCNICO — PROMPT 15B (Otimização Autenticação JWT)
+Data: 2026-05-17
+
+1) Resumo executivo
+- Implementada autenticação JWT otimizada para tokens com claims modernas (userId + roles), eliminando a necessidade de chamar `CustomUserDetailsService.loadUserByUsername(...)` em toda request.
+- Introduzido `JwtPrincipal` (principal leve) + `JwtAuthenticationFactory` (monta Authentication a partir das claims).
+- Mantido fallback legado para tokens antigos (configurável).
+- Adicionadas properties para modo strict e validação opcional de usuário ativo via query leve (sem carregar UserDetails).
+- Ajustado `TenantTokenService` para suportar principal `JwtPrincipal` (token moderno), mantendo compatibilidade.
+
+2) Estratégia aplicada
+- Token moderno: autentica por claims → menor latência e menos queries.
+- Token legado: usa `loadUserByUsername` quando `consuma.security.jwt.allow-legacy-userdetails-fallback=true`.
+- Strict mode opcional:
+  - `strict-user-validation`: permite forçar validação conservadora
+  - `validate-user-active`: valida usuário ativo por query leve (exists)
+
+3) Principais alterações
+- `src/main/java/com/restaurante/security/JwtPrincipal.java`
+- `src/main/java/com/restaurante/security/JwtAuthenticationFactory.java`
+- `src/main/java/com/restaurante/security/JwtUserStatusValidator.java`
+- `src/main/java/com/restaurante/security/JwtAuthenticationFilter.java`
+  - autenticação por claims quando token é moderno
+  - fallback legacy quando habilitado
+  - properties de hardening
+- `src/main/java/com/restaurante/security/JwtTokenProvider.java`
+  - helper `hasModernClaims(...)`
+  - helper `getTokenType(...)`
+- `src/main/java/com/restaurante/repository/UserRepository.java`
+  - `existsByIdAndAtivoTrue(...)`
+- `src/main/java/com/restaurante/service/TenantTokenService.java`
+  - aceita principal `JwtPrincipal` e resolve `User` por id (apenas no select)
+
+4) Properties adicionadas (com defaults no código)
+- `consuma.security.jwt.strict-user-validation=false`
+- `consuma.security.jwt.validate-user-active=false`
+- `consuma.security.jwt.allow-legacy-userdetails-fallback=true`
+
+5) Testes
+- `src/test/java/com/restaurante/security/JwtAuthenticationFilterNoUserLookupIT.java`
+  - token moderno → não chama `loadUserByUsername`
+  - token legacy → usa fallback e chama `loadUserByUsername`
+
+6) Documentação
+- `docs/tenant-core/15b-jwt-authentication-optimization.md`
+
+7) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+8) Riscos restantes / próximos passos
+- Revogação imediata (logout/blacklist) não implementada (fora de escopo). Mitigação atual:
+  - expiração curta do token
+  - validação de tenant/membership no TenantResolver (Prompt 15A)
+  - validação opcional de usuário ativo por request (`validate-user-active`)
+- Próximo prompt sugerido: 15C (tokenVersion/rotacionamento e/ou cache local seguro + métricas).
+

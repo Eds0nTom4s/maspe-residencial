@@ -57,7 +57,8 @@ public class SecurityConfig {
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint)
                         .accessDeniedHandler(jwtAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
-                        // Endpoints públicos de autenticação e cardápio
+                        // Endpoints públicos de autenticação (exceto seleção de tenant)
+                        .requestMatchers("/api/auth/tenant/select", "/auth/tenant/select").authenticated()
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
                         .requestMatchers("/api/public/**", "/public/**").permitAll()
 

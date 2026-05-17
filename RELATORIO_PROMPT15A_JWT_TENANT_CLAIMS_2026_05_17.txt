@@ -1,0 +1,64 @@
+RELATÓRIO TÉCNICO — PROMPT 15A (JWT Tenant Claims + Otimização do TenantResolver)
+Data: 2026-05-17
+
+1) Resumo executivo
+- Implementado token JWT tenant-scoped (claims tenantId/tenantCode/tenantRoles) para reduzir consultas por request.
+- Criado endpoint autenticado de seleção explícita de tenant: POST /api/auth/tenant/select.
+- TenantResolver passou a resolver TenantContext preferencialmente via claims do token TENANT, mantendo validações de tenant/membership ativas via banco (defesa em profundidade).
+- Ajustado SecurityConfig/JwtAuthenticationFilter para suportar paths com/sem context-path (/api), evitando abertura acidental do select.
+- Criados testes de integração com filtros ativos cobrindo select + uso do token TENANT em /api/tenant/** sem X-Tenant-Id.
+
+2) Decisões técnicas
+- Dois “tipos” lógicos de token:
+  - GLOBAL: token de login (claim tokenType=GLOBAL quando emitido via Authentication).
+  - TENANT: token emitido no select (claim tokenType=TENANT).
+- Mesmo com roles no JWT, mantida validação DB por request:
+  - tenant ATIVO
+  - membership ATIVO
+  Justificativa: impedir uso de token após revogação de membership ou desativação do tenant.
+
+3) Endpoints
+- POST /api/auth/tenant/select
+  - Requer autenticação.
+  - Valida tenant + membership.
+  - Retorna accessToken (Bearer) com claims TENANT.
+
+4) Principais alterações
+- JwtTokenProvider:
+  - Geração de token TENANT com claims: tokenType, tenantId, tenantCode, tenantRoles, tenantUserStatus, userId.
+  - Evita emitir tenantRoles contendo null.
+- TenantResolver:
+  - Fast-path por token TENANT via Authorization Bearer.
+  - Evita carregar lista de TenantUser/roles por request (roles vêm do claim).
+  - Ainda valida tenant ATIVO + membership ATIVO via repository.
+- SecurityConfig/JwtAuthenticationFilter:
+  - /auth/tenant/select e /api/auth/tenant/select exigem autenticação (ordem antes de permitAll).
+  - Filtro JWT ignora /auth/** e /api/auth/**, exceto /tenant/select (para permitir autenticação no select).
+- TenantTokenService:
+  - Emite token TENANT somente com membership ATIVO.
+  - Seleção sem acesso gera 403 (AccessDeniedException).
+
+5) Testes criados
+- src/test/java/com/restaurante/security/AuthTenantSelectIT.java
+- src/test/java/com/restaurante/security/TenantScopedTokenAccessIT.java
+
+6) Comandos executados
+- mvn -q -DskipTests compile
+- mvn test
+
+7) Arquivos criados/alterados
+- docs/tenant-core/15a-jwt-tenant-claims-tenant-scoped.md
+- RELATORIO_PROMPT15A_JWT_TENANT_CLAIMS_2026_05_17.txt
+- src/main/java/com/restaurante/service/TenantTokenService.java
+- src/main/java/com/restaurante/security/JwtTokenProvider.java
+- src/main/java/com/restaurante/security/JwtAuthenticationFilter.java
+- src/main/java/com/restaurante/config/SecurityConfig.java
+- src/test/java/com/restaurante/security/AuthTenantSelectIT.java
+- src/test/java/com/restaurante/security/TenantScopedTokenAccessIT.java
+
+8) Riscos restantes (fora do escopo)
+- JwtAuthenticationFilter ainda faz loadUserByUsername (DB) em toda request; pode exigir cache/otimização futura para alto volume.
+
+9) Próximo prompt recomendado
+- Prompt 15B: otimizar autenticação (reduzir/evitar DB lookup de UserDetails por request) com estratégia segura de cache/refresh/revogação.
+

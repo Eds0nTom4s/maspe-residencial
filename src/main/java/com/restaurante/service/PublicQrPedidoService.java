@@ -214,14 +214,23 @@ public class PublicQrPedidoService {
             UnidadeAtendimento unidadeAtendimento,
             Mesa mesa
     ) {
+        Long tenantId = qr.getTenant() != null ? qr.getTenant().getId() : null;
+        if (tenantId == null) {
+            throw new BusinessException("QR sem tenant válido.");
+        }
         if (qr.getTipo() == QrCodeOperacionalTipo.MESA && mesa != null) {
-            List<SessaoConsumo> abertas = sessaoConsumoRepository.findAllByMesaIdAndStatus(mesa.getId(), StatusSessaoConsumo.ABERTA);
+            List<SessaoConsumo> abertas = sessaoConsumoRepository.findAllByTenantIdAndMesaIdAndStatus(
+                    tenantId, mesa.getId(), StatusSessaoConsumo.ABERTA
+            );
             if (abertas.size() > 1) {
                 throw new BusinessException("Mesa possui mais de uma sessão aberta.");
             }
             if (abertas.size() == 1) {
                 SessaoConsumo s = abertas.get(0);
                 if (s.getInstituicao() == null || !s.getInstituicao().getId().equals(instituicao.getId())) {
+                    throw new BusinessException("Sessão aberta inválida para a mesa.");
+                }
+                if (s.getTenant() == null || !s.getTenant().getId().equals(tenantId)) {
                     throw new BusinessException("Sessão aberta inválida para a mesa.");
                 }
                 return s;
@@ -232,8 +241,15 @@ public class PublicQrPedidoService {
     }
 
     private SessaoConsumo criarSessaoMinima(Instituicao instituicao, UnidadeAtendimento unidadeAtendimento, Mesa mesa) {
+        if (instituicao == null || instituicao.getTenant() == null) {
+            throw new BusinessException("Instituição inválida para criação de sessão.");
+        }
+        if (mesa != null && mesa.getTenant() != null && !mesa.getTenant().getId().equals(instituicao.getTenant().getId())) {
+            throw new BusinessException("Mesa inválida para a instituição/tenant.");
+        }
         SessaoConsumo sessao = SessaoConsumo.builder()
                 .qrCodeSessao(UUID.randomUUID().toString())
+                .tenant(instituicao.getTenant())
                 .instituicao(instituicao)
                 .unidadeAtendimento(unidadeAtendimento)
                 .mesa(mesa)

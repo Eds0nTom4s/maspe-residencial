@@ -186,6 +186,10 @@ public class SessaoConsumoService {
             }
         }
 
+        if (instituicao == null || instituicao.getTenant() == null) {
+            throw new BusinessException("Instituição inválida para abrir sessão (tenant ausente).");
+        }
+        builder.tenant(instituicao.getTenant());
         builder.instituicao(instituicao);
 
         // ── Cliente (OPCIONAL) ─────────────────────────────────────────────
@@ -651,13 +655,17 @@ public class SessaoConsumoService {
                 })
                 .orElseGet(() -> {
                     log.info("Cliente {} sem sessão ativa. Criando nova sessão automática.", telefoneCliente);
-                    
+                    Instituicao instAtiva = buscarInstituicaoAtiva();
+                    if (instAtiva.getTenant() == null) {
+                        throw new BusinessException("Instituição inválida para abrir sessão (tenant ausente).");
+                    }
                     SessaoConsumo.SessaoConsumoBuilder builder = SessaoConsumo.builder()
                             .cliente(cliente)
                             .modoAnonimo(false)
                             .status(StatusSessaoConsumo.ABERTA)
                             .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
-                            .instituicao(buscarInstituicaoAtiva())
+                            .tenant(instAtiva.getTenant())
+                            .instituicao(instAtiva)
                             .qrCodeSessao(gerarTokenSessaoUnico());
                             
                     // Tenta encontrar uma unidade de atendimento ativa para a sessão
@@ -1028,4 +1036,3 @@ public class SessaoConsumoService {
         }
     }
 }
-

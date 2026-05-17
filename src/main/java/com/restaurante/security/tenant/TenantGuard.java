@@ -9,10 +9,12 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.Set;
 
 /**
  * TenantGuard: validações contextuais de tenant/membership.
@@ -95,11 +97,46 @@ public class TenantGuard {
 
     public void assertAnyTenantRole(Collection<TenantUserRole> roles) {
         TenantContext ctx = requireContext();
-        // Por enquanto, não há roles tenant no JWT; isso será resolvido quando TenantContext estiver integrado ao Auth/JWT.
-        // Mantemos o método como infra para fases futuras.
         if (ctx.platformAdmin()) {
             return;
         }
-        throw new BusinessException("Validação de TenantUserRole ainda não suportada sem TenantContext/JWT tenant-aware.");
+        if (ctx.tenantId() == null || ctx.userId() == null) {
+            throw new AccessDeniedException("TenantContext obrigatório para validação de role.");
+        }
+
+        // Fast path: roles já carregadas no TenantContext (TenantResolver)
+        Set<String> roleNames = ctx.roles() != null ? ctx.roles() : Set.of();
+        for (TenantUserRole role : roles) {
+            if (roleNames.contains(role.name())) {
+                return;
+            }
+        }
+
+        // Fallback: consulta ao TenantUserRepository para evitar dependência total do resolver
+        TenantUserRepository tenantUserRepository = tenantUserRepositoryProvider.getIfAvailable();
+        if (tenantUserRepository == null) {
+            throw new BusinessException("TenantUserRepository indisponível para validação de role.");
+        }
+        for (TenantUserRole role : roles) {
+            boolean ok = tenantUserRepository.existsByTenantIdAndUserIdAndRoleAndEstado(
+                    ctx.tenantId(), ctx.userId(), role, TenantUserEstado.ATIVO
+            );
+            if (ok) return;
+        }
+
+        throw new AccessDeniedException("Usuário não possui permissão para executar esta ação.");
+    }
+
+    public void assertAnyTenantRole(TenantUserRole... roles) {
+        assertAnyTenantRole(java.util.Arrays.asList(roles));
+    }
+
+    public boolean hasAnyTenantRole(TenantUserRole... roles) {
+        try {
+            assertAnyTenantRole(roles);
+            return true;
+        } catch (AccessDeniedException ex) {
+            return false;
+        }
     }
 }

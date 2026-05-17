@@ -90,7 +90,7 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
            "WHERE s.mesa.unidadeAtendimento.id = :unidadeAtendimentoId AND s.status = 'ABERTA'")
     long contarOcupadasPorUnidadeAtendimento(@Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
 
-    @Query("SELECT m FROM Mesa m WHERE m.unidadeAtendimento.instituicao.tenant.id = :tenantId " +
+    @Query("SELECT m FROM Mesa m WHERE m.tenant.id = :tenantId " +
            "AND (:instituicaoId IS NULL OR m.instituicao.id = :instituicaoId) " +
            "AND (:unidadeAtendimentoId IS NULL OR m.unidadeAtendimento.id = :unidadeAtendimentoId) " +
            "AND (:ativa IS NULL OR m.ativa = :ativa)")
@@ -101,6 +101,10 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
             @Param("ativa") Boolean ativa
     );
 
-    @Query("SELECT m FROM Mesa m WHERE m.id = :id AND m.unidadeAtendimento.instituicao.tenant.id = :tenantId")
+    @Query("SELECT m FROM Mesa m WHERE m.id = :id AND m.tenant.id = :tenantId")
     Optional<Mesa> findByIdAndTenantId(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    List<Mesa> findByTenantId(Long tenantId);
+
+    long countByTenantId(Long tenantId);
 }

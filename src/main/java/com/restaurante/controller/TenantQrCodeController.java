@@ -2,6 +2,8 @@ package com.restaurante.controller;
 
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.TenantQrCodeResponse;
+import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.tenantadmin.TenantAdminQrService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -22,31 +24,45 @@ import java.util.List;
 @Tag(name = "Tenant Admin - QR", description = "Gestão básica de QR codes operacionais do tenant")
 public class TenantQrCodeController {
 
+    private final TenantGuard tenantGuard;
     private final TenantAdminQrService qrService;
 
     @GetMapping("/qrcodes")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<TenantQrCodeResponse>>> listar() {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
         return ResponseEntity.ok(ApiResponse.success("QR Codes", qrService.listarQrCodes()));
     }
 
     @GetMapping("/qrcodes/{id}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<TenantQrCodeResponse>> buscar(@PathVariable Long id) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
         return ResponseEntity.ok(ApiResponse.success("QR Code", qrService.buscarQrCode(id)));
     }
 
     @PostMapping("/qrcodes/{id}/revogar")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<TenantQrCodeResponse>> revogar(@PathVariable Long id) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
         return ResponseEntity.ok(ApiResponse.success("QR revogado", qrService.revogar(id)));
     }
 
     @PostMapping("/mesas/{mesaId}/qrcode")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<TenantQrCodeResponse>> gerarQrMesa(@PathVariable Long mesaId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
         TenantQrCodeResponse qr = qrService.gerarQrParaMesa(mesaId);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("QR criado", qr));
     }
 }
-

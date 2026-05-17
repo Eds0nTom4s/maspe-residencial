@@ -1,0 +1,110 @@
+RELATÓRIO TÉCNICO — PROMPT 14
+RBAC Tenant + Autorização Granular (Spring Security / multi-tenant)
+Data: 2026-05-17
+
+1) Resumo executivo
+- Implementado enforcement de roles tenant (TenantUserRole) nos endpoints tenant-admin, financeiro e catálogo tenant-aware.
+- TenantResolver agora agrega roles do TenantUser (TENANT_*) ao TenantContext para o tenant resolvido/selecionado.
+- TenantGuard agora possui assertAnyTenantRole funcional (fast path via TenantContext.roles + fallback via TenantUserRepository).
+- Role insuficiente retorna 403 com code TENANT_ROLE_FORBIDDEN (AccessDeniedException).
+- Adicionados testes IT cobrindo permissões básicas por role e bloqueio por membership SUSPENSO.
+
+2) Alterações em TenantContext/TenantResolver
+- src/main/java/com/restaurante/security/tenant/TenantContext.java
+  - roles continua sendo Set<String>, mas agora inclui também TENANT_* do membership ativo (quando resolvido).
+- src/main/java/com/restaurante/security/tenant/TenantResolver.java
+  - ao resolver tenant por header ou auto-resolve, agrega roles TENANT_* via TenantUserRepository.findByTenantIdAndUserIdAndEstado(..., ATIVO).
+
+3) Alterações em TenantGuard
+- src/main/java/com/restaurante/security/tenant/TenantGuard.java
+  - assertAnyTenantRole(Collection|varargs) implementado.
+  - se ctx.platformAdmin=true, bypass (suporte operacional).
+  - valida tenantId/userId no contexto.
+  - fast path: ctx.roles contém role.
+  - fallback: TenantUserRepository.existsByTenantIdAndUserIdAndRoleAndEstado(..., ATIVO).
+  - role insuficiente → AccessDeniedException (403).
+
+4) Padronização de 403
+- src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+  - ErrorResponse ganhou campo opcional `code`.
+  - AccessDeniedException agora retorna code=TENANT_ROLE_FORBIDDEN.
+
+5) Controllers/services protegidos (matriz aplicada)
+- TenantMeController:
+  - permite: OWNER/ADMIN/OPERATOR/FINANCE/CASHIER/KITCHEN
+- TenantEstruturaController:
+  - permite: OWNER/ADMIN/OPERATOR/CASHIER/FINANCE
+  - bloqueia: KITCHEN
+- TenantQrCodeController:
+  - listar/detalhar: OWNER/ADMIN/OPERATOR/CASHIER
+  - revogar/gerar: OWNER/ADMIN
+- TenantPedidoController:
+  - listar/detalhar: OWNER/ADMIN/OPERATOR/CASHIER/FINANCE
+- TenantFinanceiroController:
+  - permite: OWNER/ADMIN/FINANCE
+- TenantProdutoController / TenantCategoriaProdutoController:
+  - GET: OWNER/ADMIN/OPERATOR/CASHIER
+  - POST: OWNER/ADMIN
+
+6) Repository ajustado
+- src/main/java/com/restaurante/repository/TenantUserRepository.java
+  - findByTenantIdAndUserIdAndEstado(...)
+  - existsByTenantIdAndUserIdAndRoleAndEstado(...)
+
+7) Testes criados/alterados
+- src/test/java/com/restaurante/security/TenantRoleAuthorizationIT.java
+  - OPERATOR: pode listar pedidos, não revoga QR.
+  - FINANCE: acessa /tenant/financeiro/resumo, não acessa /tenant/qrcodes.
+  - CASHIER: lista QR, não gera QR mesa e não acessa financeiro.
+  - KITCHEN: acessa /tenant/me, bloqueado em /tenant/mesas.
+  - Membership SUSPENSO: bloqueado (403).
+
+8) Documentação criada
+- docs/tenant-core/14-roles-tenant-autorizacao-granular.md
+
+9) Comandos a executar
+- mvn -q -DskipTests compile
+- mvn test
+
+10) Resultado dos comandos
+- mvn -q -DskipTests compile: OK
+- mvn test: OK (BUILD SUCCESS) — Tests run: 145, Failures: 0, Errors: 0, Skipped: 3
+
+11) Arquivos criados/alterados
+Criados:
+- docs/tenant-core/14-roles-tenant-autorizacao-granular.md
+- RELATORIO_PROMPT14_RBAC_TENANT_AUTORIZACAO_GRANULAR_2026_05_17.txt
+- src/test/java/com/restaurante/security/TenantRoleAuthorizationIT.java
+
+Alterados:
+- src/main/java/com/restaurante/security/tenant/TenantResolver.java
+- src/main/java/com/restaurante/security/tenant/TenantGuard.java
+- src/main/java/com/restaurante/repository/TenantUserRepository.java
+- src/main/java/com/restaurante/controller/TenantMeController.java
+- src/main/java/com/restaurante/controller/TenantEstruturaController.java
+- src/main/java/com/restaurante/controller/TenantQrCodeController.java
+- src/main/java/com/restaurante/controller/TenantPedidoController.java
+- src/main/java/com/restaurante/controller/TenantProdutoController.java
+- src/main/java/com/restaurante/controller/TenantCategoriaProdutoController.java
+- src/main/java/com/restaurante/financeiro/controller/TenantFinanceiroController.java
+- src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+
+12) Decisões técnicas tomadas
+- Enforcement de role aplicado no controller (camada HTTP), preservando services existentes e reduzindo risco de quebra de fluxos internos.
+- Bypass para platformAdmin em assertAnyTenantRole: permite suporte quando PLATFORM_ADMIN seleciona tenant explicitamente.
+- 403 para role insuficiente; 404 continua para cross-tenant em recursos por id.
+
+13) Riscos restantes
+- Roles tenant ainda não estão no JWT; resolver/guard ainda consulta banco em alguns cenários (ok para piloto).
+- RBAC de cozinha ainda é provisório (bloqueio geral). Endpoints dedicados de produção virão depois.
+
+14) Checklist de aceitação
+- TenantContext carrega roles TENANT_* corretas por tenant.
+- TenantGuard assertAnyTenantRole funcional.
+- Regras por endpoint aplicadas conforme matriz.
+- Role insuficiente retorna 403 com code TENANT_ROLE_FORBIDDEN.
+- Membership SUSPENSO/REMOVIDO bloqueia.
+- Testes passam.
+
+15) Próximo prompt recomendado
+- Prompt 15: integrar roles tenant no JWT (claims) + otimizar resolução (menos queries), e introduzir endpoints dedicados de cozinha/subpedido.

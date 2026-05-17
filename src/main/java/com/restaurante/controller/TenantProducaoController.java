@@ -120,10 +120,20 @@ public class TenantProducaoController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<SubPedidoProducaoResponse>> atualizarStatus(
             @PathVariable Long id,
-            @Valid @RequestBody AtualizarStatusSubPedidoRequest request
+            @Valid @RequestBody AtualizarStatusSubPedidoRequest request,
+            jakarta.servlet.http.HttpServletRequest http
     ) {
-        SubPedidoProducaoResponse resp = producaoSubPedidoService.atualizarStatus(id, request.getStatus());
+        // RBAC/tenant-scope e transições são validados no service.
+        // Captura ip/ua para event log operacional.
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        SubPedidoProducaoResponse resp = producaoSubPedidoService.atualizarStatus(
+                id,
+                request.getStatus(),
+                request.getMotivo(),
+                ip,
+                ua
+        );
         return ResponseEntity.ok(ApiResponse.success("Status atualizado", resp));
     }
 }
-

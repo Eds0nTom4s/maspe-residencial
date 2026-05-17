@@ -10,6 +10,7 @@ import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.operacional.SubPedidoStatusTransitionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ public class ProducaoSubPedidoService {
     private final TenantGuard tenantGuard;
     private final SubPedidoRepository subPedidoRepository;
     private final UnidadeProducaoService unidadeProducaoService;
+    private final SubPedidoStatusTransitionService subPedidoStatusTransitionService;
 
     @Transactional(readOnly = true)
     public List<SubPedidoProducaoResponse> listarSubPedidosDaUnidade(Long unidadeProducaoId, StatusSubPedido status) {
@@ -61,43 +63,8 @@ public class ProducaoSubPedidoService {
     }
 
     @Transactional
-    public SubPedidoProducaoResponse atualizarStatus(Long subPedidoId, StatusSubPedido novoStatus) {
-        TenantContext ctx = tenantGuard.requireContext();
-
-        boolean isKitchen = tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_KITCHEN);
-        if (isKitchen) {
-            // Apenas transições de produção
-            if (!(novoStatus == StatusSubPedido.EM_PREPARACAO || novoStatus == StatusSubPedido.PRONTO)) {
-                throw new org.springframework.security.access.AccessDeniedException("Usuário não possui permissão para executar esta ação.");
-            }
-        } else {
-            tenantGuard.assertAnyTenantRole(
-                    TenantUserRole.TENANT_OWNER,
-                    TenantUserRole.TENANT_ADMIN,
-                    TenantUserRole.TENANT_OPERATOR
-            );
-        }
-
-        SubPedido sp = subPedidoRepository.findByIdAndTenantId(subPedidoId, ctx.tenantId())
-                .orElseThrow(() -> new ResourceNotFoundException("SubPedido", "id", subPedidoId));
-
-        if (novoStatus == null) {
-            throw new BusinessException("Status é obrigatório.");
-        }
-        if (!sp.podeTransicionarPara(novoStatus)) {
-            throw new BusinessException("Transição de status inválida.");
-        }
-
-        sp.setStatus(novoStatus);
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        if (novoStatus == StatusSubPedido.EM_PREPARACAO) {
-            sp.setIniciadoEm(now);
-        } else if (novoStatus == StatusSubPedido.PRONTO) {
-            sp.setProntoEm(now);
-        }
-
-        SubPedido saved = subPedidoRepository.save(sp);
-        return toDto(saved);
+    public SubPedidoProducaoResponse atualizarStatus(Long subPedidoId, StatusSubPedido novoStatus, String motivo, String ip, String userAgent) {
+        return subPedidoStatusTransitionService.atualizarStatus(subPedidoId, novoStatus, motivo, ip, userAgent);
     }
 
     private SubPedidoProducaoResponse toDto(SubPedido sp) {
@@ -135,4 +102,3 @@ public class ProducaoSubPedidoService {
                 .build();
     }
 }
-

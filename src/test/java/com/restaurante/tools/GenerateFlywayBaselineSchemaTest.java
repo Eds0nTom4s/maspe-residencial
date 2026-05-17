@@ -3,6 +3,7 @@ package com.restaurante.tools;
 import com.restaurante.SistemaRestauracaoApplication;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -30,6 +31,11 @@ class GenerateFlywayBaselineSchemaTest {
 
     @Test
     void generateBaselineSqlToFlywayV1() throws IOException {
+        Assumptions.assumeTrue(
+                Boolean.getBoolean("consuma.baseline.generate"),
+                "Geração de baseline é manual. Rode com -Dconsuma.baseline.generate=true"
+        );
+
         Path migrationFile = Path.of("src/main/resources/db/migration/V1__baseline_schema.sql");
         Path tmpFile = Path.of("target/baseline/V1__baseline_schema.generated.sql");
 

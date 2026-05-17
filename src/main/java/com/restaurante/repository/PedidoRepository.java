@@ -24,6 +24,8 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
     Optional<Pedido> findByIdAndTenantId(Long id, Long tenantId);
 
+    Page<Pedido> findByTenantId(Long tenantId, Pageable pageable);
+
     /**
      * Busca pedido por número
      */
@@ -60,6 +62,33 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
      */
     @Query("SELECT p FROM Pedido p LEFT JOIN FETCH p.subPedidos WHERE p.id = :id")
     Optional<Pedido> findByIdComSubPedidos(@Param("id") Long id);
+
+    @Query("SELECT DISTINCT p FROM Pedido p " +
+           "LEFT JOIN FETCH p.subPedidos sp " +
+           "LEFT JOIN FETCH p.itens i " +
+           "WHERE p.id = :id AND p.tenant.id = :tenantId")
+    Optional<Pedido> findByIdAndTenantIdComItensESubPedidos(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    @Query("SELECT p FROM Pedido p " +
+           "WHERE p.tenant.id = :tenantId " +
+           "AND (:statusOperacional IS NULL OR p.status = :statusOperacional) " +
+           "AND (:statusFinanceiro IS NULL OR p.statusFinanceiro = :statusFinanceiro) " +
+           "AND (:inicio IS NULL OR p.createdAt >= :inicio) " +
+           "AND (:fim IS NULL OR p.createdAt <= :fim) " +
+           "AND (:instituicaoId IS NULL OR p.sessaoConsumo.instituicao.id = :instituicaoId) " +
+           "AND (:unidadeAtendimentoId IS NULL OR p.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId) " +
+           "AND (:mesaId IS NULL OR p.sessaoConsumo.mesa.id = :mesaId)")
+    Page<Pedido> findTenantPedidosWithFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("statusOperacional") StatusPedido statusOperacional,
+            @Param("statusFinanceiro") StatusFinanceiroPedido statusFinanceiro,
+            @Param("inicio") LocalDateTime inicio,
+            @Param("fim") LocalDateTime fim,
+            @Param("instituicaoId") Long instituicaoId,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("mesaId") Long mesaId,
+            Pageable pageable
+    );
 
     /**
      * Lista todos os pedidos de uma SessaoConsumo com paginação.

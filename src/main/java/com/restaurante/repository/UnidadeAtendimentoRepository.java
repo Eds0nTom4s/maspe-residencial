@@ -75,4 +75,17 @@ public interface UnidadeAtendimentoRepository extends JpaRepository<UnidadeAtend
 
     @Query("SELECT COUNT(u) FROM UnidadeAtendimento u WHERE u.instituicao.tenant.id = :tenantId")
     long countByTenantId(@Param("tenantId") Long tenantId);
+
+    @Query("SELECT u FROM UnidadeAtendimento u WHERE u.instituicao.tenant.id = :tenantId")
+    List<UnidadeAtendimento> findByTenantId(@Param("tenantId") Long tenantId);
+
+    @Query("SELECT u FROM UnidadeAtendimento u WHERE u.instituicao.tenant.id = :tenantId AND u.id = :id")
+    Optional<UnidadeAtendimento> findByIdAndTenantId(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    @Query("SELECT u FROM UnidadeAtendimento u WHERE u.instituicao.tenant.id = :tenantId AND (:instituicaoId IS NULL OR u.instituicao.id = :instituicaoId) AND (:ativa IS NULL OR u.ativa = :ativa)")
+    List<UnidadeAtendimento> findByTenantIdWithFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("instituicaoId") Long instituicaoId,
+            @Param("ativa") Boolean ativa
+    );
 }

@@ -1,0 +1,127 @@
+RELATÓRIO TÉCNICO — PROMPT 13
+Tenant Admin APIs mínimas para operação piloto
+Data: 2026-05-16
+
+1) Resumo executivo
+- Criados endpoints tenant-admin mínimos para operação pós-provisionamento: contexto do tenant, estrutura (instituições/unidades/mesas), QR operacional (listar/gerar/revogar) e pedidos (listar/detalhar).
+- Todos os endpoints usam TenantContext (TenantContextHolder.require) e enforcement de membership (TenantGuard.assertCurrentUserBelongsToTenant) + tenant ativo.
+- Implementado scoping por tenant em repositories/queries e política anti-cross-tenant: recurso fora do tenant retorna 404 (“Recurso não encontrado.”).
+- Adicionados testes IT (PostgreSQL/Testcontainers) cobrindo leitura tenant, QR por mesa e isolamento de pedidos entre tenants.
+
+2) Controllers criados
+- src/main/java/com/restaurante/controller/TenantMeController.java
+  - GET /tenant/me
+- src/main/java/com/restaurante/controller/TenantEstruturaController.java
+  - GET /tenant/instituicoes, GET /tenant/instituicoes/{id}
+  - GET /tenant/unidades, GET /tenant/unidades/{id}
+  - GET /tenant/mesas, GET /tenant/mesas/{id}
+- src/main/java/com/restaurante/controller/TenantQrCodeController.java
+  - GET /tenant/qrcodes, GET /tenant/qrcodes/{id}
+  - POST /tenant/qrcodes/{id}/revogar
+  - POST /tenant/mesas/{mesaId}/qrcode
+- src/main/java/com/restaurante/controller/TenantPedidoController.java
+  - GET /tenant/pedidos (Page)
+  - GET /tenant/pedidos/{id}
+
+3) Services criados
+- src/main/java/com/restaurante/service/tenantadmin/TenantAdminContextService.java
+- src/main/java/com/restaurante/service/tenantadmin/TenantAdminEstruturaService.java
+- src/main/java/com/restaurante/service/tenantadmin/TenantAdminQrService.java
+- src/main/java/com/restaurante/service/tenantadmin/TenantAdminPedidoService.java
+
+4) DTOs criados
+- src/main/java/com/restaurante/dto/response/TenantMeResponse.java
+- src/main/java/com/restaurante/dto/response/TenantInstituicaoResponse.java
+- src/main/java/com/restaurante/dto/response/TenantUnidadeAtendimentoResponse.java
+- src/main/java/com/restaurante/dto/response/TenantMesaResponse.java
+- src/main/java/com/restaurante/dto/response/TenantQrCodeResponse.java
+- src/main/java/com/restaurante/dto/response/TenantPedidoResumoResponse.java
+- src/main/java/com/restaurante/dto/response/TenantPedidoDetalheResponse.java
+
+5) Repositories/queries adicionadas (tenant-scoped)
+- src/main/java/com/restaurante/repository/InstituicaoRepository.java
+  - findByIdAndTenantId
+- src/main/java/com/restaurante/repository/UnidadeAtendimentoRepository.java
+  - findByTenantId, findByIdAndTenantId, findByTenantIdWithFilters
+- src/main/java/com/restaurante/repository/MesaRepository.java
+  - findByTenantIdWithFilters, findByIdAndTenantId
+- src/main/java/com/restaurante/repository/QrCodeOperacionalRepository.java
+  - findByIdAndTenantId, findFirstByMesaIdAndTenantIdAndAtivoTrueAndRevogadoFalse
+- src/main/java/com/restaurante/repository/PedidoRepository.java
+  - findByTenantId (Page)
+  - findByIdAndTenantIdComItensESubPedidos
+  - findTenantPedidosWithFilters
+
+6) Estratégia de segurança
+- Todos endpoints `/tenant/**` usam:
+  - TenantContext obrigatório
+  - membership ativo no tenant (TenantGuard.assertCurrentUserBelongsToTenant)
+  - tenant ativo (TenantGuard.assertTenantActive)
+- Não aceitam `tenantId` via query para tenant-admin.
+- Os endpoints seguem o padrão do projeto de usar `server.servlet.context-path=/api` (logo `/api/tenant/**` em runtime).
+
+7) Estratégia anti-cross-tenant
+- Para recursos por `id`, sempre busca `id + tenantId` (ou navegação indireta Mesa→UA→Instituição→Tenant).
+- Se não pertencer ao tenant, retorna 404 com mensagem genérica.
+
+8) Estratégia de QR tenant-admin
+- Listagem e detalhe são tenant-scoped.
+- Revogação é idempotente (se já revogado, retorna estado atual).
+- Geração por mesa:
+  - valida mesa no tenant
+  - aplica limite `maxQrCodes` via TenantLimitService
+  - se já existe QR ativo para mesa, retorna o existente (evita duplicação).
+- `qrUrlPublica` montado via `consuma.public-base-url` + `/q/{token}`.
+
+9) Estratégia de pedidos tenant-admin
+- Listagem paginada com filtros via query tenant-scoped.
+- Detalhe carrega itens + subpedidos em query tenant-scoped.
+- Nesta fase: apenas leitura (não altera status operacional/financeiro).
+
+10) Testes criados
+- src/test/java/com/restaurante/tenantadmin/TenantAdminContextControllerIT.java
+- src/test/java/com/restaurante/tenantadmin/TenantAdminEstruturaQrIT.java
+- src/test/java/com/restaurante/tenantadmin/TenantPedidoControllerIT.java
+
+11) Documentação criada
+- docs/tenant-core/13-tenant-admin-endpoints-piloto.md
+
+12) Comandos executados
+- mvn -q -DskipTests compile
+- mvn test
+
+13) Resultado dos comandos
+- mvn -q -DskipTests compile: OK
+- mvn test: OK (BUILD SUCCESS) — Tests run: 145, Failures: 0, Errors: 0, Skipped: 3
+
+14) Arquivos criados/alterados
+Criados:
+- controllers: TenantMeController, TenantEstruturaController, TenantQrCodeController, TenantPedidoController
+- services: TenantAdmin*Service
+- DTOs: Tenant*Response
+- testes: TenantAdminContextControllerIT, TenantAdminEstruturaQrIT, TenantPedidoControllerIT
+- doc: docs/tenant-core/13-tenant-admin-endpoints-piloto.md
+
+Alterados:
+- repos: InstituicaoRepository, UnidadeAtendimentoRepository, MesaRepository, QrCodeOperacionalRepository, PedidoRepository
+
+15) Decisões técnicas
+- Preferido 404 (ResourceNotFound) para cross-tenant, evitando vazamento de existência.
+- Mesa permanece sem tenant_id direto; scoping é feito via árvore de relacionamento.
+- Não duplicar endpoints financeiros do Prompt 9.3; manter `/tenant/financeiro/**`.
+
+16) Riscos restantes
+- Validação de TenantUserRole ainda não é aplicada (TenantGuard roles granulares ainda dependem de integração JWT/claims por tenant).
+- Mesa sem tenant_id direto exige joins indiretos (OK para piloto; melhoria futura pode incluir tenant_id em Mesa).
+
+17) Checklist de aceitação (Prompt 13)
+- GET /api/tenant/me existe.
+- GET /api/tenant/instituicoes, /unidades, /mesas, /qrcodes, /pedidos existe.
+- POST /api/tenant/qrcodes/{id}/revogar existe.
+- POST /api/tenant/mesas/{mesaId}/qrcode existe.
+- TenantContext obrigatório + membership + tenant ativo.
+- Cross-tenant retorna 404.
+- Testes de isolamento passam.
+
+18) Próximo prompt recomendado
+- Prompt 14: reforço de roles tenant (claims no JWT + TenantResolver) e autorização granular por endpoint/ação (TENANT_ADMIN/FINANCE/OPERATOR).

@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 /**
  * Repository para operações de banco de dados com Produto
@@ -66,6 +67,12 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
     List<Produto> findByTenantIdAndAtivoTrue(Long tenantId);
 
     List<Produto> findByTenantIdAndDisponivelTrueAndAtivoTrue(Long tenantId);
+
+    List<Produto> findByTenantIdAndAtivoTrueAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);
+
+    List<Produto> findByTenantIdAndDisponivelTrueAndAtivoTrueAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);
+
+    List<Produto> findByTenantIdAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);
 
     List<Produto> findByTenantIdAndCategoriaProdutoIdAndAtivoTrue(Long tenantId, Long categoriaProdutoId);
 

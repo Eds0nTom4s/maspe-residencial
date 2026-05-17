@@ -1,0 +1,159 @@
+RELATÓRIO TÉCNICO — PROMPT 23
+Seleção explícita de unidade de produção + Sync read-only (POS/KDS)
+Data: 2026-05-17
+
+1) Resumo executivo
+- Eliminada a ambiguidade de “minha unidade” para `TENANT_KITCHEN` através de seleção persistida por usuário+tenant.
+- Adicionada preferência opcional de `unidade_producao_id` para `DispositivoOperacional`, permitindo KDS/POS operar sem heurísticas frágeis.
+- Implementado conjunto inicial de endpoints de sync read-only para device (`/device/sync/*`) com estratégia incremental por `updatedSince` + `syncGeneratedAt`.
+- Mantido escopo: sem offline bidirecional, sem POS criando pedido, sem WebSocket/SSE/impressão (conforme regras).
+
+2) Migration criada
+- `src/main/resources/db/migration/V19__production_scope_selection_and_readonly_sync.sql`
+  - Cria `tenant_user_production_scopes`
+  - Adiciona `dispositivos_operacionais.unidade_producao_id` + FK + índice
+
+3) Entidade TenantUserProductionScope criada
+- `src/main/java/com/restaurante/model/entity/TenantUserProductionScope.java`
+
+4) Alterações em DispositivoOperacional
+- `src/main/java/com/restaurante/model/entity/DispositivoOperacional.java`
+  - adicionada relação opcional `unidadeProducao` (FK `unidade_producao_id`)
+- `src/main/java/com/restaurante/security/device/DevicePrincipal.java`
+  - inclui `dispositivoCodigo` e `unidadeProducaoId`
+- `src/main/java/com/restaurante/service/device/DeviceAuthService.java`
+  - popula as novas claims do principal via `DispositivoOperacional`
+
+5) Endpoints de seleção criados/alterados (usuário humano)
+Base: `/tenant/producao`
+- `POST /tenant/producao/minha-unidade` (seleciona e persiste)
+- `DELETE /tenant/producao/minha-unidade` (limpa seleção)
+- `GET /tenant/producao/minha-unidade` atualizado para priorizar seleção persistida
+
+6) Endpoints de seleção por device (tenant-admin)
+Base: `/tenant/dispositivos`
+- `POST /tenant/dispositivos` aceita `unidadeProducaoId` opcional
+- `POST /tenant/dispositivos/{id}/unidade-producao` define a unidade de produção do dispositivo
+
+7) Endpoints sync device criados
+Base: `/device/sync`
+- `GET /device/sync/bootstrap`
+- `GET /device/sync/catalogo?updatedSince=&includeInactive=`
+- `GET /device/sync/mesas?updatedSince=&unidadeAtendimentoId=`
+- `GET /device/sync/qrcodes?updatedSince=`
+- `GET /device/sync/producao?updatedSince=`
+- `GET /device/sync/producao/fila` (reusa ProducaoKdsService / “minha unidade”)
+
+8) DTOs criados
+- `src/main/java/com/restaurante/dto/request/SelecionarMinhaUnidadeRequest.java`
+- `src/main/java/com/restaurante/dto/request/DefinirUnidadeProducaoDispositivoRequest.java`
+- `src/main/java/com/restaurante/dto/response/DeviceBootstrapSyncResponse.java`
+- `src/main/java/com/restaurante/dto/response/DeviceCatalogSyncResponse.java`
+- `src/main/java/com/restaurante/dto/response/DeviceMesasSyncResponse.java`
+- `src/main/java/com/restaurante/dto/response/DeviceQrSyncResponse.java`
+- `src/main/java/com/restaurante/dto/response/DeviceProducaoSyncResponse.java`
+
+9) Services criados/alterados
+- `src/main/java/com/restaurante/service/producao/scope/TenantUserProductionScopeSelectionService.java`
+  - select/clear/find para (tenantId, userId)
+- `src/main/java/com/restaurante/service/producao/ProducaoScopeResolver.java`
+  - usuário humano: prioriza seleção persistida
+  - device: prioriza `unidadeProducaoId` do principal
+- `src/main/java/com/restaurante/service/device/DeviceReadOnlySyncService.java`
+  - bootstrap/catálogo/mesas/qrcodes/produção read-only com `updatedSince`
+- `src/main/java/com/restaurante/service/tenantadmin/TenantAdminDispositivoService.java`
+  - set opcional de unidadeProducao no registro e endpoint dedicado de definição
+
+10) ProducaoScopeResolver ajustado
+Ordem (humano):
+1) seleção persistida (tenant_user_production_scopes)
+2) single active unit no tenant
+3) múltiplas → EXPLICIT_REQUIRED
+
+Ordem (device):
+1) `DevicePrincipal.unidadeProducaoId`
+2) vínculo por `unidadeAtendimentoId`
+3) fallback seguro por instituição/tenant se houver “single active”
+4) ambíguo → 409 DEVICE_PRODUCTION_UNIT_AMBIGUOUS
+
+11) Estratégia updatedSince/syncGeneratedAt
+- `updatedSince` opcional em endpoints de sync onde há `updatedAt` (BaseEntity/JPA auditing).
+- `syncGeneratedAt` retornado em todas as respostas como checkpoint para o device.
+
+12) RBAC/capabilities aplicadas
+Usuário humano:
+- seleção minha unidade: OWNER/ADMIN/OPERATOR/KITCHEN
+
+Device:
+- `/device/sync/catalogo`: SYNC_CATALOG
+- `/device/sync/mesas` e `/device/sync/qrcodes`: VIEW_ORDERS ou SYNC_CATALOG
+- `/device/sync/producao` e `/device/sync/producao/fila`: VIEW_PRODUCTION
+- endpoints device rejeitam JWT humano como substituto (401 via DeviceUnauthorizedException).
+
+13) Testes criados/alterados
+- `src/test/java/com/restaurante/producao/ProducaoScopeSelectionIT.java`
+- `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+- Atualizado: `src/test/java/com/restaurante/producao/ProducaoKdsDeviceScopeIT.java` (DevicePrincipal signature)
+
+14) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+15) Resultado dos comandos
+- `mvn -q -DskipTests compile`: SUCESSO
+- `mvn test`: SUCESSO (Tests run: 145, Failures: 0, Errors: 0, Skipped: 4)
+
+16) Arquivos criados/alterados (principais)
+Criados:
+- `src/main/resources/db/migration/V19__production_scope_selection_and_readonly_sync.sql`
+- `src/main/java/com/restaurante/model/entity/TenantUserProductionScope.java`
+- `src/main/java/com/restaurante/repository/TenantUserProductionScopeRepository.java`
+- `src/main/java/com/restaurante/service/producao/scope/TenantUserProductionScopeSelectionService.java`
+- `src/main/java/com/restaurante/controller/DeviceSyncController.java`
+- `src/main/java/com/restaurante/service/device/DeviceReadOnlySyncService.java`
+- DTOs de sync e requests (listados acima)
+- `docs/tenant-core/23-production-scope-device-readonly-sync.md`
+
+Alterados:
+- `src/main/java/com/restaurante/service/producao/ProducaoScopeResolver.java`
+- `src/main/java/com/restaurante/controller/TenantProducaoController.java`
+- `src/main/java/com/restaurante/model/entity/DispositivoOperacional.java`
+- `src/main/java/com/restaurante/service/tenantadmin/TenantAdminDispositivoService.java`
+- Repositories: Produto/Categoria/Mesa/QR/UnidadeProducao/Rota
+- `src/main/java/com/restaurante/security/device/DevicePrincipal.java`
+- `src/main/java/com/restaurante/service/device/DeviceAuthService.java`
+
+17) Decisões técnicas tomadas
+- Persistência leve (1 registro por tenant+user) para seleção de unidade, sem criar UI nem modelo complexo user→unidades.
+- Preferência direta por device via `unidade_producao_id`, mantendo `unidade_atendimento_id` para compatibilidade.
+- Sync incremental por `updatedSince` (simples e suficiente para MVP), deixando ETag para etapa posterior.
+
+18) Riscos restantes
+- Sync de mesas calcula ocupação via query por mesa (N queries). Aceitável para piloto, mas precisa otimização (batch) quando volume crescer.
+- `updatedAt` depende do auditing JPA; se algum fluxo não atualizar corretamente, o sync incremental pode omitir mudanças (fallback: snapshot completo).
+
+19) Checklist de aceitação (Prompt 23)
+- [OK] KITCHEN seleciona unidade de produção
+- [OK] seleção persistida remove ambiguidade de /minha-unidade
+- [OK] cross-tenant bloqueado (404 em seleção/unidade)
+- [OK] device pode ter unidadeProducaoId preferencial
+- [OK] ProducaoScopeResolver usa seleção persistida/user/device
+- [OK] `/device/sync/bootstrap`
+- [OK] `/device/sync/catalogo`
+- [OK] `/device/sync/mesas`
+- [OK] `/device/sync/qrcodes`
+- [OK] `/device/sync/producao`
+- [OK] `/device/sync/producao/fila`
+- [OK] capabilities aplicadas
+- [OK] sync não retorna financeiro/usuários/secrets
+- [OK] `updatedSince` funciona onde há updatedAt
+- [OK] testes passando
+- [OK] POS não cria pedido/offline bidirecional não implementados
+
+20) Próximo prompt recomendado
+“Prompt 24 — Sync incremental robusto + ETag + otimização de fila/mesas (batch occupancy) + paginação/cursor para catálogos grandes”, mantendo:
+- read-only,
+- sem POS criando pedido,
+- sem offline bidirecional,
+- e preparando base para SSE/WebSocket futuro.
+

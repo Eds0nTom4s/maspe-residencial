@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 @Repository
 public interface UnidadeProducaoRepository extends JpaRepository<UnidadeProducao, Long> {
@@ -23,4 +24,6 @@ public interface UnidadeProducaoRepository extends JpaRepository<UnidadeProducao
     long countByTenantId(Long tenantId);
 
     List<UnidadeProducao> findByTenantIdAndUnidadeAtendimentoIdAndAtivoTrueOrderByOrdemAsc(Long tenantId, Long unidadeAtendimentoId);
+
+    List<UnidadeProducao> findByTenantIdAndAtivoTrueAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);
 }

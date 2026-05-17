@@ -19,10 +19,10 @@ public class DispositivoOperacionalResponse {
     private DispositivoStatus status;
     private Long instituicaoId;
     private Long unidadeAtendimentoId;
+    private Long unidadeProducaoId;
     private LocalDateTime ultimoHeartbeatEm;
     private String appVersion;
     private String platform;
     private LocalDateTime ativadoEm;
     private LocalDateTime revogadoEm;
 }
-

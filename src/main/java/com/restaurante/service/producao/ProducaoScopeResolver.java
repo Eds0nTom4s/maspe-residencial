@@ -10,6 +10,7 @@ import com.restaurante.repository.UnidadeProducaoRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.producao.scope.TenantUserProductionScopeSelectionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
@@ -26,6 +27,7 @@ public class ProducaoScopeResolver {
 
     private final TenantGuard tenantGuard;
     private final UnidadeProducaoRepository unidadeProducaoRepository;
+    private final TenantUserProductionScopeSelectionService selectionService;
 
     public boolean isDevice() {
         return getDevicePrincipal() != null;
@@ -66,6 +68,14 @@ public class ProducaoScopeResolver {
         Long tenantId = ctx.tenantId();
         if (tenantId == null) throw new ResourceNotFoundException("Recurso não encontrado.");
 
+        // 0) Preferência persistida por usuário (quando houver)
+        if (ctx.userId() != null) {
+            var selected = selectionService.findSelectedUnit(tenantId, ctx.userId());
+            if (selected.isPresent()) {
+                return toResponse(tenantId, selected.get(), MinhaUnidadeProducaoResponse.ModoResolucao.USER_DEFAULT, null);
+            }
+        }
+
         List<UnidadeProducao> active = unidadeProducaoRepository.findByTenantIdAndAtivoTrueOrderByOrdemAsc(tenantId);
         if (active.isEmpty()) {
             throw new ResourceNotFoundException("Unidade de produção não encontrada.");
@@ -91,6 +101,13 @@ public class ProducaoScopeResolver {
 
     @Transactional(readOnly = true)
     public DeviceUnitResolution resolveForDevice(DevicePrincipal dp) {
+        // 0) Preferência direta por device (quando houver)
+        if (dp.unidadeProducaoId() != null) {
+            UnidadeProducao unit = unidadeProducaoRepository.findByIdAndTenantId(dp.unidadeProducaoId(), dp.tenantId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Unidade de produção não encontrada."));
+            return new DeviceUnitResolution(unit, MinhaUnidadeProducaoResponse.ModoResolucao.DEVICE_UNIT);
+        }
+
         // 1) Preferência: unidade produção vinculada à unidade de atendimento do device
         if (dp.unidadeAtendimentoId() != null) {
             List<UnidadeProducao> byUa = unidadeProducaoRepository.findByTenantIdAndUnidadeAtendimentoIdAndAtivoTrueOrderByOrdemAsc(

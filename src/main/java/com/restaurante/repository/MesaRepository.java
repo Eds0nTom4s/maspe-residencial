@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 /**
  * Repository para Mesa.
@@ -105,6 +106,10 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
     Optional<Mesa> findByIdAndTenantId(@Param("id") Long id, @Param("tenantId") Long tenantId);
 
     List<Mesa> findByTenantId(Long tenantId);
+
+    List<Mesa> findByTenantIdAndUpdatedAtAfter(Long tenantId, LocalDateTime updatedSince);
+
+    List<Mesa> findByTenantIdAndUnidadeAtendimentoIdAndUpdatedAtAfter(Long tenantId, Long unidadeAtendimentoId, LocalDateTime updatedSince);
 
     long countByTenantId(Long tenantId);
 }

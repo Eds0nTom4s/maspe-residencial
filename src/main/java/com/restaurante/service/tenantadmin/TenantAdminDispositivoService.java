@@ -9,11 +9,13 @@ import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.UnidadeProducao;
 import com.restaurante.model.enums.DispositivoStatus;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.repository.UnidadeProducaoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.TenantLimitService;
@@ -40,6 +42,7 @@ public class TenantAdminDispositivoService {
     private final TenantRepository tenantRepository;
     private final InstituicaoRepository instituicaoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    private final UnidadeProducaoRepository unidadeProducaoRepository;
 
     @Transactional
     public RegistrarDispositivoResponse registrar(RegistrarDispositivoRequest request) {
@@ -64,6 +67,19 @@ public class TenantAdminDispositivoService {
             }
         }
 
+        UnidadeProducao unidadeProducao = null;
+        if (request.getUnidadeProducaoId() != null) {
+            unidadeProducao = unidadeProducaoRepository.findByIdAndTenantId(request.getUnidadeProducaoId(), ctx.tenantId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+            if (unidadeProducao.getInstituicao() == null || !unidadeProducao.getInstituicao().getId().equals(instituicao.getId())) {
+                throw new BusinessException("Unidade de produção não pertence à instituição informada.");
+            }
+            if (unidade != null && unidadeProducao.getUnidadeAtendimento() != null
+                    && !unidadeProducao.getUnidadeAtendimento().getId().equals(unidade.getId())) {
+                throw new BusinessException("Unidade de produção não pertence à unidade de atendimento informada.");
+            }
+        }
+
         String activationCode = deviceTokenService.generateActivationCode();
         String activationHash = deviceTokenService.hashToHex(activationCode);
         LocalDateTime expiresAt = deviceActivationService.activationExpiresAtNow();
@@ -72,6 +88,7 @@ public class TenantAdminDispositivoService {
         dispositivo.setTenant(tenant);
         dispositivo.setInstituicao(instituicao);
         dispositivo.setUnidadeAtendimento(unidade);
+        dispositivo.setUnidadeProducao(unidadeProducao);
         dispositivo.setNome(request.getNome().trim());
         dispositivo.setCodigo(codigo);
         dispositivo.setTipo(request.getTipo());
@@ -106,6 +123,25 @@ public class TenantAdminDispositivoService {
         TenantContext ctx = requireTenantContext();
         DispositivoOperacional d = dispositivoOperacionalRepository.findByIdAndTenantId(id, ctx.tenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+        return toDto(d);
+    }
+
+    @Transactional
+    public DispositivoOperacionalResponse definirUnidadeProducao(Long dispositivoId, Long unidadeProducaoId) {
+        TenantContext ctx = requireTenantContext();
+        DispositivoOperacional d = dispositivoOperacionalRepository.findByIdAndTenantId(dispositivoId, ctx.tenantId())
+                .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+
+        UnidadeProducao unidadeProducao = unidadeProducaoRepository.findByIdAndTenantId(unidadeProducaoId, ctx.tenantId())
+                .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+
+        if (d.getInstituicao() == null || unidadeProducao.getInstituicao() == null
+                || !d.getInstituicao().getId().equals(unidadeProducao.getInstituicao().getId())) {
+            throw new BusinessException("Unidade de produção não pertence à instituição do dispositivo.");
+        }
+
+        d.setUnidadeProducao(unidadeProducao);
+        dispositivoOperacionalRepository.save(d);
         return toDto(d);
     }
 
@@ -190,6 +226,7 @@ public class TenantAdminDispositivoService {
                 d.getStatus(),
                 d.getInstituicao() != null ? d.getInstituicao().getId() : null,
                 d.getUnidadeAtendimento() != null ? d.getUnidadeAtendimento().getId() : null,
+                d.getUnidadeProducao() != null ? d.getUnidadeProducao().getId() : null,
                 d.getUltimoHeartbeatEm(),
                 d.getAppVersion(),
                 d.getPlatform(),
@@ -198,4 +235,3 @@ public class TenantAdminDispositivoService {
         );
     }
 }
-

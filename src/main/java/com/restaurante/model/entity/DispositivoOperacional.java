@@ -46,6 +46,10 @@ public class DispositivoOperacional extends BaseEntity {
     @JoinColumn(name = "unidade_atendimento_id")
     private UnidadeAtendimento unidadeAtendimento;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "unidade_producao_id")
+    private UnidadeProducao unidadeProducao;
+
     @NotBlank
     @Column(name = "nome", nullable = false, length = 120)
     private String nome;

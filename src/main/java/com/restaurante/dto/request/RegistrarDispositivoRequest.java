@@ -24,5 +24,6 @@ public class RegistrarDispositivoRequest {
     private Long instituicaoId;
 
     private Long unidadeAtendimentoId;
-}
 
+    private Long unidadeProducaoId;
+}

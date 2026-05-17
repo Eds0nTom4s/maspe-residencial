@@ -2,6 +2,7 @@ package com.restaurante.controller;
 
 import com.restaurante.dto.request.AtualizarStatusSubPedidoRequest;
 import com.restaurante.dto.request.ConfigurarRotaProducaoRequest;
+import com.restaurante.dto.request.SelecionarMinhaUnidadeRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.KdsSubPedidoResponse;
 import com.restaurante.dto.response.MinhaUnidadeProducaoResponse;
@@ -17,6 +18,7 @@ import com.restaurante.service.producao.ProducaoSubPedidoService;
 import com.restaurante.service.producao.ProducaoKdsService;
 import com.restaurante.service.producao.RotaProducaoService;
 import com.restaurante.service.producao.UnidadeProducaoService;
+import com.restaurante.service.producao.scope.TenantUserProductionScopeSelectionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +42,7 @@ public class TenantProducaoController {
     private final RotaProducaoService rotaProducaoService;
     private final ProducaoSubPedidoService producaoSubPedidoService;
     private final ProducaoKdsService producaoKdsService;
+    private final TenantUserProductionScopeSelectionService selectionService;
 
     // ---------------------------------------------------------------------
     // KDS-ready endpoints (Prompt 22)
@@ -50,6 +53,42 @@ public class TenantProducaoController {
     public ResponseEntity<ApiResponse<MinhaUnidadeProducaoResponse>> minhaUnidade() {
         MinhaUnidadeProducaoResponse resp = producaoKdsService.minhaUnidade();
         return ResponseEntity.ok(ApiResponse.success("Minha unidade de produção", resp));
+    }
+
+    @PostMapping("/minha-unidade")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<MinhaUnidadeProducaoResponse>> selecionarMinhaUnidade(@Valid @RequestBody SelecionarMinhaUnidadeRequest request) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_KITCHEN
+        );
+        TenantContext ctx = tenantGuard.requireContext();
+        if (ctx.tenantId() == null || ctx.userId() == null) {
+            return ResponseEntity.status(404).body(ApiResponse.error("Recurso não encontrado."));
+        }
+        selectionService.selectUnit(ctx.tenantId(), ctx.userId(), request.getUnidadeProducaoId());
+        MinhaUnidadeProducaoResponse resp = producaoKdsService.minhaUnidade();
+        return ResponseEntity.ok(ApiResponse.success("Minha unidade selecionada", resp));
+    }
+
+    @DeleteMapping("/minha-unidade")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<MinhaUnidadeProducaoResponse>> limparMinhaUnidade() {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_KITCHEN
+        );
+        TenantContext ctx = tenantGuard.requireContext();
+        if (ctx.tenantId() == null || ctx.userId() == null) {
+            return ResponseEntity.status(404).body(ApiResponse.error("Recurso não encontrado."));
+        }
+        selectionService.clearSelection(ctx.tenantId(), ctx.userId());
+        MinhaUnidadeProducaoResponse resp = producaoKdsService.minhaUnidade();
+        return ResponseEntity.ok(ApiResponse.success("Minha unidade limpa", resp));
     }
 
     @GetMapping("/minha-unidade/subpedidos")

@@ -1,6 +1,7 @@
 package com.restaurante.controller;
 
 import com.restaurante.dto.request.RegistrarDispositivoRequest;
+import com.restaurante.dto.request.DefinirUnidadeProducaoDispositivoRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.DispositivoOperacionalResponse;
 import com.restaurante.dto.response.RegistrarDispositivoResponse;
@@ -74,5 +75,17 @@ public class TenantDispositivoOperacionalController {
         RegistrarDispositivoResponse resp = dispositivoService.reemitirActivationCode(id);
         return ResponseEntity.ok(ApiResponse.success("Activation code reemitido", resp));
     }
-}
 
+    @PostMapping("/dispositivos/{id}/unidade-producao")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<DispositivoOperacionalResponse>> definirUnidadeProducao(
+            @PathVariable Long id,
+            @Valid @RequestBody DefinirUnidadeProducaoDispositivoRequest request
+    ) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Unidade de produção definida",
+                dispositivoService.definirUnidadeProducao(id, request.getUnidadeProducaoId())
+        ));
+    }
+}

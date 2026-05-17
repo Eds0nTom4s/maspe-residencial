@@ -84,10 +84,12 @@ public class DeviceAuthService {
 
         return new DevicePrincipal(
                 dispositivo.getId(),
+                dispositivo.getCodigo(),
                 dispositivo.getTenant().getId(),
                 tenant.getTenantCode(),
                 dispositivo.getInstituicao().getId(),
                 dispositivo.getUnidadeAtendimento() != null ? dispositivo.getUnidadeAtendimento().getId() : null,
+                dispositivo.getUnidadeProducao() != null ? dispositivo.getUnidadeProducao().getId() : null,
                 dispositivo.getTipo(),
                 dispositivo.getStatus(),
                 DeviceCapabilities.forTipo(dispositivo.getTipo()),

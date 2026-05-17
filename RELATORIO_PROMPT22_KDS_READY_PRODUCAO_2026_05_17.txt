@@ -1,0 +1,130 @@
+RELATÓRIO TÉCNICO — PROMPT 22
+KDS-ready Produção (HTTP): filtros, paginação, “minha unidade” e métricas
+Data: 2026-05-17
+
+1) Resumo executivo
+- Produção ficou “KDS-ready” via HTTP, com endpoints para resolver automaticamente a unidade de produção do ator (usuário ou dispositivo), listagem paginada e filtros robustos, e métricas básicas por período.
+- Proteções adicionadas: lookback padrão, page size máximo, e bloqueios explícitos para FINANCE/CASHIER e para DevicePrincipal fora do escopo permitido.
+- Sem WebSocket/SSE/UI/impressão/offline (conforme regras).
+
+2) Endpoints criados/alterados
+- `GET /tenant/producao/minha-unidade`
+- `GET /tenant/producao/minha-unidade/subpedidos` (Page + filtros)
+- `GET /tenant/producao/subpedidos` (Page + filtros; apenas OWNER/ADMIN/OPERATOR; device bloqueado)
+- `GET /tenant/producao/metricas` (apenas OWNER/ADMIN/OPERATOR; device bloqueado)
+- `GET /tenant/producao/minha-unidade/metricas` (KITCHEN e Device VIEW_PRODUCTION permitido)
+
+3) DTOs criados
+- `src/main/java/com/restaurante/dto/response/MinhaUnidadeProducaoResponse.java`
+- `src/main/java/com/restaurante/dto/response/KdsSubPedidoResponse.java`
+- `src/main/java/com/restaurante/dto/response/ProducaoMetricasResponse.java`
+
+4) Services criados
+- `src/main/java/com/restaurante/service/producao/ProducaoKdsService.java`
+  - Resolve unidade do ator, aplica lookback/paginação, retorna DTO KDS-ready e calcula métricas básicas.
+
+5) Scope resolver criado
+- `src/main/java/com/restaurante/service/producao/ProducaoScopeResolver.java`
+  - Usuário humano: se houver 1 unidade ativa no tenant, usa-a; se houver múltiplas, retorna `EXPLICIT_REQUIRED` com opções (sem persistir seleção nesta fase).
+  - DevicePrincipal: resolve preferencialmente por `tenantId + unidadeAtendimentoId`; fallback seguro por `instituicaoId` e, se necessário, por “single active unit” do tenant; ambiguidade retorna 409 `DEVICE_PRODUCTION_UNIT_AMBIGUOUS`.
+
+6) Repositories/queries ajustadas
+- `src/main/java/com/restaurante/repository/UnidadeProducaoRepository.java`
+  - `findByTenantIdAndInstituicaoIdAndAtivoTrueOrderByOrdemAsc(...)`
+  - `findByTenantIdAndUnidadeAtendimentoIdAndAtivoTrueOrderByOrdemAsc(...)`
+- `src/main/java/com/restaurante/repository/SubPedidoRepository.java`
+  - Paginação em 2 passos (IDs paginados + fetch detalhes por `IN (:ids)`) para evitar paginação com fetch-join em coleções.
+  - Projeção de métricas (rows com timestamps/status) para cálculo eficiente por período.
+
+7) Estratégia de paginação/lookback
+- Sempre paginado.
+- `size` acima do máximo é limitado automaticamente.
+- Se `de/ate` não informado, aplica lookback padrão de produção.
+
+8) Estratégia de métricas
+- MVP calcula médias com período limitado (lookback), ignorando timestamps ausentes:
+  - `tempoMedioAteIniciarSegundos`
+  - `tempoMedioAteProntoSegundos`
+  - `tempoMedioTotalPreparacaoSegundos`
+- Sem agregação SQL avançada/particionamento nesta fase.
+
+9) Estratégia user/device
+- Usuário humano: tenant vem do `TenantContext`.
+- DevicePrincipal: tenant vem do próprio principal; exige `DeviceCapability.VIEW_PRODUCTION` para leitura.
+- Device não pode usar endpoint geral `/tenant/producao/subpedidos` nem `/tenant/producao/metricas`.
+
+10) RBAC/capabilities aplicadas
+- `TENANT_OWNER|TENANT_ADMIN|TENANT_OPERATOR`: listagem geral e métricas gerais.
+- `TENANT_KITCHEN`: apenas `/minha-unidade/*` (unidade/subpedidos/métricas).
+- `TENANT_FINANCE` e `TENANT_CASHIER`: bloqueados em produção nesta fase.
+- Device: permitido em `/minha-unidade/*` somente com `VIEW_PRODUCTION`.
+
+11) Testes criados/alterados
+- `src/test/java/com/restaurante/producao/ProducaoKdsMinhaUnidadeIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsDeviceScopeIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoMetricasIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsRbacIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsCrossTenantIT.java`
+
+12) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+13) Resultado dos comandos
+- `mvn -q -DskipTests compile`: SUCESSO
+- `mvn test`: SUCESSO (Tests run: 145, Failures: 0, Errors: 0, Skipped: 4)
+
+14) Arquivos criados/alterados
+Alterados:
+- `src/main/java/com/restaurante/controller/TenantProducaoController.java`
+- `src/main/java/com/restaurante/repository/SubPedidoRepository.java`
+- `src/main/java/com/restaurante/repository/UnidadeProducaoRepository.java`
+- `src/main/resources/application.properties`
+
+Criados:
+- `docs/tenant-core/22-kds-ready-producao-filtros-metricas.md`
+- `src/main/java/com/restaurante/dto/response/MinhaUnidadeProducaoResponse.java`
+- `src/main/java/com/restaurante/dto/response/KdsSubPedidoResponse.java`
+- `src/main/java/com/restaurante/dto/response/ProducaoMetricasResponse.java`
+- `src/main/java/com/restaurante/service/producao/ProducaoScopeResolver.java`
+- `src/main/java/com/restaurante/service/producao/ProducaoKdsService.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsMinhaUnidadeIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsDeviceScopeIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoMetricasIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsRbacIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsCrossTenantIT.java`
+
+15) Decisões técnicas tomadas
+- “Minha unidade” para usuário humano não cria vínculo User→UnidadeProducao nesta fase; retorna `EXPLICIT_REQUIRED` quando múltiplas unidades exigirem escolha.
+- Device scope: tenta por `unidadeAtendimentoId` primeiro; fallback seguro por instituição/tenant para suportar unidades default legadas sem `unidade_atendimento_id`.
+- Paginação de KDS: 2-step (page de IDs + fetch por IN) para evitar problemas clássicos de JPA com paginação + coleções.
+
+16) Riscos restantes
+- Se houver múltiplas unidades ativas por instituição/tenant e nenhuma regra/código padrão (“GERAL”) configurado, dispositivos podem cair em ambiguidade (409) até que o tenant padronize o vínculo UA→UnidadeProducao ou defina códigos.
+- Métricas por Java em período curto é OK para piloto, mas deve migrar para agregações SQL/índices adicionais conforme volume crescer.
+
+17) Checklist de aceitação (Prompt 22)
+- [OK] `GET /tenant/producao/minha-unidade`
+- [OK] `GET /tenant/producao/minha-unidade/subpedidos`
+- [OK] `GET /tenant/producao/subpedidos` com filtros/paginação
+- [OK] `GET /tenant/producao/metricas`
+- [OK] `GET /tenant/producao/minha-unidade/metricas`
+- [OK] KITCHEN opera apenas sua unidade
+- [OK] Device com `VIEW_PRODUCTION` lista sua unidade
+- [OK] Device sem capability é bloqueado
+- [OK] FINANCE bloqueado em produção
+- [OK] CASHIER bloqueado nesta fase
+- [OK] lookback padrão aplicado
+- [OK] page size máximo aplicado
+- [OK] métricas básicas funcionam
+- [OK] cross-tenant não vaza dados (tenant A não vê tenant B)
+- [OK] testes passando
+- [OK] WebSocket/impressão/sync offline não implementados
+
+18) Próximo prompt recomendado
+“Prompt 23 — Seleção explícita de unidade para TENANT_KITCHEN e Device (persistência leve) + endpoints read-only de sync KDS/POS (catálogo/filas) com cache/ETag”, mantendo:
+- sem WebSocket/SSE,
+- sem POS criando pedido,
+- sem offline bidirecional,
+- e com foco em UX operacional e performance.
+

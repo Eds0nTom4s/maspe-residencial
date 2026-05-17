@@ -3,6 +3,9 @@ package com.restaurante.controller;
 import com.restaurante.dto.request.AtualizarStatusSubPedidoRequest;
 import com.restaurante.dto.request.ConfigurarRotaProducaoRequest;
 import com.restaurante.dto.response.ApiResponse;
+import com.restaurante.dto.response.KdsSubPedidoResponse;
+import com.restaurante.dto.response.MinhaUnidadeProducaoResponse;
+import com.restaurante.dto.response.ProducaoMetricasResponse;
 import com.restaurante.dto.response.RotaProducaoResponse;
 import com.restaurante.dto.response.SubPedidoProducaoResponse;
 import com.restaurante.dto.response.UnidadeProducaoResponse;
@@ -11,15 +14,19 @@ import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.producao.ProducaoSubPedidoService;
+import com.restaurante.service.producao.ProducaoKdsService;
 import com.restaurante.service.producao.RotaProducaoService;
 import com.restaurante.service.producao.UnidadeProducaoService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -32,6 +39,66 @@ public class TenantProducaoController {
     private final UnidadeProducaoService unidadeProducaoService;
     private final RotaProducaoService rotaProducaoService;
     private final ProducaoSubPedidoService producaoSubPedidoService;
+    private final ProducaoKdsService producaoKdsService;
+
+    // ---------------------------------------------------------------------
+    // KDS-ready endpoints (Prompt 22)
+    // ---------------------------------------------------------------------
+
+    @GetMapping("/minha-unidade")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<MinhaUnidadeProducaoResponse>> minhaUnidade() {
+        MinhaUnidadeProducaoResponse resp = producaoKdsService.minhaUnidade();
+        return ResponseEntity.ok(ApiResponse.success("Minha unidade de produção", resp));
+    }
+
+    @GetMapping("/minha-unidade/subpedidos")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Page<KdsSubPedidoResponse>>> subpedidosMinhaUnidade(
+            @RequestParam(required = false) StatusSubPedido status,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) LocalDateTime de,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) LocalDateTime ate,
+            @RequestParam(required = false) String search,
+            Pageable pageable
+    ) {
+        Page<KdsSubPedidoResponse> resp = producaoKdsService.listarSubPedidosMinhaUnidade(status, de, ate, search, pageable);
+        return ResponseEntity.ok(ApiResponse.success("Subpedidos (minha unidade)", resp));
+    }
+
+    @GetMapping("/subpedidos")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Page<KdsSubPedidoResponse>>> subpedidosTenant(
+            @RequestParam(required = false) Long unidadeProducaoId,
+            @RequestParam(required = false) StatusSubPedido status,
+            @RequestParam(required = false) String pedidoNumero,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) LocalDateTime de,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) LocalDateTime ate,
+            Pageable pageable
+    ) {
+        Page<KdsSubPedidoResponse> resp = producaoKdsService.listarSubPedidosTenant(unidadeProducaoId, status, de, ate, pedidoNumero, pageable);
+        return ResponseEntity.ok(ApiResponse.success("Subpedidos (produção)", resp));
+    }
+
+    @GetMapping("/metricas")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<ProducaoMetricasResponse>> metricas(
+            @RequestParam(required = false) Long unidadeProducaoId,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) LocalDateTime de,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) LocalDateTime ate
+    ) {
+        ProducaoMetricasResponse resp = producaoKdsService.metricas(unidadeProducaoId, de, ate);
+        return ResponseEntity.ok(ApiResponse.success("Métricas produção", resp));
+    }
+
+    @GetMapping("/minha-unidade/metricas")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<ProducaoMetricasResponse>> metricasMinhaUnidade(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) LocalDateTime de,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) LocalDateTime ate
+    ) {
+        ProducaoMetricasResponse resp = producaoKdsService.metricasMinhaUnidade(de, ate);
+        return ResponseEntity.ok(ApiResponse.success("Métricas minha unidade", resp));
+    }
 
     @GetMapping("/unidades")
     @PreAuthorize("isAuthenticated()")

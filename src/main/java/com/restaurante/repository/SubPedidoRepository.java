@@ -12,6 +12,8 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 /**
  * Repository para SubPedido
@@ -196,4 +198,99 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
             @Param("tenantId") Long tenantId,
             @Param("unidadeProducaoId") Long unidadeProducaoId,
             @Param("status") StatusSubPedido status);
+
+    // ---------------------------------------------------------------------
+    // KDS-ready paging queries (Prompt 22)
+    // ---------------------------------------------------------------------
+
+    @Query("""
+            select sp.id from SubPedido sp
+              join sp.pedido p
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and (:status is null or sp.status = :status)
+              and (:de is null or sp.createdAt >= :de)
+              and (:ate is null or sp.createdAt <= :ate)
+              and (
+                    :search is null or :search = '' or
+                    lower(p.numero) like lower(concat('%', :search, '%')) or
+                    lower(sp.numero) like lower(concat('%', :search, '%'))
+                  )
+            order by sp.createdAt asc
+            """)
+    Page<Long> findKdsIdsByTenantAndUnidadeAndFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate,
+            @Param("search") String search,
+            Pageable pageable
+    );
+
+    @Query("""
+            select distinct sp from SubPedido sp
+              join fetch sp.pedido p
+              left join fetch p.sessaoConsumo sc
+              left join fetch sc.mesa m
+              left join fetch sp.unidadeProducao up
+              left join fetch sp.itens i
+              left join fetch i.produto prod
+            where sp.id in :ids
+            """)
+    List<SubPedido> findKdsDetailsByIdIn(@Param("ids") List<Long> ids);
+
+    @Query("""
+            select sp.id from SubPedido sp
+              join sp.pedido p
+            where sp.tenant.id = :tenantId
+              and (:unidadeProducaoId is null or sp.unidadeProducao.id = :unidadeProducaoId)
+              and (:status is null or sp.status = :status)
+              and (:de is null or sp.createdAt >= :de)
+              and (:ate is null or sp.createdAt <= :ate)
+              and (:pedidoNumero is null or :pedidoNumero = '' or lower(p.numero) like lower(concat('%', :pedidoNumero, '%')))
+            order by sp.createdAt asc
+            """)
+    Page<Long> findKdsIdsByTenantAndFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate,
+            @Param("pedidoNumero") String pedidoNumero,
+            Pageable pageable
+    );
+
+    interface SubPedidoMetricRow {
+        Long getUnidadeProducaoId();
+        String getUnidadeProducaoNome();
+        StatusSubPedido getStatus();
+        LocalDateTime getCreatedAt();
+        LocalDateTime getIniciadoEm();
+        LocalDateTime getProntoEm();
+        LocalDateTime getEntregueEm();
+    }
+
+    @Query("""
+            select
+              up.id as unidadeProducaoId,
+              up.nome as unidadeProducaoNome,
+              sp.status as status,
+              sp.createdAt as createdAt,
+              sp.iniciadoEm as iniciadoEm,
+              sp.prontoEm as prontoEm,
+              sp.entregueEm as entregueEm
+            from SubPedido sp
+              left join sp.unidadeProducao up
+            where sp.tenant.id = :tenantId
+              and (:unidadeProducaoId is null or up.id = :unidadeProducaoId)
+              and (:de is null or sp.createdAt >= :de)
+              and (:ate is null or sp.createdAt <= :ate)
+            """)
+    List<SubPedidoMetricRow> findMetricRowsByTenantAndPeriod(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate
+    );
 }

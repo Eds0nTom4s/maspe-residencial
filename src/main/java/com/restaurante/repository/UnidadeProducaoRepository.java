@@ -12,6 +12,8 @@ public interface UnidadeProducaoRepository extends JpaRepository<UnidadeProducao
 
     List<UnidadeProducao> findByTenantIdAndAtivoTrueOrderByOrdemAsc(Long tenantId);
 
+    List<UnidadeProducao> findByTenantIdAndInstituicaoIdAndAtivoTrueOrderByOrdemAsc(Long tenantId, Long instituicaoId);
+
     Optional<UnidadeProducao> findByIdAndTenantId(Long id, Long tenantId);
 
     Optional<UnidadeProducao> findByTenantIdAndInstituicaoIdAndCodigo(Long tenantId, Long instituicaoId, String codigo);
@@ -19,5 +21,6 @@ public interface UnidadeProducaoRepository extends JpaRepository<UnidadeProducao
     boolean existsByTenantIdAndInstituicaoIdAndCodigo(Long tenantId, Long instituicaoId, String codigo);
 
     long countByTenantId(Long tenantId);
-}
 
+    List<UnidadeProducao> findByTenantIdAndUnidadeAtendimentoIdAndAtivoTrueOrderByOrdemAsc(Long tenantId, Long unidadeAtendimentoId);
+}

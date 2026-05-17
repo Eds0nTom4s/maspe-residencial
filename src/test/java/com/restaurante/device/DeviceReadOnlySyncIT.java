@@ -65,7 +65,8 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
     @Test
     void device_withSyncCatalog_canFetchBootstrapAndCatalog() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
-        Produto prod = criarProdutoBasico(prov.getTenantId());
+        Produto prod1 = criarProdutoBasico(prov.getTenantId());
+        Produto prod2 = criarProdutoBasico(prov.getTenantId());
 
         DevicePrincipal device = new DevicePrincipal(
                 10L,
@@ -90,18 +91,40 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode bootJson = objectMapper.readTree(boot);
-        assertThat(bootJson.at("/success").asBoolean()).isTrue();
         assertThat(bootJson.at("/data/tenantId").asLong()).isEqualTo(prov.getTenantId());
 
-        String cat = mockMvc.perform(get("/device/sync/catalogo")
+        var catRes1 = mockMvc.perform(get("/device/sync/catalogo")
                         .with(authentication(auth))
+                        .param("limit", "1")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn();
+        String cat = catRes1.getResponse().getContentAsString();
+        String etag = catRes1.getResponse().getHeader("ETag");
+        JsonNode catJson = objectMapper.readTree(cat);
+        assertThat(catJson.at("/data/produtos").isArray()).isTrue();
+        assertThat(catJson.at("/data/produtos").size()).isEqualTo(1);
+        assertThat(catJson.at("/hasMore").asBoolean()).isTrue();
+        assertThat(catJson.at("/nextCursor").asText()).isNotBlank();
+
+        // próxima página via cursor
+        String cursor = catJson.at("/nextCursor").asText();
+        String page2 = mockMvc.perform(get("/device/sync/catalogo")
+                        .with(authentication(auth))
+                        .param("limit", "1")
+                        .param("cursor", cursor)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        JsonNode catJson = objectMapper.readTree(cat);
-        assertThat(catJson.at("/success").asBoolean()).isTrue();
-        assertThat(catJson.at("/data/produtos").isArray()).isTrue();
-        assertThat(catJson.at("/data/produtos").toString()).contains(prod.getCodigo());
+        JsonNode page2Json = objectMapper.readTree(page2);
+        assertThat(page2Json.at("/data/produtos").size()).isEqualTo(1);
+
+        // If-None-Match deve retornar 304 quando não há mudanças
+        mockMvc.perform(get("/device/sync/catalogo")
+                        .with(authentication(auth))
+                        .header("If-None-Match", etag)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotModified());
     }
 
     @Test

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 /**
  * Repository para SessaoConsumo.
@@ -52,6 +53,15 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
     List<SessaoConsumo> findByTenantIdAndStatus(Long tenantId, StatusSessaoConsumo status);
 
     boolean existsByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);
+
+    @Query("SELECT s.mesa.id FROM SessaoConsumo s " +
+           "WHERE s.tenant.id = :tenantId " +
+           "AND s.mesa.id IN :mesaIds " +
+           "AND s.status = 'ABERTA'")
+    List<Long> findMesaIdsComSessaoAbertaByTenantAndMesaIds(
+            @Param("tenantId") Long tenantId,
+            @Param("mesaIds") Collection<Long> mesaIds
+    );
 
     /**
      * Histórico de sessões de uma mesa, ordenado da mais recente para a mais antiga.

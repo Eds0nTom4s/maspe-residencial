@@ -5,6 +5,7 @@ import com.restaurante.dto.response.DeviceCatalogSyncResponse;
 import com.restaurante.dto.response.DeviceMesasSyncResponse;
 import com.restaurante.dto.response.DeviceProducaoSyncResponse;
 import com.restaurante.dto.response.DeviceQrSyncResponse;
+import com.restaurante.dto.response.SyncEnvelope;
 import com.restaurante.exception.DeviceForbiddenException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.CategoriaProduto;
@@ -23,17 +24,22 @@ import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.QrCodeOperacionalRepository;
 import com.restaurante.repository.RotaProducaoCategoriaRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.UnidadeProducaoRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -48,6 +54,8 @@ public class DeviceReadOnlySyncService {
     private final MesaRepository mesaRepository;
     private final QrCodeOperacionalRepository qrCodeOperacionalRepository;
     private final RotaProducaoCategoriaRepository rotaProducaoCategoriaRepository;
+    private final SessaoConsumoRepository sessaoConsumoRepository;
+    private final DeviceSyncCursorService cursorService;
 
     @Value("${consuma.public-base-url:http://localhost:8080}")
     private String publicBaseUrl;
@@ -155,6 +163,68 @@ public class DeviceReadOnlySyncService {
     }
 
     @Transactional(readOnly = true)
+    public CatalogPageResult syncCatalogoPaged(DevicePrincipal device, LocalDateTime updatedSince, boolean includeInactive, String cursor, Integer limit) {
+        requireCapability(device, DeviceCapability.SYNC_CATALOG);
+        Long tenantId = device.tenantId();
+        LocalDateTime now = LocalDateTime.now();
+
+        int effectiveLimit = limit == null ? 100 : Math.min(Math.max(limit, 1), 500);
+
+        CatalogCursor decoded = cursorService.decode(cursor, CatalogCursor.class);
+        Long lastId = decoded != null ? decoded.lastProdutoId : null;
+        if (decoded != null) {
+            if ((decoded.includeInactive != null && decoded.includeInactive != includeInactive) ||
+                (decoded.updatedSince != null && updatedSince == null) ||
+                (decoded.updatedSince == null && updatedSince != null) ||
+                (decoded.updatedSince != null && updatedSince != null && !decoded.updatedSince.equals(updatedSince))) {
+                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+            }
+        }
+
+        // Categorias: mantemos simples (snapshot completo ativo, ou incremental por updatedSince)
+        List<CategoriaProduto> cats = updatedSince != null
+                ? categoriaProdutoRepository.findByTenantIdAndUpdatedAtAfterOrderByUpdatedAtAsc(tenantId, updatedSince)
+                : (includeInactive ? categoriaProdutoRepository.findByTenantId(tenantId) : categoriaProdutoRepository.findByTenantIdAndAtivoTrueOrderByOrdemAsc(tenantId));
+
+        Pageable pageable = PageRequest.of(0, effectiveLimit + 1);
+        List<Produto> chunk = produtoRepository.syncKeyset(tenantId, includeInactive, updatedSince, lastId, pageable);
+        boolean hasMore = chunk.size() > effectiveLimit;
+        if (hasMore) {
+            chunk = chunk.subList(0, effectiveLimit);
+        }
+        Long nextLastId = chunk.isEmpty() ? lastId : chunk.get(chunk.size() - 1).getId();
+        String nextCursor = hasMore ? cursorService.encode(new CatalogCursor(nextLastId, updatedSince, includeInactive)) : null;
+
+        List<DeviceCatalogSyncResponse.DeviceCategoriaSyncItem> catItems = cats.stream()
+                .map(c -> new DeviceCatalogSyncResponse.DeviceCategoriaSyncItem(
+                        c.getId(),
+                        c.getNome(),
+                        c.getSlug(),
+                        c.getAtivo(),
+                        c.getUpdatedAt()
+                ))
+                .toList();
+
+        List<DeviceCatalogSyncResponse.DeviceProdutoSyncItem> prodItems = chunk.stream()
+                .map(p -> new DeviceCatalogSyncResponse.DeviceProdutoSyncItem(
+                        p.getId(),
+                        p.getCodigo(),
+                        p.getNome(),
+                        p.getDescricao(),
+                        p.getCategoriaProduto() != null ? p.getCategoriaProduto().getId() : null,
+                        p.getCategoriaProduto() != null ? p.getCategoriaProduto().getNome() : null,
+                        p.getPreco() != null ? p.getPreco().toPlainString() : null,
+                        p.getAtivo(),
+                        p.getDisponivel(),
+                        p.getUrlImagem(),
+                        p.getUpdatedAt()
+                ))
+                .toList();
+
+        return new CatalogPageResult(new DeviceCatalogSyncResponse(now, catItems, prodItems), hasMore, nextCursor);
+    }
+
+    @Transactional(readOnly = true)
     public DeviceMesasSyncResponse syncMesas(DevicePrincipal device, LocalDateTime updatedSince, Long unidadeAtendimentoId) {
         if (device.capabilities() == null || !(device.capabilities().contains(DeviceCapability.VIEW_ORDERS) || device.capabilities().contains(DeviceCapability.SYNC_CATALOG))) {
             throw new DeviceForbiddenException("PRODUCTION_CAPABILITY_FORBIDDEN");
@@ -177,13 +247,19 @@ public class DeviceReadOnlySyncService {
                     : mesaRepository.findByTenantIdWithFilters(tenantId, null, null, true);
         }
 
-        List<DeviceMesasSyncResponse.DeviceMesaSyncItem> items = mesas.stream()
+        Set<Long> mesaIds = new HashSet<>();
+        for (Mesa m : mesas) mesaIds.add(m.getId());
+        Set<Long> ocupadas = mesaIds.isEmpty()
+                ? Set.of()
+                : new HashSet<>(sessaoConsumoRepository.findMesaIdsComSessaoAbertaByTenantAndMesaIds(tenantId, mesaIds));
+
+        List<DeviceMesasSyncResponse.DeviceMesaSyncItem> mapped = mesas.stream()
                 .map(m -> new DeviceMesasSyncResponse.DeviceMesaSyncItem(
                         m.getId(),
                         m.getUnidadeAtendimento() != null ? m.getUnidadeAtendimento().getId() : null,
                         m.getNumero(),
                         m.getReferencia(),
-                        mesaRepository.isOcupada(m.getId()) ? "OCUPADA" : "DISPONIVEL",
+                        ocupadas.contains(m.getId()) ? "OCUPADA" : "DISPONIVEL",
                         m.getAtiva(),
                         null,
                         null,
@@ -191,7 +267,7 @@ public class DeviceReadOnlySyncService {
                 ))
                 .toList();
 
-        return new DeviceMesasSyncResponse(now, items);
+        return new DeviceMesasSyncResponse(now, mapped);
     }
 
     @Transactional(readOnly = true)
@@ -275,5 +351,19 @@ public class DeviceReadOnlySyncService {
                 .toList();
 
         return new DeviceProducaoSyncResponse(now, unidadeItems, rotaItems);
+    }
+
+    public record CatalogPageResult(DeviceCatalogSyncResponse data, boolean hasMore, String nextCursor) {}
+
+    public static final class CatalogCursor {
+        public Long lastProdutoId;
+        public LocalDateTime updatedSince;
+        public Boolean includeInactive;
+        public CatalogCursor() {}
+        public CatalogCursor(Long lastProdutoId, LocalDateTime updatedSince, Boolean includeInactive) {
+            this.lastProdutoId = lastProdutoId;
+            this.updatedSince = updatedSince;
+            this.includeInactive = includeInactive;
+        }
     }
 }

@@ -10,6 +10,8 @@ import org.springframework.data.domain.Pageable;
 import java.util.List;
 import java.util.Optional;
 import java.time.LocalDateTime;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * Repository para operações de banco de dados com Produto
@@ -77,4 +79,18 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
     List<Produto> findByTenantIdAndCategoriaProdutoIdAndAtivoTrue(Long tenantId, Long categoriaProdutoId);
 
     Page<Produto> findByTenantIdAndCategoriaProdutoIdAndDisponivelTrueAndAtivoTrue(Long tenantId, Long categoriaProdutoId, Pageable pageable);
+
+    @Query("SELECT p FROM Produto p " +
+           "WHERE p.tenant.id = :tenantId " +
+           "AND (:includeInactive = true OR (p.ativo = true AND p.disponivel = true)) " +
+           "AND (:updatedSince IS NULL OR p.updatedAt > :updatedSince) " +
+           "AND (:lastId IS NULL OR p.id > :lastId) " +
+           "ORDER BY p.id ASC")
+    List<Produto> syncKeyset(
+            @Param("tenantId") Long tenantId,
+            @Param("includeInactive") boolean includeInactive,
+            @Param("updatedSince") LocalDateTime updatedSince,
+            @Param("lastId") Long lastId,
+            Pageable pageable
+    );
 }

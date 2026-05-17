@@ -1,0 +1,137 @@
+RELATÓRIO TÉCNICO — PROMPT 24
+Sync incremental robusto (read-only): SyncEnvelope, ETag, cursor e batch occupancy
+Data: 2026-05-18
+
+1) Resumo executivo
+- Padronizado o contrato de sync de device com `SyncEnvelope<T>` (preparação para offline futuro e contratos estáveis).
+- Implementado cache HTTP via ETag/If-None-Match nos endpoints `/device/sync/*` com suporte a `HTTP 304 Not Modified`.
+- Implementada paginação por cursor (keyset) para catálogo em `/device/sync/catalogo` (limit + cursor).
+- Otimizada a ocupação de mesas no sync por batch query (eliminando N queries por mesa).
+- Mantido escopo read-only: sem POS criando pedido, sem pagamento, sem offline bidirecional, sem WebSocket/SSE/impressão.
+
+2) SyncEnvelope criado
+- `src/main/java/com/restaurante/dto/response/SyncEnvelope.java`
+  - Campos: `data`, `syncGeneratedAt`, `syncVersion`, `etag`, `fullSyncRequired`, `hasMore`, `nextCursor`, `mode`, `warnings`.
+
+3) Estratégia ETag/If-None-Match
+- `src/main/java/com/restaurante/service/device/DeviceSyncEtagService.java`
+  - ETag = SHA-256(seed) em base64url (entre aspas).
+- `src/main/java/com/restaurante/controller/DeviceSyncController.java`
+  - Le `If-None-Match`.
+  - Se igual ao ETag calculado: retorna 304.
+  - Caso contrário: retorna 200 + `ETag` + `SyncEnvelope`.
+
+4) Estratégia syncVersion/checksum por domínio
+- Versões iniciais:
+  - `bootstrap:v1`
+  - `catalog:v1`
+  - `mesas:v1`
+  - `qrcodes:v1`
+  - `producao:v1`
+  - `fila:v1`
+- ETag inclui tenantId + filtros + metadados básicos (count/period/page) e muda quando há alterações observáveis.
+
+5) Cursor/paginação de catálogo
+- `GET /device/sync/catalogo` agora aceita:
+  - `cursor` (opaco base64url JSON)
+  - `limit` (default 100; max 500)
+  - `updatedSince` / `includeInactive`
+- Implementação:
+  - `ProdutoRepository.syncKeyset(...)` (keyset pagination por `id > lastId`).
+  - `DeviceSyncCursorService` encode/decode de cursor.
+  - `DeviceReadOnlySyncService.syncCatalogoPaged(...)` retorna `hasMore` e `nextCursor`.
+
+6) Batch occupancy de mesas
+- `SessaoConsumoRepository.findMesaIdsComSessaoAbertaByTenantAndMesaIds(...)` retorna mesaIds com sessão `ABERTA` em uma query.
+- `DeviceReadOnlySyncService.syncMesas(...)` usa Set mesaIds ocupadas para preencher status `OCUPADA/DISPONIVEL` sem N queries.
+
+7) Fallback fullSyncRequired
+- Campo `fullSyncRequired` está presente no envelope.
+- Nesta iteração permanece `false` (base preparada para evolução onde incremental não for confiável).
+
+8) Endpoints alterados
+Base: `/device/sync`
+- `GET /device/sync/bootstrap` → `SyncEnvelope<DeviceBootstrapSyncResponse>` + ETag/304
+- `GET /device/sync/catalogo` → `SyncEnvelope<DeviceCatalogSyncResponse>` + cursor/limit + ETag/304
+- `GET /device/sync/mesas` → `SyncEnvelope<DeviceMesasSyncResponse>` + ETag/304
+- `GET /device/sync/qrcodes` → `SyncEnvelope<DeviceQrSyncResponse>` + ETag/304
+- `GET /device/sync/producao` → `SyncEnvelope<DeviceProducaoSyncResponse>` + ETag/304
+- `GET /device/sync/producao/fila` → `SyncEnvelope<Page<KdsSubPedidoResponse>>` + ETag/304
+
+9) Services criados/alterados
+Criados:
+- `src/main/java/com/restaurante/service/device/DeviceSyncEtagService.java`
+- `src/main/java/com/restaurante/service/device/DeviceSyncCursorService.java`
+
+Alterados:
+- `src/main/java/com/restaurante/service/device/DeviceReadOnlySyncService.java` (cursor catálogo + batch occupancy)
+
+10) Repositories/queries criadas/alteradas
+- `src/main/java/com/restaurante/repository/ProdutoRepository.java`
+  - `syncKeyset(...)` (@Query + Pageable)
+- `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java`
+  - `findMesaIdsComSessaoAbertaByTenantAndMesaIds(...)`
+
+11) Segurança tenant/device/cursor
+- Endpoints `/device/sync/*` exigem `DevicePrincipal`.
+- Não aceitam JWT humano como substituto.
+- Tenant scope sempre derivado do principal.
+- Cursor é validado contra `updatedSince/includeInactive` do request (cursor inconsistente → erro).
+
+12) Testes criados/alterados
+- Atualizado:
+  - `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+    - valida ETag + 304 no catálogo
+    - valida cursor/limit (hasMore + nextCursor)
+
+13) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+14) Resultado dos comandos
+- `mvn -q -DskipTests compile`: SUCESSO
+- `mvn test`: SUCESSO (Tests run: 145, Failures: 0, Errors: 0, Skipped: 4)
+
+15) Arquivos criados/alterados
+Criados:
+- `src/main/java/com/restaurante/dto/response/SyncEnvelope.java`
+- `src/main/java/com/restaurante/service/device/DeviceSyncEtagService.java`
+- `src/main/java/com/restaurante/service/device/DeviceSyncCursorService.java`
+- `docs/tenant-core/24-sync-incremental-etag-batch-occupancy.md`
+- `RELATORIO_PROMPT24_SYNC_INCREMENTAL_ETAG_CURSOR_BATCH_2026_05_18.txt`
+
+Alterados:
+- `src/main/java/com/restaurante/controller/DeviceSyncController.java`
+- `src/main/java/com/restaurante/service/device/DeviceReadOnlySyncService.java`
+- `src/main/java/com/restaurante/repository/ProdutoRepository.java`
+- `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java`
+- `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+
+16) Decisões técnicas tomadas
+- Contrato de sync “device-first” sem `ApiResponse` para `/device/sync/*`, estabilizando payloads para POS/KDS.
+- Cursor keyset para catálogo (evita offset em volumes grandes).
+- ETag determinístico (hash) por request/filtros para suportar 304.
+- Batch occupancy por query única em sessões ABERTAS.
+
+17) Riscos restantes
+- ETag atual é baseado em seed com metadados e não em agregações SQL (max(updatedAt)+count) rigorosas; pode haver falso-positivo de 304 se seed não capturar alguma mudança (mitigação: evoluir para max(updatedAt)+count por domínio).
+- `fullSyncRequired` ainda não é acionado automaticamente (base pronta; falta heurística/telemetria para detectar incremental não confiável).
+
+18) Checklist de aceitação (Prompt 24)
+- [OK] todos endpoints `/device/sync/*` retornam `SyncEnvelope`
+- [OK] endpoints retornam ETag
+- [OK] If-None-Match igual retorna 304
+- [OK] alteração de dados muda ETag (coberto por seed e testes básicos)
+- [OK] catálogo possui cursor/keyset pagination
+- [OK] mesas usam batch occupancy
+- [OK] syncGeneratedAt existe
+- [OK] fullSyncRequired existe no contrato
+- [OK] cursor não vaza tenant
+- [OK] capabilities aplicadas
+- [OK] sync não retorna dados financeiros/usuários/secrets
+- [OK] testes passam
+- [OK] POS continua read-only; offline bidirecional não implementado
+
+19) Próximo prompt recomendado
+“Prompt 25 — SyncVersion SQL-based (max(updatedAt)+count) por domínio + fullSyncRequired heurístico + cursor para QR/mesas quando necessário + otimização de fila por diff (OperationalEventLog)”, mantendo read-only.
+

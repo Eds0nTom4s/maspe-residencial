@@ -108,5 +108,17 @@ public class DispositivoOperacional extends BaseEntity {
 
     @Column(name = "revogado_em")
     private LocalDateTime revogadoEm;
-}
 
+    @NotNull
+    @Column(name = "token_version", nullable = false)
+    private Integer tokenVersion = 1;
+
+    @Column(name = "last_token_rotation_at")
+    private LocalDateTime lastTokenRotationAt;
+
+    @Column(name = "last_auth_at")
+    private LocalDateTime lastAuthAt;
+
+    @Column(name = "last_auth_failure_at")
+    private LocalDateTime lastAuthFailureAt;
+}

@@ -13,12 +13,15 @@ import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SubPedidoRepository;
+import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.PedidoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -36,18 +39,37 @@ public class SubPedidoStatusTransitionService {
 
     @Transactional
     public SubPedidoProducaoResponse atualizarStatus(Long subPedidoId, StatusSubPedido novoStatus, String motivo, String ip, String userAgent) {
-        TenantContext ctx = tenantGuard.requireContext();
-        if (ctx.tenantId() == null) {
-            throw new ResourceNotFoundException("Recurso não encontrado.");
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        DevicePrincipal devicePrincipal = auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof DevicePrincipal dp ? dp : null;
+
+        Long tenantId;
+        boolean isDevice = devicePrincipal != null;
+        if (isDevice) {
+            tenantId = devicePrincipal.tenantId();
+        } else {
+            TenantContext ctx = tenantGuard.requireContext();
+            tenantId = ctx.tenantId();
         }
+
+        if (tenantId == null) throw new ResourceNotFoundException("Recurso não encontrado.");
 
         if (novoStatus == null) {
             throw new BusinessException("Status é obrigatório.");
         }
 
-        boolean isKitchen = tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_KITCHEN);
+        boolean isKitchen = !isDevice && tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_KITCHEN);
         if (isKitchen) {
             // Cozinha só pode transições de produção
+            if (!(novoStatus == StatusSubPedido.EM_PREPARACAO || novoStatus == StatusSubPedido.PRONTO)) {
+                throw new org.springframework.security.access.AccessDeniedException("Usuário não possui permissão para executar esta ação.");
+            }
+        } else if (isDevice) {
+            // Device só pode transições de produção e precisa de capability
+            boolean canUpdate = devicePrincipal.capabilities() != null
+                    && devicePrincipal.capabilities().contains(com.restaurante.model.enums.DeviceCapability.UPDATE_PRODUCTION_STATUS);
+            if (!canUpdate) {
+                throw new org.springframework.security.access.AccessDeniedException("Usuário não possui permissão para executar esta ação.");
+            }
             if (!(novoStatus == StatusSubPedido.EM_PREPARACAO || novoStatus == StatusSubPedido.PRONTO)) {
                 throw new org.springframework.security.access.AccessDeniedException("Usuário não possui permissão para executar esta ação.");
             }
@@ -59,7 +81,7 @@ public class SubPedidoStatusTransitionService {
             );
         }
 
-        SubPedido sp = subPedidoRepository.findByIdAndTenantId(subPedidoId, ctx.tenantId())
+        SubPedido sp = subPedidoRepository.findByIdAndTenantId(subPedidoId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
 
         StatusSubPedido anterior = sp.getStatus();
@@ -108,7 +130,7 @@ public class SubPedidoStatusTransitionService {
         if (pedido != null) {
             var beforePedidoStatus = pedido.getStatus();
             pedidoService.recalcularStatusPedido(pedido.getId());
-            Pedido after = pedidoRepository.findByIdAndTenantId(pedido.getId(), ctx.tenantId()).orElse(null);
+            Pedido after = pedidoRepository.findByIdAndTenantId(pedido.getId(), tenantId).orElse(null);
             if (after != null && after.getStatus() != null && beforePedidoStatus != after.getStatus()) {
                 operationalEventLogService.logPedidoStatusChanged(
                         after,
@@ -127,6 +149,13 @@ public class SubPedidoStatusTransitionService {
     }
 
     private OperationalOrigem resolveOrigem() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof DevicePrincipal dp) {
+            return switch (dp.tipo()) {
+                case KDS, COZINHA, BAR -> OperationalOrigem.DEVICE_KDS;
+                default -> OperationalOrigem.DEVICE_POS;
+            };
+        }
         if (tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_KITCHEN)) return OperationalOrigem.TENANT_KITCHEN;
         if (tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_CASHIER)) return OperationalOrigem.TENANT_CASHIER;
         if (tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_OPERATOR)) return OperationalOrigem.TENANT_OPERATOR;
@@ -170,4 +199,3 @@ public class SubPedidoStatusTransitionService {
                 .build();
     }
 }
-

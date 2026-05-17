@@ -1,0 +1,135 @@
+RELATÓRIO TÉCNICO — PROMPT 21
+Hardening transversal: JWT stale + OperationalEventLog + DevicePrincipal
+Data: 2026-05-17 (Africa/Luanda)
+
+1) Resumo executivo
+- Mitigado risco de JWT tenant-scoped stale via `tenant_user_access_versions` + claim `tenantAccessVersion` no token TENANT.
+- Hardened do `OperationalEventLog`: lookback padrão, page size máximo, resumo e retenção com dry-run/execute (desligado por default).
+- Integrado DevicePrincipal no SecurityContext para paths allowlisted e preparado auditável: device events + actor DEVICE no event log operacional.
+
+2) Migration criada
+- `src/main/resources/db/migration/V18__hardening_security_operational_logs_device.sql`
+  - Cria `tenant_user_access_versions` + backfill por `tenant_users`
+  - Adiciona colunas de hardening em `dispositivos_operacionais` (token_version, last_auth_at, etc.)
+  - Cria `device_event_logs`
+
+3) Estratégia `tenantAccessVersion` (mitigar JWT stale)
+- Tabela: `tenant_user_access_versions (tenant_id, user_id)` com:
+  - `access_version` (incremental)
+  - `permissions_updated_at`
+- Emissão de token TENANT (endpoint `POST /api/auth/tenant/select`):
+  - inclui claims `tenantAccessVersion` e `tenantPermissionsUpdatedAt`
+- Validação (TenantResolver):
+  - se `consuma.security.tenant-token.require-access-version=true`:
+    - token sem claim ou claim != versão atual → 401 `TENANT_TOKEN_STALE`
+- Incremento de versão:
+  - ações de gestão de usuários (Prompt 19) incrementam a versão do usuário-alvo no tenant.
+
+4) Alterações JWT/tenant select
+- `src/main/java/com/restaurante/security/JwtTokenProvider.java`
+  - `generateTenantScopedToken(...)` agora aceita e grava:
+    - `tenantAccessVersion`
+    - `tenantPermissionsUpdatedAt`
+- `src/main/java/com/restaurante/service/TenantTokenService.java`
+  - consulta `TenantUserAccessVersionService` e passa versão para emissão do token
+- `src/main/java/com/restaurante/security/tenant/TenantResolver.java`
+  - valida `tenantAccessVersion` contra banco quando property habilitada
+- `src/main/java/com/restaurante/exception/TenantTokenStaleException.java`
+- `src/main/java/com/restaurante/exception/GlobalExceptionHandler.java`
+  - handler 401 `TENANT_TOKEN_STALE`
+
+5) OperationalEventLog: retenção e proteção de consulta
+- Properties adicionadas:
+  - `consuma.operational-events.default-lookback-days`
+  - `consuma.operational-events.max-page-size`
+  - `consuma.operational-events.retention-days`
+  - `consuma.operational-events.cleanup-enabled`
+- Controller:
+  - `GET /api/tenant/operacional/eventos`: aplica lookback + limita page size
+  - `GET /api/tenant/operacional/eventos/resumo`: agregações simples por período
+  - `POST /api/tenant/operacional/eventos/retencao/dry-run`
+  - `POST /api/tenant/operacional/eventos/retencao/execute` (bloqueado se cleanup-enabled=false)
+
+6) DevicePrincipal e auditoria de device
+- Security:
+  - `DeviceAuthenticationFilter` autentica `Authorization: Device <token>` apenas para:
+    - `/api/device/**`, `/device/**`
+    - `/api/tenant/producao/**`, `/tenant/producao/**`
+  - Evita autenticar endpoints administrativos gerais do tenant por deviceToken.
+- Device token rotation:
+  - `POST /api/device/token/rotate` (retorna novo token uma única vez; incrementa `tokenVersion`)
+- DeviceEventLog:
+  - tabela `device_event_logs` + entidade/enum para eventos (AUTH_SUCCESS, TOKEN_ROTATED, etc.)
+- OperationalEventLog:
+  - `OperationalEventLogService` identifica actor DEVICE via `SecurityContext` e grava `device_id`.
+
+7) Arquivos criados/alterados (principais)
+- Migração:
+  - `src/main/resources/db/migration/V18__hardening_security_operational_logs_device.sql`
+- Tenant access version:
+  - `src/main/java/com/restaurante/model/entity/TenantUserAccessVersion.java`
+  - `src/main/java/com/restaurante/repository/TenantUserAccessVersionRepository.java`
+  - `src/main/java/com/restaurante/service/security/TenantUserAccessVersionService.java`
+- JWT stale:
+  - `src/main/java/com/restaurante/exception/TenantTokenStaleException.java`
+  - `src/main/java/com/restaurante/security/tenant/TenantResolver.java`
+  - `src/main/java/com/restaurante/security/JwtTokenProvider.java`
+  - `src/main/java/com/restaurante/service/TenantTokenService.java`
+- OperationalEventLog hardening:
+  - `src/main/java/com/restaurante/service/operacional/OperationalEventRetentionService.java`
+  - `src/main/java/com/restaurante/dto/response/OperationalEventSummaryResponse.java`
+  - `src/main/java/com/restaurante/controller/TenantOperationalEventController.java`
+  - `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java`
+- Device auth + audit:
+  - `src/main/java/com/restaurante/security/device/DeviceAuthenticationFilter.java`
+  - `src/main/java/com/restaurante/config/DeviceSecurityBeansConfig.java`
+  - `src/main/java/com/restaurante/model/entity/DeviceEventLog.java`
+  - `src/main/java/com/restaurante/model/enums/DeviceEventType.java`
+  - `src/main/java/com/restaurante/model/enums/DeviceEventStatus.java`
+  - `src/main/java/com/restaurante/repository/DeviceEventLogRepository.java`
+  - `src/main/java/com/restaurante/service/device/DeviceEventLogService.java`
+  - `src/main/java/com/restaurante/dto/response/DeviceTokenRotateResponse.java`
+  - `src/main/java/com/restaurante/service/device/DeviceAuthService.java`
+  - `src/main/java/com/restaurante/service/device/DeviceActivationService.java`
+  - `src/main/java/com/restaurante/controller/DeviceController.java`
+- Docs:
+  - `docs/tenant-core/21-hardening-transversal-security-logs-device.md`
+
+8) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+9) Resultado dos comandos
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS (145 testes, 0 falhas, 0 erros, 4 skipped)
+
+10) Decisões técnicas
+- Versão de acesso agregada por (tenant,user) em tabela dedicada, compatível com modelo multirole (1 linha por role).
+- Validação de stale feita no `TenantResolver` para falhar cedo e forçar `tenant/select`.
+- Device auth por filtro com allowlist de paths para não abrir superfície administrativa por deviceToken.
+- Retenção de event logs implementada como mecanismo explícito (dry-run/execute), desligado por default.
+
+11) Riscos restantes
+- Validação de access_version adiciona dependência de DB em requests TENANT (tradeoff deliberado por segurança; otimização/caching pode vir depois).
+- Estratégia de retenção atual faz delete simples (sem particionamento/archival).
+- Device capabilities ainda são “informativas” fora dos endpoints de produção; expansão deve continuar por allowlists.
+
+12) Checklist de aceitação (Prompt 21)
+- [OK] `tenant_user_access_versions` existe
+- [OK] token TENANT carrega `tenantAccessVersion`
+- [OK] mudança de roles/membership incrementa versão e invalida token antigo (401 TENANT_TOKEN_STALE)
+- [OK] OperationalEventLog tem lookback padrão + max page size + resumo
+- [OK] retenção dry-run/execute existe (execute bloqueado por default)
+- [OK] DeviceAuthenticationFilter existe com allowlist
+- [OK] Device token rotation existe e incrementa tokenVersion
+- [OK] Device events são auditados em `device_event_logs`
+- [OK] OperationalEventLog suporta actorType=DEVICE e grava deviceId
+- [OK] device não acessa financeiro/usuários/tenant-admin geral
+- [OK] testes passam
+
+13) Próximo prompt recomendado
+PROMPT 22 — “KDS-ready: filtros/paginação e ‘minha unidade’ para produção”
+- Endpoints de produção com paginação/filtros robustos (status/de/ate/unidade)
+- Endpoint KITCHEN/DEVICE para “minha unidade de produção” (auto-scope por device/unidade)
+- Métricas básicas (tempo até iniciar, tempo até pronto) derivadas do OperationalEventLog
+

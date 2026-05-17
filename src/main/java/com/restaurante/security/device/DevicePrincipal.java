@@ -14,7 +14,7 @@ public record DevicePrincipal(
         Long unidadeAtendimentoId,
         DispositivoTipo tipo,
         DispositivoStatus status,
-        List<DeviceCapability> capabilities
+        List<DeviceCapability> capabilities,
+        Integer tokenVersion
 ) {
 }
-

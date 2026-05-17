@@ -21,6 +21,7 @@ import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.TenantLimitService;
+import com.restaurante.service.security.TenantUserAccessVersionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -50,6 +51,7 @@ public class TenantUsuarioService {
     private final PasswordEncoder passwordEncoder;
     private final TenantLimitService tenantLimitService;
     private final TenantAuditService tenantAuditService;
+    private final TenantUserAccessVersionService tenantUserAccessVersionService;
 
     @Transactional(readOnly = true)
     public Page<TenantUsuarioResponse> listar(Pageable pageable) {
@@ -147,6 +149,7 @@ public class TenantUsuarioService {
         }
 
         setRolesForUser(ctx.tenantId(), user, rolesToSet, estadoInicial);
+        tenantUserAccessVersionService.increment(ctx.tenantId(), user.getId());
 
         TenantUsuarioResponse resp = buscar(user.getId());
 
@@ -193,6 +196,7 @@ public class TenantUsuarioService {
 
         Set<TenantUserRole> newRoles = EnumSet.copyOf(request.getRoles());
         setRolesForUser(ctx.tenantId(), user, newRoles, TenantUserEstado.ATIVO);
+        tenantUserAccessVersionService.increment(ctx.tenantId(), userId);
 
         TenantUsuarioResponse resp = buscar(userId);
 
@@ -237,6 +241,7 @@ public class TenantUsuarioService {
                 .filter(tu -> tu.getEstado() != TenantUserEstado.REMOVIDO)
                 .forEach(tu -> tu.setEstado(TenantUserEstado.SUSPENSO));
         tenantUserRepository.saveAll(rows);
+        tenantUserAccessVersionService.increment(ctx.tenantId(), userId);
 
         TenantUsuarioResponse resp = buscar(userId);
 
@@ -311,6 +316,7 @@ public class TenantUsuarioService {
 
         User user = userRepository.findById(userId).orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
         setRolesForUser(ctx.tenantId(), user, rolesToSet, TenantUserEstado.ATIVO);
+        tenantUserAccessVersionService.increment(ctx.tenantId(), userId);
 
         TenantUsuarioResponse resp = buscar(userId);
 
@@ -352,6 +358,7 @@ public class TenantUsuarioService {
 
         rows.forEach(tu -> tu.setEstado(TenantUserEstado.REMOVIDO));
         tenantUserRepository.saveAll(rows);
+        tenantUserAccessVersionService.increment(ctx.tenantId(), userId);
 
         tenantAuditService.log(
                 TenantAuditAction.TENANT_USER_REMOVED,

@@ -6,6 +6,7 @@ import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.DeviceActivationResponse;
 import com.restaurante.dto.response.DeviceConfigResponse;
 import com.restaurante.dto.response.DeviceHeartbeatResponse;
+import com.restaurante.dto.response.DeviceTokenRotateResponse;
 import com.restaurante.service.device.DeviceActivationService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,10 +54,23 @@ public class DeviceController {
 
     @GetMapping("/config")
     public ResponseEntity<ApiResponse<DeviceConfigResponse>> config(
-            @RequestHeader(name = "Authorization", required = false) String authorization
+            @RequestHeader(name = "Authorization", required = false) String authorization,
+            HttpServletRequest http
     ) {
-        DeviceConfigResponse resp = deviceActivationService.config(authorization);
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        String ip = http != null ? http.getRemoteAddr() : null;
+        DeviceConfigResponse resp = deviceActivationService.config(authorization, ua, ip);
         return ResponseEntity.ok(ApiResponse.success("Config", resp));
     }
-}
 
+    @PostMapping("/token/rotate")
+    public ResponseEntity<ApiResponse<DeviceTokenRotateResponse>> rotateToken(
+            @RequestHeader(name = "Authorization", required = false) String authorization,
+            HttpServletRequest http
+    ) {
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        String ip = http != null ? http.getRemoteAddr() : null;
+        DeviceTokenRotateResponse resp = deviceActivationService.rotateToken(authorization, ua, ip);
+        return ResponseEntity.ok(ApiResponse.success("Token rotacionado", resp));
+    }
+}

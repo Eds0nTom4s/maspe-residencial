@@ -5,10 +5,12 @@ import com.restaurante.model.enums.OperationalEventType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface OperationalEventLogRepository extends JpaRepository<OperationalEventLog, Long> {
 
@@ -41,5 +43,30 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
             @Param("ate") LocalDateTime ate,
             Pageable pageable
     );
-}
 
+    long countByTenantIdAndCreatedAtBetween(Long tenantId, LocalDateTime de, LocalDateTime ate);
+
+    long countByTenantIdAndCreatedAtBefore(Long tenantId, LocalDateTime before);
+
+    @Modifying
+    @Query("delete from OperationalEventLog e where e.tenant.id = :tenantId and e.createdAt < :before")
+    int deleteByTenantIdAndCreatedAtBefore(@Param("tenantId") Long tenantId, @Param("before") LocalDateTime before);
+
+    @Query("""
+            select e.eventType as key, count(e) as cnt
+            from OperationalEventLog e
+            where e.tenant.id = :tenantId
+              and e.createdAt >= :de and e.createdAt <= :ate
+            group by e.eventType
+            """)
+    List<Object[]> countByEventType(@Param("tenantId") Long tenantId, @Param("de") LocalDateTime de, @Param("ate") LocalDateTime ate);
+
+    @Query("""
+            select e.origem as key, count(e) as cnt
+            from OperationalEventLog e
+            where e.tenant.id = :tenantId
+              and e.createdAt >= :de and e.createdAt <= :ate
+            group by e.origem
+            """)
+    List<Object[]> countByOrigem(@Param("tenantId") Long tenantId, @Param("de") LocalDateTime de, @Param("ate") LocalDateTime ate);
+}

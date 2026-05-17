@@ -3,6 +3,7 @@ package com.restaurante.config;
 import com.restaurante.security.CustomUserDetailsService;
 import com.restaurante.security.JwtAuthenticationFilter;
 import com.restaurante.security.JwtSecurityExceptionHandlers;
+import com.restaurante.security.device.DeviceAuthenticationFilter;
 import com.restaurante.security.tenant.TenantContextFilter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,7 @@ public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ObjectProvider<DeviceAuthenticationFilter> deviceAuthenticationFilterProvider;
     private final ObjectProvider<TenantContextFilter> tenantContextFilterProvider;
     private final JwtSecurityExceptionHandlers.JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtSecurityExceptionHandlers.JwtAccessDeniedHandler jwtAccessDeniedHandler;
@@ -94,6 +96,11 @@ public class SecurityConfig {
                 )
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
+        DeviceAuthenticationFilter deviceAuthenticationFilter = deviceAuthenticationFilterProvider.getIfAvailable();
+        if (deviceAuthenticationFilter != null) {
+            http.addFilterBefore(deviceAuthenticationFilter, JwtAuthenticationFilter.class);
+        }
 
         TenantContextFilter tenantContextFilter = tenantContextFilterProvider.getIfAvailable();
         if (tenantContextFilter != null) {

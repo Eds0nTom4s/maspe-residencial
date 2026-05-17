@@ -8,6 +8,7 @@ import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantUserAccessVersionRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.security.JwtTokenProvider;
 import jakarta.servlet.http.HttpServletRequest;
@@ -34,6 +35,8 @@ class TenantResolverTest {
     private TenantRepository tenantRepository;
     @Mock
     private TenantUserRepository tenantUserRepository;
+    @Mock
+    private TenantUserAccessVersionRepository tenantUserAccessVersionRepository;
 
     private TenantResolver tenantResolver;
 
@@ -58,6 +61,12 @@ class TenantResolverTest {
                     @Override public JwtTokenProvider getObject() { return null; }
                     @Override public JwtTokenProvider getIfAvailable() { return null; }
                     @Override public JwtTokenProvider getIfUnique() { return null; }
+                },
+                new org.springframework.beans.factory.ObjectProvider<>() {
+                    @Override public TenantUserAccessVersionRepository getObject(Object... args) { return tenantUserAccessVersionRepository; }
+                    @Override public TenantUserAccessVersionRepository getObject() { return tenantUserAccessVersionRepository; }
+                    @Override public TenantUserAccessVersionRepository getIfAvailable() { return tenantUserAccessVersionRepository; }
+                    @Override public TenantUserAccessVersionRepository getIfUnique() { return tenantUserAccessVersionRepository; }
                 }
         );
     }

@@ -7,12 +7,15 @@ import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.repository.TenantUserAccessVersionRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.security.JwtTokenProvider;
+import com.restaurante.exception.TenantTokenStaleException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -42,6 +45,10 @@ public class TenantResolver {
     private final ObjectProvider<TenantRepository> tenantRepositoryProvider;
     private final ObjectProvider<TenantUserRepository> tenantUserRepositoryProvider;
     private final ObjectProvider<JwtTokenProvider> jwtTokenProviderProvider;
+    private final ObjectProvider<TenantUserAccessVersionRepository> tenantUserAccessVersionRepositoryProvider;
+
+    @Value("${consuma.security.tenant-token.require-access-version:true}")
+    private boolean requireAccessVersion;
 
     public Optional<TenantContext> resolve(HttpServletRequest request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -242,6 +249,7 @@ public class TenantResolver {
             Long tenantId = claims.get("tenantId", Long.class);
             String tenantCode = claims.get("tenantCode", String.class);
             Object tenantRolesObj = claims.get("tenantRoles");
+            Integer tokenAccessVersion = claims.get("tenantAccessVersion", Integer.class);
 
             Long userId = extractUserId(authentication).orElse(claims.get("userId", Long.class));
             if (tenantId == null || userId == null) {
@@ -254,6 +262,20 @@ public class TenantResolver {
             boolean belongs = tenantUserRepository.existsByTenantIdAndUserIdAndEstado(tenant.getId(), userId, TenantUserEstado.ATIVO);
             if (!belongs) {
                 return Optional.empty();
+            }
+
+            if (requireAccessVersion) {
+                if (tokenAccessVersion == null) {
+                    throw new TenantTokenStaleException("Sessão do tenant desatualizada. Selecione novamente o tenant.");
+                }
+                TenantUserAccessVersionRepository accessRepo = tenantUserAccessVersionRepositoryProvider.getIfAvailable();
+                if (accessRepo == null) {
+                    throw new BusinessException("Validação de versão indisponível.");
+                }
+                Integer currentVersion = accessRepo.findAccessVersion(tenant.getId(), userId).orElse(1);
+                if (!tokenAccessVersion.equals(currentVersion)) {
+                    throw new TenantTokenStaleException("Sessão do tenant desatualizada. Selecione novamente o tenant.");
+                }
             }
 
             Set<String> roles = extractRoleNames(authentication);

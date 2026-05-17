@@ -115,7 +115,9 @@ public class JwtTokenProvider {
             com.restaurante.model.entity.User user,
             com.restaurante.model.entity.Tenant tenant,
             com.restaurante.model.enums.TenantUserRole tenantRole,
-            com.restaurante.model.enums.TenantUserEstado tenantUserEstado
+            com.restaurante.model.enums.TenantUserEstado tenantUserEstado,
+            Integer tenantAccessVersion,
+            String tenantPermissionsUpdatedAt
     ) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpiration);
@@ -123,7 +125,7 @@ public class JwtTokenProvider {
 
         List<String> tenantRoles = tenantRole != null ? List.of(tenantRole.name()) : List.of();
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .setSubject(user.getUsername())
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
@@ -135,8 +137,16 @@ public class JwtTokenProvider {
                 .claim("tenantRoles", tenantRoles)
                 .claim("tenantUserStatus", tenantUserEstado != null ? tenantUserEstado.name() : null)
                 .claim("platformAdmin", false)
-                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
-                .compact();
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256);
+
+        if (tenantAccessVersion != null) {
+            builder.claim("tenantAccessVersion", tenantAccessVersion);
+        }
+        if (tenantPermissionsUpdatedAt != null) {
+            builder.claim("tenantPermissionsUpdatedAt", tenantPermissionsUpdatedAt);
+        }
+
+        return builder.compact();
     }
 
     /**

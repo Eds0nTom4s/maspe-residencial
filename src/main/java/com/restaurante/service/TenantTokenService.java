@@ -12,6 +12,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.security.JwtPrincipal;
+import com.restaurante.service.security.TenantUserAccessVersionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -32,6 +33,7 @@ public class TenantTokenService {
     private final TenantUserRepository tenantUserRepository;
     private final com.restaurante.repository.UserRepository userRepository;
     private final JwtTokenProvider jwtTokenProvider;
+    private final TenantUserAccessVersionService tenantUserAccessVersionService;
 
     @Transactional(readOnly = true)
     public SelectTenantResponse selectTenant(SelectTenantRequest request) {
@@ -56,7 +58,16 @@ public class TenantTokenService {
                 )
                 .orElseThrow(() -> new AccessDeniedException("Usuário não possui acesso a este tenant."));
 
-        String token = jwtTokenProvider.generateTenantScopedToken(user, tenant, membership.getRole(), membership.getEstado());
+        int accessVersion = tenantUserAccessVersionService.getAccessVersion(tenant.getId(), user.getId());
+        var permissionsUpdatedAt = tenantUserAccessVersionService.getPermissionsUpdatedAt(tenant.getId(), user.getId());
+        String token = jwtTokenProvider.generateTenantScopedToken(
+                user,
+                tenant,
+                membership.getRole(),
+                membership.getEstado(),
+                accessVersion,
+                permissionsUpdatedAt != null ? permissionsUpdatedAt.toString() : null
+        );
 
         Set<String> roles = Set.of(membership.getRole().name());
         return SelectTenantResponse.builder()

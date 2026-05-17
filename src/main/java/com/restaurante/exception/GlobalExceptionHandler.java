@@ -150,6 +150,27 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * TenantTokenStaleException (401) — token tenant-scoped desatualizado após mudança de roles/membership.
+     */
+    @ExceptionHandler(TenantTokenStaleException.class)
+    public ResponseEntity<ErrorResponse> handleTenantTokenStaleException(
+            TenantTokenStaleException ex, WebRequest request
+    ) {
+        log.warn("Tenant token stale: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .error("Sessão desatualizada")
+                .code("TENANT_TOKEN_STALE")
+                .message(ex.getMessage() != null ? ex.getMessage() : "Sessão do tenant desatualizada. Selecione novamente o tenant.")
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    /**
      * Trata erros de validação (Bean Validation)
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)

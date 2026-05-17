@@ -12,14 +12,19 @@ import com.restaurante.model.enums.OperationalActorType;
 import com.restaurante.model.enums.OperationalEntityType;
 import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.DispositivoTipo;
 import com.restaurante.repository.OperationalEventLogRepository;
+import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UserRepository;
+import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.Map;
 
@@ -30,6 +35,7 @@ public class OperationalEventLogService {
     private final TenantGuard tenantGuard;
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
+    private final DispositivoOperacionalRepository dispositivoOperacionalRepository;
     private final OperationalEventLogRepository operationalEventLogRepository;
     private final ObjectMapper objectMapper;
 
@@ -119,13 +125,10 @@ public class OperationalEventLogService {
                      Map<String, Object> metadata,
                      String ip,
                      String userAgent) {
+        Long tenantId = resolveTenantId();
+        if (tenantId == null) throw new ResourceNotFoundException("Recurso não encontrado.");
 
-        TenantContext ctx = tenantGuard.requireContext();
-        if (ctx.tenantId() == null) {
-            throw new ResourceNotFoundException("Recurso não encontrado.");
-        }
-
-        Tenant tenant = tenantRepository.findById(ctx.tenantId())
+        Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
 
         OperationalEventLog log = new OperationalEventLog();
@@ -150,16 +153,57 @@ public class OperationalEventLogService {
         log.setIp(ip);
         log.setUserAgent(userAgent);
 
-        // actor
-        if (ctx.userId() != null) {
+        applyActor(log, origem, ip, userAgent);
+
+        operationalEventLogRepository.save(log);
+    }
+
+    private Long resolveTenantId() {
+        try {
+            TenantContext ctx = TenantContextHolderSafe.get();
+            if (ctx != null && ctx.tenantId() != null) return ctx.tenantId();
+        } catch (Exception ignored) { }
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof DevicePrincipal dp) {
+            return dp.tenantId();
+        }
+        return null;
+    }
+
+    private void applyActor(OperationalEventLog log, OperationalOrigem origem, String ip, String userAgent) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        Object principal = auth != null ? auth.getPrincipal() : null;
+
+        if (principal instanceof DevicePrincipal dp) {
+            log.setActorType(OperationalActorType.DEVICE);
+            log.setDispositivo(dispositivoOperacionalRepository.getReferenceById(dp.dispositivoId()));
+            if (origem == null) {
+                log.setOrigem(resolveOrigemFromDevice(dp.tipo()));
+            }
+            return;
+        }
+
+        TenantContext ctx = TenantContextHolderSafe.get();
+        if (ctx != null && ctx.userId() != null) {
             User user = userRepository.findById(ctx.userId()).orElse(null);
             log.setActorUser(user);
             log.setActorType(OperationalActorType.USER);
-        } else {
-            log.setActorType(OperationalActorType.SYSTEM);
+            return;
         }
 
-        operationalEventLogRepository.save(log);
+        log.setActorType(OperationalActorType.SYSTEM);
+        if (origem == null) {
+            log.setOrigem(OperationalOrigem.SYSTEM);
+        }
+    }
+
+    private OperationalOrigem resolveOrigemFromDevice(DispositivoTipo tipo) {
+        if (tipo == null) return OperationalOrigem.SYSTEM;
+        return switch (tipo) {
+            case POS, CHECKOUT, ADMIN, QUIOSQUE, BALCAO, OUTRO -> OperationalOrigem.DEVICE_POS;
+            case KDS, COZINHA, BAR -> OperationalOrigem.DEVICE_KDS;
+        };
     }
 
     private String toJson(Map<String, Object> metadata) {
@@ -171,3 +215,16 @@ public class OperationalEventLogService {
     }
 }
 
+/**
+ * Evita dependência forte do TenantGuard (que assume userId) para requests device-auth.
+ */
+final class TenantContextHolderSafe {
+    private TenantContextHolderSafe() {}
+    static TenantContext get() {
+        try {
+            return com.restaurante.security.tenant.TenantContextHolder.get().orElse(null);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}

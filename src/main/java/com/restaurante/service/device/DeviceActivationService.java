@@ -6,6 +6,7 @@ import com.restaurante.dto.request.DeviceHeartbeatRequest;
 import com.restaurante.dto.response.DeviceActivationResponse;
 import com.restaurante.dto.response.DeviceConfigResponse;
 import com.restaurante.dto.response.DeviceHeartbeatResponse;
+import com.restaurante.dto.response.DeviceTokenRotateResponse;
 import com.restaurante.exception.DeviceForbiddenException;
 import com.restaurante.exception.DeviceUnauthorizedException;
 import com.restaurante.exception.ResourceNotFoundException;
@@ -14,6 +15,8 @@ import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.DispositivoStatus;
+import com.restaurante.model.enums.DeviceEventStatus;
+import com.restaurante.model.enums.DeviceEventType;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
@@ -37,6 +40,7 @@ public class DeviceActivationService {
     private final TenantRepository tenantRepository;
     private final InstituicaoRepository instituicaoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    private final DeviceEventLogService deviceEventLogService;
 
     @Transactional
     public DeviceActivationResponse ativar(DeviceActivationRequest request, String userAgent, String ip) {
@@ -108,7 +112,7 @@ public class DeviceActivationService {
 
     @Transactional
     public DeviceHeartbeatResponse heartbeat(String authorizationHeader, DeviceHeartbeatRequest request, String userAgent, String ip) {
-        DevicePrincipal principal = deviceAuthService.authenticateDeviceHeader(authorizationHeader);
+        DevicePrincipal principal = deviceAuthService.authenticateDeviceHeader(authorizationHeader, userAgent, ip);
         DispositivoOperacional dispositivo = dispositivoOperacionalRepository.findById(principal.dispositivoId())
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
 
@@ -121,9 +125,9 @@ public class DeviceActivationService {
         return new DeviceHeartbeatResponse("OK", LocalDateTime.now(), dispositivo.getStatus());
     }
 
-    @Transactional(readOnly = true)
-    public DeviceConfigResponse config(String authorizationHeader) {
-        DevicePrincipal principal = deviceAuthService.authenticateDeviceHeader(authorizationHeader);
+    @Transactional
+    public DeviceConfigResponse config(String authorizationHeader, String userAgent, String ip) {
+        DevicePrincipal principal = deviceAuthService.authenticateDeviceHeader(authorizationHeader, userAgent, ip);
 
         DispositivoOperacional dispositivo = dispositivoOperacionalRepository.findById(principal.dispositivoId())
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
@@ -137,6 +141,17 @@ public class DeviceActivationService {
             unidade = unidadeAtendimentoRepository.findByIdAndTenantId(principal.unidadeAtendimentoId(), principal.tenantId())
                     .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
         }
+
+        deviceEventLogService.log(
+                principal.tenantId(),
+                principal.dispositivoId(),
+                DeviceEventType.CONFIG_FETCHED,
+                DeviceEventStatus.SUCCESS,
+                "Config fetch",
+                null,
+                ip,
+                userAgent
+        );
 
         return new DeviceConfigResponse(
                 new DeviceConfigResponse.TenantInfo(tenant.getId(), tenant.getNome(), tenant.getTenantCode()),
@@ -157,8 +172,45 @@ public class DeviceActivationService {
         );
     }
 
+    @Transactional
+    public DeviceTokenRotateResponse rotateToken(String authorizationHeader, String userAgent, String ip) {
+        DevicePrincipal principal = deviceAuthService.authenticateDeviceHeader(authorizationHeader, userAgent, ip);
+        DispositivoOperacional dispositivo = dispositivoOperacionalRepository.findById(principal.dispositivoId())
+                .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+
+        if (dispositivo.getStatus() != DispositivoStatus.ATIVO) {
+            throw new DeviceForbiddenException("Dispositivo não está ativo.");
+        }
+
+        String rawDeviceToken = deviceTokenService.generateDeviceToken();
+        String deviceTokenHash = deviceTokenService.hashToHex(rawDeviceToken);
+
+        dispositivo.setDeviceTokenHash(deviceTokenHash);
+        dispositivo.setDeviceTokenIssuedAt(LocalDateTime.now());
+        dispositivo.setDeviceTokenRevokedAt(null);
+        dispositivo.setTokenVersion(dispositivo.getTokenVersion() != null ? dispositivo.getTokenVersion() + 1 : 2);
+        dispositivo.setLastTokenRotationAt(LocalDateTime.now());
+        dispositivoOperacionalRepository.save(dispositivo);
+
+        deviceEventLogService.log(
+                principal.tenantId(),
+                principal.dispositivoId(),
+                DeviceEventType.TOKEN_ROTATED,
+                DeviceEventStatus.SUCCESS,
+                "Token rotated",
+                java.util.Map.of("tokenVersion", dispositivo.getTokenVersion()),
+                ip,
+                userAgent
+        );
+
+        return new DeviceTokenRotateResponse(
+                rawDeviceToken,
+                dispositivo.getTokenVersion(),
+                dispositivo.getLastTokenRotationAt()
+        );
+    }
+
     public LocalDateTime activationExpiresAtNow() {
         return LocalDateTime.now().plusMinutes(Math.max(1, deviceProperties.getActivationCodeExpirationMinutes()));
     }
 }
-

@@ -8,12 +8,15 @@ import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.SubPedidoRepository;
+import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.SubPedidoStatusTransitionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
 
@@ -28,36 +31,62 @@ public class ProducaoSubPedidoService {
 
     @Transactional(readOnly = true)
     public List<SubPedidoProducaoResponse> listarSubPedidosDaUnidade(Long unidadeProducaoId, StatusSubPedido status) {
-        TenantContext ctx = tenantGuard.requireContext();
-        tenantGuard.assertAnyTenantRole(
-                TenantUserRole.TENANT_OWNER,
-                TenantUserRole.TENANT_ADMIN,
-                TenantUserRole.TENANT_OPERATOR,
-                TenantUserRole.TENANT_KITCHEN
-        );
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        DevicePrincipal devicePrincipal = auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof DevicePrincipal dp ? dp : null;
 
-        if (ctx.tenantId() == null) {
-            throw new BusinessException("TenantContext obrigatório.");
+        Long tenantId;
+        if (devicePrincipal != null) {
+            tenantId = devicePrincipal.tenantId();
+            boolean canView = devicePrincipal.capabilities() != null
+                    && devicePrincipal.capabilities().contains(com.restaurante.model.enums.DeviceCapability.VIEW_PRODUCTION);
+            if (!canView) {
+                throw new org.springframework.security.access.AccessDeniedException("Usuário não possui permissão para executar esta ação.");
+            }
+        } else {
+            TenantContext ctx = tenantGuard.requireContext();
+            tenantGuard.assertAnyTenantRole(
+                    TenantUserRole.TENANT_OWNER,
+                    TenantUserRole.TENANT_ADMIN,
+                    TenantUserRole.TENANT_OPERATOR,
+                    TenantUserRole.TENANT_KITCHEN
+            );
+            tenantId = ctx.tenantId();
         }
-        // valida unidade pertence ao tenant
-        unidadeProducaoService.buscarPorIdETenant(unidadeProducaoId, ctx.tenantId());
+
+        if (tenantId == null) throw new BusinessException("TenantContext obrigatório.");
+        unidadeProducaoService.buscarPorIdETenant(unidadeProducaoId, tenantId);
 
         List<SubPedido> subs = subPedidoRepository.findByTenantIdAndUnidadeProducaoIdAndStatusOrderByCreatedAtDesc(
-                ctx.tenantId(), unidadeProducaoId, status
+                tenantId, unidadeProducaoId, status
         );
         return subs.stream().map(this::toDto).toList();
     }
 
     @Transactional(readOnly = true)
     public SubPedidoProducaoResponse buscarDetalhe(Long subPedidoId) {
-        TenantContext ctx = tenantGuard.requireContext();
-        tenantGuard.assertAnyTenantRole(
-                TenantUserRole.TENANT_OWNER,
-                TenantUserRole.TENANT_ADMIN,
-                TenantUserRole.TENANT_OPERATOR,
-                TenantUserRole.TENANT_KITCHEN
-        );
-        SubPedido sp = subPedidoRepository.findByIdAndTenantId(subPedidoId, ctx.tenantId())
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        DevicePrincipal devicePrincipal = auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof DevicePrincipal dp ? dp : null;
+
+        Long tenantId;
+        if (devicePrincipal != null) {
+            tenantId = devicePrincipal.tenantId();
+            boolean canView = devicePrincipal.capabilities() != null
+                    && devicePrincipal.capabilities().contains(com.restaurante.model.enums.DeviceCapability.VIEW_PRODUCTION);
+            if (!canView) {
+                throw new org.springframework.security.access.AccessDeniedException("Usuário não possui permissão para executar esta ação.");
+            }
+        } else {
+            TenantContext ctx = tenantGuard.requireContext();
+            tenantGuard.assertAnyTenantRole(
+                    TenantUserRole.TENANT_OWNER,
+                    TenantUserRole.TENANT_ADMIN,
+                    TenantUserRole.TENANT_OPERATOR,
+                    TenantUserRole.TENANT_KITCHEN
+            );
+            tenantId = ctx.tenantId();
+        }
+
+        SubPedido sp = subPedidoRepository.findByIdAndTenantId(subPedidoId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("SubPedido", "id", subPedidoId));
         return toDto(sp);
     }

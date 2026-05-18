@@ -122,6 +122,8 @@ class DeviceFilaDiffSyncIT extends PostgresTestcontainersConfig {
         assertThat(json.at("/data/eventos").isArray()).isTrue();
         assertThat(json.at("/data/eventos").size()).isGreaterThanOrEqualTo(1);
         assertThat(json.at("/data/affectedSubPedidoIds").toString()).contains(setup.subPedidoId.toString());
+        assertThat(json.at("/data/updates").isArray()).isTrue();
+        assertThat(json.at("/data/updates").get(0).at("/action").asText()).isEqualTo("UPSERT");
         assertThat(json.at("/fullSyncRequired").asBoolean()).isFalse();
     }
 
@@ -255,4 +257,3 @@ class DeviceFilaDiffSyncIT extends PostgresTestcontainersConfig {
 
     private record Setup(Tenant tenant, Long instituicaoId, Long unidadeAtendimentoId, Long pedidoId, Long subPedidoId, Long unidadeProducaoId) {}
 }
-

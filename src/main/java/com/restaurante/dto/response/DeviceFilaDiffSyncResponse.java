@@ -9,7 +9,7 @@ public record DeviceFilaDiffSyncResponse(
         boolean hasMore,
         List<DeviceFilaEventSyncItem> eventos,
         List<Long> affectedSubPedidoIds,
-        List<KdsSubPedidoResponse> subPedidosAtualizados
+        List<KdsSubPedidoResponse> subPedidosAtualizados,
+        List<DeviceFilaDiffUpdateItem> updates
 ) {
 }
-

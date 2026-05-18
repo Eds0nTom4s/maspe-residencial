@@ -192,10 +192,16 @@ public class DeviceReadOnlySyncService {
         Long lastId = decoded != null ? decoded.lastProdutoId : null;
         if (decoded != null) {
             if (decoded.tenantId != null && !decoded.tenantId.equals(tenantId)) {
-                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+                throw new DeviceSyncCursorService.SyncCursorException(
+                        com.restaurante.dto.response.SyncErrorResponse.SyncErrorCode.SYNC_CURSOR_CONTEXT_MISMATCH,
+                        "Cursor de sincronização inválido."
+                );
             }
             if (decoded.domain != null && !"CATALOGO".equals(decoded.domain)) {
-                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+                throw new DeviceSyncCursorService.SyncCursorException(
+                        com.restaurante.dto.response.SyncErrorResponse.SyncErrorCode.SYNC_CURSOR_CONTEXT_MISMATCH,
+                        "Cursor de sincronização inválido."
+                );
             }
             if (decoded.issuedAt != null && decoded.issuedAt.isBefore(now.minusHours(cursorExpirationHours))) {
                 cursorExpired = true;
@@ -205,7 +211,10 @@ public class DeviceReadOnlySyncService {
                 (decoded.updatedSince != null && updatedSince == null) ||
                 (decoded.updatedSince == null && updatedSince != null) ||
                 (decoded.updatedSince != null && updatedSince != null && !decoded.updatedSince.equals(updatedSince))) {
-                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+                throw new DeviceSyncCursorService.SyncCursorException(
+                        com.restaurante.dto.response.SyncErrorResponse.SyncErrorCode.SYNC_CURSOR_CONTEXT_MISMATCH,
+                        "Cursor de sincronização inválido."
+                );
             }
         }
 
@@ -336,10 +345,16 @@ public class DeviceReadOnlySyncService {
 
         if (decoded != null) {
             if (decoded.tenantId != null && !decoded.tenantId.equals(tenantId)) {
-                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+                throw new DeviceSyncCursorService.SyncCursorException(
+                        com.restaurante.dto.response.SyncErrorResponse.SyncErrorCode.SYNC_CURSOR_CONTEXT_MISMATCH,
+                        "Cursor de sincronização inválido."
+                );
             }
             if (decoded.domain != null && !"MESAS".equals(decoded.domain)) {
-                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+                throw new DeviceSyncCursorService.SyncCursorException(
+                        com.restaurante.dto.response.SyncErrorResponse.SyncErrorCode.SYNC_CURSOR_CONTEXT_MISMATCH,
+                        "Cursor de sincronização inválido."
+                );
             }
             if (decoded.issuedAt != null && decoded.issuedAt.isBefore(now.minusHours(cursorExpirationHours))) {
                 cursorExpired = true;
@@ -351,7 +366,10 @@ public class DeviceReadOnlySyncService {
                 (decoded.unidadeAtendimentoId != null && filtroUa == null) ||
                 (decoded.unidadeAtendimentoId == null && filtroUa != null) ||
                 (decoded.unidadeAtendimentoId != null && filtroUa != null && !decoded.unidadeAtendimentoId.equals(filtroUa))) {
-                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+                throw new DeviceSyncCursorService.SyncCursorException(
+                        com.restaurante.dto.response.SyncErrorResponse.SyncErrorCode.SYNC_CURSOR_CONTEXT_MISMATCH,
+                        "Cursor de sincronização inválido."
+                );
             }
         }
 
@@ -468,10 +486,16 @@ public class DeviceReadOnlySyncService {
 
         if (decoded != null) {
             if (decoded.tenantId != null && !decoded.tenantId.equals(tenantId)) {
-                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+                throw new DeviceSyncCursorService.SyncCursorException(
+                        com.restaurante.dto.response.SyncErrorResponse.SyncErrorCode.SYNC_CURSOR_CONTEXT_MISMATCH,
+                        "Cursor de sincronização inválido."
+                );
             }
             if (decoded.domain != null && !"QRCODES".equals(decoded.domain)) {
-                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+                throw new DeviceSyncCursorService.SyncCursorException(
+                        com.restaurante.dto.response.SyncErrorResponse.SyncErrorCode.SYNC_CURSOR_CONTEXT_MISMATCH,
+                        "Cursor de sincronização inválido."
+                );
             }
             if (decoded.issuedAt != null && decoded.issuedAt.isBefore(now.minusHours(cursorExpirationHours))) {
                 cursorExpired = true;
@@ -483,7 +507,10 @@ public class DeviceReadOnlySyncService {
                 (decoded.unidadeAtendimentoId != null && filtroUa == null) ||
                 (decoded.unidadeAtendimentoId == null && filtroUa != null) ||
                 (decoded.unidadeAtendimentoId != null && filtroUa != null && !decoded.unidadeAtendimentoId.equals(filtroUa))) {
-                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+                throw new DeviceSyncCursorService.SyncCursorException(
+                        com.restaurante.dto.response.SyncErrorResponse.SyncErrorCode.SYNC_CURSOR_CONTEXT_MISMATCH,
+                        "Cursor de sincronização inválido."
+                );
             }
         }
 

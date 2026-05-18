@@ -1,12 +1,14 @@
 package com.restaurante.service.device;
 
 import com.restaurante.dto.response.DeviceFilaDiffSyncResponse;
+import com.restaurante.dto.response.DeviceFilaDiffUpdateItem;
 import com.restaurante.dto.response.DeviceFilaEventSyncItem;
 import com.restaurante.dto.response.KdsSubPedidoResponse;
 import com.restaurante.exception.ConflictException;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.OperationalEventType;
+import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.repository.OperationalEventLogRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.service.producao.ProducaoKdsService;
@@ -76,7 +78,7 @@ public class DeviceFilaDiffService {
                         "sinceEventId não encontrado no escopo; recomendado full sync."
                 ));
                 Long maxId = operationalEventLogRepository.maxIdByTenantAndUnidadeProducao(tenantId, unidadeProducaoId);
-                DeviceFilaDiffSyncResponse resp = new DeviceFilaDiffSyncResponse(now, maxId, false, List.of(), List.of(), List.of());
+                DeviceFilaDiffSyncResponse resp = new DeviceFilaDiffSyncResponse(now, maxId, false, List.of(), List.of(), List.of(), List.of());
                 return new DiffResult(resp, true, fullSyncReason, warnings);
             }
         }
@@ -116,14 +118,41 @@ public class DeviceFilaDiffService {
                 ? List.of()
                 : producaoKdsService.fetchKdsByIds(affected.stream().toList());
 
+        List<DeviceFilaDiffUpdateItem> updates = subPedidosAtualizados.stream()
+                .map(sp -> toUpdate(sp))
+                .toList();
+
         DeviceFilaDiffSyncResponse resp = new DeviceFilaDiffSyncResponse(
                 now,
                 lastEventId,
                 hasMore,
                 mappedEvents,
                 affected.stream().sorted().toList(),
-                subPedidosAtualizados
+                subPedidosAtualizados,
+                updates
         );
         return new DiffResult(resp, fullSyncRequired, fullSyncReason, warnings);
+    }
+
+    private DeviceFilaDiffUpdateItem toUpdate(KdsSubPedidoResponse sp) {
+        if (sp == null || sp.status() == null) {
+            return new DeviceFilaDiffUpdateItem(null, DeviceFilaDiffUpdateItem.DeviceFilaDiffAction.NOOP, null, null, null);
+        }
+        StatusSubPedido st = sp.status();
+        if (st == StatusSubPedido.ENTREGUE) {
+            return new DeviceFilaDiffUpdateItem(sp.subPedidoId(), DeviceFilaDiffUpdateItem.DeviceFilaDiffAction.REMOVE,
+                    DeviceFilaDiffUpdateItem.DeviceFilaRemoveReason.ENTREGUE, st, null);
+        }
+        if (st == StatusSubPedido.CANCELADO) {
+            return new DeviceFilaDiffUpdateItem(sp.subPedidoId(), DeviceFilaDiffUpdateItem.DeviceFilaDiffAction.REMOVE,
+                    DeviceFilaDiffUpdateItem.DeviceFilaRemoveReason.CANCELADO, st, null);
+        }
+        if (st.isTerminal()) {
+            return new DeviceFilaDiffUpdateItem(sp.subPedidoId(), DeviceFilaDiffUpdateItem.DeviceFilaDiffAction.REMOVE,
+                    DeviceFilaDiffUpdateItem.DeviceFilaRemoveReason.STATUS_FINAL, st, null);
+        }
+        // fila visível (KDS): CRIADO/PENDENTE/EM_PREPARACAO/PRONTO
+        return new DeviceFilaDiffUpdateItem(sp.subPedidoId(), DeviceFilaDiffUpdateItem.DeviceFilaDiffAction.UPSERT,
+                null, st, sp);
     }
 }

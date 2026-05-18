@@ -155,6 +155,27 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
         JsonNode page2Json = objectMapper.readTree(page2);
         assertThat(page2Json.at("/data/produtos").size()).isEqualTo(1);
 
+        // cursor manipulado deve falhar (assinatura inválida)
+        String tampered = cursor.replaceFirst("\\.", "X."); // altera payload mantendo formato
+        String err = mockMvc.perform(get("/device/sync/catalogo")
+                        .with(authentication(auth))
+                        .param("limit", "1")
+                        .param("cursor", tampered)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode errJson = objectMapper.readTree(err);
+        assertThat(errJson.at("/code").asText()).isEqualTo("SYNC_CURSOR_INVALID_SIGNATURE");
+
+        // cursor legacy sem assinatura deve ser rejeitado quando require-signature=true
+        String legacy = cursor.split("\\.")[0];
+        mockMvc.perform(get("/device/sync/catalogo")
+                        .with(authentication(auth))
+                        .param("limit", "1")
+                        .param("cursor", legacy)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+
         // If-None-Match deve retornar 304 quando não há mudanças
         mockMvc.perform(get("/device/sync/catalogo")
                         .with(authentication(auth))

@@ -7,6 +7,9 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 import java.time.LocalDateTime;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import com.restaurante.repository.projection.SyncAggProjection;
 
 @Repository
 public interface UnidadeProducaoRepository extends JpaRepository<UnidadeProducao, Long> {
@@ -26,4 +29,15 @@ public interface UnidadeProducaoRepository extends JpaRepository<UnidadeProducao
     List<UnidadeProducao> findByTenantIdAndUnidadeAtendimentoIdAndAtivoTrueOrderByOrdemAsc(Long tenantId, Long unidadeAtendimentoId);
 
     List<UnidadeProducao> findByTenantIdAndAtivoTrueAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);
+
+    @Query("""
+            select count(u) as count,
+                   max(u.updatedAt) as maxUpdatedAt,
+                   max(u.createdAt) as maxCreatedAt,
+                   sum(case when u.updatedAt is null then 1 else 0 end) as nullUpdatedAtCount
+            from UnidadeProducao u
+            where u.tenant.id = :tenantId
+              and u.ativo = true
+            """)
+    SyncAggProjection computeSyncAgg(@Param("tenantId") Long tenantId);
 }

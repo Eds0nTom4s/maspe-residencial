@@ -10,6 +10,9 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 import java.time.LocalDateTime;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import com.restaurante.repository.projection.SyncAggProjection;
 
 /**
  * Repository para Mesa.
@@ -112,4 +115,16 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
     List<Mesa> findByTenantIdAndUnidadeAtendimentoIdAndUpdatedAtAfter(Long tenantId, Long unidadeAtendimentoId, LocalDateTime updatedSince);
 
     long countByTenantId(Long tenantId);
+
+    @Query("""
+            select count(m) as count,
+                   max(m.updatedAt) as maxUpdatedAt,
+                   max(m.createdAt) as maxCreatedAt,
+                   sum(case when m.updatedAt is null then 1 else 0 end) as nullUpdatedAtCount
+            from Mesa m
+            where m.tenant.id = :tenantId
+              and (:unidadeAtendimentoId is null or m.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and m.ativa = true
+            """)
+    SyncAggProjection computeSyncAgg(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
 }

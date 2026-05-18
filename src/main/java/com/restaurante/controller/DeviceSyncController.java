@@ -11,7 +11,7 @@ import com.restaurante.exception.DeviceUnauthorizedException;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.service.device.DeviceReadOnlySyncService;
-import com.restaurante.service.device.DeviceSyncEtagService;
+import com.restaurante.service.device.DeviceSyncVersionService;
 import com.restaurante.service.producao.ProducaoKdsService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,7 +39,7 @@ public class DeviceSyncController {
 
     private final DeviceReadOnlySyncService syncService;
     private final ProducaoKdsService producaoKdsService;
-    private final DeviceSyncEtagService etagService;
+    private final DeviceSyncVersionService versionService;
 
     private DevicePrincipal requireDevicePrincipal() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -56,11 +56,23 @@ public class DeviceSyncController {
     ) {
         DevicePrincipal device = requireDevicePrincipal();
         DeviceBootstrapSyncResponse resp = syncService.bootstrap(device);
-        String etag = etagService.etagFor("bootstrap|" + device.tenantId() + "|" + device.dispositivoId() + "|" + resp.syncGeneratedAt());
+        // Bootstrap: ETag baseado em timestamps das entidades relevantes (aqui via fetch simples)
+        String etag = versionService.computeProducao(device, null).etag(); // usa algo tenant-scoped estável (unidades/rotas) como proxy
+        String syncVersion = "bootstrap:v2";
         if (ifNoneMatch != null && ifNoneMatch.equals(etag)) {
             return ResponseEntity.status(304).eTag(etag).build();
         }
-        SyncEnvelope<DeviceBootstrapSyncResponse> env = SyncEnvelope.incremental(resp, resp.syncGeneratedAt(), "bootstrap:v1", etag, false, false, null, List.of());
+        SyncEnvelope<DeviceBootstrapSyncResponse> env = SyncEnvelope.incremental(
+                resp,
+                resp.syncGeneratedAt(),
+                syncVersion,
+                etag,
+                false,
+                SyncEnvelope.FullSyncRequiredReason.NONE,
+                false,
+                null,
+                List.of()
+        );
         return ResponseEntity.ok().eTag(etag).body(env);
     }
 
@@ -74,13 +86,32 @@ public class DeviceSyncController {
             @org.springframework.web.bind.annotation.RequestHeader(name = "If-None-Match", required = false) String ifNoneMatch
     ) {
         DevicePrincipal device = requireDevicePrincipal();
-        var page = syncService.syncCatalogoPaged(device, updatedSince, includeInactive, cursor, limit);
+        var ver = versionService.computeCatalog(device, includeInactive, updatedSince);
+        LocalDateTime effectiveUpdatedSince = ver.fullSyncRequired() ? null : updatedSince;
+        var page = syncService.syncCatalogoPaged(device, effectiveUpdatedSince, includeInactive, cursor, limit);
         DeviceCatalogSyncResponse resp = page.data();
-        String etag = etagService.etagFor("catalog|" + device.tenantId() + "|" + includeInactive + "|" + updatedSince + "|" + cursor + "|" + limit + "|" + resp.syncGeneratedAt());
-        if (ifNoneMatch != null && ifNoneMatch.equals(etag)) {
+        String etag = ver.etag();
+        if (!ver.fullSyncRequired() && ifNoneMatch != null && ifNoneMatch.equals(etag)) {
             return ResponseEntity.status(304).eTag(etag).build();
         }
-        SyncEnvelope<DeviceCatalogSyncResponse> env = SyncEnvelope.incremental(resp, resp.syncGeneratedAt(), "catalog:v1", etag, false, page.hasMore(), page.nextCursor(), List.of());
+        boolean fullRequired = ver.fullSyncRequired() || page.cursorExpired();
+        SyncEnvelope.FullSyncRequiredReason reason = ver.fullSyncRequired() ? ver.fullSyncReason()
+                : (page.cursorExpired() ? SyncEnvelope.FullSyncRequiredReason.CURSOR_EXPIRED : SyncEnvelope.FullSyncRequiredReason.NONE);
+        List<SyncEnvelope.SyncWarning> warnings = new java.util.ArrayList<>(ver.warnings());
+        if (page.cursorExpired()) {
+            warnings.add(new SyncEnvelope.SyncWarning(SyncEnvelope.SyncWarningCode.CURSOR_EXPIRED, "Cursor expirado; reiniciando paginação."));
+        }
+        SyncEnvelope<DeviceCatalogSyncResponse> env = SyncEnvelope.incremental(
+                resp,
+                resp.syncGeneratedAt(),
+                ver.syncVersion(),
+                etag,
+                fullRequired,
+                reason,
+                page.hasMore(),
+                page.nextCursor(),
+                warnings
+        );
         return ResponseEntity.ok().eTag(etag).body(env);
     }
 
@@ -92,12 +123,23 @@ public class DeviceSyncController {
             @org.springframework.web.bind.annotation.RequestHeader(name = "If-None-Match", required = false) String ifNoneMatch
     ) {
         DevicePrincipal device = requireDevicePrincipal();
+        var ver = versionService.computeMesas(device, unidadeAtendimentoId, updatedSince);
         DeviceMesasSyncResponse resp = syncService.syncMesas(device, updatedSince, unidadeAtendimentoId);
-        String etag = etagService.etagFor("mesas|" + device.tenantId() + "|" + (unidadeAtendimentoId != null ? unidadeAtendimentoId : device.unidadeAtendimentoId()) + "|" + updatedSince + "|" + resp.mesas().size() + "|" + resp.syncGeneratedAt());
-        if (ifNoneMatch != null && ifNoneMatch.equals(etag)) {
+        String etag = ver.etag();
+        if (!ver.fullSyncRequired() && ifNoneMatch != null && ifNoneMatch.equals(etag)) {
             return ResponseEntity.status(304).eTag(etag).build();
         }
-        SyncEnvelope<DeviceMesasSyncResponse> env = SyncEnvelope.incremental(resp, resp.syncGeneratedAt(), "mesas:v1", etag, false, false, null, List.of());
+        SyncEnvelope<DeviceMesasSyncResponse> env = SyncEnvelope.incremental(
+                resp,
+                resp.syncGeneratedAt(),
+                ver.syncVersion(),
+                etag,
+                ver.fullSyncRequired(),
+                ver.fullSyncReason(),
+                false,
+                null,
+                ver.warnings()
+        );
         return ResponseEntity.ok().eTag(etag).body(env);
     }
 
@@ -108,12 +150,23 @@ public class DeviceSyncController {
             @org.springframework.web.bind.annotation.RequestHeader(name = "If-None-Match", required = false) String ifNoneMatch
     ) {
         DevicePrincipal device = requireDevicePrincipal();
+        var ver = versionService.computeQrCodes(device, updatedSince);
         DeviceQrSyncResponse resp = syncService.syncQrCodes(device, updatedSince);
-        String etag = etagService.etagFor("qrcodes|" + device.tenantId() + "|" + device.unidadeAtendimentoId() + "|" + updatedSince + "|" + resp.qrcodes().size() + "|" + resp.syncGeneratedAt());
-        if (ifNoneMatch != null && ifNoneMatch.equals(etag)) {
+        String etag = ver.etag();
+        if (!ver.fullSyncRequired() && ifNoneMatch != null && ifNoneMatch.equals(etag)) {
             return ResponseEntity.status(304).eTag(etag).build();
         }
-        SyncEnvelope<DeviceQrSyncResponse> env = SyncEnvelope.incremental(resp, resp.syncGeneratedAt(), "qrcodes:v1", etag, false, false, null, List.of());
+        SyncEnvelope<DeviceQrSyncResponse> env = SyncEnvelope.incremental(
+                resp,
+                resp.syncGeneratedAt(),
+                ver.syncVersion(),
+                etag,
+                ver.fullSyncRequired(),
+                ver.fullSyncReason(),
+                false,
+                null,
+                ver.warnings()
+        );
         return ResponseEntity.ok().eTag(etag).body(env);
     }
 
@@ -124,12 +177,23 @@ public class DeviceSyncController {
             @org.springframework.web.bind.annotation.RequestHeader(name = "If-None-Match", required = false) String ifNoneMatch
     ) {
         DevicePrincipal device = requireDevicePrincipal();
+        var ver = versionService.computeProducao(device, updatedSince);
         DeviceProducaoSyncResponse resp = syncService.syncProducao(device, updatedSince);
-        String etag = etagService.etagFor("producao|" + device.tenantId() + "|" + updatedSince + "|" + resp.unidadesProducao().size() + "|" + resp.rotas().size() + "|" + resp.syncGeneratedAt());
-        if (ifNoneMatch != null && ifNoneMatch.equals(etag)) {
+        String etag = ver.etag();
+        if (!ver.fullSyncRequired() && ifNoneMatch != null && ifNoneMatch.equals(etag)) {
             return ResponseEntity.status(304).eTag(etag).build();
         }
-        SyncEnvelope<DeviceProducaoSyncResponse> env = SyncEnvelope.incremental(resp, resp.syncGeneratedAt(), "producao:v1", etag, false, false, null, List.of());
+        SyncEnvelope<DeviceProducaoSyncResponse> env = SyncEnvelope.incremental(
+                resp,
+                resp.syncGeneratedAt(),
+                ver.syncVersion(),
+                etag,
+                ver.fullSyncRequired(),
+                ver.fullSyncReason(),
+                false,
+                null,
+                ver.warnings()
+        );
         return ResponseEntity.ok().eTag(etag).body(env);
     }
 
@@ -146,13 +210,31 @@ public class DeviceSyncController {
     ) {
         // Exige principal device (não aceita JWT humano como substituto)
         DevicePrincipal device = requireDevicePrincipal();
+        Long unidadeProducaoId = device.unidadeProducaoId();
+        if (unidadeProducaoId == null) {
+            // ProducaoScopeResolver cobre “minha unidade” via device nos endpoints /tenant/producao/*.
+            // Para device sync, exigimos unidadeProducaoId explícita quando a fila é consultada.
+            throw new com.restaurante.exception.ConflictException("DEVICE_PRODUCTION_UNIT_AMBIGUOUS");
+        }
+
+        var ver = versionService.computeFila(device, unidadeProducaoId, status, de, ate, search);
         Page<KdsSubPedidoResponse> resp = producaoKdsService.listarSubPedidosMinhaUnidade(status, de, ate, search, pageable);
-        String etag = etagService.etagFor("fila|" + device.tenantId() + "|" + device.unidadeProducaoId() + "|" + status + "|" + de + "|" + ate + "|" + search + "|" + pageable.getPageNumber() + "|" + pageable.getPageSize() + "|" + resp.getTotalElements());
-        if (ifNoneMatch != null && ifNoneMatch.equals(etag)) {
+        String etag = ver.etag();
+        if (!ver.fullSyncRequired() && ifNoneMatch != null && ifNoneMatch.equals(etag)) {
             return ResponseEntity.status(304).eTag(etag).build();
         }
         LocalDateTime now = LocalDateTime.now();
-        SyncEnvelope<Page<KdsSubPedidoResponse>> env = SyncEnvelope.incremental(resp, now, "fila:v1", etag, false, resp.hasNext(), null, List.of());
+        SyncEnvelope<Page<KdsSubPedidoResponse>> env = SyncEnvelope.incremental(
+                resp,
+                now,
+                ver.syncVersion(),
+                etag,
+                ver.fullSyncRequired(),
+                ver.fullSyncReason(),
+                resp.hasNext(),
+                null,
+                ver.warnings()
+        );
         return ResponseEntity.ok().eTag(etag).body(env);
     }
 }

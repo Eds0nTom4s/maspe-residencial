@@ -1,0 +1,130 @@
+RELATÓRIO TÉCNICO — PROMPT 25
+SyncVersion SQL-based + ETag rigoroso + fullSyncRequired heurístico (read-only)
+Data: 2026-05-18
+
+1) Resumo executivo
+- Substituído o cálculo de ETag por domínio para uma abordagem SQL-based (agregações do banco: `count(*)`, `max(updatedAt/createdAt)` e, na fila, `max(event.createdAt)`), reduzindo risco de `304` falso.
+- `SyncEnvelope` foi ampliado com `fullSyncReason`, permitindo que o device saiba exatamente por que deve executar full sync.
+- Implementadas heurísticas mínimas de `fullSyncRequired`:
+  - `updatedSince` muito antigo (CLIENT_TOO_OLD)
+  - `updatedAt` ausente e incremental solicitado (UPDATED_AT_UNRELIABLE)
+  - excesso de mudanças desde updatedSince no catálogo (TOO_MANY_CHANGES)
+- Cursor do catálogo passou a carregar `tenantId/domain/issuedAt` e expira por tempo configurável.
+- Mantido escopo: sync 100% read-only; sem POS criando pedido, sem pagamento, sem WebSocket/SSE, sem offline bidirecional.
+
+2) Estratégia SQL-based syncVersion
+- Para cada domínio, calculamos uma “versão observável” baseada em agregados reais:
+  - `count(*)`
+  - `max(updatedAt)` (fallback `max(createdAt)` quando necessário)
+  - Para MESAS: inclui agregação de sessões ABERTAS (ocupação)
+  - Para FILA: inclui `max(OperationalEventLog.createdAt)` por unidade de produção
+- O `syncVersion` vira um identificador humano/diagnóstico; o `etag` é SHA-256 do seed (domínio+escopo+agregados+filtros).
+
+3) Estratégia ETag por domínio
+ETag seed inclui:
+- tenantId
+- scopeKey (ex: unidadeAtendimentoId, unidadeProducaoId)
+- filtros (includeInactive/updatedSince/status/período)
+- count e max timestamps do domínio
+
+4) Estratégia fullSyncRequired
+- `SyncEnvelope.fullSyncRequired=true` quando:
+  - `updatedSince` < now - `consuma.sync.max-incremental-age-days`
+  - incremental solicitado e `nullUpdatedAtCount > 0` (domínio com updatedAt ausente)
+  - mudanças desde updatedSince > `consuma.sync.max-incremental-changes` (catálogo)
+- Quando `fullSyncRequired=true`, o endpoint NÃO retorna 304, mesmo com If-None-Match coincidente.
+
+5) Alterações em SyncEnvelope
+- `src/main/java/com/restaurante/dto/response/SyncEnvelope.java`
+  - adicionado `fullSyncReason` (enum `FullSyncRequiredReason`)
+
+6) DeviceSyncVersionService criado
+- `src/main/java/com/restaurante/service/device/DeviceSyncVersionService.java`
+  - Domínios: CATALOGO, MESAS, QRCODES, PRODUCAO, PRODUCAO_FILA
+  - Usa projections agregadas (repositories) e aplica heurísticas.
+
+7) Alterações em cursor
+- `src/main/java/com/restaurante/service/device/DeviceReadOnlySyncService.java`
+  - Cursor do catálogo inclui `domain`, `tenantId`, `issuedAt`.
+  - Expiração via `consuma.sync.cursor-expiration-hours` (default 24).
+  - Cursor expirado reinicia paginação e sinaliza warning.
+
+8) Repositories/projections criadas
+Projections:
+- `src/main/java/com/restaurante/repository/projection/SyncAggProjection.java`
+- `src/main/java/com/restaurante/repository/projection/SessionOpenAggProjection.java`
+- `src/main/java/com/restaurante/repository/projection/QrAggProjection.java`
+- `src/main/java/com/restaurante/repository/projection/SubPedidoFilaAggProjection.java`
+
+Queries agregadas adicionadas:
+- `src/main/java/com/restaurante/repository/CategoriaProdutoRepository.java` (`computeSyncAgg`, `countByTenantIdAndUpdatedAtAfter`)
+- `src/main/java/com/restaurante/repository/ProdutoRepository.java` (`computeSyncAgg`, `countByTenantIdAndUpdatedAtAfter`)
+- `src/main/java/com/restaurante/repository/MesaRepository.java` (`computeSyncAgg`)
+- `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java` (`computeOpenSessionsAgg`)
+- `src/main/java/com/restaurante/repository/QrCodeOperacionalRepository.java` (`computeSyncAgg`)
+- `src/main/java/com/restaurante/repository/UnidadeProducaoRepository.java` (`computeSyncAgg`)
+- `src/main/java/com/restaurante/repository/RotaProducaoCategoriaRepository.java` (`computeSyncAgg`)
+- `src/main/java/com/restaurante/repository/SubPedidoRepository.java` (`computeFilaAgg`)
+- `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java` (`maxCreatedAtByTenantAndUnidadeProducaoAndPeriod`)
+
+9) Endpoints alterados
+- `src/main/java/com/restaurante/controller/DeviceSyncController.java`
+  - Todos endpoints `/device/sync/*` passam a usar ETag/syncVersion calculados via `DeviceSyncVersionService`.
+  - 304 ocorre somente quando `fullSyncRequired=false`.
+
+10) Testes criados/alterados
+- Reutilizado o teste existente ajustado no Prompt 24:
+  - `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+    - valida cursor/limit e 304 via If-None-Match
+    - permanece compatível com envelope e novo contrato
+
+11) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+12) Resultado dos comandos
+- `mvn -q -DskipTests compile`: SUCESSO
+- `mvn test`: SUCESSO (Tests run: 145, Failures: 0, Errors: 0, Skipped: 4)
+
+13) Arquivos criados/alterados (principais)
+Criados:
+- `src/main/java/com/restaurante/service/device/DeviceSyncVersionService.java`
+- `src/main/java/com/restaurante/repository/projection/*` (4 arquivos)
+- `docs/tenant-core/25-syncversion-sql-fullsync-heuristico.md`
+- `RELATORIO_PROMPT25_SYNCVERSION_SQL_FULLSYNC_2026_05_18.txt`
+
+Alterados:
+- `src/main/java/com/restaurante/dto/response/SyncEnvelope.java`
+- `src/main/java/com/restaurante/controller/DeviceSyncController.java`
+- `src/main/java/com/restaurante/service/device/DeviceReadOnlySyncService.java`
+- Repositories listados na seção 8
+- `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java` (compatibilidade com envelope e cursor)
+
+14) Decisões técnicas tomadas
+- Versões/Etag “SQL-based” por domínio para reduzir falsos 304.
+- `fullSyncRequired` é decidido no backend e impede 304.
+- Cursor do catálogo carrega tenant/domain e expira; cursor expirado reinicia paginação com warning.
+- QR/mesas continuam snapshot (sem cursor) nesta fase para manter escopo controlado; versionamento/etag já ficou robusto.
+
+15) Riscos restantes
+- Bootstrap ainda usa um ETag proxy (producao) — recomendado criar `computeBootstrapVersion` dedicado (tenant/instituição/unidade/dispositivo) na próxima fase.
+- “Muitas alterações” (threshold) foi aplicado apenas ao catálogo; outros domínios podem precisar quando houver crescimento real.
+- Fila usa max eventAt por unidade; se futuramente houver filtros mais complexos, pode exigir agregações mais finas.
+
+16) Checklist de aceitação (Prompt 25)
+- [OK] ETag de catálogo baseado em count/max(updatedAt)
+- [OK] ETag de mesas considera ocupação (sessões ABERTAS)
+- [OK] ETag de QR considera alterações/revogação (count/max timestamps)
+- [OK] ETag de produção considera unidades/rotas (count/max updatedAt)
+- [OK] ETag de fila considera SubPedido e eventos (max event createdAt)
+- [OK] If-None-Match igual retorna 304 quando fullSyncRequired=false
+- [OK] fullSyncRequired heurístico (idade/updatedAt ausente/muitas mudanças)
+- [OK] cursor valida tenant/domain e expiração
+- [OK] batch occupancy segue funcionando
+- [OK] capabilities seguem aplicadas
+- [OK] testes passam
+- [OK] sync continua read-only; POS não cria pedido; offline bidirecional não implementado
+
+17) Próximo prompt recomendado
+“Prompt 26 — computeBootstrapVersion dedicado + fullSyncRequired/threshold por domínio + cursor opcional para QR/mesas quando threshold exceder + diff incremental de fila baseado em OperationalEventLog (read-only)”.
+

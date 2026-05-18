@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.time.LocalDateTime;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import com.restaurante.repository.projection.SyncAggProjection;
 
 /**
  * Repository para operações de banco de dados com Produto
@@ -93,4 +94,17 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
             @Param("lastId") Long lastId,
             Pageable pageable
     );
+
+    @Query("""
+            select count(p) as count,
+                   max(p.updatedAt) as maxUpdatedAt,
+                   max(p.createdAt) as maxCreatedAt,
+                   sum(case when p.updatedAt is null then 1 else 0 end) as nullUpdatedAtCount
+            from Produto p
+            where p.tenant.id = :tenantId
+              and (:includeInactive = true or (p.ativo = true and p.disponivel = true))
+            """)
+    SyncAggProjection computeSyncAgg(@Param("tenantId") Long tenantId, @Param("includeInactive") boolean includeInactive);
+
+    long countByTenantIdAndUpdatedAtAfter(Long tenantId, LocalDateTime updatedSince);
 }

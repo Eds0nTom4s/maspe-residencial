@@ -6,6 +6,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 import java.time.LocalDateTime;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import com.restaurante.repository.projection.QrAggProjection;
 
 public interface QrCodeOperacionalRepository extends JpaRepository<QrCodeOperacional, Long> {
 
@@ -30,4 +33,18 @@ public interface QrCodeOperacionalRepository extends JpaRepository<QrCodeOperaci
     boolean existsByToken(String token);
 
     long countByTenantId(Long tenantId);
+
+    @Query("""
+            select count(q) as count,
+                   max(q.updatedAt) as maxUpdatedAt,
+                   max(q.createdAt) as maxCreatedAt,
+                   max(q.revogadoEm) as maxRevogadoEm,
+                   sum(case when q.updatedAt is null then 1 else 0 end) as nullUpdatedAtCount
+            from QrCodeOperacional q
+            where q.tenant.id = :tenantId
+              and q.ativo = true
+              and q.revogado = false
+              and (:unidadeAtendimentoId is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
+            """)
+    QrAggProjection computeSyncAgg(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
 }

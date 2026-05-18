@@ -69,4 +69,20 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
             group by e.origem
             """)
     List<Object[]> countByOrigem(@Param("tenantId") Long tenantId, @Param("de") LocalDateTime de, @Param("ate") LocalDateTime ate);
+
+    @Query("""
+            select max(e.createdAt)
+            from OperationalEventLog e
+              join e.subPedido sp
+            where e.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and (:de is null or e.createdAt >= :de)
+              and (:ate is null or e.createdAt <= :ate)
+            """)
+    LocalDateTime maxCreatedAtByTenantAndUnidadeProducaoAndPeriod(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate
+    );
 }

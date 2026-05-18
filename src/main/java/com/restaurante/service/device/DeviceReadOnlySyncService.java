@@ -40,6 +40,7 @@ import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.time.temporal.ChronoUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -59,6 +60,9 @@ public class DeviceReadOnlySyncService {
 
     @Value("${consuma.public-base-url:http://localhost:8080}")
     private String publicBaseUrl;
+
+    @Value("${consuma.sync.cursor-expiration-hours:24}")
+    private int cursorExpirationHours;
 
     public void requireCapability(DevicePrincipal device, DeviceCapability capability) {
         if (device == null || device.capabilities() == null || !device.capabilities().contains(capability)) {
@@ -171,8 +175,19 @@ public class DeviceReadOnlySyncService {
         int effectiveLimit = limit == null ? 100 : Math.min(Math.max(limit, 1), 500);
 
         CatalogCursor decoded = cursorService.decode(cursor, CatalogCursor.class);
+        boolean cursorExpired = false;
         Long lastId = decoded != null ? decoded.lastProdutoId : null;
         if (decoded != null) {
+            if (decoded.tenantId != null && !decoded.tenantId.equals(tenantId)) {
+                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+            }
+            if (decoded.domain != null && !"CATALOGO".equals(decoded.domain)) {
+                throw new com.restaurante.exception.BusinessException("Cursor inválido.");
+            }
+            if (decoded.issuedAt != null && decoded.issuedAt.isBefore(now.minusHours(cursorExpirationHours))) {
+                cursorExpired = true;
+                lastId = null; // volta ao início
+            }
             if ((decoded.includeInactive != null && decoded.includeInactive != includeInactive) ||
                 (decoded.updatedSince != null && updatedSince == null) ||
                 (decoded.updatedSince == null && updatedSince != null) ||
@@ -193,7 +208,7 @@ public class DeviceReadOnlySyncService {
             chunk = chunk.subList(0, effectiveLimit);
         }
         Long nextLastId = chunk.isEmpty() ? lastId : chunk.get(chunk.size() - 1).getId();
-        String nextCursor = hasMore ? cursorService.encode(new CatalogCursor(nextLastId, updatedSince, includeInactive)) : null;
+        String nextCursor = hasMore ? cursorService.encode(new CatalogCursor("CATALOGO", tenantId, now, nextLastId, updatedSince, includeInactive)) : null;
 
         List<DeviceCatalogSyncResponse.DeviceCategoriaSyncItem> catItems = cats.stream()
                 .map(c -> new DeviceCatalogSyncResponse.DeviceCategoriaSyncItem(
@@ -221,7 +236,7 @@ public class DeviceReadOnlySyncService {
                 ))
                 .toList();
 
-        return new CatalogPageResult(new DeviceCatalogSyncResponse(now, catItems, prodItems), hasMore, nextCursor);
+        return new CatalogPageResult(new DeviceCatalogSyncResponse(now, catItems, prodItems), hasMore, nextCursor, cursorExpired);
     }
 
     @Transactional(readOnly = true)
@@ -353,14 +368,20 @@ public class DeviceReadOnlySyncService {
         return new DeviceProducaoSyncResponse(now, unidadeItems, rotaItems);
     }
 
-    public record CatalogPageResult(DeviceCatalogSyncResponse data, boolean hasMore, String nextCursor) {}
+    public record CatalogPageResult(DeviceCatalogSyncResponse data, boolean hasMore, String nextCursor, boolean cursorExpired) {}
 
     public static final class CatalogCursor {
+        public String domain;
+        public Long tenantId;
+        public LocalDateTime issuedAt;
         public Long lastProdutoId;
         public LocalDateTime updatedSince;
         public Boolean includeInactive;
         public CatalogCursor() {}
-        public CatalogCursor(Long lastProdutoId, LocalDateTime updatedSince, Boolean includeInactive) {
+        public CatalogCursor(String domain, Long tenantId, LocalDateTime issuedAt, Long lastProdutoId, LocalDateTime updatedSince, Boolean includeInactive) {
+            this.domain = domain;
+            this.tenantId = tenantId;
+            this.issuedAt = issuedAt != null ? issuedAt.truncatedTo(ChronoUnit.SECONDS) : null;
             this.lastProdutoId = lastProdutoId;
             this.updatedSince = updatedSince;
             this.includeInactive = includeInactive;

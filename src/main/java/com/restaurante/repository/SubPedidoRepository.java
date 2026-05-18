@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import com.restaurante.repository.projection.SubPedidoFilaAggProjection;
 
 /**
  * Repository para SubPedido
@@ -292,5 +293,35 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
             @Param("unidadeProducaoId") Long unidadeProducaoId,
             @Param("de") LocalDateTime de,
             @Param("ate") LocalDateTime ate
+    );
+
+    @Query("""
+            select count(sp) as count,
+                   max(sp.updatedAt) as maxUpdatedAt,
+                   max(sp.createdAt) as maxCreatedAt,
+                   max(sp.iniciadoEm) as maxIniciadoEm,
+                   max(sp.prontoEm) as maxProntoEm,
+                   max(sp.entregueEm) as maxEntregueEm,
+                   sum(case when sp.updatedAt is null then 1 else 0 end) as nullUpdatedAtCount
+            from SubPedido sp
+              join sp.pedido p
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and (:status is null or sp.status = :status)
+              and (:de is null or sp.createdAt >= :de)
+              and (:ate is null or sp.createdAt <= :ate)
+              and (
+                    :search is null or :search = '' or
+                    lower(p.numero) like lower(concat('%', :search, '%')) or
+                    lower(sp.numero) like lower(concat('%', :search, '%'))
+                  )
+            """)
+    SubPedidoFilaAggProjection computeFilaAgg(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate,
+            @Param("search") String search
     );
 }

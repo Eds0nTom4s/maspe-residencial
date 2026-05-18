@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Collection;
+import com.restaurante.repository.projection.SessionOpenAggProjection;
 
 /**
  * Repository para SessaoConsumo.
@@ -62,6 +63,18 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
             @Param("tenantId") Long tenantId,
             @Param("mesaIds") Collection<Long> mesaIds
     );
+
+    @Query("""
+            select count(s) as count,
+                   max(s.abertaEm) as maxAbertaEm,
+                   max(s.ultimaAtividadeEm) as maxUltimaAtividadeEm,
+                   max(s.updatedAt) as maxUpdatedAt
+            from SessaoConsumo s
+            where s.tenant.id = :tenantId
+              and s.status = 'ABERTA'
+              and (:unidadeAtendimentoId is null or s.mesa.unidadeAtendimento.id = :unidadeAtendimentoId)
+            """)
+    SessionOpenAggProjection computeOpenSessionsAgg(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
 
     /**
      * Histórico de sessões de uma mesa, ordenado da mais recente para a mais antiga.

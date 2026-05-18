@@ -9,6 +9,7 @@ public record SyncEnvelope<T>(
         String syncVersion,
         String etag,
         boolean fullSyncRequired,
+        FullSyncRequiredReason fullSyncReason,
         boolean hasMore,
         String nextCursor,
         SyncMode mode,
@@ -33,12 +34,24 @@ public record SyncEnvelope<T>(
         DEVICE_SCOPE_AMBIGUOUS
     }
 
-    public static <T> SyncEnvelope<T> full(T data, LocalDateTime now, String version, String etag, boolean hasMore, String nextCursor, List<SyncWarning> warnings) {
-        return new SyncEnvelope<>(data, now, version, etag, false, hasMore, nextCursor, SyncMode.FULL, warnings);
+    public enum FullSyncRequiredReason {
+        NONE,
+        UPDATED_AT_MISSING,
+        UPDATED_AT_UNRELIABLE,
+        CURSOR_INVALID,
+        CURSOR_EXPIRED,
+        VERSION_MISMATCH,
+        DOMAIN_REQUIRES_FULL_SYNC,
+        TOO_MANY_CHANGES,
+        CLIENT_TOO_OLD
     }
 
-    public static <T> SyncEnvelope<T> incremental(T data, LocalDateTime now, String version, String etag, boolean fullSyncRequired, boolean hasMore, String nextCursor, List<SyncWarning> warnings) {
-        return new SyncEnvelope<>(data, now, version, etag, fullSyncRequired, hasMore, nextCursor, SyncMode.INCREMENTAL, warnings);
+    public static <T> SyncEnvelope<T> full(T data, LocalDateTime now, String version, String etag, FullSyncRequiredReason reason, boolean hasMore, String nextCursor, List<SyncWarning> warnings) {
+        boolean fullRequired = reason != null && reason != FullSyncRequiredReason.NONE;
+        return new SyncEnvelope<>(data, now, version, etag, fullRequired, reason != null ? reason : FullSyncRequiredReason.NONE, hasMore, nextCursor, SyncMode.FULL, warnings);
+    }
+
+    public static <T> SyncEnvelope<T> incremental(T data, LocalDateTime now, String version, String etag, boolean fullSyncRequired, FullSyncRequiredReason reason, boolean hasMore, String nextCursor, List<SyncWarning> warnings) {
+        return new SyncEnvelope<>(data, now, version, etag, fullSyncRequired, reason != null ? reason : FullSyncRequiredReason.NONE, hasMore, nextCursor, SyncMode.INCREMENTAL, warnings);
     }
 }
-

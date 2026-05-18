@@ -8,6 +8,8 @@ import com.restaurante.exception.DeviceUnauthorizedException;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.service.device.DeviceSyncCursorService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -16,8 +18,19 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+import com.restaurante.service.metrics.DeviceSyncMetricsService;
+import org.springframework.beans.factory.ObjectProvider;
+import com.restaurante.service.metrics.NoOpDeviceSyncMetricsService;
+
 @RestControllerAdvice
 public class DeviceSyncExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(DeviceSyncExceptionHandler.class);
+    private final DeviceSyncMetricsService metrics;
+
+    public DeviceSyncExceptionHandler(ObjectProvider<DeviceSyncMetricsService> metricsProvider) {
+        this.metrics = metricsProvider.getIfAvailable(NoOpDeviceSyncMetricsService::new);
+    }
 
     private boolean isDeviceSyncPath(HttpServletRequest req) {
         String uri = req != null ? req.getRequestURI() : null;
@@ -31,6 +44,8 @@ public class DeviceSyncExceptionHandler {
     @ExceptionHandler(DeviceSyncCursorService.SyncCursorException.class)
     public ResponseEntity<SyncErrorResponse> handleCursor(DeviceSyncCursorService.SyncCursorException ex, HttpServletRequest req) {
         if (!isDeviceSyncPath(req)) throw ex;
+        metrics.recordCursorError("UNKNOWN", ex.getCode());
+        log.info("device_sync_cursor_error code={}", ex.getCode());
         SyncErrorResponse body = new SyncErrorResponse(
                 ex.getCode(),
                 "Cursor de sincronização inválido.",
@@ -48,6 +63,7 @@ public class DeviceSyncExceptionHandler {
     @ExceptionHandler(DeviceUnauthorizedException.class)
     public ResponseEntity<SyncErrorResponse> handleUnauthorized(DeviceUnauthorizedException ex, HttpServletRequest req) {
         if (!isDeviceSyncPath(req)) throw ex;
+        log.info("device_sync_unauthorized");
         SyncErrorResponse body = new SyncErrorResponse(
                 SyncErrorResponse.SyncErrorCode.SYNC_DEVICE_UNAUTHORIZED,
                 ex.getMessage(),
@@ -65,6 +81,7 @@ public class DeviceSyncExceptionHandler {
     @ExceptionHandler(DeviceForbiddenException.class)
     public ResponseEntity<SyncErrorResponse> handleForbidden(DeviceForbiddenException ex, HttpServletRequest req) {
         if (!isDeviceSyncPath(req)) throw ex;
+        log.info("device_sync_forbidden");
         SyncErrorResponse body = new SyncErrorResponse(
                 SyncErrorResponse.SyncErrorCode.SYNC_CAPABILITY_FORBIDDEN,
                 "Dispositivo sem permissão para este domínio de sincronização.",
@@ -82,6 +99,7 @@ public class DeviceSyncExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<SyncErrorResponse> handleConflict(ConflictException ex, HttpServletRequest req) {
         if (!isDeviceSyncPath(req)) throw ex;
+        log.info("device_sync_conflict code={}", ex.getMessage());
         SyncErrorResponse body = new SyncErrorResponse(
                 SyncErrorResponse.SyncErrorCode.SYNC_SCOPE_AMBIGUOUS,
                 "Escopo do dispositivo ambíguo.",
@@ -99,6 +117,7 @@ public class DeviceSyncExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<SyncErrorResponse> handleBusiness(BusinessException ex, HttpServletRequest req) {
         if (!isDeviceSyncPath(req)) throw ex;
+        log.info("device_sync_business");
         SyncErrorResponse body = new SyncErrorResponse(
                 SyncErrorResponse.SyncErrorCode.SYNC_INTERNAL_ERROR,
                 ex.getMessage(),
@@ -116,6 +135,7 @@ public class DeviceSyncExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<SyncErrorResponse> handleOther(Exception ex, HttpServletRequest req) {
         if (!isDeviceSyncPath(req)) throw new RuntimeException(ex);
+        log.warn("device_sync_internal_error", ex);
         SyncErrorResponse body = new SyncErrorResponse(
                 SyncErrorResponse.SyncErrorCode.SYNC_INTERNAL_ERROR,
                 "Erro interno.",

@@ -15,6 +15,7 @@ import com.restaurante.model.enums.DeviceEventType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.restaurante.service.metrics.DeviceSyncMetricsService;
 
 import java.time.LocalDateTime;
 
@@ -26,14 +27,24 @@ public class DeviceAuthService {
     private final DispositivoOperacionalRepository dispositivoOperacionalRepository;
     private final TenantRepository tenantRepository;
     private final DeviceEventLogService deviceEventLogService;
+    private final DeviceSyncMetricsService metrics;
 
     @Transactional
     public DevicePrincipal authenticateDeviceHeader(String authorizationHeader, String userAgent, String ip) {
-        String raw = extractDeviceToken(authorizationHeader);
+        String raw;
+        try {
+            raw = extractDeviceToken(authorizationHeader);
+        } catch (DeviceUnauthorizedException e) {
+            metrics.recordDeviceAuth("UNAUTHORIZED");
+            throw e;
+        }
         String hash = deviceTokenService.hashToHex(raw);
 
         DispositivoOperacional dispositivo = dispositivoOperacionalRepository.findByDeviceTokenHash(hash)
-                .orElseThrow(() -> new DeviceUnauthorizedException("Device token inválido."));
+                .orElseThrow(() -> {
+                    metrics.recordDeviceAuth("INVALID_TOKEN");
+                    return new DeviceUnauthorizedException("Device token inválido.");
+                });
 
         if (dispositivo.getStatus() != DispositivoStatus.ATIVO) {
             dispositivo.setLastAuthFailureAt(LocalDateTime.now());
@@ -48,6 +59,7 @@ public class DeviceAuthService {
                     ip,
                     userAgent
             );
+            metrics.recordDeviceAuth("FORBIDDEN");
             throw new DeviceForbiddenException("Dispositivo não está ativo.");
         }
 
@@ -66,6 +78,7 @@ public class DeviceAuthService {
                     ip,
                     userAgent
             );
+            metrics.recordDeviceAuth("FORBIDDEN");
             throw new DeviceForbiddenException("Tenant não está ativo.");
         }
 
@@ -81,6 +94,7 @@ public class DeviceAuthService {
                 ip,
                 userAgent
         );
+        metrics.recordDeviceAuth("SUCCESS");
 
         return new DevicePrincipal(
                 dispositivo.getId(),

@@ -26,6 +26,7 @@ import com.restaurante.security.device.DevicePrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.restaurante.service.metrics.DeviceSyncMetricsService;
 
 import java.time.LocalDateTime;
 
@@ -41,6 +42,7 @@ public class DeviceActivationService {
     private final InstituicaoRepository instituicaoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final DeviceEventLogService deviceEventLogService;
+    private final DeviceSyncMetricsService metrics;
 
     @Transactional
     public DeviceActivationResponse ativar(DeviceActivationRequest request, String userAgent, String ip) {
@@ -122,6 +124,7 @@ public class DeviceActivationService {
         if (ip != null) dispositivo.setUltimoIp(ip);
         dispositivoOperacionalRepository.save(dispositivo);
 
+        metrics.recordHeartbeat("OK");
         return new DeviceHeartbeatResponse("OK", LocalDateTime.now(), dispositivo.getStatus());
     }
 

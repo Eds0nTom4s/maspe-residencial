@@ -76,6 +76,29 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
             """)
     SessionOpenAggProjection computeOpenSessionsAgg(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
 
+    @Query("""
+            select count(s)
+            from SessaoConsumo s
+            where s.tenant.id = :tenantId
+              and s.updatedAt is not null
+              and s.updatedAt > :updatedSince
+            """)
+    long countByTenantIdAndUpdatedAtAfter(@Param("tenantId") Long tenantId, @Param("updatedSince") LocalDateTime updatedSince);
+
+    @Query("""
+            select count(s)
+            from SessaoConsumo s
+            where s.tenant.id = :tenantId
+              and s.updatedAt is not null
+              and s.updatedAt > :updatedSince
+              and s.mesa is not null
+              and s.mesa.unidadeAtendimento is not null
+              and s.mesa.unidadeAtendimento.id = :unidadeAtendimentoId
+            """)
+    long countByTenantIdAndUnidadeAtendimentoIdAndUpdatedAtAfter(@Param("tenantId") Long tenantId,
+                                                                @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+                                                                @Param("updatedSince") LocalDateTime updatedSince);
+
     /**
      * Histórico de sessões de uma mesa, ordenado da mais recente para a mais antiga.
      */

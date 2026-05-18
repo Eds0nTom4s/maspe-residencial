@@ -156,6 +156,11 @@ public class ProducaoKdsService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<KdsSubPedidoResponse> fetchKdsByIds(List<Long> ids) {
+        return fetchAndMap(ids);
+    }
+
     private KdsSubPedidoResponse toKds(SubPedido sp) {
         var pedido = sp.getPedido();
         var sessao = pedido != null ? pedido.getSessaoConsumo() : null;
@@ -293,4 +298,3 @@ public class ProducaoKdsService {
         return sum / values.size();
     }
 }
-

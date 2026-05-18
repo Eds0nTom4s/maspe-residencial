@@ -1,0 +1,147 @@
+RELATÓRIO TÉCNICO — PROMPT 26
+BootstrapVersion dedicado + fullSyncRequired por domínio + cursor QR/Mesas + diff incremental da fila (read-only)
+Data: 2026-05-18
+
+1) Resumo executivo
+- Criado `computeBootstrap` dedicado para `/device/sync/bootstrap`, removendo o ETag “proxy” e tornando `304 Not Modified` confiável para configuração do device.
+- Expandido o hardening de `fullSyncRequired` para múltiplos domínios (catálogo/mesas/QR/produção) com threshold por domínio e contagem de mudanças desde `updatedSince`.
+- Implementado cursor (keyset pagination) opcional para `/device/sync/mesas` e `/device/sync/qrcodes` com validação de `tenantId/domain/issuedAt/filtros` e expiração.
+- Adicionado endpoint read-only de diff da fila via `OperationalEventLog`: `GET /device/sync/producao/fila/diff`, retornando eventos + subpedidos atualizados (estado atual), com proteção para `sinceEventId` inválido (full sync requerido).
+- Mantido escopo estrito: sync continua 100% read-only; nenhuma mudança em pedido/pagamento/callback/billing/offline.
+
+2) BootstrapVersion dedicado
+- Implementado `DeviceSyncVersionService.computeBootstrap(DevicePrincipal)`:
+  - Seed inclui: tenant/instituição/UA/UP timestamps (updatedAt fallback createdAt), status/tipo/tokenVersion do device, capabilities, e `consuma.sync.bootstrap.contract-version`.
+  - ETag muda com alterações relevantes (ex: rotação de tokenVersion, mudança de unidadeProducao preferencial, mudança de status do device).
+- `DeviceSyncController` `/device/sync/bootstrap` agora usa `computeBootstrap` e respeita `If-None-Match`.
+
+3) fullSyncRequired por domínio (thresholds)
+- `DeviceSyncVersionService` passou a suportar thresholds por domínio:
+  - `consuma.sync.catalog.max-incremental-changes`
+  - `consuma.sync.mesas.max-incremental-changes`
+  - `consuma.sync.qrcodes.max-incremental-changes`
+  - `consuma.sync.producao.max-incremental-changes`
+- Domínios atualizados:
+  - CATALOGO: soma mudanças de categorias+produtos desde `updatedSince`.
+  - MESAS: soma mudanças de mesas + sessões (para não “congelar” ocupação em incremental).
+  - QRCODES: mudanças por updatedAt (escopado por UA quando aplicável).
+  - PRODUCAO: mudanças de unidades+rotas.
+- Controllers passam a ignorar `updatedSince` quando `fullSyncRequired=true` (retorna snapshot), e não retornam 304 nesse caso.
+
+4) Cursor opcional para Mesas/QR (keyset)
+- Implementado cursor opaco base64 (JSON) em `DeviceReadOnlySyncService`:
+  - `/device/sync/mesas`: `cursor`, `limit`, valida filtros (UA/updatedSince), expira por `consuma.sync.cursor-expiration-hours`.
+  - `/device/sync/qrcodes`: `cursor`, `limit`, valida filtros (UA do device/updatedSince), expira por `consuma.sync.cursor-expiration-hours`.
+- Regras de cache:
+  - Requests com `cursor` não retornam 304 (página 2 precisa de body mesmo com ETag estável).
+- Repositories adicionados:
+  - `MesaRepository.syncKeyset(...)` + `countSyncByTenantAndScope(...)`
+  - `QrCodeOperacionalRepository.syncKeyset(...)` + `countSyncByTenantAndScope(...)`
+
+5) Diff incremental da fila via OperationalEventLog
+- Criado `DeviceFilaDiffService` + endpoint:
+  - `GET /device/sync/producao/fila/diff?sinceEventId=&limit=`
+  - Busca eventos em `OperationalEventLog` filtrando tenant + unidadeProducao do device.
+  - Retorna:
+    - lista de eventos (id, tipo, statusAnterior/statusNovo, origem, createdAt)
+    - `affectedSubPedidoIds`
+    - `subPedidosAtualizados` (estado atual via `ProducaoKdsService.fetchKdsByIds`).
+- Hardening:
+  - Se `sinceEventId` não existir no escopo (tenant+unidade), retorna `fullSyncRequired=true` com `VERSION_MISMATCH`.
+- `OperationalEventLogRepository` ganhou queries específicas:
+  - `existsByIdAndTenantAndUnidadeProducao`
+  - `maxIdByTenantAndUnidadeProducao`
+  - `findFilaEventsAfter` / `countFilaEventsAfter`
+
+6) Endpoints criados/alterados
+- Alterado:
+  - `GET /device/sync/bootstrap` (ETag dedicado)
+  - `GET /device/sync/mesas` (cursor/limit)
+  - `GET /device/sync/qrcodes` (cursor/limit)
+  - `GET /device/sync/producao` (full sync quando necessário)
+  - `GET /device/sync/catalogo` (mantido; heurística permanece)
+- Criado:
+  - `GET /device/sync/producao/fila/diff`
+
+7) Properties adicionadas/esperadas
+- `consuma.sync.bootstrap.contract-version=v1`
+- `consuma.sync.catalog.max-incremental-changes=1000`
+- `consuma.sync.mesas.max-incremental-changes=500`
+- `consuma.sync.qrcodes.max-incremental-changes=500`
+- `consuma.sync.producao.max-incremental-changes=500`
+- `consuma.sync.mesas.default-limit=500`
+- `consuma.sync.mesas.max-limit=1000`
+- `consuma.sync.qrcodes.default-limit=500`
+- `consuma.sync.qrcodes.max-limit=1000`
+- `consuma.sync.fila.diff.default-limit=200`
+- `consuma.sync.fila.diff.max-limit=1000`
+
+8) Testes criados/alterados
+- Alterado:
+  - `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+    - valida ETag de bootstrap + 304 + mudança por tokenVersion
+    - valida paginação por cursor em mesas e QR e que cursor desabilita 304
+- Criado:
+  - `src/test/java/com/restaurante/device/DeviceFilaDiffSyncIT.java`
+    - valida diff após mudança operacional real (kitchen altera status do subpedido)
+    - valida `fullSyncRequired=true` para sinceEventId inexistente (VERSION_MISMATCH)
+
+9) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+10) Resultado dos comandos
+- `mvn -q -DskipTests compile`: SUCESSO
+- `mvn test`: SUCESSO (Tests run: 145, Failures: 0, Errors: 0, Skipped: 4)
+
+11) Arquivos criados/alterados
+Criados:
+- `src/main/java/com/restaurante/service/device/DeviceFilaDiffService.java`
+- `src/main/java/com/restaurante/dto/response/DeviceFilaDiffSyncResponse.java`
+- `src/main/java/com/restaurante/dto/response/DeviceFilaEventSyncItem.java`
+- `src/test/java/com/restaurante/device/DeviceFilaDiffSyncIT.java`
+- `docs/tenant-core/26-bootstrapversion-fullsync-domain-cursor-diff.md`
+- `RELATORIO_PROMPT26_BOOTSTRAPVERSION_FULLSYNC_CURSOR_DIFF_2026_05_18.txt`
+
+Alterados:
+- `src/main/java/com/restaurante/service/device/DeviceSyncVersionService.java`
+- `src/main/java/com/restaurante/controller/DeviceSyncController.java`
+- `src/main/java/com/restaurante/service/device/DeviceReadOnlySyncService.java`
+- `src/main/java/com/restaurante/service/producao/ProducaoKdsService.java`
+- `src/main/java/com/restaurante/repository/MesaRepository.java`
+- `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java`
+- `src/main/java/com/restaurante/repository/QrCodeOperacionalRepository.java`
+- `src/main/java/com/restaurante/repository/UnidadeProducaoRepository.java`
+- `src/main/java/com/restaurante/repository/RotaProducaoCategoriaRepository.java`
+- `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java`
+- `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+
+12) Decisões técnicas tomadas
+- Bootstrap não pode usar ETag proxy: passou a ter versão dedicada, baseada em seed de config.
+- Threshold de “muitas mudanças” passou a existir por domínio, evitando incremental pouco eficiente.
+- Cursor em mesas/QR foi implementado como keyset por id com validação de tenant/filtros e expiração.
+- Para requests com cursor, 304 foi desabilitado (garante retorno de páginas seguintes).
+- Diff da fila foi introduzido como endpoint read-only orientado a eventos (OperationalEventLog) para reduzir custo de polling full-list no futuro.
+
+13) Riscos restantes
+- Cursor continua não assinado (base64 JSON); mitigação atual é validação forte de tenant/domain/filtros + expiração. Futuro: assinatura/HMAC do cursor.
+- `fullSyncRequired` por domínio foi reforçado, mas ainda pode exigir ajuste fino por operação real (thresholds por plano/tenant).
+- Diff incremental da fila ainda não inclui semântica de “remoção da fila” (o client deve inferir via status atual).
+
+14) Checklist de aceitação (Prompt 26)
+- [OK] bootstrap tem computeVersion dedicado
+- [OK] bootstrap ETag muda com alteração relevante (ex: tokenVersion)
+- [OK] fullSyncRequired funciona por domínio (mesas/QR/produção/catálogo)
+- [OK] mesas têm cursor opcional
+- [OK] QR têm cursor opcional
+- [OK] cursor valida tenant/domain/filtros e expiração
+- [OK] fila tem endpoint diff via OperationalEventLog
+- [OK] diff retorna subpedidos atualizados e respeita unidadeProducao do device
+- [OK] device sem capability continua bloqueado (regras existentes)
+- [OK] fullSyncRequired impede 304
+- [OK] sync continua read-only
+- [OK] testes passam
+
+15) Próximo prompt recomendado
+“Prompt 27 — Cursor assinado/HMAC + diff incremental adicional (catálogo/mesas/QR) via ‘change log’ dedicado ou via event log + envelope de erros padronizado para sync + baseline de ‘sync contract versioning’ por domínio.”
+

@@ -30,6 +30,10 @@ public interface QrCodeOperacionalRepository extends JpaRepository<QrCodeOperaci
 
     List<QrCodeOperacional> findByTenantIdAndUnidadeAtendimentoIdAndAtivoTrueAndRevogadoFalseAndUpdatedAtAfter(Long tenantId, Long unidadeAtendimentoId, LocalDateTime updatedSince);
 
+    long countByTenantIdAndUpdatedAtAfter(Long tenantId, LocalDateTime updatedSince);
+
+    long countByTenantIdAndUnidadeAtendimentoIdAndUpdatedAtAfter(Long tenantId, Long unidadeAtendimentoId, LocalDateTime updatedSince);
+
     boolean existsByToken(String token);
 
     long countByTenantId(Long tenantId);
@@ -47,4 +51,31 @@ public interface QrCodeOperacionalRepository extends JpaRepository<QrCodeOperaci
               and (:unidadeAtendimentoId is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
             """)
     QrAggProjection computeSyncAgg(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
+
+    @Query("""
+            select count(q)
+            from QrCodeOperacional q
+            where q.tenant.id = :tenantId
+              and q.ativo = true
+              and q.revogado = false
+              and (:unidadeAtendimentoId is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
+            """)
+    long countSyncByTenantAndScope(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
+
+    @Query("""
+            select q
+            from QrCodeOperacional q
+            where q.tenant.id = :tenantId
+              and q.ativo = true
+              and q.revogado = false
+              and (:unidadeAtendimentoId is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (:updatedSince is null or q.updatedAt > :updatedSince)
+              and (:lastId is null or q.id > :lastId)
+            order by q.id asc
+            """)
+    List<QrCodeOperacional> syncKeyset(@Param("tenantId") Long tenantId,
+                                       @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+                                       @Param("updatedSince") LocalDateTime updatedSince,
+                                       @Param("lastId") Long lastId,
+                                       org.springframework.data.domain.Pageable pageable);
 }

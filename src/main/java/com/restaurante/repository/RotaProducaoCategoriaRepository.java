@@ -24,6 +24,8 @@ public interface RotaProducaoCategoriaRepository extends JpaRepository<RotaProdu
 
     List<RotaProducaoCategoria> findByTenantIdAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);
 
+    long countByTenantIdAndUpdatedAtAfter(Long tenantId, LocalDateTime updatedSince);
+
     @Query("""
             select count(r) as count,
                    max(r.updatedAt) as maxUpdatedAt,

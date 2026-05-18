@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Collection;
 
 public interface OperationalEventLogRepository extends JpaRepository<OperationalEventLog, Long> {
 
@@ -85,4 +86,55 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
             @Param("de") LocalDateTime de,
             @Param("ate") LocalDateTime ate
     );
+
+    @Query("""
+            select max(e.id)
+            from OperationalEventLog e
+              join e.subPedido sp
+            where e.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+            """)
+    Long maxIdByTenantAndUnidadeProducao(@Param("tenantId") Long tenantId, @Param("unidadeProducaoId") Long unidadeProducaoId);
+
+    @Query("""
+            select e
+            from OperationalEventLog e
+              join e.subPedido sp
+            where e.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and e.id > :sinceId
+              and e.eventType in :types
+            order by e.id asc
+            """)
+    List<OperationalEventLog> findFilaEventsAfter(@Param("tenantId") Long tenantId,
+                                                 @Param("unidadeProducaoId") Long unidadeProducaoId,
+                                                 @Param("sinceId") Long sinceId,
+                                                 @Param("types") Collection<OperationalEventType> types,
+                                                 Pageable pageable);
+
+    @Query("""
+            select count(e)
+            from OperationalEventLog e
+              join e.subPedido sp
+            where e.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and e.id > :sinceId
+              and e.eventType in :types
+            """)
+    long countFilaEventsAfter(@Param("tenantId") Long tenantId,
+                              @Param("unidadeProducaoId") Long unidadeProducaoId,
+                              @Param("sinceId") Long sinceId,
+                              @Param("types") Collection<OperationalEventType> types);
+
+    @Query("""
+            select case when count(e) > 0 then true else false end
+            from OperationalEventLog e
+              join e.subPedido sp
+            where e.id = :eventId
+              and e.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+            """)
+    boolean existsByIdAndTenantAndUnidadeProducao(@Param("eventId") Long eventId,
+                                                 @Param("tenantId") Long tenantId,
+                                                 @Param("unidadeProducaoId") Long unidadeProducaoId);
 }

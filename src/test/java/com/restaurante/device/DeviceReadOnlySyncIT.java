@@ -90,8 +90,44 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
+        String bootEtag = mockMvc.perform(get("/device/sync/bootstrap")
+                        .with(authentication(auth))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getHeader("ETag");
         JsonNode bootJson = objectMapper.readTree(boot);
         assertThat(bootJson.at("/data/tenantId").asLong()).isEqualTo(prov.getTenantId());
+        assertThat(bootEtag).isNotBlank();
+
+        // If-None-Match deve retornar 304 quando não há mudanças no principal/escopo
+        mockMvc.perform(get("/device/sync/bootstrap")
+                        .with(authentication(auth))
+                        .header("If-None-Match", bootEtag)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotModified());
+
+        // tokenVersion muda ETag do bootstrap
+        DevicePrincipal deviceV2 = new DevicePrincipal(
+                10L,
+                "KDS-01",
+                prov.getTenantId(),
+                prov.getTenantCode(),
+                prov.getInstituicaoId(),
+                prov.getUnidadeAtendimentoId(),
+                null,
+                DispositivoTipo.KDS,
+                DispositivoStatus.ATIVO,
+                List.of(DeviceCapability.SYNC_CATALOG, DeviceCapability.VIEW_PRODUCTION),
+                2
+        );
+        UsernamePasswordAuthenticationToken authV2 = new UsernamePasswordAuthenticationToken(
+                deviceV2, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
+        );
+        mockMvc.perform(get("/device/sync/bootstrap")
+                        .with(authentication(authV2))
+                        .header("If-None-Match", bootEtag)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
 
         var catRes1 = mockMvc.perform(get("/device/sync/catalogo")
                         .with(authentication(auth))
@@ -125,6 +161,93 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
                         .header("If-None-Match", etag)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotModified());
+    }
+
+    @Test
+    void device_canPaginateMesas_andCursorDisables304() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant();
+
+        DevicePrincipal device = new DevicePrincipal(
+                11L,
+                "POS-01",
+                prov.getTenantId(),
+                prov.getTenantCode(),
+                prov.getInstituicaoId(),
+                prov.getUnidadeAtendimentoId(),
+                null,
+                DispositivoTipo.POS,
+                DispositivoStatus.ATIVO,
+                List.of(DeviceCapability.VIEW_ORDERS),
+                1
+        );
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
+        );
+
+        var res1 = mockMvc.perform(get("/device/sync/mesas")
+                        .with(authentication(auth))
+                        .param("limit", "1")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn();
+        String etag = res1.getResponse().getHeader("ETag");
+        JsonNode json1 = objectMapper.readTree(res1.getResponse().getContentAsString());
+        assertThat(json1.at("/data/mesas").size()).isEqualTo(1);
+        assertThat(json1.at("/hasMore").asBoolean()).isTrue();
+        assertThat(json1.at("/nextCursor").asText()).isNotBlank();
+
+        // pagina 2 (mesmo etag), não deve retornar 304 porque cursor exige body
+        String cursor = json1.at("/nextCursor").asText();
+        mockMvc.perform(get("/device/sync/mesas")
+                        .with(authentication(auth))
+                        .param("limit", "1")
+                        .param("cursor", cursor)
+                        .header("If-None-Match", etag)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void device_canPaginateQrCodes_andCursorDisables304() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant();
+
+        DevicePrincipal device = new DevicePrincipal(
+                12L,
+                "POS-02",
+                prov.getTenantId(),
+                prov.getTenantCode(),
+                prov.getInstituicaoId(),
+                prov.getUnidadeAtendimentoId(),
+                null,
+                DispositivoTipo.POS,
+                DispositivoStatus.ATIVO,
+                List.of(DeviceCapability.SYNC_CATALOG),
+                1
+        );
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
+        );
+
+        var res1 = mockMvc.perform(get("/device/sync/qrcodes")
+                        .with(authentication(auth))
+                        .param("limit", "1")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn();
+        String etag = res1.getResponse().getHeader("ETag");
+        JsonNode json1 = objectMapper.readTree(res1.getResponse().getContentAsString());
+        assertThat(json1.at("/data/qrcodes").size()).isEqualTo(1);
+        assertThat(json1.at("/hasMore").asBoolean()).isTrue();
+        assertThat(json1.at("/nextCursor").asText()).isNotBlank();
+
+        String cursor = json1.at("/nextCursor").asText();
+        mockMvc.perform(get("/device/sync/qrcodes")
+                        .with(authentication(auth))
+                        .param("limit", "1")
+                        .param("cursor", cursor)
+                        .header("If-None-Match", etag)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
     }
 
     @Test

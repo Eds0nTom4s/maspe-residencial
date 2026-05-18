@@ -66,6 +66,24 @@ public class DeviceSyncVersionService {
     @Value("${consuma.sync.max-incremental-changes:1000}")
     private long maxIncrementalChanges;
 
+    @Value("${consuma.sync.catalog.max-incremental-changes:1000}")
+    private long catalogMaxIncrementalChanges;
+
+    @Value("${consuma.sync.mesas.max-incremental-changes:500}")
+    private long mesasMaxIncrementalChanges;
+
+    @Value("${consuma.sync.qrcodes.max-incremental-changes:500}")
+    private long qrCodesMaxIncrementalChanges;
+
+    @Value("${consuma.sync.producao.max-incremental-changes:500}")
+    private long producaoMaxIncrementalChanges;
+
+    @Value("${consuma.sync.fila.max-incremental-changes:1000}")
+    private long filaMaxIncrementalChanges;
+
+    @Value("${consuma.sync.bootstrap.contract-version:v1}")
+    private String bootstrapContractVersion;
+
     public record DomainVersion(
             String domain,
             String syncVersion,
@@ -109,6 +127,74 @@ public class DeviceSyncVersionService {
         return sb.toString();
     }
 
+    private LocalDateTime bestTs(LocalDateTime updatedAt, LocalDateTime createdAt) {
+        return updatedAt != null ? updatedAt : createdAt;
+    }
+
+    private String capabilitiesSeed(List<DeviceCapability> capabilities) {
+        if (capabilities == null || capabilities.isEmpty()) return "";
+        return capabilities.stream().map(Enum::name).sorted().reduce((a, b) -> a + "," + b).orElse("");
+    }
+
+    @Transactional(readOnly = true)
+    public DomainVersion computeBootstrap(DevicePrincipal device) {
+        List<SyncEnvelope.SyncWarning> warnings = new ArrayList<>();
+
+        Tenant tenant = tenantRepository.findById(device.tenantId()).orElse(null);
+        Instituicao instituicao = device.instituicaoId() != null
+                ? instituicaoRepository.findByIdAndTenantId(device.instituicaoId(), device.tenantId()).orElse(null)
+                : null;
+        UnidadeAtendimento ua = device.unidadeAtendimentoId() != null
+                ? unidadeAtendimentoRepository.findByIdAndTenantId(device.unidadeAtendimentoId(), device.tenantId()).orElse(null)
+                : null;
+        UnidadeProducao up = device.unidadeProducaoId() != null
+                ? unidadeProducaoRepository.findByIdAndTenantId(device.unidadeProducaoId(), device.tenantId()).orElse(null)
+                : null;
+        DispositivoOperacional disp = device.dispositivoId() != null
+                ? dispositivoOperacionalRepository.findByIdAndTenantId(device.dispositivoId(), device.tenantId()).orElse(null)
+                : null;
+
+        LocalDateTime tenantTs = tenant != null ? bestTs(tenant.getUpdatedAt(), tenant.getCreatedAt()) : null;
+        LocalDateTime instTs = instituicao != null ? bestTs(instituicao.getUpdatedAt(), instituicao.getCreatedAt()) : null;
+        LocalDateTime uaTs = ua != null ? bestTs(ua.getUpdatedAt(), ua.getCreatedAt()) : null;
+        LocalDateTime upTs = up != null ? bestTs(up.getUpdatedAt(), up.getCreatedAt()) : null;
+        LocalDateTime dispTs = disp != null ? bestTs(disp.getUpdatedAt(), disp.getCreatedAt()) : null;
+
+        String caps = capabilitiesSeed(device.capabilities());
+        String syncVersion = "bootstrap:"
+                + "tenant=" + device.tenantId() + ":" + tenantTs
+                + "|inst=" + device.instituicaoId() + ":" + instTs
+                + "|ua=" + device.unidadeAtendimentoId() + ":" + uaTs
+                + "|up=" + device.unidadeProducaoId() + ":" + upTs
+                + "|dev=" + device.dispositivoId() + ":" + dispTs
+                + "|status=" + device.status()
+                + "|tipo=" + device.tipo()
+                + "|tokenV=" + device.tokenVersion()
+                + "|caps=" + caps
+                + "|contract=" + bootstrapContractVersion;
+
+        String etag = etagService.etagFor(seed("BOOTSTRAP",
+                device.tenantId(),
+                "tenantTs=" + tenantTs,
+                "tenantEstado=" + (tenant != null ? tenant.getEstado() : null),
+                "instId=" + device.instituicaoId(),
+                "instTs=" + instTs,
+                "uaId=" + device.unidadeAtendimentoId(),
+                "uaTs=" + uaTs,
+                "upId=" + device.unidadeProducaoId(),
+                "upTs=" + upTs,
+                "devId=" + device.dispositivoId(),
+                "devTs=" + dispTs,
+                "devStatus=" + device.status(),
+                "devTipo=" + device.tipo(),
+                "tokenV=" + device.tokenVersion(),
+                "caps=" + caps,
+                "contract=" + bootstrapContractVersion
+        ));
+
+        return new DomainVersion("BOOTSTRAP", syncVersion, etag, true, false, SyncEnvelope.FullSyncRequiredReason.NONE, warnings);
+    }
+
     @Transactional(readOnly = true)
     public DomainVersion computeCatalog(DevicePrincipal device, boolean includeInactive, LocalDateTime updatedSince) {
         List<SyncEnvelope.SyncWarning> warnings = new ArrayList<>();
@@ -136,7 +222,8 @@ public class DeviceSyncVersionService {
         if (updatedSince != null && !full) {
             long changes = categoriaProdutoRepository.countByTenantIdAndUpdatedAtAfter(device.tenantId(), updatedSince)
                     + produtoRepository.countByTenantIdAndUpdatedAtAfter(device.tenantId(), updatedSince);
-            if (changes > maxIncrementalChanges) {
+            long threshold = catalogMaxIncrementalChanges > 0 ? catalogMaxIncrementalChanges : maxIncrementalChanges;
+            if (changes > threshold) {
                 full = true;
                 reason = SyncEnvelope.FullSyncRequiredReason.TOO_MANY_CHANGES;
                 warnings.add(warning(SyncEnvelope.SyncWarningCode.FULL_SYNC_RECOMMENDED, "Muitas alterações desde updatedSince; recomendado full sync."));
@@ -183,6 +270,21 @@ public class DeviceSyncVersionService {
             warnings.add(warning(SyncEnvelope.SyncWarningCode.UPDATED_SINCE_UNRELIABLE, "updatedAt ausente em mesas; incremental pode ser incompleto."));
         }
 
+        if (updatedSince != null && !full) {
+            long mesasChanges = ua != null
+                    ? mesaRepository.countByTenantIdAndUnidadeAtendimentoIdAndUpdatedAtAfter(device.tenantId(), ua, updatedSince)
+                    : mesaRepository.countByTenantIdAndUpdatedAtAfter(device.tenantId(), updatedSince);
+            long sessaoChanges = ua != null
+                    ? sessaoConsumoRepository.countByTenantIdAndUnidadeAtendimentoIdAndUpdatedAtAfter(device.tenantId(), ua, updatedSince)
+                    : sessaoConsumoRepository.countByTenantIdAndUpdatedAtAfter(device.tenantId(), updatedSince);
+            long changes = mesasChanges + sessaoChanges;
+            if (changes > mesasMaxIncrementalChanges) {
+                full = true;
+                reason = SyncEnvelope.FullSyncRequiredReason.TOO_MANY_CHANGES;
+                warnings.add(warning(SyncEnvelope.SyncWarningCode.FULL_SYNC_RECOMMENDED, "Muitas alterações desde updatedSince; recomendado full sync."));
+            }
+        }
+
         String syncVersion = "mesas:"
                 + nz(mesas.getCount()) + ":" + (mesas.getMaxUpdatedAt() != null ? mesas.getMaxUpdatedAt().truncatedTo(ChronoUnit.SECONDS) : "null")
                 + "|open:" + (open != null ? open.getCount() : 0L) + ":" + (open != null ? open.getMaxUltimaAtividadeEm() : null);
@@ -221,6 +323,17 @@ public class DeviceSyncVersionService {
             warnings.add(warning(SyncEnvelope.SyncWarningCode.UPDATED_SINCE_UNRELIABLE, "updatedAt ausente em QR; incremental pode ser incompleto."));
         }
 
+        if (updatedSince != null && !full) {
+            long changes = ua != null
+                    ? qrCodeOperacionalRepository.countByTenantIdAndUnidadeAtendimentoIdAndUpdatedAtAfter(device.tenantId(), ua, updatedSince)
+                    : qrCodeOperacionalRepository.countByTenantIdAndUpdatedAtAfter(device.tenantId(), updatedSince);
+            if (changes > qrCodesMaxIncrementalChanges) {
+                full = true;
+                reason = SyncEnvelope.FullSyncRequiredReason.TOO_MANY_CHANGES;
+                warnings.add(warning(SyncEnvelope.SyncWarningCode.FULL_SYNC_RECOMMENDED, "Muitas alterações desde updatedSince; recomendado full sync."));
+            }
+        }
+
         String syncVersion = "qrcodes:" + nz(qrs.getCount()) + ":" + (qrs.getMaxUpdatedAt() != null ? qrs.getMaxUpdatedAt().truncatedTo(ChronoUnit.SECONDS) : "null");
         String etag = etagService.etagFor(seed("QRCODES",
                 device.tenantId(),
@@ -252,6 +365,16 @@ public class DeviceSyncVersionService {
             full = true;
             reason = SyncEnvelope.FullSyncRequiredReason.UPDATED_AT_UNRELIABLE;
             warnings.add(warning(SyncEnvelope.SyncWarningCode.UPDATED_SINCE_UNRELIABLE, "updatedAt ausente em unidades/rotas; incremental pode ser incompleto."));
+        }
+
+        if (updatedSince != null && !full) {
+            long changes = unidadeProducaoRepository.countByTenantIdAndUpdatedAtAfter(device.tenantId(), updatedSince)
+                    + rotaProducaoCategoriaRepository.countByTenantIdAndUpdatedAtAfter(device.tenantId(), updatedSince);
+            if (changes > producaoMaxIncrementalChanges) {
+                full = true;
+                reason = SyncEnvelope.FullSyncRequiredReason.TOO_MANY_CHANGES;
+                warnings.add(warning(SyncEnvelope.SyncWarningCode.FULL_SYNC_RECOMMENDED, "Muitas alterações desde updatedSince; recomendado full sync."));
+            }
         }
 
         String syncVersion = "producao:" + nz(unidades.getCount()) + ":" + unidades.getMaxUpdatedAt()
@@ -296,4 +419,3 @@ public class DeviceSyncVersionService {
         return new DomainVersion("PRODUCAO_FILA", syncVersion, etag, reliable, full, reason, warnings);
     }
 }
-

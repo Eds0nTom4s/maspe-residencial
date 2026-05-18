@@ -30,6 +30,8 @@ public interface UnidadeProducaoRepository extends JpaRepository<UnidadeProducao
 
     List<UnidadeProducao> findByTenantIdAndAtivoTrueAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);
 
+    long countByTenantIdAndUpdatedAtAfter(Long tenantId, LocalDateTime updatedSince);
+
     @Query("""
             select count(u) as count,
                    max(u.updatedAt) as maxUpdatedAt,

@@ -114,6 +114,10 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
 
     List<Mesa> findByTenantIdAndUnidadeAtendimentoIdAndUpdatedAtAfter(Long tenantId, Long unidadeAtendimentoId, LocalDateTime updatedSince);
 
+    long countByTenantIdAndUpdatedAtAfter(Long tenantId, LocalDateTime updatedSince);
+
+    long countByTenantIdAndUnidadeAtendimentoIdAndUpdatedAtAfter(Long tenantId, Long unidadeAtendimentoId, LocalDateTime updatedSince);
+
     long countByTenantId(Long tenantId);
 
     @Query("""
@@ -127,4 +131,29 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
               and m.ativa = true
             """)
     SyncAggProjection computeSyncAgg(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
+
+    @Query("""
+            select count(m)
+            from Mesa m
+            where m.tenant.id = :tenantId
+              and (:unidadeAtendimentoId is null or m.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and m.ativa = true
+            """)
+    long countSyncByTenantAndScope(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
+
+    @Query("""
+            select m
+            from Mesa m
+            where m.tenant.id = :tenantId
+              and (:unidadeAtendimentoId is null or m.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and m.ativa = true
+              and (:updatedSince is null or m.updatedAt > :updatedSince)
+              and (:lastId is null or m.id > :lastId)
+            order by m.id asc
+            """)
+    List<Mesa> syncKeyset(@Param("tenantId") Long tenantId,
+                          @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+                          @Param("updatedSince") LocalDateTime updatedSince,
+                          @Param("lastId") Long lastId,
+                          org.springframework.data.domain.Pageable pageable);
 }

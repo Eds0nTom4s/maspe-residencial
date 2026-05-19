@@ -5,6 +5,7 @@ public enum OperationalEntityType {
     SUBPEDIDO,
     ITEM_PEDIDO,
     SESSAO_CONSUMO,
-    MESA
+    MESA,
+    TURNO_OPERACIONAL,
+    CHECKLIST_OPERACIONAL
 }
-

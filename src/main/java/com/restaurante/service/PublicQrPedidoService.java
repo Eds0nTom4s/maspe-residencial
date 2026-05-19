@@ -18,7 +18,9 @@ import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.config.OperacaoProperties;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
@@ -26,9 +28,12 @@ import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.model.enums.TipoSessao;
+import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
+import com.restaurante.repository.TurnoOperacionalRepository;
+import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +60,9 @@ public class PublicQrPedidoService {
     private final PublicQrOrderIdempotencyService idempotencyService;
     private final com.restaurante.service.producao.RotaProducaoService rotaProducaoService;
     private final com.restaurante.service.producao.UnidadeProducaoService unidadeProducaoService;
+    private final TurnoOperacionalRepository turnoOperacionalRepository;
+    private final OperacaoProperties operacaoProperties;
+    private final OperationalEventLogService operationalEventLogService;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -79,10 +87,18 @@ public class PublicQrPedidoService {
 
         PublicQrOrderRequest idemReq = start.request();
         try {
+            TurnoOperacional turnoAberto = turnoOperacionalRepository
+                    .findOpenByTenantAndInstituicaoAndUnidade(tenant.getId(), instituicao.getId(), unidadeAtendimento.getId())
+                    .orElse(null);
+            if (turnoAberto == null && operacaoProperties.isRequireOpenTurnoForOrders()) {
+                throw new ConflictException("Operação não está aberta para esta unidade (turno não aberto).");
+            }
+
             Pedido pedido = new Pedido();
             pedido.setTenant(tenant);
             pedido.setNumero(pedidoNumberService.gerarNumeroPedido(tenant.getId()));
             pedido.setSessaoConsumo(sessao);
+            pedido.setTurnoOperacional(turnoAberto);
             pedido.setStatus(StatusPedido.CRIADO);
             pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
             pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
@@ -91,6 +107,17 @@ public class PublicQrPedidoService {
             Map<Cozinha, List<PublicQrPedidoItemRequest>> requestsPorCozinha = agruparItensPorCozinha(unidadeAtendimento.getId(), request.getItens(), produtos);
 
             pedido = pedidoRepository.save(pedido);
+
+            if (turnoAberto == null) {
+                operationalEventLogService.logPedidoSemTurnoAberto(
+                        pedido,
+                        OperationalOrigem.QR_PUBLICO,
+                        "Pedido criado sem turno aberto",
+                        Map.of("unidadeAtendimentoId", unidadeAtendimento.getId(), "instituicaoId", instituicao.getId()),
+                        null,
+                        null
+                );
+            }
 
             List<PublicQrPedidoItemResponse> itensResponse = new ArrayList<>();
             int contadorSubPedido = 1;

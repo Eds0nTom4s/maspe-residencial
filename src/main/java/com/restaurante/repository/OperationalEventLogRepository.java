@@ -17,6 +17,8 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
 
     Page<OperationalEventLog> findByTenantId(Long tenantId, Pageable pageable);
 
+    List<OperationalEventLog> findByTenantIdAndEventType(Long tenantId, OperationalEventType eventType);
+
     Page<OperationalEventLog> findByTenantIdAndPedidoId(Long tenantId, Long pedidoId, Pageable pageable);
 
     Page<OperationalEventLog> findByTenantIdAndSubPedidoId(Long tenantId, Long subPedidoId, Pageable pageable);

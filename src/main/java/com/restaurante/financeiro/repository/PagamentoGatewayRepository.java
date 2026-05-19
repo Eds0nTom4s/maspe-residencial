@@ -156,4 +156,6 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
     @Query("SELECT p FROM Pagamento p WHERE p.fundoConsumo.id = :fundoId " +
            "AND p.status = 'CONFIRMADO' ORDER BY p.confirmedAt DESC")
     List<Pagamento> findUltimosPagamentosConfirmadosFundo(Long fundoId);
+
+    long countByTenantIdAndPedidoTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusPagamentoGateway status);
 }

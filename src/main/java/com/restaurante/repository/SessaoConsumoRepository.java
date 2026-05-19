@@ -53,6 +53,8 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
 
     List<SessaoConsumo> findByTenantIdAndStatus(Long tenantId, StatusSessaoConsumo status);
 
+    long countByTenantIdAndUnidadeAtendimentoIdAndStatus(Long tenantId, Long unidadeAtendimentoId, StatusSessaoConsumo status);
+
     boolean existsByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);
 
     @Query("SELECT s.mesa.id FROM SessaoConsumo s " +

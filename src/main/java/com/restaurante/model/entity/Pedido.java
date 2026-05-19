@@ -38,6 +38,14 @@ public class Pedido extends BaseEntity {
     @JoinColumn(name = "sessao_consumo_id", nullable = false)
     private SessaoConsumo sessaoConsumo;
 
+    /**
+     * Turno operacional associado (janela de operação formal).
+     * Nullable nesta fase para não quebrar fluxos existentes.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "turno_operacional_id")
+    private TurnoOperacional turnoOperacional;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private StatusPedido status = StatusPedido.CRIADO;
@@ -124,6 +132,8 @@ public class Pedido extends BaseEntity {
 
     public void setNumero(String numero) { this.numero = numero; }
     public void setSessaoConsumo(SessaoConsumo sessaoConsumo) { this.sessaoConsumo = sessaoConsumo; }
+    public TurnoOperacional getTurnoOperacional() { return turnoOperacional; }
+    public void setTurnoOperacional(TurnoOperacional turnoOperacional) { this.turnoOperacional = turnoOperacional; }
 
     public Tenant getTenant() { return tenant; }
     public void setTenant(Tenant tenant) { this.tenant = tenant; }

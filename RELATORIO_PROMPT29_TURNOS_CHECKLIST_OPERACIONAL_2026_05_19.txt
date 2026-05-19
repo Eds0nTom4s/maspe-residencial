@@ -1,0 +1,182 @@
+RELATÓRIO TÉCNICO — PROMPT 29 (TURNOS + CHECKLIST OPERACIONAL)
+Data: 2026-05-19 (Africa/Luanda)
+
+1) Resumo executivo
+- Implementada a disciplina operacional por unidade (abertura/fecho) via TurnoOperacional + checklists (abertura/fecho), com auditoria em OperationalEventLog.
+- Adicionada associação opcional Pedido → TurnoOperacional; por default não bloqueia pedido público sem turno aberto (property).
+- Incluídos endpoints tenant para abrir/consultar/listar/detalhar/iniciar-fecho/pré-fecho/fechar/cancelar e leitura de templates de checklist.
+- Testes PostgreSQL/Testcontainers adicionados e passando.
+
+2) Migration criada
+- `src/main/resources/db/migration/V20__turnos_operacionais_checklists.sql`
+  - Cria: `turnos_operacionais`, `checklist_operacional_templates`, `checklist_operacional_item_templates`, `checklist_operacional_runs`, `checklist_operacional_item_runs`
+  - Adiciona: `pedidos.turno_operacional_id` (nullable) + FK/índice
+  - Adiciona: `operational_event_logs.turno_id` (nullable) + FK/índice
+  - Índice unique parcial: 1 turno ABERTO/EM_FECHO por (tenant,instituicao,unidadeAtendimento)
+
+3) Entidades criadas
+- `src/main/java/com/restaurante/model/entity/TurnoOperacional.java`
+- `src/main/java/com/restaurante/model/entity/ChecklistOperacionalTemplate.java`
+- `src/main/java/com/restaurante/model/entity/ChecklistOperacionalItemTemplate.java`
+- `src/main/java/com/restaurante/model/entity/ChecklistOperacionalRun.java`
+- `src/main/java/com/restaurante/model/entity/ChecklistOperacionalItemRun.java`
+
+4) Alterações em Pedido/OperationalEventLog
+- `src/main/java/com/restaurante/model/entity/Pedido.java`
+  - Campo `turnoOperacional` (nullable) + getters/setters.
+- `src/main/java/com/restaurante/model/entity/OperationalEventLog.java`
+  - Campo `turno` (nullable).
+
+5) Enums criados/alterados
+- Criados:
+  - `src/main/java/com/restaurante/model/enums/TurnoOperacionalStatus.java`
+  - `src/main/java/com/restaurante/model/enums/TurnoOperacionalTipo.java`
+  - `src/main/java/com/restaurante/model/enums/ChecklistTipo.java`
+  - `src/main/java/com/restaurante/model/enums/ChecklistEscopo.java`
+  - `src/main/java/com/restaurante/model/enums/ChecklistTipoResposta.java`
+  - `src/main/java/com/restaurante/model/enums/ChecklistRunStatus.java`
+  - `src/main/java/com/restaurante/model/enums/ChecklistItemRunStatus.java`
+- Alterados:
+  - `src/main/java/com/restaurante/model/enums/OperationalEventType.java` (eventos de turno/checklist/pedido sem turno)
+  - `src/main/java/com/restaurante/model/enums/OperationalEntityType.java` (TURNO_OPERACIONAL, CHECKLIST_OPERACIONAL)
+
+6) Repositories criados/alterados
+- Criados:
+  - `src/main/java/com/restaurante/repository/TurnoOperacionalRepository.java`
+  - `src/main/java/com/restaurante/repository/ChecklistOperacionalTemplateRepository.java`
+  - `src/main/java/com/restaurante/repository/ChecklistOperacionalItemTemplateRepository.java`
+  - `src/main/java/com/restaurante/repository/ChecklistOperacionalRunRepository.java`
+  - `src/main/java/com/restaurante/repository/ChecklistOperacionalItemRunRepository.java`
+- Alterados:
+  - `src/main/java/com/restaurante/repository/PedidoRepository.java` (contagens por turno + não-terminais)
+  - `src/main/java/com/restaurante/repository/SubPedidoRepository.java` (contagens por turno + não-terminais)
+  - `src/main/java/com/restaurante/financeiro/repository/PagamentoGatewayRepository.java` (contagem por turno)
+  - `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java` (count por unidade/status)
+  - `src/main/java/com/restaurante/repository/DispositivoOperacionalRepository.java` (count “offline” por unidade/cutoff)
+  - `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java` (findByTenantIdAndEventType)
+
+7) Services criados/alterados
+- Criados:
+  - `src/main/java/com/restaurante/service/operacao/TurnoOperacionalPolicy.java` (RBAC operação)
+  - `src/main/java/com/restaurante/service/operacao/ChecklistOperacionalService.java` (templates default + validação + persistência de runs)
+  - `src/main/java/com/restaurante/service/operacao/TurnoResumoService.java` (pré-fecho: bloqueios vs avisos, contagens)
+  - `src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java` (abrir/fechar/pre-fecho/cancelar/listar/detalhar)
+- Alterados:
+  - `src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java`
+    - Suporte a eventos de turno/checklist
+    - Evento `PEDIDO_SEM_TURNO_ABERTO`
+    - Fallback de tenant para eventos quando não há TenantContext (fluxo público), usando `pedido.tenant`.
+  - `src/main/java/com/restaurante/service/PublicQrPedidoService.java`
+    - Resolve turno aberto por (tenant,instituicao,unidadeAtendimento) e associa ao pedido.
+    - Se não houver turno:
+      - com property `require-open-turno-for-orders=true`: bloqueia (409)
+      - caso contrário: permite e registra `PEDIDO_SEM_TURNO_ABERTO`.
+
+8) Endpoints criados
+Base: `/tenant/operacao`
+- `POST /tenant/operacao/turnos/abrir`
+- `GET /tenant/operacao/turnos/atual?instituicaoId=&unidadeAtendimentoId=`
+- `GET /tenant/operacao/turnos` (filtros + paginação)
+- `GET /tenant/operacao/turnos/{turnoId}`
+- `POST /tenant/operacao/turnos/{turnoId}/iniciar-fecho`
+- `GET /tenant/operacao/turnos/{turnoId}/pre-fecho`
+- `POST /tenant/operacao/turnos/{turnoId}/fechar`
+- `POST /tenant/operacao/turnos/{turnoId}/cancelar`
+- `GET /tenant/operacao/checklists/templates?tipo=ABERTURA|FECHO`
+
+9) RBAC aplicado (resumo)
+- Abrir/fechar: OWNER/ADMIN/OPERATOR/CASHIER
+- Forçar fecho/cancelar: OWNER/ADMIN
+- Leitura: OWNER/ADMIN/OPERATOR/FINANCE/CASHIER/KITCHEN
+
+10) Regras de abertura
+- Bloqueia se já existir turno ABERTO/EM_FECHO para a mesma unidade.
+- Checklist de abertura obrigatório: falha retorna 400 (BusinessException), e o run falho fica registrado.
+- Registra eventos: `CHECKLIST_ABERTURA_CONCLUIDO` e `TURNO_ABERTO`.
+
+11) Regras de fecho
+- Pré-fecho calcula bloqueios (ex: subpedidos/pedidos não-terminais, sessões ABERTAS).
+- Fecho sem forçar: se há bloqueio → 409.
+- Fecho forçado: exige OWNER/ADMIN + observação.
+- Registra eventos: `CHECKLIST_FECHO_CONCLUIDO` e `TURNO_FECHADO`/`TURNO_FECHADO_FORCADO`.
+
+12) Checklist implementado
+- Templates default são criados sob demanda (sem UI/CRUD completo nesta fase).
+- Runs e itens são persistidos (incluindo falhas) para rastreabilidade.
+
+13) Associação Pedido → Turno
+- `pedidos.turno_operacional_id` é nullable.
+- Pedido público por QR associa automaticamente quando há turno ABERTO.
+- Property:
+  - `consuma.operacao.require-open-turno-for-orders=false` (default)
+  - quando true, bloqueia pedido público sem turno.
+
+14) Eventos operacionais adicionados
+- `TURNO_ABERTO`, `TURNO_FECHO_INICIADO`, `TURNO_FECHADO`, `TURNO_FECHADO_FORCADO`, `TURNO_CANCELADO`
+- `CHECKLIST_ABERTURA_CONCLUIDO`, `CHECKLIST_FECHO_CONCLUIDO`
+- `PEDIDO_SEM_TURNO_ABERTO`
+
+15) Testes criados/alterados
+- `src/test/java/com/restaurante/operacao/TurnoOperacionalIT.java`
+  - abertura com checklist + evento
+  - bloqueio de 2 turnos na mesma unidade
+  - RBAC (FINANCE não abre)
+  - checklist incompleto bloqueia abertura
+  - fecho bloqueado por subpedido não terminal + fecho forçado permitido para OWNER
+  - cross-tenant 404
+- `src/test/java/com/restaurante/operacao/TurnoOperacionalRequireOpenForOrdersIT.java`
+  - property `require-open-turno-for-orders=true` bloqueia pedido público sem turno (409)
+
+16) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+17) Resultado dos comandos
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS (Tests run: 149, Failures: 0, Errors: 0, Skipped: 4)
+
+18) Arquivos criados/alterados (principais)
+- `src/main/resources/db/migration/V20__turnos_operacionais_checklists.sql`
+- `src/main/java/com/restaurante/model/entity/TurnoOperacional.java`
+- `src/main/java/com/restaurante/model/entity/ChecklistOperacionalTemplate.java`
+- `src/main/java/com/restaurante/model/entity/ChecklistOperacionalItemTemplate.java`
+- `src/main/java/com/restaurante/model/entity/ChecklistOperacionalRun.java`
+- `src/main/java/com/restaurante/model/entity/ChecklistOperacionalItemRun.java`
+- `src/main/java/com/restaurante/controller/TenantOperacaoController.java`
+- `src/main/java/com/restaurante/service/operacao/*`
+- `src/main/java/com/restaurante/service/PublicQrPedidoService.java`
+- `src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java`
+- `docs/tenant-core/29-turnos-checklist-operacional.md`
+
+19) Decisões técnicas tomadas
+- MVP exige `unidade_atendimento_id` NOT NULL em `turnos_operacionais` para simplificar unicidade e escopo operacional.
+- Não bloqueia pedido público por QR por default (property para adoção progressiva).
+- Pré-fecho separa “bloqueios” (409) de “avisos” (warnings) para evitar fecho cego sem tornar a operação inviável.
+- Checklists são seedados por serviço (sem UI/CRUD nesta fase) para acelerar adoção em piloto.
+
+20) Riscos restantes
+- Pedidos antigos/fluxos paralelos podem ficar sem `turno_operacional_id` (esperado nesta fase).
+- Regras de bloqueio/aviso podem precisar ajuste fino por operação real (ex: pagamentos pendentes por callback).
+- Turno institucional (sem unidadeAtendimento) ficou fora do MVP para reduzir ambiguidade.
+
+21) Checklist de aceitação (verificado)
+- TurnoOperacional existe: OK
+- Checklist abertura/fecho existe: OK
+- Abrir turno funciona: OK
+- Não permite dois turnos abertos: OK
+- Turno atual funciona: OK (`/turnos/atual`)
+- Pré-fecho funciona: OK
+- Fechar turno funciona: OK
+- Fecho forçado exige OWNER/ADMIN: OK
+- Checklist obrigatório validado: OK
+- Pedido associa turno quando existe: OK
+- Pedido sem turno tratado por property: OK
+- Eventos operacionais registrados: OK
+- RBAC aplicado: OK
+- Cross-tenant protegido (404): OK
+- Testes passam: OK
+- POS ainda não cria pedido: OK
+
+22) Próximo prompt recomendado
+Prompt 30 — Rotina operacional avançada (evolução do resumo + relatórios mínimos) OU início controlado de “POS criando pedido online” exigindo turno aberto por policy (sem offline).
+

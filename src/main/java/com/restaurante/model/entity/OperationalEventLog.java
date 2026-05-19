@@ -62,6 +62,10 @@ public class OperationalEventLog extends BaseEntity {
     private Mesa mesa;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "turno_id")
+    private TurnoOperacional turno;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "device_id")
     private DispositivoOperacional dispositivo;
 
@@ -111,4 +115,3 @@ public class OperationalEventLog extends BaseEntity {
     @Column(name = "user_agent", length = 255)
     private String userAgent;
 }
-

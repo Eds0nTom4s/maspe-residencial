@@ -7,6 +7,7 @@ import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.OperationalActorType;
 import com.restaurante.model.enums.OperationalEntityType;
@@ -113,6 +114,75 @@ public class OperationalEventLogService {
         );
     }
 
+    @Transactional
+    public void logTurnoEvent(OperationalEventType eventType,
+                              TurnoOperacional turno,
+                              OperationalOrigem origem,
+                              String motivo,
+                              Map<String, Object> metadata,
+                              String ip,
+                              String userAgent) {
+        if (turno == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+        logForTurno(
+                eventType,
+                OperationalEntityType.TURNO_OPERACIONAL,
+                turno.getId(),
+                turno,
+                origem,
+                motivo,
+                metadata,
+                ip,
+                userAgent
+        );
+    }
+
+    @Transactional
+    public void logChecklistEvent(OperationalEventType eventType,
+                                  TurnoOperacional turno,
+                                  Long checklistRunId,
+                                  OperationalOrigem origem,
+                                  String motivo,
+                                  Map<String, Object> metadata,
+                                  String ip,
+                                  String userAgent) {
+        if (turno == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+        logForTurno(
+                eventType,
+                OperationalEntityType.CHECKLIST_OPERACIONAL,
+                checklistRunId != null ? checklistRunId : 0L,
+                turno,
+                origem,
+                motivo,
+                metadata,
+                ip,
+                userAgent
+        );
+    }
+
+    @Transactional
+    public void logPedidoSemTurnoAberto(Pedido pedido,
+                                        OperationalOrigem origem,
+                                        String motivo,
+                                        Map<String, Object> metadata,
+                                        String ip,
+                                        String userAgent) {
+        if (pedido == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+        log(
+                OperationalEventType.PEDIDO_SEM_TURNO_ABERTO,
+                OperationalEntityType.PEDIDO,
+                pedido.getId(),
+                pedido,
+                null,
+                pedido.getStatus() != null ? pedido.getStatus().name() : null,
+                pedido.getStatus() != null ? pedido.getStatus().name() : null,
+                origem,
+                motivo,
+                metadata,
+                ip,
+                userAgent
+        );
+    }
+
     private void log(OperationalEventType eventType,
                      OperationalEntityType entityType,
                      Long entityId,
@@ -126,6 +196,9 @@ public class OperationalEventLogService {
                      String ip,
                      String userAgent) {
         Long tenantId = resolveTenantId();
+        if (tenantId == null) {
+            tenantId = resolveTenantIdFallbackFromPedido(pedido);
+        }
         if (tenantId == null) throw new ResourceNotFoundException("Recurso não encontrado.");
 
         Tenant tenant = tenantRepository.findById(tenantId)
@@ -158,6 +231,41 @@ public class OperationalEventLogService {
         operationalEventLogRepository.save(log);
     }
 
+    private void logForTurno(OperationalEventType eventType,
+                             OperationalEntityType entityType,
+                             Long entityId,
+                             TurnoOperacional turno,
+                             OperationalOrigem origem,
+                             String motivo,
+                             Map<String, Object> metadata,
+                             String ip,
+                             String userAgent) {
+        Long tenantId = resolveTenantId();
+        if (tenantId == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+
+        OperationalEventLog log = new OperationalEventLog();
+        log.setTenant(tenant);
+        log.setInstituicao(turno.getInstituicao());
+        log.setUnidadeAtendimento(turno.getUnidadeAtendimento());
+        log.setTurno(turno);
+
+        log.setEventType(eventType);
+        log.setEntityType(entityType);
+        log.setEntityId(entityId != null ? entityId : 0L);
+        log.setOrigem(origem != null ? origem : OperationalOrigem.SYSTEM);
+        log.setMotivo(motivo);
+        log.setMetadataJson(metadata != null ? toJson(metadata) : null);
+        log.setIp(ip);
+        log.setUserAgent(userAgent);
+
+        applyActor(log, origem, ip, userAgent);
+
+        operationalEventLogRepository.save(log);
+    }
+
     private Long resolveTenantId() {
         try {
             TenantContext ctx = TenantContextHolderSafe.get();
@@ -168,6 +276,15 @@ public class OperationalEventLogService {
         if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof DevicePrincipal dp) {
             return dp.tenantId();
         }
+        return null;
+    }
+
+    private Long resolveTenantIdFallbackFromPedido(Pedido pedido) {
+        try {
+            if (pedido != null && pedido.getTenant() != null && pedido.getTenant().getId() != null) {
+                return pedido.getTenant().getId();
+            }
+        } catch (Exception ignored) { }
         return null;
     }
 

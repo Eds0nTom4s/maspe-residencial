@@ -27,6 +27,11 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
      */
     Optional<SubPedido> findByNumero(String numero);
 
+    long countByTenantIdAndPedidoTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusSubPedido status);
+
+    @Query("select count(sp) from SubPedido sp where sp.tenant.id = :tenantId and sp.pedido.turnoOperacional.id = :turnoId and sp.status not in (com.restaurante.model.enums.StatusSubPedido.ENTREGUE, com.restaurante.model.enums.StatusSubPedido.CANCELADO)")
+    long countNonTerminalByTenantIdAndPedidoTurnoOperacionalId(@Param("tenantId") Long tenantId, @Param("turnoId") Long turnoId);
+
     /**
      * Busca SubPedido por ID com todos os relacionamentos carregados (para evitar LazyInitializationException)
      */

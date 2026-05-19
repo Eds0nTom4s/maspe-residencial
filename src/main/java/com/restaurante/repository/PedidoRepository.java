@@ -24,6 +24,11 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
     Optional<Pedido> findByIdAndTenantId(Long id, Long tenantId);
 
+    long countByTenantIdAndTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusPedido status);
+
+    @Query("select count(p) from Pedido p where p.tenant.id = :tenantId and p.turnoOperacional.id = :turnoId and p.status not in (com.restaurante.model.enums.StatusPedido.FINALIZADO, com.restaurante.model.enums.StatusPedido.CANCELADO)")
+    long countNonTerminalByTenantIdAndTurnoOperacionalId(@Param("tenantId") Long tenantId, @Param("turnoId") Long turnoId);
+
     Page<Pedido> findByTenantId(Long tenantId, Pageable pageable);
 
     /**

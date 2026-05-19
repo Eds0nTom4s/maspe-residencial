@@ -48,6 +48,29 @@ public class PaymentReferenceService {
         throw new IllegalStateException("Falha ao gerar referência externa única para pagamento.");
     }
 
+    /**
+     * Gera externalReference compacta e tenant-aware (<= 15 chars) para pagamentos iniciados por device/POS.
+     *
+     * Mesma lógica do QR, mas com type 'D' (Device).
+     */
+    public String gerarReferenciaPedidoDevice(Tenant tenant) {
+        String tenantPart = compactTenantCode(tenant.getTenantCode(), 4);
+        char type = 'D';
+
+        for (int i = 0; i < 30; i++) {
+            String timePart = leftPadBase36(System.currentTimeMillis(), 6);
+            String rndPart = randomBase36(4);
+            String ref = (tenantPart + type + timePart + rndPart);
+            if (ref.length() > MAX_LEN) {
+                ref = ref.substring(0, MAX_LEN);
+            }
+            if (!pagamentoGatewayRepository.existsByExternalReference(ref)) {
+                return ref;
+            }
+        }
+        throw new IllegalStateException("Falha ao gerar referência externa única para pagamento.");
+    }
+
     public static String compactTenantCode(String tenantCode, int len) {
         if (tenantCode == null) tenantCode = "";
         String normalized = tenantCode.trim().toUpperCase();
@@ -101,4 +124,3 @@ public class PaymentReferenceService {
         return sb.reverse().toString();
     }
 }
-

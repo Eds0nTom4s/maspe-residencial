@@ -9,6 +9,6 @@ public enum OperationalOrigem {
     TENANT_CASHIER,
     DEVICE_POS,
     DEVICE_KDS,
+    GATEWAY,
     SYSTEM
 }
-

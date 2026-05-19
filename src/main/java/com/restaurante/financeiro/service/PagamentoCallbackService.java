@@ -8,6 +8,7 @@ import com.restaurante.financeiro.gateway.appypay.dto.AppyPayCallback;
 import com.restaurante.financeiro.repository.PagamentoCallbackLogRepository;
 import com.restaurante.financeiro.repository.PagamentoEventLogRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
+import com.restaurante.financeiro.polling.PagamentoConfirmacaoService;
 import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.entity.PagamentoCallbackLog;
 import com.restaurante.model.entity.PagamentoEventLog;
@@ -52,6 +53,7 @@ public class PagamentoCallbackService {
     private final AppyPayHmacValidator hmacValidator;
     private final ObjectMapper objectMapper;
     private final PedidoRepository pedidoRepository;
+    private final PagamentoConfirmacaoService pagamentoConfirmacaoService;
 
     // Injectado via setter para quebrar ciclo SessaoConsumoService ↔ PagamentoCallbackService
     private SessaoConsumoService sessaoConsumoService;
@@ -177,27 +179,15 @@ public class PagamentoCallbackService {
     }
 
     private void confirmarPagamentoPedidoQr(Pagamento pagamento) {
-        Pedido pedido = pagamento.getPedido();
-        if (pedido == null) {
-            throw new IllegalStateException("Pagamento POS_PAGO sem pedido vinculado.");
-        }
-        if (pedido.getTenant() == null || pagamento.getTenant() == null ||
-                !pedido.getTenant().getId().equals(pagamento.getTenant().getId())) {
-            throw new IllegalStateException("Tenant mismatch ao confirmar pagamento POS_PAGO.");
-        }
-
-        // Confirma pagamento (idempotente)
-        pagamento.confirmar();
-        pagamentoRepository.save(pagamento);
-
-        // Marca pedido como pago (idempotente)
-        if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
-            pedido.marcarComoPago();
-            pedidoRepository.save(pedido);
-        }
-
-        registrarEvento(TipoEventoFinanceiro.CONFIRMACAO_PAGAMENTO, pagamento,
-                "Pagamento de pedido confirmado via callback: " + pagamento.getExternalReference());
+        Long paymentId = pagamento.getId();
+        if (paymentId == null) throw new IllegalStateException("Pagamento inválido.");
+        pagamentoConfirmacaoService.confirmarPosPagoPorGateway(
+                paymentId,
+                "APPYPAY_CALLBACK",
+                "SYSTEM",
+                null,
+                null
+        );
     }
 
     private PagamentoCallbackLog criarLogRecebido(String rawBody, Map<String, String> headers) {
@@ -249,4 +239,3 @@ public class PagamentoCallbackService {
                 .longValueExact();
     }
 }
-

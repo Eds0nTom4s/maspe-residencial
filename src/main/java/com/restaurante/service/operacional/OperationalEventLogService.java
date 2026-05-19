@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.Pedido;
+import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TurnoOperacional;
@@ -210,6 +211,31 @@ public class OperationalEventLogService {
             // garante vínculo no log (coluna turno_id)
             // atualiza por referência via entity manager ao salvar no log()
         }
+    }
+
+    @Transactional
+    public void logPagamentoEvent(OperationalEventType eventType,
+                                  Pagamento pagamento,
+                                  OperationalOrigem origem,
+                                  String motivo,
+                                  Map<String, Object> metadata,
+                                  String ip,
+                                  String userAgent) {
+        if (pagamento == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+        log(
+                eventType,
+                OperationalEntityType.PAGAMENTO,
+                pagamento.getId(),
+                pagamento.getPedido(),
+                null,
+                pagamento.getStatus() != null ? pagamento.getStatus().name() : null,
+                pagamento.getStatus() != null ? pagamento.getStatus().name() : null,
+                origem,
+                motivo,
+                metadata,
+                ip,
+                userAgent
+        );
     }
 
     private void log(OperationalEventType eventType,

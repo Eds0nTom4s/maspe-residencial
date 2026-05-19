@@ -20,6 +20,12 @@ public class OperacaoProperties {
     private boolean requireOpenTurnoForDeviceOrders = true;
 
     /**
+     * Quando true, exige turno ABERTO para iniciar pagamento por device/POS.
+     * Default true para disciplina de operação assistida.
+     */
+    private boolean requireOpenTurnoForDevicePayments = true;
+
+    /**
      * Limiar em minutos para considerar dispositivo "offline" no pré-fecho (informativo/warning).
      */
     private int deviceOfflineMinutes = 10;
@@ -46,5 +52,13 @@ public class OperacaoProperties {
 
     public void setRequireOpenTurnoForDeviceOrders(boolean requireOpenTurnoForDeviceOrders) {
         this.requireOpenTurnoForDeviceOrders = requireOpenTurnoForDeviceOrders;
+    }
+
+    public boolean isRequireOpenTurnoForDevicePayments() {
+        return requireOpenTurnoForDevicePayments;
+    }
+
+    public void setRequireOpenTurnoForDevicePayments(boolean requireOpenTurnoForDevicePayments) {
+        this.requireOpenTurnoForDevicePayments = requireOpenTurnoForDevicePayments;
     }
 }

@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 /**
  * Repository para Pagamento (gateway)
@@ -36,6 +37,9 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Pagamento> findForUpdateByExternalReference(String externalReference);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Pagamento> findForUpdateById(Long id);
 
     Page<Pagamento> findByTenantId(Long tenantId, Pageable pageable);
 
@@ -140,6 +144,26 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
      * Busca pagamentos pendentes (para monitoramento)
      */
     List<Pagamento> findByStatusOrderByCreatedAtAsc(StatusPagamentoGateway status);
+
+    @Query(value = """
+            select p.id
+            from pagamentos_gateway p
+            where p.polling_enabled = true
+              and p.status in ('PENDENTE')
+              and p.external_reference is not null
+              and p.gateway_charge_id is not null
+              and (p.next_polling_attempt_at is null or p.next_polling_attempt_at <= :now)
+              and p.polling_attempts < :maxAttempts
+              and p.created_at <= :initialDelayThreshold
+              and p.created_at >= :maxAgeThreshold
+            order by coalesce(p.next_polling_attempt_at, p.created_at) asc
+            limit :limit
+            """, nativeQuery = true)
+    List<Long> findEligibleIdsForPolling(LocalDateTime now,
+                                        LocalDateTime initialDelayThreshold,
+                                        LocalDateTime maxAgeThreshold,
+                                        int maxAttempts,
+                                        int limit);
 
     /**
      * Busca pagamentos em status PENDENTE vinculados a um fundo.

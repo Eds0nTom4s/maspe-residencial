@@ -1,6 +1,7 @@
 package com.restaurante.model.entity;
 
 import com.restaurante.financeiro.enums.MetodoPagamentoAppyPay;
+import com.restaurante.financeiro.enums.PagamentoPollingStatus;
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import jakarta.persistence.*;
@@ -137,6 +138,38 @@ public class Pagamento extends BaseEntity {
     @Column(length = 500)
     private String observacoes;
 
+    // ── Polling (rede de segurança do callback) ───────────────────────────────
+    @Column(name = "polling_enabled", nullable = false)
+    private boolean pollingEnabled = true;
+
+    @Column(name = "polling_attempts", nullable = false)
+    private int pollingAttempts = 0;
+
+    @Column(name = "last_polling_attempt_at")
+    private LocalDateTime lastPollingAttemptAt;
+
+    @Column(name = "next_polling_attempt_at")
+    private LocalDateTime nextPollingAttemptAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "polling_status", length = 50)
+    private PagamentoPollingStatus pollingStatus;
+
+    @Column(name = "polling_last_error_code", length = 100)
+    private String pollingLastErrorCode;
+
+    @Column(name = "polling_last_error_message", columnDefinition = "TEXT")
+    private String pollingLastErrorMessage;
+
+    @Column(name = "gateway_status_last_checked_at")
+    private LocalDateTime gatewayStatusLastCheckedAt;
+
+    @Column(name = "gateway_status_raw", columnDefinition = "TEXT")
+    private String gatewayStatusRaw;
+
+    @Column(name = "expires_at")
+    private LocalDateTime expiresAt;
+
     // ── Constructors ──────────────────────────────────────────────────────────
     public Pagamento() {}
 
@@ -195,6 +228,26 @@ public class Pagamento extends BaseEntity {
     public void setConfirmedAt(LocalDateTime confirmedAt) { this.confirmedAt = confirmedAt; }
     public void setGatewayResponse(String gatewayResponse) { this.gatewayResponse = gatewayResponse; }
     public void setObservacoes(String observacoes) { this.observacoes = observacoes; }
+    public boolean isPollingEnabled() { return pollingEnabled; }
+    public void setPollingEnabled(boolean pollingEnabled) { this.pollingEnabled = pollingEnabled; }
+    public int getPollingAttempts() { return pollingAttempts; }
+    public void setPollingAttempts(int pollingAttempts) { this.pollingAttempts = pollingAttempts; }
+    public LocalDateTime getLastPollingAttemptAt() { return lastPollingAttemptAt; }
+    public void setLastPollingAttemptAt(LocalDateTime lastPollingAttemptAt) { this.lastPollingAttemptAt = lastPollingAttemptAt; }
+    public LocalDateTime getNextPollingAttemptAt() { return nextPollingAttemptAt; }
+    public void setNextPollingAttemptAt(LocalDateTime nextPollingAttemptAt) { this.nextPollingAttemptAt = nextPollingAttemptAt; }
+    public PagamentoPollingStatus getPollingStatus() { return pollingStatus; }
+    public void setPollingStatus(PagamentoPollingStatus pollingStatus) { this.pollingStatus = pollingStatus; }
+    public String getPollingLastErrorCode() { return pollingLastErrorCode; }
+    public void setPollingLastErrorCode(String pollingLastErrorCode) { this.pollingLastErrorCode = pollingLastErrorCode; }
+    public String getPollingLastErrorMessage() { return pollingLastErrorMessage; }
+    public void setPollingLastErrorMessage(String pollingLastErrorMessage) { this.pollingLastErrorMessage = pollingLastErrorMessage; }
+    public LocalDateTime getGatewayStatusLastCheckedAt() { return gatewayStatusLastCheckedAt; }
+    public void setGatewayStatusLastCheckedAt(LocalDateTime gatewayStatusLastCheckedAt) { this.gatewayStatusLastCheckedAt = gatewayStatusLastCheckedAt; }
+    public String getGatewayStatusRaw() { return gatewayStatusRaw; }
+    public void setGatewayStatusRaw(String gatewayStatusRaw) { this.gatewayStatusRaw = gatewayStatusRaw; }
+    public LocalDateTime getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(LocalDateTime expiresAt) { this.expiresAt = expiresAt; }
 
     // ── equals / hashCode ─────────────────────────────────────────────────────
     @Override

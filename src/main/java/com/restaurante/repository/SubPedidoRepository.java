@@ -15,6 +15,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import com.restaurante.repository.projection.SubPedidoFilaAggProjection;
+import java.util.Collection;
 
 /**
  * Repository para SubPedido
@@ -329,4 +330,51 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
             @Param("ate") LocalDateTime ate,
             @Param("search") String search
     );
+
+    @Query("""
+            select count(sp)
+            from SubPedido sp
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and sp.status in :statuses
+            """)
+    long countByTenantAndUnidadeProducaoAndStatuses(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("statuses") Collection<StatusSubPedido> statuses
+    );
+
+    @Query("""
+            select min(coalesce(sp.iniciadoEm, sp.createdAt))
+            from SubPedido sp
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and sp.status = com.restaurante.model.enums.StatusSubPedido.EM_PREPARACAO
+            """)
+    LocalDateTime minEmPreparacaoAtByTenantAndUnidadeProducao(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId
+    );
+
+    @Query("""
+            select count(sp)
+            from SubPedido sp
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and sp.status = com.restaurante.model.enums.StatusSubPedido.EM_PREPARACAO
+              and coalesce(sp.iniciadoEm, sp.createdAt) < :cutoff
+            """)
+    long countAtrasadosEmPreparacaoByTenantAndUnidadeProducao(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("cutoff") LocalDateTime cutoff
+    );
+
+    @Query("""
+            select sp.tenant.id as tenantId, count(sp) as cnt
+            from SubPedido sp
+            where sp.status in :statuses
+            group by sp.tenant.id
+            """)
+    List<Object[]> countByTenantForStatuses(@Param("statuses") Collection<StatusSubPedido> statuses);
 }

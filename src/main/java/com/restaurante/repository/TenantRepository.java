@@ -1,6 +1,11 @@
 package com.restaurante.repository;
 
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.enums.TenantEstado;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
@@ -14,5 +19,15 @@ public interface TenantRepository extends JpaRepository<Tenant, Long> {
     boolean existsBySlug(String slug);
 
     boolean existsByTenantCode(String tenantCode);
-}
 
+    long countByEstado(TenantEstado estado);
+
+    @Query("""
+            select t
+            from Tenant t
+            where (:estado is null or t.estado = :estado)
+              and (:search is null or :search = '' or lower(t.nome) like lower(concat('%', :search, '%')) or lower(t.tenantCode) like lower(concat('%', :search, '%')))
+            order by t.id asc
+            """)
+    Page<Tenant> searchPlatform(@Param("estado") TenantEstado estado, @Param("search") String search, Pageable pageable);
+}

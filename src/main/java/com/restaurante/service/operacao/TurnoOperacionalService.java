@@ -198,6 +198,21 @@ public class TurnoOperacionalService {
         TurnoPreFechoResponse pre = resumoService.calcularPreFecho(turno);
         boolean forcar = Boolean.TRUE.equals(request.getForcarFecho());
         if (!pre.isPodeFechar() && !forcar) {
+            if (pre.getAlertasFinanceiros() != null && pre.getAlertasFinanceiros().isBloqueiaFecho()) {
+                operationalEventLogService.logTurnoEvent(
+                        OperationalEventType.TURNO_FECHO_BLOQUEADO_ALERTA_FINANCEIRO,
+                        turno,
+                        resolveOrigemFromRoles(ctx),
+                        "Fecho bloqueado por alerta financeiro crítico",
+                        new HashMap<>() {{
+                            put("totalPendentes", pre.getAlertasFinanceiros().getTotalPagamentosPendentes());
+                            put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
+                            put("valorPendente", pre.getAlertasFinanceiros().getValorPendente());
+                        }},
+                        ip,
+                        userAgent
+                );
+            }
             throw new ConflictException("Existem pendências bloqueantes para fechar o turno.");
         }
         if (forcar) {
@@ -239,6 +254,23 @@ public class TurnoOperacionalService {
                 ip,
                 userAgent
         );
+
+        if (pre.getAlertasFinanceiros() != null && pre.getAlertasFinanceiros().getTotalPagamentosPendentes() > 0) {
+            operationalEventLogService.logTurnoEvent(
+                    OperationalEventType.TURNO_FECHADO_COM_ALERTA_FINANCEIRO,
+                    turno,
+                    resolveOrigemFromRoles(ctx),
+                    "Turno fechado com alertas financeiros pendentes",
+                    new HashMap<>() {{
+                        put("totalPendentes", pre.getAlertasFinanceiros().getTotalPagamentosPendentes());
+                        put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
+                        put("valorPendente", pre.getAlertasFinanceiros().getValorPendente());
+                        put("forcarFecho", forcar);
+                    }},
+                    ip,
+                    userAgent
+            );
+        }
 
         return toResponse(turno, List.of(run));
     }

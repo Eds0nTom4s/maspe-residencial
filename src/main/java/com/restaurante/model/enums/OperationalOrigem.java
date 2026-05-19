@@ -6,6 +6,7 @@ public enum OperationalOrigem {
     TENANT_ADMIN,
     TENANT_OPERATOR,
     TENANT_KITCHEN,
+    TENANT_FINANCE,
     TENANT_CASHIER,
     DEVICE_POS,
     DEVICE_KDS,

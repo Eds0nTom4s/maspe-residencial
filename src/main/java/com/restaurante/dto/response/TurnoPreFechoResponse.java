@@ -5,6 +5,7 @@ import lombok.Data;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import com.restaurante.financeiro.monitoramento.dto.TurnoPagamentoAlertasResponse;
 
 @Data
 public class TurnoPreFechoResponse {
@@ -18,5 +19,8 @@ public class TurnoPreFechoResponse {
 
     private long sessoesAbertas;
     private long dispositivosOffline;
-}
 
+    private TurnoPagamentoAlertasResponse alertasFinanceiros;
+    private boolean possuiAlertasFinanceiros;
+    private boolean possuiAlertasFinanceirosCriticos;
+}

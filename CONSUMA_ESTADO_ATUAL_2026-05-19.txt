@@ -1,0 +1,266 @@
+PROMPT DE ALINHAMENTO — ESTADO ATUAL DA CONSUMA (2026-05-19)
+Autor: Arquitetura/Produto (síntese executiva, técnica e operacional)
+
+================================================================================
+1. RESUMO EXECUTIVO
+================================================================================
+A CONSUMA, no estado atual, já é uma base SaaS transacional multi-tenant com operação realista de restaurante/consumo (QR + POS + produção/KDS), com segurança tenant-aware, disciplina operacional (turnos/checklists) e um stack robusto para dispositivos (autenticação, sync read-only, cache/ETag, cursores assinados, envelopes de erro e métricas).
+
+O ciclo transacional “pedido → pagamento → produção” já está tecnicamente fechável (com confirmação de pagamento via callback AppyPay e rede de segurança via polling ativo + polling manual), com auditabilidade por OperationalEventLog e isolamento por tenant/unidade. O produto ainda não é “self-service público”: falta maturidade de onboarding, billing, UX/admin mais completo, suporte/observabilidade de nível comercial e playbooks de operação em campo.
+
+Em termos de maturidade, a CONSUMA está acima de “MVP técnico” e já entra em “piloto operacional controlado”, desde que o piloto seja desenhado com escopo e disciplina (1–3 tenants, poucas unidades, processos claros, suporte direto). O risco maior agora não é “falta de features”, e sim “execução operacional”: onboarding, formação, suporte, regras de fecho, gestão de exceções e estabilidade de campo.
+
+Pergunta central (“onde estamos e qual o próximo movimento inteligente?”):
+- Estamos prontos para um piloto controlado com operação assistida e pagamentos digitais, com disciplina de turno e visibilidade de pendências.
+- O próximo movimento mais inteligente é estabilizar operação diária (playbooks, métricas, alertas, suporte e UX operacional) e reduzir fricção de onboarding, antes de abrir self-service e antes de escalar para múltiplos segmentos/verticais.
+
+================================================================================
+2. O QUE A CONSUMA JÁ É
+================================================================================
+Definição objetiva do estado atual:
+- Uma plataforma backend SaaS transacional multi-tenant (Spring Boot + PostgreSQL + JPA/Hibernate + Flyway) com isolamento por tenant, RBAC, e domínio “restaurante/consumo” suficientemente completo para operação real com:
+  - pedido público por QR;
+  - POS/dispositivo operacional criando pedido e iniciando pagamento online;
+  - produção/kitchen (KDS-ready HTTP) com fila e diff incremental;
+  - auditoria operacional append-only;
+  - disciplina operacional por turnos, com checklist, pré-fecho, fecho e resumo.
+
+O que ela ainda NÃO é:
+- Um produto comercial self-service pronto (onboarding autônomo, billing, marketplace, multi-vertical operacional, UX polida, suporte e compliance de produção em escala).
+
+================================================================================
+3. O QUE JÁ ESTÁ PRONTO (BLOCOS TÉCNICOS E OPERACIONAIS)
+================================================================================
+3.1 Core SaaS / Multi-tenant / Segurança
+- Tenant / Plano / Subscrição / TenantUser / TenantLimiteOverride.
+- TenantContext / TenantResolver / TenantGuard.
+- JWT tenant-scoped com tenantAccessVersion.
+- RBAC granular por tenant (rotas e capacidades).
+- Isolamento tenant-safe (sem aceitar tenantId do client quando não deve; origem vem de TenantContext/DevicePrincipal).
+
+3.2 Domínios operacionais (restaurante/consumo)
+- Catálogo tenant-aware.
+- Mesas e SessaoConsumo com tenant_id direto.
+- QR operacional tenant-safe (com revogação/estado).
+- Pedido público por QR (tenant-safe).
+- Produção: UnidadeProducao + Rotas de Produção.
+- SubPedido direcionado/roteado para UnidadeProducao.
+- Status operacional de Pedido/SubPedido controlado.
+
+3.3 Pagamentos digitais (AppyPay) e consistência
+- Pagamento tenant-aware.
+- Callback AppyPay idempotente (mantido como via principal).
+- Início de pagamento por QR público (já existia) e por POS/device (já implementado).
+- Polling automático do gateway para pagamentos pendentes (rede de segurança do callback).
+- Polling manual por tenant (FINANCE/ADMIN/OWNER) para suporte operacional.
+- Confirmação centralizada e idempotente via serviço único (callback e polling convergem para a mesma lógica).
+
+3.4 Dispositivos operacionais (POS/KDS) e segurança
+- DispositivoOperacional tenant-aware.
+- DeviceAuthenticationFilter + DevicePrincipal no SecurityContext.
+- Rotação de deviceToken.
+- DeviceEventLog.
+- Erros padronizados DeviceErrorResponse para /device/*.
+- Hardening de secrets por profile (produção bloqueia secrets default/curtos/vazios).
+- Métricas de device/auth/heartbeat e sync/etag (Micrometer quando disponível; NoOp fallback).
+
+3.5 Sync read-only robusto para POS/KDS (cache + incremental)
+- SyncEnvelope<T>.
+- ETag/If-None-Match + 304.
+- SyncVersion SQL-based por domínio + fullSyncRequired heurístico por domínio.
+- computeBootstrapVersion dedicado.
+- Cursor keyset para catálogo + cursor opcional para mesas e QR.
+- Cursor assinado com HMAC (hardening contra manipulação).
+- SyncErrorResponse padronizado para /device/sync/*.
+- Produção KDS-ready via HTTP + fila paginada + diff incremental via OperationalEventLog (UPSERT/REMOVE explícito).
+
+3.6 Disciplina operacional: Turnos + checklists + auditoria
+- TurnoOperacional (ABERTO/EM_FECHO/FECHADO etc.).
+- Checklist de abertura e de fecho (runs e itens).
+- Pré-fecho com bloqueios e avisos operacionais.
+- Associação opcional Pedido → TurnoOperacional (com policy para exigir turno).
+- Alertas financeiros por turno (pagamentos pendentes, falhas de polling, max attempts etc.).
+- Integração dos alertas financeiros no pré-fecho e no fecho com bloqueio configurável.
+- OperationalEventLog append-only cobrindo: turnos, checklists, pedidos, pagamentos, polling e ações manuais.
+
+================================================================================
+4. O QUE JÁ PODE SER PILOTADO (PILOTO CONTROLADO)
+================================================================================
+4.1 Fluxos que já podem ir para campo (com suporte próximo)
+- Operação com QR público:
+  - cliente cria pedido por QR;
+  - pagamento por QR;
+  - produção/KDS acompanha fila e status.
+
+- Operação assistida com POS (dispositivo operacional):
+  - POS cria pedido online;
+  - POS inicia pagamento online;
+  - callback confirma; se falhar/atrasar, polling automático/manual resolve pendências.
+
+- Operação disciplinada por turno:
+  - abertura com checklist;
+  - operação durante o turno;
+  - pré-fecho com bloqueios/avisos + alertas financeiros;
+  - fecho normal/forçado (com RBAC) e resumo.
+
+4.2 O que é “piloto real” recomendável agora (tipos de piloto)
+- Piloto 1 (restaurante pequeno / 1 unidade): QR + POS para pedidos assistidos, 1–2 métodos AppyPay, 1 cozinha (KDS HTTP).
+- Piloto 2 (balcão/quiosque): POS como canal principal, com catálogo enxuto e rota de produção simples.
+- Piloto 3 (evento controlado / operação curta): turno “EVENTO” com checklist e fecho, focando robustez do pagamento/polling.
+
+Critério: pilotos de baixa variabilidade e alto controle (poucos SKUs, poucas unidades, processo simples).
+
+4.3 O que já está “tecnicamente funcional”
+- O core transacional funciona: criar pedido, iniciar pagamento, confirmar por callback, recuperar pendências por polling, manter produção atualizada, e fechar turno com visibilidade de pendências.
+- O stack de cache/sync é maduro para POS/KDS em modo online (read-only), com contratos estáveis e segurança reforçada.
+
+================================================================================
+5. O QUE AINDA NÃO ESTÁ PRONTO (LIMITES ATUAIS)
+================================================================================
+5.1 Para self-service público (não pronto)
+- Onboarding self-service completo (provisionamento “zero-touch”, templates, wizard, validações de domínio).
+- Billing/subscrição comercial automatizada (plano/limites existem, mas falta motor comercial).
+- Gestão operacional completa via UI (templates de checklist, regras, dashboards).
+- Suporte/observabilidade nível comercial (dashboards, alertas, runbooks, SLOs, triagem).
+- Governança de dados e compliance (retenção, exportação, LGPD/privacidade operável, trilhas completas por actor).
+
+5.2 Para escala (não pronto)
+- Multi-instância/alta disponibilidade com job de polling distribuído (hoje job local; precisa lock distribuído/ShedLock/estratégia de concorrência multi-node).
+- Estratégia de performance/particionamento para logs/eventos em volume alto (OperationalEventLog pode crescer muito).
+- Estratégia de migrações e versionamento de contrato para clientes em larga escala.
+
+5.3 Para POS “produto”
+- App Android/UX ainda não é parte deste diagnóstico (o backend está mais pronto que o frontend).
+- Fluxos avançados: cancelamento/edição de pedido, múltiplas tentativas de pagamento guiadas, devoluções/refund, numerário, impressão, offline, etc. (corretamente fora do escopo atual).
+
+================================================================================
+6. ANÁLISE DE MATURIDADE (MVP TÉCNICO vs PILOTO OPERACIONAL vs PRODUTO)
+================================================================================
+Classificação atual (mais próxima de):
+- Piloto operacional (com base técnica forte), não “produto comercial self-service”, e ainda longe de “plataforma pública” para múltiplas verticais.
+
+Por quê:
+- Core técnico multi-tenant + segurança + auditoria + disciplina operacional já existe.
+- Já há resiliência financeira (callback + polling + manual), o que é “nível operação”.
+- Porém a camada de produto/UX/operacionalização (onboarding, suporte, processos e formação) ainda é o gargalo para escalar.
+
+Resposta direta às perguntas-chave:
+1) Estado atual hoje: plataforma transacional multi-tenant pronta para piloto controlado com QR+POS+pagamentos+produção e operação por turno.
+2) Já pode ser considerada SaaS transacional multi-tenant? Sim, tecnicamente sim (com ressalvas de escala e self-service).
+3) Pronta para piloto controlado? Sim, com desenho certo de piloto e suporte.
+4) O que testar em piloto real? Abertura/fecho; QR+POS; pagamentos + resiliência; produção/KDS; pendências e fecho.
+5) Tipos de piloto que fazem sentido: 1 unidade/1 cozinha; balcão/quiosque; evento controlado.
+6) Falta para self-service público: onboarding, billing, UX/admin, suporte, observabilidade, multi-instância madura.
+7) Base atual está mais próxima de: piloto operacional.
+8) Core técnico coerente com visão? Sim como “infra operacional” modular, desde que a expansão para verticais seja guiada por produto e não por engenharia.
+9) Overengineering? Há complexidade, mas ela é majoritariamente justificada por operação real (cache/sync, idempotência, auditoria, turnos, resiliência financeira). Risco existe se expandir verticais cedo demais.
+
+================================================================================
+7. COERÊNCIA COM A VISÃO MAIOR (“A ideia é sua. A estrutura é CONSUMA.”)
+================================================================================
+Coerência técnica: alta.
+- O core já está desenhado como infraestrutura: multi-tenant, RBAC, auditoria, devices, e domínio transacional com consistência.
+- O que existe hoje (turnos, produção, pagamentos, dispositivos) é um “motor operacional” reutilizável para outras verticais, desde que os domínios sejam modularizados com disciplina.
+
+Coerência de produto/estratégia: boa, mas depende de foco.
+- A visão de plataforma-mãe é válida, mas o caminho racional passa por:
+  - consolidar 1 vertical (restaurante/consumo) com operação impecável;
+  - criar playbooks replicáveis;
+  - depois extrair “motores” (pagamento, turnos, ticketing, inventory leve) como módulos.
+
+================================================================================
+8. RISCOS PRINCIPAIS
+================================================================================
+8.1 Riscos técnicos
+- Escala/concorrência: jobs locais de polling e outros agendamentos podem precisar de lock distribuído em produção multi-instância.
+- Crescimento do OperationalEventLog: risco de performance/armazenamento; precisa estratégia de retenção/partição/arquivamento.
+- Integridade financeira: divergência de valor/moeda ou estados intermediários mal resolvidos pode gerar disputas; mitigado por confirmação central, mas exige monitorização e invariantes claras.
+- Consistência de estados: sincronização entre status operacional de pedido/subpedido e status financeiro sob falhas de rede exige testes de caos e regras explícitas.
+
+8.2 Riscos operacionais (campo)
+- Formação e disciplina: turno/checklist existe, mas depende de adoção (operador pode “forçar fecho” e gerar buracos operacionais).
+- Gestão de exceções: casos reais (cliente pagou e não aparece; rede falha; device offline; atraso de callback) exigem playbooks e UI/rotinas claras.
+- Dependência de internet: sem offline, a operação precisa contingência (mesmo que “offline bidirecional” esteja fora, há necessidade de procedimentos).
+
+8.3 Riscos de adoção
+- Mudança de hábito: operação com turno e disciplina pode ser vista como “mais trabalho” se a UX não for simples.
+- Confiança: se pagamentos ficarem “pendentes” frequentemente, mesmo com polling/manual, a perceção do operador pode degradar.
+- Custo/benefício: pequenos negócios precisam ver ganho imediato (menos perdas, mais organização, mais vendas, menos confusão).
+
+8.4 Riscos comerciais
+- Segmentação: tentar servir muitas verticais cedo demais dilui posicionamento e suporte.
+- Precificação: sem billing pronto, o modelo de monetização pode travar crescimento.
+- Suporte: sem equipa/processo, cada piloto vira “projeto sob medida”.
+
+Maior gargalo neste momento (prioridade realista):
+- Operação/pilotos + UX/suporte (não tecnologia pura).
+
+================================================================================
+9. SCORES (0–100) — COM JUSTIFICATIVA CURTA
+================================================================================
+Legenda: 0 = inexistente | 50 = parcial | 70 = bom para piloto | 85+ = bom para produto em escala
+
+| Dimensão | Score | Justificativa (2–4 linhas) |
+|---|---:|---|
+| 1) Maturidade técnica core multi-tenant | 82 | Isolamento, contexto, guard, RBAC e modelos base estão sólidos. Falta maturidade de escala multi-instância e tooling de operação/billing. |
+| 2) Segurança tenant-aware | 85 | TenantContext/DevicePrincipal como fonte de verdade, cursor HMAC, erros padronizados e secrets hardening em prod. Ainda falta validação contínua/abuse monitoring. |
+| 3) Fluxo QR / pedido público | 78 | Funcional e tenant-safe; associação a turno é opcional/policy-driven. Ainda falta UX/controle de operação (ex.: exigir turno por tenant) e mitigação de abuso público. |
+| 4) Fluxo pagamento/callback | 80 | Callback idempotente e centralização de confirmação; device inicia pagamento sem alterar callback. Risco residual: variabilidade do gateway e handling de edge cases. |
+| 5) Produção/KDS | 76 | KDS-ready via HTTP + fila + diff e eventos. Precisa validação em campo (latência, volume, múltiplas unidades/rotas) e UX KDS, mas backend está bem posicionado. |
+| 6) POS/dispositivo operacional | 74 | Autenticação, capabilities, pedido e pagamento por device, métricas e erros padronizados. Falta produto Android/UX e rotinas operacionais completas (suporte/diagnóstico). |
+| 7) Sync read-only | 88 | ETag/304, versões SQL por domínio, fullSyncRequired, cursores keyset + HMAC e contrato de erros. Está em nível “bom para piloto” com robustez acima da média. |
+| 8) Turnos/checklist operacional | 72 | Modelo e endpoints estão prontos, com pré-fecho e integração de alertas financeiros. Falta maturidade de processos, templates por tenant e UI/adoção no campo. |
+| 9) Prontidão para piloto controlado | 76 | Já dá para operar com suporte próximo (1–3 tenants). O risco é operacional/UX/suporte, não base técnica. |
+| 10) Prontidão para mercado público self-service | 45 | Falta onboarding self-service, billing, UI administrativa madura, suporte/observabilidade e políticas comerciais. Não é o momento de “abrir”. |
+| 11) Clareza de produto | 60 | Visão é forte, mas ainda precisa consolidar uma vertical como produto replicável (fluxos, UX, pricing, oferta). |
+| 12) Clareza comercial | 52 | Falta modelo de monetização e pacote comercial claro (preços, planos, limites, suporte). Ainda está dependente de piloto. |
+| 13) Risco de overengineering | 38 | A complexidade atual é majoritariamente justificada por operação transacional e multi-tenant. O risco cresce se tentar muitas verticais cedo demais. |
+| 14) Risco de adoção | 58 | Adoção depende de UX, formação e prova de valor. Pendências de pagamento e disciplina de turno exigem boa experiência e suporte. |
+| 15) Potencial estratégico em Angola | 86 | Infra operacional multi-tenant com pagamentos e disciplina de operação tem alto potencial. O diferencial será execução: distribuição, suporte e foco vertical. |
+| 16) Score global CONSUMA hoje | 72 | Core técnico forte e já “pilotável”, mas ainda não é produto comercial self-service. O gargalo é operacionalização e produto/UX no campo. |
+
+================================================================================
+10. PRÓXIMOS PASSOS RECOMENDADOS
+================================================================================
+10.1 Próximos 15 dias (execução e estabilização)
+- Escolher 1–2 cenários de piloto com escopo fechado (ex.: balcão + restaurante pequeno).
+- Criar playbooks operacionais mínimos:
+  - abertura/fecho;
+  - pagamento pendente (o que fazer, quando forçar polling, quando aguardar);
+  - falha de device/rede.
+- Definir métricas-alvo e checklists de sucesso do piloto (tempo de fecho, % pendentes, tempo médio de confirmação, falhas por device).
+- Treinar 2–3 operadores reais e rodar “simulações” (dia 0) antes do piloto.
+
+10.2 Próximos 30 dias (produto/operacionalização)
+- Melhorar UX operacional (mesmo que sem “app” completo): telas/admin para turnos, pendências, e diagnóstico básico de device.
+- Criar dashboards internos (mesmo simples) para suporte: pendências, erros de gateway, eventos por tenant.
+- Consolidar políticas por tenant:
+  - exigir turno para pedidos/pagamentos (config);
+  - regras de fecho (bloquear ou não por críticos).
+- Exercitar volume e estabilidade: testes de carga leves em produção/KDS, OperationalEventLog, polling.
+
+10.3 Próximos 90 dias (pronto para escalar com disciplina)
+- Estruturar onboarding replicável (processo + tool + templates) e pacotes comerciais.
+- Preparar execução multi-instância:
+  - lock distribuído para jobs (polling);
+  - estratégia de retenção/partição para logs.
+- Evoluir “produto POS” (Android/UX) apenas depois de piloto provar valor e fluxo.
+
+Próxima fase técnica racional (depois do alinhamento atual):
+- Consolidação operacional e observabilidade: dashboards, alertas, processos e hardening de escala (jobs/locks/log retention).
+Próxima fase comercial racional:
+- Definir 1 vertical-alvo (restaurante/balcão) + oferta + pricing + suporte + termos de piloto → converter piloto em contrato.
+
+================================================================================
+11. O QUE NÃO FAZER AGORA (PARA EVITAR DISPERSÃO)
+================================================================================
+- Não abrir self-service público antes de onboarding, billing e suporte estarem prontos.
+- Não entrar em múltiplas verticais (bilhetes, sport, artes, fornecedores) antes de consolidar uma vertical replicável.
+- Não implementar offline bidirecional, impressão, SSE/WebSocket, settlement, refund, marketplace, caixa completo, sem ter validação do fluxo base no campo.
+- Não “enfeitar” arquitetura: priorizar operação, UX e disciplina de processo.
+
+================================================================================
+12. CONCLUSÃO EXECUTIVA
+================================================================================
+A CONSUMA hoje já é, tecnicamente, uma plataforma SaaS transacional multi-tenant com um núcleo operacional forte para “consumo/pedidos/pagamentos/produção” e com disciplina de turno suficiente para um piloto controlado. O próximo movimento mais inteligente não é adicionar novas verticais ou features grandes: é provar a operação no campo com pilotos pequenos, reduzir fricção de uso, fortalecer suporte/observabilidade e transformar o que já existe em um “produto replicável” (processo + UX + métricas + oferta comercial). Isso mantém alinhamento com a visão maior: a estrutura é CONSUMA — mas só vira infraestrutura nacional quando o primeiro motor operar impecavelmente no mundo real.
+

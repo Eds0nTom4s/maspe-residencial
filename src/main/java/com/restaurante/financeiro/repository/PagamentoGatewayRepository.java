@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -182,4 +183,63 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
     List<Pagamento> findUltimosPagamentosConfirmadosFundo(Long fundoId);
 
     long countByTenantIdAndPedidoTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusPagamentoGateway status);
+
+    @Query("select coalesce(sum(p.amount), 0) from Pagamento p where p.tenant.id = :tenantId and p.pedido.turnoOperacional.id = :turnoOperacionalId and p.status = :status")
+    BigDecimal sumByTenantIdAndTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusPagamentoGateway status);
+
+    @Query("""
+            select p
+            from Pagamento p
+              join fetch p.pedido ped
+            where p.tenant.id = :tenantId
+              and p.status = 'PENDENTE'
+              and (:turnoId is null or ped.turnoOperacional.id = :turnoId)
+              and (:pedidoId is null or ped.id = :pedidoId)
+              and (:unidadeAtendimentoId is null or ped.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (:metodo is null or p.metodo = :metodo)
+              and (:pollingStatus is null or p.pollingStatus = :pollingStatus)
+              and (:hasError is null or (:hasError = true and p.pollingLastErrorCode is not null) or (:hasError = false and p.pollingLastErrorCode is null))
+              and (:olderThan is null or p.createdAt <= :olderThan)
+              and (:de is null or p.createdAt >= :de)
+              and (:ate is null or p.createdAt <= :ate)
+            """)
+    Page<Pagamento> searchPendentesTenant(
+            Long tenantId,
+            Long turnoId,
+            Long pedidoId,
+            Long unidadeAtendimentoId,
+            com.restaurante.financeiro.enums.MetodoPagamentoAppyPay metodo,
+            com.restaurante.financeiro.enums.PagamentoPollingStatus pollingStatus,
+            Boolean hasError,
+            LocalDateTime olderThan,
+            LocalDateTime de,
+            LocalDateTime ate,
+            Pageable pageable
+    );
+
+    @Query("""
+            select p.tenant.id as tenantId, count(p) as cnt
+            from Pagamento p
+            where p.status = com.restaurante.financeiro.enums.StatusPagamentoGateway.PENDENTE
+            group by p.tenant.id
+            """)
+    List<Object[]> countPendentesByTenant();
+
+    @Query("""
+            select p.tenant.id as tenantId, count(p) as cnt
+            from Pagamento p
+            where p.status = com.restaurante.financeiro.enums.StatusPagamentoGateway.PENDENTE
+              and (p.pollingStatus = com.restaurante.financeiro.enums.PagamentoPollingStatus.MAX_ATTEMPTS_REACHED
+                   or p.createdAt < :cutoff)
+            group by p.tenant.id
+            """)
+    List<Object[]> countCriticosByTenant(@Param("cutoff") LocalDateTime cutoff);
+
+    @Query("""
+            select count(p)
+            from Pagamento p
+            where p.status = com.restaurante.financeiro.enums.StatusPagamentoGateway.PENDENTE
+              and p.pollingStatus = com.restaurante.financeiro.enums.PagamentoPollingStatus.MAX_ATTEMPTS_REACHED
+            """)
+    long countMaxAttemptsReached();
 }

@@ -1,0 +1,248 @@
+RELATÓRIO TÉCNICO — PROMPT 35 — OBSERVABILIDADE OPERACIONAL DO PILOTO + SUPORTE INTERNO
+Data: 2026-05-19
+Escopo: observabilidade operacional (platform) + suporte interno (sem features transacionais novas)
+
+================================================================================
+1) RESUMO EXECUTIVO
+================================================================================
+Foi criada uma camada interna de observabilidade operacional para suportar pilotos controlados, exposta via endpoints
+`/platform/observabilidade/*`, acessível apenas por `PLATFORM_ADMIN` (via `TenantGuard.assertPlatformAdmin()`).
+
+Esta camada permite:
+- visão de saúde global (tenants, turnos, devices, pagamentos pendentes/críticos, produção);
+- visão por tenant (turnos, devices, pagamentos, produção, eventos recentes, alertas);
+- eventos recentes paginados e sanitizados;
+- alertas ativos calculados on-the-fly (sem tabela persistida) com levels/actions recomendadas;
+- documentação + playbooks mínimos de suporte.
+
+Não houve alteração de callback AppyPay, polling, POS/QR flows, nem implementação de novas verticais.
+
+================================================================================
+2) ENDPOINTS CRIADOS (PLATFORM / INTERNO)
+================================================================================
+Base: `/platform/observabilidade`
+
+- GET `/platform/observabilidade/saude`
+  Visão global: tenants/turnos/devices/pagamentos/produção/alertas.
+
+- GET `/platform/observabilidade/tenants`
+  Lista tenants com filtros operacionais básicos (post-filter MVP para piloto).
+
+- GET `/platform/observabilidade/tenants/{tenantId}`
+  Detalhe consolidado do tenant: turnos abertos, devices problema, pagamentos críticos, produção, eventos recentes, alertas.
+
+- GET `/platform/observabilidade/tenants/{tenantId}/turnos`
+  Turnos do tenant com agregados (pendências operacionais/financeiras).
+
+- GET `/platform/observabilidade/tenants/{tenantId}/devices`
+  Devices do tenant com deteção offline e recomendação de ação.
+
+- GET `/platform/observabilidade/tenants/{tenantId}/pagamentos`
+  Pagamentos do tenant (foco MVP em pendentes/críticos, com filtros).
+
+- GET `/platform/observabilidade/tenants/{tenantId}/producao`
+  Produção do tenant por unidade de produção (fila, em preparação, prontos, atrasos).
+
+- GET `/platform/observabilidade/tenants/{tenantId}/eventos`
+  Eventos operacionais recentes do tenant (paginado, metadata sanitizada).
+
+- GET `/platform/observabilidade/alertas`
+  Alertas ativos calculados on-the-fly (level + tipo + action).
+
+================================================================================
+3) SEGURANÇA / RBAC (OBRIGATÓRIO)
+================================================================================
+- Todos endpoints exigem autenticação e chamam `TenantGuard.assertPlatformAdmin()`.
+- Tenant users não devem acessar estes endpoints (erro/negação pela ausência de `platformAdmin` no TenantContext).
+- Sanitização aplicada:
+  - não retorna deviceToken / activationCode / hashes / cursor / secrets;
+  - não retorna raw payload do gateway/callback;
+  - eventos retornam `metadataResumo` (apenas tamanho), não `metadataJson`.
+
+================================================================================
+4) HEURÍSTICAS DE ALERTA (MVP)
+================================================================================
+Alertas (sem persistência) por tenant:
+- `TENANT_PAGAMENTO_CRITICO` (CRITICAL): pendente muito antigo (threshold financeiro) ou `MAX_ATTEMPTS_REACHED`.
+- `TENANT_DEVICE_OFFLINE` (WARNING): device ATIVO com heartbeat stale.
+- `TENANT_TURNO_EM_FECHO_LONGO` (WARNING): turno EM_FECHO há muito tempo.
+- `TENANT_SEM_TURNO_ABERTO` (INFO): informativo.
+
+Actions recomendadas (MVP):
+- pagamentos críticos → `CHECK_GATEWAY`
+- devices offline → `CHECK_DEVICES`
+- turno em fecho longo / sem turno → `CHECK_TURNOS`
+
+Observação: thresholds financeiros reutilizam `FinancePendingPaymentsProperties` (já existente da Fase 33/34).
+
+================================================================================
+5) SERVICES / COMPONENTES CRIADOS
+================================================================================
+- `src/main/java/com/restaurante/platform/observabilidade/service/PlatformObservabilidadeService.java`
+  Consolida saúde global, visões por tenant, eventos e alertas.
+
+- `src/main/java/com/restaurante/platform/observabilidade/controller/PlatformObservabilidadeController.java`
+  Controller REST com rotas `/platform/observabilidade/*`.
+
+- `src/main/java/com/restaurante/config/ObservabilidadeProperties.java`
+  Properties para thresholds e limites de paginação de observabilidade.
+
+================================================================================
+6) DTOs / ENUMS CRIADOS
+================================================================================
+Local: `src/main/java/com/restaurante/platform/observabilidade/dto/*`
+
+- `PlatformSaudeOperacionalResponse`
+- `TenantObservabilidadeResumoResponse`
+- `TenantObservabilidadeDetalheResponse`
+- `TurnoObservabilidadeResponse`
+- `DeviceObservabilidadeResponse`
+- `PlatformPagamentoObservabilidadeResponse`
+- `TenantProducaoObservabilidadeResponse`
+- `UnidadeProducaoObservabilidadeResponse`
+- `OperationalEventObservabilidadeResponse`
+- `PlatformAlertaOperacionalResponse`
+- Enums: `PlatformAlertLevel`, `PlatformActionRecommended`, `PlatformAlertaTipo`
+
+================================================================================
+7) REPOSITORIES / QUERIES AJUSTADOS
+================================================================================
+Ajustes mínimos para agregações e busca:
+- `src/main/java/com/restaurante/repository/TenantRepository.java`
+  - `countByEstado(...)`
+  - `searchPlatform(...)`
+
+- `src/main/java/com/restaurante/repository/TurnoOperacionalRepository.java`
+  - `countByStatus(...)`
+  - `countByTenantForStatuses(...)`
+  - `searchPlatformByTenant(...)`
+
+- `src/main/java/com/restaurante/repository/DispositivoOperacionalRepository.java`
+  - `countOfflineGlobal(...)`
+  - `countByStatus(...)`
+  - `searchByTenantAndFilters(...)`
+  - `countAtivosByTenant(...)`
+  - `countOfflineByTenant(...)`
+
+- `src/main/java/com/restaurante/financeiro/repository/PagamentoGatewayRepository.java`
+  - `countPendentesByTenant(...)`
+  - `countCriticosByTenant(...)`
+  - `countMaxAttemptsReached()`
+
+- `src/main/java/com/restaurante/repository/SubPedidoRepository.java`
+  - contagens por unidade de produção/statuses
+  - min timestamp em preparação
+  - contagem de atrasados
+  - agregados por tenant/statuses
+
+- `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java`
+  - `maxActivityByTenantSince(...)`
+  - `searchTenantEventsExtended(...)`
+
+================================================================================
+8) PROPERTIES ADICIONADAS
+================================================================================
+Arquivo: `src/main/resources/application.properties`
+
+- `consuma.observabilidade.device-offline-threshold-minutes`
+- `consuma.observabilidade.producao-subpedido-atrasado-minutes`
+- `consuma.observabilidade.turno-em-fecho-longo-minutes`
+- `consuma.observabilidade.eventos-default-lookback-hours`
+- `consuma.observabilidade.max-page-size`
+
+================================================================================
+9) DOCUMENTAÇÃO / PLAYBOOKS
+================================================================================
+- `docs/tenant-core/35-observabilidade-operacional-piloto.md`
+  Explica endpoints, segurança, alertas e configurações.
+
+- `docs/playbooks/piloto-operacional-consuma.md`
+  Playbooks mínimos:
+  - device offline
+  - pagamento crítico
+  - callback atrasado
+  - turno em fecho longo
+  - produção atrasada
+
+================================================================================
+10) TESTES CRIADOS/ALTERADOS
+================================================================================
+- `src/test/java/com/restaurante/platform/PlatformObservabilidadeControllerIT.java`
+  Cobertura:
+  - PLATFORM_ADMIN acessa saúde/alertas/detalhes.
+  - deteção de devices offline e produção atrasada.
+  - verificação de não vazamento de campos sensíveis (strings não aparecem no payload).
+  - tenant user não consegue acessar (sem platformAdmin no TenantContext).
+
+================================================================================
+11) COMANDOS EXECUTADOS
+================================================================================
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+================================================================================
+12) RESULTADOS DOS COMANDOS
+================================================================================
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS (149 testes executados; 0 falhas; alguns skipped esperados)
+
+================================================================================
+13) ARQUIVOS CRIADOS/ALTERADOS
+================================================================================
+Criados:
+- `src/main/java/com/restaurante/config/ObservabilidadeProperties.java`
+- `src/main/java/com/restaurante/platform/observabilidade/controller/PlatformObservabilidadeController.java`
+- `src/main/java/com/restaurante/platform/observabilidade/service/PlatformObservabilidadeService.java`
+- `src/main/java/com/restaurante/platform/observabilidade/dto/*` (14 arquivos)
+- `docs/tenant-core/35-observabilidade-operacional-piloto.md`
+- `docs/playbooks/piloto-operacional-consuma.md`
+- `src/test/java/com/restaurante/platform/PlatformObservabilidadeControllerIT.java`
+
+Alterados:
+- `src/main/resources/application.properties`
+- `src/main/java/com/restaurante/repository/TenantRepository.java`
+- `src/main/java/com/restaurante/repository/TurnoOperacionalRepository.java`
+- `src/main/java/com/restaurante/repository/DispositivoOperacionalRepository.java`
+- `src/main/java/com/restaurante/repository/SubPedidoRepository.java`
+- `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java`
+- `src/main/java/com/restaurante/financeiro/repository/PagamentoGatewayRepository.java`
+
+================================================================================
+14) DECISÕES TÉCNICAS TOMADAS
+================================================================================
+- Reutilizar padrão existente de rotas platform (`/platform/*`) para consistência com provisioning/financeiro.
+- Reutilizar `TenantGuard.assertPlatformAdmin()` (não criar roles novas nesta fase).
+- Alertas calculados on-the-fly (sem tabela) para manter escopo enxuto e rápido para piloto.
+- Sanitização rígida de metadados/eventos (retornar apenas resumo, não payload).
+- Post-filter em memória para alguns filtros de tenants (aceitável em piloto controlado; documentado como limitação).
+
+================================================================================
+15) RISCOS / LIMITAÇÕES RESTANTES (DESTE MÓDULO)
+================================================================================
+- Post-filter em memória não escala para milhares de tenants (OK em piloto; precisa queries agregadas melhores depois).
+- Job/polling multi-instância (locks distribuídos) continua tópico de hardening/escala (fora deste prompt).
+- Produção “atraso” usa heurística simples (timestamp em preparação); pode precisar de SLA por unidade/tenant no futuro.
+
+================================================================================
+16) CHECKLIST DE ACEITAÇÃO (PROMPT 35)
+================================================================================
+[OK] endpoint de saúde global
+[OK] endpoint de tenants + detalhe tenant
+[OK] endpoint de turnos/devices/pagamentos/produção/eventos por tenant
+[OK] endpoint de alertas ativos
+[OK] acesso apenas platform admin; tenant user bloqueado
+[OK] sem vazamento de dados sensíveis
+[OK] devices offline detectados
+[OK] pagamentos críticos detectados
+[OK] produção atrasada detectada
+[OK] playbooks mínimos criados
+[OK] testes passando; sem mudanças transacionais
+
+================================================================================
+17) PRÓXIMO PROMPT RECOMENDADO
+================================================================================
+Prompt 36 — Dashboard operacional mínimo (sem frontend complexo) + alertas internos:
+- integrações com Actuator/Micrometer (se disponível) e/ou export de métricas,
+- rotas internas para “top incidentes” e “timeline por tenant/turno”,
+- melhorias de queries agregadas (remover post-filter) e limites/retention.
+

@@ -2,13 +2,16 @@ package com.restaurante.repository;
 
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.TurnoOperacionalStatus;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface TurnoOperacionalRepository extends JpaRepository<TurnoOperacional, Long> {
@@ -82,5 +85,39 @@ public interface TurnoOperacionalRepository extends JpaRepository<TurnoOperacion
             @Param("ate") LocalDateTime ate,
             Pageable pageable
     );
-}
 
+    long countByStatus(TurnoOperacionalStatus status);
+
+    @Query("""
+            select t.tenant.id as tenantId, count(t) as cnt
+            from TurnoOperacional t
+            where t.status in :statuses
+            group by t.tenant.id
+            """)
+    List<Object[]> countByTenantForStatuses(@Param("statuses") List<TurnoOperacionalStatus> statuses);
+
+    @Query("""
+            select t
+            from TurnoOperacional t
+            where t.tenant.id = :tenantId
+              and (:status is null or t.status = :status)
+              and (:instituicaoId is null or t.instituicao.id = :instituicaoId)
+              and (:unidadeAtendimentoId is null or t.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (:de is null or t.abertoEm >= :de)
+              and (:ate is null or t.abertoEm <= :ate)
+            order by t.abertoEm desc
+            """)
+    Page<TurnoOperacional> searchPlatformByTenant(
+            @Param("tenantId") Long tenantId,
+            @Param("status") TurnoOperacionalStatus status,
+            @Param("instituicaoId") Long instituicaoId,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate,
+            Pageable pageable
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from TurnoOperacional t where t.id = :id")
+    Optional<TurnoOperacional> findForUpdateById(@Param("id") Long id);
+}

@@ -89,6 +89,84 @@ public class PagamentoGatewayPollingService {
         });
     }
 
+    /**
+     * Polling manual: retorna resultado estruturado para uso em endpoints tenant.
+     */
+    public PagamentoPollingResult pollPagamentoForManual(Long pagamentoId) {
+        if (pagamentoId == null) {
+            return PagamentoPollingResult.builder()
+                    .pagamentoId(null)
+                    .message("PagamentoId inválido.")
+                    .build();
+        }
+
+        Pagamento before = pagamentoRepository.findById(pagamentoId).orElse(null);
+        if (before == null) {
+            return PagamentoPollingResult.builder()
+                    .pagamentoId(pagamentoId)
+                    .message("Pagamento não encontrado.")
+                    .build();
+        }
+        if (before.getStatus() != null && before.getStatus().isTerminal()) {
+            return PagamentoPollingResult.builder()
+                    .pagamentoId(pagamentoId)
+                    .statusAnterior(before.getStatus())
+                    .statusAtual(before.getStatus())
+                    .pollingStatus(before.getPollingStatus())
+                    .confirmado(before.getStatus() == StatusPagamentoGateway.CONFIRMADO)
+                    .attempts(before.getPollingAttempts())
+                    .message("Pagamento já está em estado terminal.")
+                    .build();
+        }
+
+        Pagamento snapshot = markInProgress(pagamentoId);
+        if (snapshot == null) {
+            Pagamento cur = pagamentoRepository.findById(pagamentoId).orElse(before);
+            return PagamentoPollingResult.builder()
+                    .pagamentoId(pagamentoId)
+                    .statusAnterior(before.getStatus())
+                    .statusAtual(cur.getStatus())
+                    .pollingStatus(cur.getPollingStatus())
+                    .confirmado(cur.getStatus() == StatusPagamentoGateway.CONFIRMADO)
+                    .attempts(cur.getPollingAttempts())
+                    .message("Pagamento não elegível para polling agora.")
+                    .build();
+        }
+
+        GatewayPaymentStatusResponse gateway;
+        try {
+            gateway = statusPort.consultarStatus(snapshot.getGatewayChargeId(), snapshot.getExternalReference());
+        } catch (Exception e) {
+            recordGatewayError(pagamentoId, "GATEWAY_ERROR", e.getMessage());
+            Pagamento cur = pagamentoRepository.findById(pagamentoId).orElse(before);
+            return PagamentoPollingResult.builder()
+                    .pagamentoId(pagamentoId)
+                    .statusAnterior(before.getStatus())
+                    .statusAtual(cur.getStatus())
+                    .pollingStatus(cur.getPollingStatus())
+                    .gatewayStatus(GatewayPaymentStatus.UNKNOWN)
+                    .confirmado(false)
+                    .attempts(cur.getPollingAttempts())
+                    .message("Falha ao consultar gateway.")
+                    .errorCode("GATEWAY_ERROR")
+                    .build();
+        }
+
+        applyGatewayResult(pagamentoId, gateway);
+
+        Pagamento after = pagamentoRepository.findById(pagamentoId).orElse(before);
+        return PagamentoPollingResult.builder()
+                .pagamentoId(pagamentoId)
+                .statusAnterior(before.getStatus())
+                .statusAtual(after.getStatus())
+                .pollingStatus(after.getPollingStatus())
+                .gatewayStatus(gateway != null ? gateway.getStatus() : GatewayPaymentStatus.UNKNOWN)
+                .confirmado(after.getStatus() == StatusPagamentoGateway.CONFIRMADO)
+                .attempts(after.getPollingAttempts())
+                .message(after.getStatus() == StatusPagamentoGateway.CONFIRMADO ? "Confirmado." : "Consultado.")
+                .build();
+    }
+
     @Transactional
     protected Pagamento markInProgress(Long pagamentoId) {
         Pagamento pagamento = pagamentoRepository.findForUpdateById(pagamentoId).orElse(null);

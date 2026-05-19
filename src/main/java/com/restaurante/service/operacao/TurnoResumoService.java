@@ -2,6 +2,8 @@ package com.restaurante.service.operacao;
 
 import com.restaurante.config.OperacaoProperties;
 import com.restaurante.dto.response.TurnoPreFechoResponse;
+import com.restaurante.financeiro.monitoramento.dto.TurnoPagamentoAlertasResponse;
+import com.restaurante.financeiro.service.PagamentoPendenteQueryService;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -30,6 +32,7 @@ public class TurnoResumoService {
     private final SubPedidoRepository subPedidoRepository;
     private final SessaoConsumoRepository sessaoConsumoRepository;
     private final DispositivoOperacionalRepository dispositivoOperacionalRepository;
+    private final PagamentoPendenteQueryService pagamentoPendenteQueryService;
 
     @Transactional(readOnly = true)
     public TurnoPreFechoResponse calcularPreFecho(TurnoOperacional turno) {
@@ -100,6 +103,18 @@ public class TurnoResumoService {
 
         if (offline > 0) {
             resp.getAvisos().add("Existem dispositivos possivelmente offline (heartbeat stale): " + offline);
+        }
+
+        // Alertas financeiros (Fase 34): anexar ao pré-fecho
+        TurnoPagamentoAlertasResponse alertas = pagamentoPendenteQueryService.alertasPorTurno(turno.getId());
+        resp.setAlertasFinanceiros(alertas);
+        resp.setPossuiAlertasFinanceiros(alertas != null && alertas.getTotalPagamentosPendentes() > 0);
+        resp.setPossuiAlertasFinanceirosCriticos(alertas != null && alertas.getTotalCriticos() > 0);
+
+        if (alertas != null && alertas.isBloqueiaFecho()) {
+            resp.getBloqueios().add("Fecho bloqueado por pagamentos críticos pendentes neste turno.");
+        } else if (alertas != null && alertas.getTotalCriticos() > 0) {
+            resp.getAvisos().add("Existem pagamentos críticos pendentes neste turno. Recomenda-se revisão antes do fecho.");
         }
 
         resp.setPodeFechar(resp.getBloqueios().isEmpty());

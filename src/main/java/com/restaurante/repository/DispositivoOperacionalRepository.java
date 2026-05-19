@@ -2,6 +2,7 @@ package com.restaurante.repository;
 
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.enums.DispositivoStatus;
+import com.restaurante.model.enums.DispositivoTipo;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -38,4 +39,50 @@ public interface DispositivoOperacionalRepository extends JpaRepository<Disposit
     long countOfflineByTenantAndUnidadeAtendimento(@Param("tenantId") Long tenantId,
                                                   @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
                                                   @Param("cutoff") LocalDateTime cutoff);
+
+    @Query("""
+            select count(d)
+            from DispositivoOperacional d
+            where d.status = com.restaurante.model.enums.DispositivoStatus.ATIVO
+              and (d.ultimoHeartbeatEm is null or d.ultimoHeartbeatEm < :cutoff)
+            """)
+    long countOfflineGlobal(@Param("cutoff") LocalDateTime cutoff);
+
+    long countByStatus(DispositivoStatus status);
+
+    @Query("""
+            select d
+            from DispositivoOperacional d
+            where d.tenant.id = :tenantId
+              and (:status is null or d.status = :status)
+              and (:tipo is null or d.tipo = :tipo)
+              and (:unidadeAtendimentoId is null or d.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (:unidadeProducaoId is null or d.unidadeProducao.id = :unidadeProducaoId)
+            order by d.id desc
+            """)
+    Page<DispositivoOperacional> searchByTenantAndFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("status") DispositivoStatus status,
+            @Param("tipo") DispositivoTipo tipo,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            Pageable pageable
+    );
+
+    @Query("""
+            select d.tenant.id as tenantId, count(d) as cnt
+            from DispositivoOperacional d
+            where d.status = com.restaurante.model.enums.DispositivoStatus.ATIVO
+            group by d.tenant.id
+            """)
+    java.util.List<Object[]> countAtivosByTenant();
+
+    @Query("""
+            select d.tenant.id as tenantId, count(d) as cnt
+            from DispositivoOperacional d
+            where d.status = com.restaurante.model.enums.DispositivoStatus.ATIVO
+              and (d.ultimoHeartbeatEm is null or d.ultimoHeartbeatEm < :cutoff)
+            group by d.tenant.id
+            """)
+    java.util.List<Object[]> countOfflineByTenant(@Param("cutoff") LocalDateTime cutoff);
 }

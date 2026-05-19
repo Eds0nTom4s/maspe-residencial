@@ -2,6 +2,7 @@ package com.restaurante.repository;
 
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.enums.OperationalEventType;
+import com.restaurante.model.enums.OperationalEntityType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -139,4 +140,35 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
     boolean existsByIdAndTenantAndUnidadeProducao(@Param("eventId") Long eventId,
                                                  @Param("tenantId") Long tenantId,
                                                  @Param("unidadeProducaoId") Long unidadeProducaoId);
+
+    List<OperationalEventLog> findTop20ByTenantIdAndEntityTypeAndEntityIdOrderByCreatedAtDesc(Long tenantId, OperationalEntityType entityType, Long entityId);
+
+    @Query("""
+            select e.tenant.id as tenantId, max(e.createdAt) as lastAt
+            from OperationalEventLog e
+            where e.createdAt >= :from
+            group by e.tenant.id
+            """)
+    List<Object[]> maxActivityByTenantSince(@Param("from") LocalDateTime from);
+
+    @Query("""
+            select e
+            from OperationalEventLog e
+            where e.tenant.id = :tenantId
+              and (:eventType is null or e.eventType = :eventType)
+              and (:entityType is null or e.entityType = :entityType)
+              and (:actorType is null or e.actorType = :actorType)
+              and (:de is null or e.createdAt >= :de)
+              and (:ate is null or e.createdAt <= :ate)
+            order by e.createdAt desc
+            """)
+    Page<OperationalEventLog> searchTenantEventsExtended(
+            @Param("tenantId") Long tenantId,
+            @Param("eventType") OperationalEventType eventType,
+            @Param("entityType") OperationalEntityType entityType,
+            @Param("actorType") com.restaurante.model.enums.OperationalActorType actorType,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate,
+            Pageable pageable
+    );
 }

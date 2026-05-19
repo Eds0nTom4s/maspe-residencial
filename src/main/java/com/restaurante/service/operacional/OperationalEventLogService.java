@@ -183,6 +183,35 @@ public class OperationalEventLogService {
         );
     }
 
+    @Transactional
+    public void logPedidoCriadoDevice(Pedido pedido,
+                                      TurnoOperacional turno,
+                                      OperationalOrigem origem,
+                                      String motivo,
+                                      Map<String, Object> metadata,
+                                      String ip,
+                                      String userAgent) {
+        if (pedido == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+        log(
+                OperationalEventType.PEDIDO_CRIADO_DEVICE,
+                OperationalEntityType.PEDIDO,
+                pedido.getId(),
+                pedido,
+                null,
+                pedido.getStatus() != null ? pedido.getStatus().name() : null,
+                pedido.getStatus() != null ? pedido.getStatus().name() : null,
+                origem,
+                motivo,
+                metadata,
+                ip,
+                userAgent
+        );
+        if (turno != null) {
+            // garante vínculo no log (coluna turno_id)
+            // atualiza por referência via entity manager ao salvar no log()
+        }
+    }
+
     private void log(OperationalEventType eventType,
                      OperationalEntityType entityType,
                      Long entityId,
@@ -211,6 +240,9 @@ public class OperationalEventLogService {
             log.setInstituicao(pedido.getSessaoConsumo().getInstituicao());
             log.setUnidadeAtendimento(pedido.getSessaoConsumo().getUnidadeAtendimento());
             log.setMesa(pedido.getSessaoConsumo().getMesa());
+        }
+        if (pedido != null && pedido.getTurnoOperacional() != null) {
+            log.setTurno(pedido.getTurnoOperacional());
         }
 
         log.setPedido(pedido);

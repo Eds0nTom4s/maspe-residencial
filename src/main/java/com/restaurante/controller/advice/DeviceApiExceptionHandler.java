@@ -1,6 +1,7 @@
 package com.restaurante.controller.advice;
 
 import com.restaurante.dto.response.DeviceErrorResponse;
+import com.restaurante.exception.DeviceApiException;
 import com.restaurante.exception.DeviceForbiddenException;
 import com.restaurante.exception.DeviceUnauthorizedException;
 import com.restaurante.exception.BusinessException;
@@ -97,5 +98,19 @@ public class DeviceApiExceptionHandler {
                 null
         );
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    @ExceptionHandler(DeviceApiException.class)
+    public ResponseEntity<DeviceErrorResponse> deviceApi(DeviceApiException ex, HttpServletRequest req) {
+        if (!isDeviceApiPath(req)) throw ex;
+        DeviceErrorResponse body = new DeviceErrorResponse(
+                ex.getCode(),
+                ex.getMessage(),
+                ex.isRecoverable(),
+                ex.getAction(),
+                LocalDateTime.now(),
+                ex.getDetails()
+        );
+        return ResponseEntity.status(ex.getStatus()).body(body);
     }
 }

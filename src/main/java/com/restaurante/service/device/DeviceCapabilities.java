@@ -18,7 +18,8 @@ public final class DeviceCapabilities {
                     DeviceCapability.HEARTBEAT,
                     DeviceCapability.SYNC_CATALOG,
                     DeviceCapability.VIEW_ORDERS,
-                    DeviceCapability.VIEW_PAYMENTS
+                    DeviceCapability.VIEW_PAYMENTS,
+                    DeviceCapability.CREATE_ORDER
             ));
             case KDS, COZINHA, BAR -> List.copyOf(EnumSet.of(
                     DeviceCapability.HEARTBEAT,
@@ -28,15 +29,16 @@ public final class DeviceCapabilities {
             case CHECKOUT -> List.copyOf(EnumSet.of(
                     DeviceCapability.HEARTBEAT,
                     DeviceCapability.VIEW_ORDERS,
-                    DeviceCapability.VIEW_PAYMENTS
+                    DeviceCapability.VIEW_PAYMENTS,
+                    DeviceCapability.CREATE_ORDER
             ));
             case QUIOSQUE -> List.copyOf(EnumSet.of(
                     DeviceCapability.HEARTBEAT,
                     DeviceCapability.SYNC_CATALOG,
-                    DeviceCapability.VIEW_ORDERS
+                    DeviceCapability.VIEW_ORDERS,
+                    DeviceCapability.CREATE_ORDER
             ));
             default -> List.copyOf(EnumSet.of(DeviceCapability.HEARTBEAT));
         };
     }
 }
-

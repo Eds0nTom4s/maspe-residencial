@@ -15,6 +15,7 @@ import com.restaurante.financeiro.caixa.dto.TotalPorMetodoPagamentoResponse;
 import com.restaurante.financeiro.caixa.service.RelatorioCaixaTurnoService;
 import com.restaurante.financeiro.snapshot.CanonicalJsonHashService;
 import com.restaurante.financeiro.snapshot.SnapshotIntegridadeProperties;
+import com.restaurante.financeiro.snapshot.SnapshotSignatureService;
 import com.restaurante.financeiro.snapshot.dto.SnapshotIntegridadeResponse;
 import com.restaurante.model.entity.ChecklistOperacionalRun;
 import com.restaurante.model.entity.Instituicao;
@@ -65,6 +66,7 @@ public class TurnoOperacionalService {
     private final ObjectMapper objectMapper;
     private final CanonicalJsonHashService canonicalJsonHashService;
     private final SnapshotIntegridadeProperties snapshotIntegridadeProperties;
+    private final SnapshotSignatureService snapshotSignatureService;
 
     private final TenantRepository tenantRepository;
     private final InstituicaoRepository instituicaoRepository;
@@ -491,6 +493,19 @@ public class TurnoOperacionalService {
                     List.of("integridade")
             );
             integ.setSnapshotHash(hash);
+
+            if (snapshotIntegridadeProperties.isSignatureEnabled()) {
+                String secret = snapshotIntegridadeProperties.getSignatureSecret();
+                if (secret == null || secret.isBlank()) {
+                    throw new IllegalStateException("Secret HMAC ausente para assinatura do snapshot (signature-enabled=true).");
+                }
+                integ.setSignatureAlgorithm(snapshotIntegridadeProperties.getSignatureAlgorithm());
+                integ.setSignatureKeyId(snapshotIntegridadeProperties.getSignatureKeyId());
+                integ.setSignatureGeneratedAt(fechadoEm);
+                integ.setSignatureScope("snapshotHash");
+                integ.setSnapshotSignature(snapshotSignatureService.signSnapshotHash(hash, secret));
+            }
+
             s.setIntegridade(integ);
         }
 

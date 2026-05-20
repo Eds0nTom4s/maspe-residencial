@@ -12,6 +12,11 @@ public class SnapshotIntegridadeProperties {
     private String canonicalizationVersion = "1.0";
     private boolean auditExport = true;
 
+    private boolean signatureEnabled = true;
+    private String signatureAlgorithm = "HMAC-SHA256";
+    private String signatureKeyId = "platform-snapshot-key-v1";
+    private String signatureSecret;
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -43,5 +48,36 @@ public class SnapshotIntegridadeProperties {
     public void setAuditExport(boolean auditExport) {
         this.auditExport = auditExport;
     }
-}
 
+    public boolean isSignatureEnabled() {
+        return signatureEnabled;
+    }
+
+    public void setSignatureEnabled(boolean signatureEnabled) {
+        this.signatureEnabled = signatureEnabled;
+    }
+
+    public String getSignatureAlgorithm() {
+        return signatureAlgorithm;
+    }
+
+    public void setSignatureAlgorithm(String signatureAlgorithm) {
+        this.signatureAlgorithm = signatureAlgorithm;
+    }
+
+    public String getSignatureKeyId() {
+        return signatureKeyId;
+    }
+
+    public void setSignatureKeyId(String signatureKeyId) {
+        this.signatureKeyId = signatureKeyId;
+    }
+
+    public String getSignatureSecret() {
+        return signatureSecret;
+    }
+
+    public void setSignatureSecret(String signatureSecret) {
+        this.signatureSecret = signatureSecret;
+    }
+}

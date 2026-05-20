@@ -123,6 +123,10 @@ class TurnoFechoSnapshotFinanceiroIT extends PostgresTestcontainersConfig {
         assertThat(fin.at("/integridade/hashAlgorithm").asText()).isEqualTo("SHA-256");
         assertThat(fin.at("/integridade/snapshotHash").asText()).isNotBlank();
         assertThat(fin.at("/integridade/canonicalizationVersion").asText()).isEqualTo("1.0");
+        assertThat(fin.at("/integridade/signatureAlgorithm").asText()).isEqualTo("HMAC-SHA256");
+        assertThat(fin.at("/integridade/snapshotSignature").asText()).isNotBlank();
+        assertThat(fin.at("/integridade/signatureKeyId").asText()).isEqualTo("platform-snapshot-key-v1");
+        assertThat(fin.at("/integridade/signatureScope").asText()).isEqualTo("snapshotHash");
 
         // Sanitização: não persistir payload bruto do gateway nem tokens
         assertThat(resumoJson).doesNotContain("gatewayResponse");

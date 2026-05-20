@@ -11,5 +11,10 @@ public class SnapshotIntegridadeResponse {
     private String canonicalizationVersion;
     private LocalDateTime hashGeneratedAt;
     private String hashScope;
-}
 
+    private String signatureAlgorithm;
+    private String snapshotSignature;
+    private LocalDateTime signatureGeneratedAt;
+    private String signatureKeyId;
+    private String signatureScope;
+}

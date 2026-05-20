@@ -98,7 +98,10 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
 
         JsonNode json = objectMapper.readTree(resp);
         assertThat(json.at("/data/verificacao/valido").asBoolean()).isTrue();
+        assertThat(json.at("/data/verificacao/hashValido").asBoolean()).isTrue();
+        assertThat(json.at("/data/verificacao/assinaturaValida").asBoolean()).isTrue();
         assertThat(json.at("/data/integridade/snapshotHash").asText()).isNotBlank();
+        assertThat(json.at("/data/integridade/snapshotSignature").asText()).isNotBlank();
     }
 
     @Test
@@ -130,6 +133,7 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
 
         JsonNode json = objectMapper.readTree(resp);
         assertThat(json.at("/data/verificacao/valido").asBoolean()).isFalse();
+        assertThat(json.at("/data/verificacao/hashValido").asBoolean()).isFalse();
         assertThat(json.at("/data/verificacao/hashPersistido").asText()).isNotBlank();
         assertThat(json.at("/data/verificacao/hashRecalculado").asText()).isNotBlank();
 
@@ -171,6 +175,7 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
         ObjectNode rootAfter = (ObjectNode) objectMapper.readTree(after.getResumoJson());
         ObjectNode finAfter = (ObjectNode) rootAfter.get("financeiro");
         assertThat(finAfter.hasNonNull("integridade")).isTrue();
+        assertThat(finAfter.at("/integridade/snapshotSignature").asText()).isNotBlank();
 
         // Valores financeiros não devem mudar (compara JSON sem integridade)
         ObjectNode finAfterNoInteg = finAfter.deepCopy();
@@ -182,6 +187,53 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
                 OperationalEventType.SNAPSHOT_FINANCEIRO_HASH_GERADO
         );
         assertThat(events).isNotEmpty();
+    }
+
+    @Test
+    @WithMockUser(username = "finance")
+    void assinatura_invalida_nao_e_sobrescrita_automaticamente() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("snap-exp-e", "SEE");
+        TenantContextHolder.set(new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        long turnoId = abrirTurno(prov);
+        criarOrdensConfirmadas(prov, turnoId);
+        fecharTurno(turnoId, false);
+
+        TurnoOperacional turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
+        ObjectNode root = (ObjectNode) objectMapper.readTree(turno.getResumoJson());
+        ObjectNode fin = (ObjectNode) root.get("financeiro");
+        ObjectNode integ = (ObjectNode) fin.get("integridade");
+        String oldSig = integ.get("snapshotSignature").asText();
+        integ.put("snapshotSignature", "deadbeef" + oldSig); // assinatura adulterada
+        fin.set("integridade", integ);
+        root.set("financeiro", fin);
+        turno.setResumoJson(objectMapper.writeValueAsString(root));
+        turnoOperacionalRepository.saveAndFlush(turno);
+
+        String resp = mockMvc.perform(get("/tenant/financeiro/turnos/{id}/snapshot/export", turnoId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode json = objectMapper.readTree(resp);
+        assertThat(json.at("/data/verificacao/hashValido").asBoolean()).isTrue();
+        assertThat(json.at("/data/verificacao/assinaturaValida").asBoolean()).isFalse();
+        assertThat(json.at("/data/verificacao/valido").asBoolean()).isFalse();
+
+        // não sobrescreve assinatura persistida
+        TurnoOperacional after = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
+        ObjectNode afterRoot = (ObjectNode) objectMapper.readTree(after.getResumoJson());
+        String persistedSig = afterRoot.at("/financeiro/integridade/snapshotSignature").asText();
+        assertThat(persistedSig).startsWith("deadbeef");
+
+        List<OperationalEventLog> inval = operationalEventLogRepository.findByTenantIdAndEventType(
+                prov.getTenantId(),
+                OperationalEventType.SNAPSHOT_FINANCEIRO_ASSINATURA_INVALIDA
+        );
+        assertThat(inval).isNotEmpty();
     }
 
     @Test
@@ -309,4 +361,3 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

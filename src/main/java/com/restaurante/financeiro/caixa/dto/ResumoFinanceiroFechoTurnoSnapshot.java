@@ -53,6 +53,7 @@ public class ResumoFinanceiroFechoTurnoSnapshot {
     private List<TotalPorOrigemPagamentoResponse> totaisPorOrigem;
     private TurnoPagamentoAlertasResponse alertasFinanceiros;
 
+    private com.restaurante.financeiro.snapshot.dto.SnapshotIntegridadeResponse integridade;
+
     private Map<String, Object> observacoes;
 }
-

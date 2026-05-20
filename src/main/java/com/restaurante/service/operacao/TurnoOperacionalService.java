@@ -13,6 +13,9 @@ import com.restaurante.financeiro.caixa.dto.RelatorioCaixaTurnoResponse;
 import com.restaurante.financeiro.caixa.dto.ResumoFinanceiroFechoTurnoSnapshot;
 import com.restaurante.financeiro.caixa.dto.TotalPorMetodoPagamentoResponse;
 import com.restaurante.financeiro.caixa.service.RelatorioCaixaTurnoService;
+import com.restaurante.financeiro.snapshot.CanonicalJsonHashService;
+import com.restaurante.financeiro.snapshot.SnapshotIntegridadeProperties;
+import com.restaurante.financeiro.snapshot.dto.SnapshotIntegridadeResponse;
 import com.restaurante.model.entity.ChecklistOperacionalRun;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Tenant;
@@ -46,6 +49,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Comparator;
 
 @Service
 @RequiredArgsConstructor
@@ -59,6 +63,8 @@ public class TurnoOperacionalService {
     private final ChecklistOperacionalRunRepository checklistOperacionalRunRepository;
     private final RelatorioCaixaTurnoService relatorioCaixaTurnoService;
     private final ObjectMapper objectMapper;
+    private final CanonicalJsonHashService canonicalJsonHashService;
+    private final SnapshotIntegridadeProperties snapshotIntegridadeProperties;
 
     private final TenantRepository tenantRepository;
     private final InstituicaoRepository instituicaoRepository;
@@ -241,7 +247,8 @@ public class TurnoOperacionalService {
 
         // Snapshot financeiro congelado no fecho (Prompt 37.1)
         RelatorioCaixaTurnoResponse relatorio = relatorioCaixaTurnoService.gerarRelatorio(ctx.tenantId(), turno.getId());
-        turno.setResumoJson(toResumoJsonComSnapshot(turno, pre, relatorio, fechadoEm, forcar));
+        ResumoFinanceiroFechoTurnoSnapshot snapshot = buildFinanceiroSnapshot(turno, pre, relatorio, fechadoEm, forcar);
+        turno.setResumoJson(toResumoJsonComSnapshot(turno.getResumoJson(), pre, snapshot));
 
         turnoOperacionalRepository.save(turno);
 
@@ -266,11 +273,16 @@ public class TurnoOperacionalService {
                     put("bloqueios", pre.getBloqueios());
                     put("avisos", pre.getAvisos());
                     put("financeiroSnapshotPersistido", true);
-                    put("snapshotVersion", "37.1");
+                    put("snapshotVersion", snapshot.getSnapshotVersion());
                     put("totalGeralConfirmado", relatorio.getTotalGeralConfirmado());
                     put("totalPendente", relatorio.getTotalPendente());
                     if (pre.getAlertasFinanceiros() != null) {
                         put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
+                    }
+                    if (snapshot.getIntegridade() != null) {
+                        put("snapshotHash", snapshot.getIntegridade().getSnapshotHash());
+                        put("hashAlgorithm", snapshot.getIntegridade().getHashAlgorithm());
+                        put("canonicalizationVersion", snapshot.getIntegridade().getCanonicalizationVersion());
                     }
                 }},
                 ip,
@@ -359,13 +371,11 @@ public class TurnoOperacionalService {
         return r;
     }
 
-    private String toResumoJsonComSnapshot(TurnoOperacional turno,
+    private String toResumoJsonComSnapshot(String existingResumoJson,
                                           TurnoPreFechoResponse pre,
-                                          RelatorioCaixaTurnoResponse relatorio,
-                                          LocalDateTime fechadoEm,
-                                          boolean forcarFecho) {
+                                          ResumoFinanceiroFechoTurnoSnapshot snapshot) {
         try {
-            ObjectNode root = readResumoJsonOrCreateObject(turno.getResumoJson());
+            ObjectNode root = readResumoJsonOrCreateObject(existingResumoJson);
 
             // Preserva compatibilidade: mantém os campos do pré-fecho no root (como antes), mas garante que
             // o root reflita a fotografia no momento do fecho.
@@ -373,7 +383,6 @@ public class TurnoOperacionalService {
             preNode.fields().forEachRemaining(e -> root.set(e.getKey(), e.getValue()));
 
             // Snapshot financeiro em chave dedicada, sem listas pesadas.
-            ResumoFinanceiroFechoTurnoSnapshot snapshot = buildFinanceiroSnapshot(turno, pre, relatorio, fechadoEm, forcarFecho);
             root.set("financeiro", objectMapper.valueToTree(snapshot));
 
             return objectMapper.writeValueAsString(root);
@@ -430,8 +439,22 @@ public class TurnoOperacionalService {
         s.setQuantidadePagamentosPendentes(relatorio.getQuantidadePagamentosPendentes());
         s.setQuantidadeOrdensManuaisConfirmadas(relatorio.getQuantidadeOrdensManuaisConfirmadas());
 
-        s.setTotaisPorMetodo(relatorio.getTotaisPorMetodo());
-        s.setTotaisPorOrigem(relatorio.getTotaisPorOrigem());
+        // Garantir ordem determinística para hashing/export
+        if (relatorio.getTotaisPorMetodo() != null) {
+            List<com.restaurante.financeiro.caixa.dto.TotalPorMetodoPagamentoResponse> metodo = new ArrayList<>(relatorio.getTotaisPorMetodo());
+            metodo.sort(Comparator.comparing(com.restaurante.financeiro.caixa.dto.TotalPorMetodoPagamentoResponse::getMetodoPagamento, Comparator.nullsLast(String::compareTo)));
+            s.setTotaisPorMetodo(metodo);
+        } else {
+            s.setTotaisPorMetodo(List.of());
+        }
+
+        if (relatorio.getTotaisPorOrigem() != null) {
+            List<com.restaurante.financeiro.caixa.dto.TotalPorOrigemPagamentoResponse> origem = new ArrayList<>(relatorio.getTotaisPorOrigem());
+            origem.sort(Comparator.comparing(com.restaurante.financeiro.caixa.dto.TotalPorOrigemPagamentoResponse::getOrigem, Comparator.nullsLast(String::compareTo)));
+            s.setTotaisPorOrigem(origem);
+        } else {
+            s.setTotaisPorOrigem(List.of());
+        }
         s.setAlertasFinanceiros(pre.getAlertasFinanceiros() != null ? pre.getAlertasFinanceiros() : relatorio.getAlertasFinanceiros());
 
         // Totais por método (reduzidos) para CASH/TPA/APPYPAY
@@ -452,6 +475,25 @@ public class TurnoOperacionalService {
                 "forcarFecho", forcarFecho,
                 "temAlertasFinanceiros", pre.getAlertasFinanceiros() != null && pre.getAlertasFinanceiros().getTotalPagamentosPendentes() > 0
         ));
+
+        // Integridade (Prompt 37.2): hash canônico do snapshot financeiro sem integridade
+        if (snapshotIntegridadeProperties.isEnabled()) {
+            SnapshotIntegridadeResponse integ = new SnapshotIntegridadeResponse();
+            integ.setHashAlgorithm(snapshotIntegridadeProperties.getAlgorithm());
+            integ.setCanonicalizationVersion(snapshotIntegridadeProperties.getCanonicalizationVersion());
+            integ.setHashGeneratedAt(fechadoEm);
+            integ.setHashScope("resumo_json.financeiro_sem_integridade");
+
+            // calcula sobre JsonNode do snapshot sem o próprio bloco integridade
+            String hash = canonicalJsonHashService.hashHexCanonical(
+                    snapshotIntegridadeProperties.getAlgorithm(),
+                    objectMapper.valueToTree(s),
+                    List.of("integridade")
+            );
+            integ.setSnapshotHash(hash);
+            s.setIntegridade(integ);
+        }
+
         return s;
     }
 

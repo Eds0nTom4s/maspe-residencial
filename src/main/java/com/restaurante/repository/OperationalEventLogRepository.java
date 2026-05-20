@@ -13,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Collection;
+import java.util.Set;
 
 public interface OperationalEventLogRepository extends JpaRepository<OperationalEventLog, Long> {
 
@@ -142,6 +143,19 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
                                                  @Param("unidadeProducaoId") Long unidadeProducaoId);
 
     List<OperationalEventLog> findTop20ByTenantIdAndEntityTypeAndEntityIdOrderByCreatedAtDesc(Long tenantId, OperationalEntityType entityType, Long entityId);
+
+    @Query("""
+            select e
+            from OperationalEventLog e
+            where e.tenant.id = :tenantId
+              and e.turno.id = :turnoId
+              and e.eventType in :eventTypes
+            order by e.createdAt desc
+            """)
+    List<OperationalEventLog> findTopByTenantAndTurnoAndEventTypes(@Param("tenantId") Long tenantId,
+                                                                  @Param("turnoId") Long turnoId,
+                                                                  @Param("eventTypes") Set<OperationalEventType> eventTypes,
+                                                                  Pageable pageable);
 
     @Query("""
             select e.tenant.id as tenantId, max(e.createdAt) as lastAt

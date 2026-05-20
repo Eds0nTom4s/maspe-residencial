@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import com.restaurante.financeiro.monitoramento.dto.TurnoPagamentoAlertasResponse;
+import com.restaurante.financeiro.caixa.dto.ResumoCaixaTurnoMiniResponse;
 
 @Data
 public class TurnoPreFechoResponse {
@@ -23,4 +24,6 @@ public class TurnoPreFechoResponse {
     private TurnoPagamentoAlertasResponse alertasFinanceiros;
     private boolean possuiAlertasFinanceiros;
     private boolean possuiAlertasFinanceirosCriticos;
+
+    private ResumoCaixaTurnoMiniResponse resumoCaixa;
 }

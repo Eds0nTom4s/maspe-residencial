@@ -4,6 +4,7 @@ import com.restaurante.config.OperacaoProperties;
 import com.restaurante.dto.response.TurnoPreFechoResponse;
 import com.restaurante.financeiro.monitoramento.dto.TurnoPagamentoAlertasResponse;
 import com.restaurante.financeiro.service.PagamentoPendenteQueryService;
+import com.restaurante.financeiro.caixa.service.RelatorioCaixaTurnoService;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -33,6 +34,7 @@ public class TurnoResumoService {
     private final SessaoConsumoRepository sessaoConsumoRepository;
     private final DispositivoOperacionalRepository dispositivoOperacionalRepository;
     private final PagamentoPendenteQueryService pagamentoPendenteQueryService;
+    private final RelatorioCaixaTurnoService relatorioCaixaTurnoService;
 
     @Transactional(readOnly = true)
     public TurnoPreFechoResponse calcularPreFecho(TurnoOperacional turno) {
@@ -116,6 +118,9 @@ public class TurnoResumoService {
         } else if (alertas != null && alertas.getTotalCriticos() > 0) {
             resp.getAvisos().add("Existem pagamentos críticos pendentes neste turno. Recomenda-se revisão antes do fecho.");
         }
+
+        // Resumo financeiro reduzido (Prompt 37)
+        resp.setResumoCaixa(relatorioCaixaTurnoService.gerarResumoMini(turno.getTenant().getId(), turno.getId()));
 
         resp.setPodeFechar(resp.getBloqueios().isEmpty());
         return resp;

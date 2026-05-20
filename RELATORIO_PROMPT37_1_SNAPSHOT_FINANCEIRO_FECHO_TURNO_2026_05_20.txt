@@ -1,0 +1,109 @@
+RELATÓRIO TÉCNICO — PROMPT 37.1
+Snapshot financeiro no fecho do turno (congelado em resumo_json)
+Data: 2026-05-20 (Africa/Luanda)
+
+1) Resumo executivo
+- O fecho do turno agora persiste um snapshot financeiro resumido e sanitizado no `TurnoOperacional.resumo_json`.
+- O snapshot é congelado no instante do fecho e não é recalculado depois, mesmo que pagamentos AppyPay pendentes sejam confirmados posteriormente.
+- O snapshot é gerado e salvo na mesma transação do fecho; falha de serialização/cálculo bloqueia o fecho para evitar turno fechado sem fotografia financeira.
+
+2) Arquivos criados
+- `src/main/java/com/restaurante/financeiro/caixa/dto/ResumoFinanceiroFechoTurnoSnapshot.java`
+- `src/test/java/com/restaurante/operacao/TurnoFechoSnapshotFinanceiroIT.java`
+- `docs/tenant-core/37-1-snapshot-financeiro-fecho-turno.md`
+
+3) Arquivos alterados
+- `src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java`
+
+4) Serviços alterados
+- `TurnoOperacionalService.fechar(...)`
+  - passa a gerar `RelatorioCaixaTurnoResponse` no fecho;
+  - monta snapshot `ResumoFinanceiroFechoTurnoSnapshot` com `snapshotVersion=37.1`;
+  - persiste em `resumo_json` sob a chave `financeiro`;
+  - preserva compatibilidade adicionando/atualizando também os campos do pré-fecho no root do JSON.
+
+5) DTOs criados/alterados
+- Criado: `ResumoFinanceiroFechoTurnoSnapshot`
+  - contém apenas totais e listas pequenas (`totaisPorMetodo`, `totaisPorOrigem`) e `alertasFinanceiros`.
+  - não contém listas completas de pagamentos/ordens/eventos.
+  - não contém payload bruto do gateway.
+
+6) Como o snapshot é montado
+- Fonte: `RelatorioCaixaTurnoService.gerarRelatorio(tenantId, turnoId)` + `TurnoPreFechoResponse.alertasFinanceiros`.
+- Extração de CASH/TPA/APPYPAY:
+  - derivada de `totaisPorMetodo` do relatório.
+- Alertas financeiros:
+  - snapshot inclui `alertasFinanceiros` no momento do fecho.
+- Observações:
+  - inclui `forcarFecho` (true/false) e flag de presença de alertas.
+
+7) Como o snapshot é persistido no resumo_json
+- O JSON base é o próprio `TurnoPreFechoResponse` (compatibilidade).
+- Adiciona-se a chave `financeiro` com o snapshot (sanitizado).
+- Se existir `resumo_json` prévio (não esperado no fecho normal), o merge preserva conteúdo e sobrescreve/atualiza os campos do pré-fecho e do snapshot.
+
+8) Integração com fecho normal e fecho forçado
+- Ambos os caminhos (fecho normal e `forcarFecho=true`) geram e persistem snapshot.
+- Em fecho forçado, o snapshot registra `observacoes.forcarFecho=true`.
+
+9) Segurança e sanitização
+- Snapshot não inclui:
+  - payload bruto AppyPay (`gatewayResponse`, `gatewayStatusRaw`);
+  - tokens e secrets;
+  - deviceToken/hashes.
+- Cross-tenant já é protegido por `findByIdAndTenantId` no fecho.
+
+10) Auditoria/eventos
+- O evento de fecho do turno (`TURNO_FECHADO` / `TURNO_FECHADO_FORCADO`) foi enriquecido com metadata sanitizada:
+  - `financeiroSnapshotPersistido=true`
+  - `snapshotVersion=37.1`
+  - totais básicos (`totalGeralConfirmado`, `totalPendente`, `totalCriticos` quando aplicável)
+
+11) Testes criados/alterados
+- `TurnoFechoSnapshotFinanceiroIT`
+  - valida que `resumo_json` contém `financeiro.snapshotVersion=37.1`;
+  - valida presença de totais CASH/TPA/APPYPAY e separação pedido/fundo;
+  - valida sanitização (não contém payload bruto do gateway nem deviceToken);
+  - valida fecho forçado persiste snapshot com flag.
+
+12) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test -q`
+
+13) Resultado dos comandos
+- `compile`: OK
+- `mvn test -q`: OK (BUILD SUCCESS)
+
+14) Decisões técnicas tomadas
+- Compatibilidade: manter os campos do pré-fecho no root do `resumo_json` como antes, adicionando apenas `financeiro`.
+- Resiliência: falha de serialização/cálculo do snapshot lança erro e bloqueia fecho, evitando histórico inconsistente.
+- Sanitização por design: snapshot não persiste listas grandes nem payloads brutos.
+
+15) Riscos restantes
+- Snapshot não é “tamper-evident”: não há hash/assinatura do conteúdo persistido (pode ser adicionado em fase futura).
+- Se no futuro houver múltiplas fontes de pagamento/manual/gateway adicionais, o snapshot deve manter versionamento (`snapshotVersion`) e evolução compatível.
+
+16) Checklist de aceitação (Prompt 37.1)
+[OK] Fecho normal salva snapshot financeiro no `resumo_json`.
+[OK] Fecho forçado salva snapshot financeiro no `resumo_json`.
+[OK] Snapshot inclui totais CASH/TPA/APPYPAY.
+[OK] Snapshot inclui total pendente.
+[OK] Snapshot inclui total crítico (count) via alertas do turno quando aplicável.
+[OK] Snapshot separa Pedido e FundoConsumo.
+[OK] Snapshot inclui totais por método.
+[OK] Snapshot inclui totais por origem.
+[OK] Snapshot inclui alertas financeiros sanitizados.
+[OK] Snapshot não inclui payload bruto AppyPay.
+[OK] Snapshot não inclui deviceToken/secrets/hashes.
+[OK] Snapshot é salvo na mesma transação do fecho (geração dentro do método transacional).
+[OK] Falha no snapshot impede fecho inconsistente (exception explícita).
+[OK] Turno já fechado não recalcula snapshot (fecho bloqueia turnos FECHADO/CANCELADO).
+[OK] Cross-tenant continua protegido.
+[OK] Pré-fecho continua funcionando.
+[OK] Relatório detalhado continua funcionando.
+[OK] `mvn -q -DskipTests compile` passa.
+[OK] `mvn test` passa.
+
+17) Próximo prompt recomendado
+- Export lógico do snapshot (JSON assinado) + hash de integridade do snapshot no `resumo_json` (tamper-evident), sem PDF/Excel.
+

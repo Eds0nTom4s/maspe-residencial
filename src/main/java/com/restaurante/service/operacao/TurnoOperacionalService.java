@@ -9,6 +9,10 @@ import com.restaurante.dto.response.TurnoOperacionalResponse;
 import com.restaurante.dto.response.TurnoPreFechoResponse;
 import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.financeiro.caixa.dto.RelatorioCaixaTurnoResponse;
+import com.restaurante.financeiro.caixa.dto.ResumoFinanceiroFechoTurnoSnapshot;
+import com.restaurante.financeiro.caixa.dto.TotalPorMetodoPagamentoResponse;
+import com.restaurante.financeiro.caixa.service.RelatorioCaixaTurnoService;
 import com.restaurante.model.entity.ChecklistOperacionalRun;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Tenant;
@@ -28,6 +32,9 @@ import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.service.operacional.OperationalEventLogService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -38,6 +45,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -49,6 +57,8 @@ public class TurnoOperacionalService {
     private final ChecklistOperacionalService checklistService;
     private final OperationalEventLogService operationalEventLogService;
     private final ChecklistOperacionalRunRepository checklistOperacionalRunRepository;
+    private final RelatorioCaixaTurnoService relatorioCaixaTurnoService;
+    private final ObjectMapper objectMapper;
 
     private final TenantRepository tenantRepository;
     private final InstituicaoRepository instituicaoRepository;
@@ -223,11 +233,16 @@ public class TurnoOperacionalService {
         }
 
         User actor = userRepository.findById(ctx.userId()).orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+        LocalDateTime fechadoEm = LocalDateTime.now();
         turno.setFechadoPor(actor);
-        turno.setFechadoEm(LocalDateTime.now());
+        turno.setFechadoEm(fechadoEm);
         turno.setObservacaoFecho(request.getObservacao());
         turno.setStatus(TurnoOperacionalStatus.FECHADO);
-        turno.setResumoJson(toResumoJson(pre));
+
+        // Snapshot financeiro congelado no fecho (Prompt 37.1)
+        RelatorioCaixaTurnoResponse relatorio = relatorioCaixaTurnoService.gerarRelatorio(ctx.tenantId(), turno.getId());
+        turno.setResumoJson(toResumoJsonComSnapshot(turno, pre, relatorio, fechadoEm, forcar));
+
         turnoOperacionalRepository.save(turno);
 
         ChecklistOperacionalRun run = checklistService.validarERegistrarChecklist(turno.getTenant(), turno, ChecklistTipo.FECHO, actor, null, request.getChecklist());
@@ -250,6 +265,13 @@ public class TurnoOperacionalService {
                 new HashMap<>() {{
                     put("bloqueios", pre.getBloqueios());
                     put("avisos", pre.getAvisos());
+                    put("financeiroSnapshotPersistido", true);
+                    put("snapshotVersion", "37.1");
+                    put("totalGeralConfirmado", relatorio.getTotalGeralConfirmado());
+                    put("totalPendente", relatorio.getTotalPendente());
+                    if (pre.getAlertasFinanceiros() != null) {
+                        put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
+                    }
                 }},
                 ip,
                 userAgent
@@ -337,13 +359,100 @@ public class TurnoOperacionalService {
         return r;
     }
 
-    private String toResumoJson(TurnoPreFechoResponse pre) {
-        // resumo_json mínimo (sem dados sensíveis)
+    private String toResumoJsonComSnapshot(TurnoOperacional turno,
+                                          TurnoPreFechoResponse pre,
+                                          RelatorioCaixaTurnoResponse relatorio,
+                                          LocalDateTime fechadoEm,
+                                          boolean forcarFecho) {
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(pre);
+            ObjectNode root = readResumoJsonOrCreateObject(turno.getResumoJson());
+
+            // Preserva compatibilidade: mantém os campos do pré-fecho no root (como antes), mas garante que
+            // o root reflita a fotografia no momento do fecho.
+            ObjectNode preNode = objectMapper.valueToTree(pre);
+            preNode.fields().forEachRemaining(e -> root.set(e.getKey(), e.getValue()));
+
+            // Snapshot financeiro em chave dedicada, sem listas pesadas.
+            ResumoFinanceiroFechoTurnoSnapshot snapshot = buildFinanceiroSnapshot(turno, pre, relatorio, fechadoEm, forcarFecho);
+            root.set("financeiro", objectMapper.valueToTree(snapshot));
+
+            return objectMapper.writeValueAsString(root);
         } catch (Exception e) {
-            return "{\"error\":\"resumo_json_serialization_failed\"}";
+            // Não fechar turno sem snapshot financeiro.
+            throw new IllegalStateException("Falha ao gerar/persistir resumo_json com snapshot financeiro (Prompt 37.1).", e);
         }
+    }
+
+    private ObjectNode readResumoJsonOrCreateObject(String resumoJson) {
+        if (resumoJson == null || resumoJson.isBlank()) {
+            return objectMapper.createObjectNode();
+        }
+        try {
+            JsonNode parsed = objectMapper.readTree(resumoJson);
+            if (parsed instanceof ObjectNode on) return on;
+            ObjectNode wrapper = objectMapper.createObjectNode();
+            wrapper.set("legacy", parsed);
+            return wrapper;
+        } catch (Exception e) {
+            ObjectNode wrapper = objectMapper.createObjectNode();
+            wrapper.put("legacy_parse_error", true);
+            return wrapper;
+        }
+    }
+
+    private ResumoFinanceiroFechoTurnoSnapshot buildFinanceiroSnapshot(TurnoOperacional turno,
+                                                                       TurnoPreFechoResponse pre,
+                                                                       RelatorioCaixaTurnoResponse relatorio,
+                                                                       LocalDateTime fechadoEm,
+                                                                       boolean forcarFecho) {
+        ResumoFinanceiroFechoTurnoSnapshot s = new ResumoFinanceiroFechoTurnoSnapshot();
+        s.setSnapshotVersion("37.1");
+        s.setGeradoEm(fechadoEm);
+
+        s.setTurnoId(turno.getId());
+        s.setTenantId(turno.getTenant() != null ? turno.getTenant().getId() : null);
+        s.setInstituicaoId(turno.getInstituicao() != null ? turno.getInstituicao().getId() : null);
+        s.setUnidadeAtendimentoId(turno.getUnidadeAtendimento() != null ? turno.getUnidadeAtendimento().getId() : null);
+        s.setStatusTurnoNoMomento(TurnoOperacionalStatus.FECHADO.name());
+        s.setAbertoEm(turno.getAbertoEm());
+        s.setFechadoEm(fechadoEm);
+
+        s.setTotalGeralConfirmado(relatorio.getTotalGeralConfirmado());
+        s.setTotalManualConfirmado(relatorio.getTotalManualConfirmado());
+        s.setTotalGatewayConfirmado(relatorio.getTotalGatewayConfirmado());
+        s.setTotalPendente(relatorio.getTotalPendente());
+        s.setTotalFalhado(relatorio.getTotalFalhado());
+        s.setTotalDivergente(relatorio.getTotalDivergente());
+        s.setTotalCarregamentoFundo(relatorio.getTotalCarregamentoFundoConsumo());
+        s.setTotalPagamentoPedidos(relatorio.getTotalPagamentoPedidos());
+
+        s.setQuantidadePagamentosConfirmados(relatorio.getQuantidadePagamentosConfirmados());
+        s.setQuantidadePagamentosPendentes(relatorio.getQuantidadePagamentosPendentes());
+        s.setQuantidadeOrdensManuaisConfirmadas(relatorio.getQuantidadeOrdensManuaisConfirmadas());
+
+        s.setTotaisPorMetodo(relatorio.getTotaisPorMetodo());
+        s.setTotaisPorOrigem(relatorio.getTotaisPorOrigem());
+        s.setAlertasFinanceiros(pre.getAlertasFinanceiros() != null ? pre.getAlertasFinanceiros() : relatorio.getAlertasFinanceiros());
+
+        // Totais por método (reduzidos) para CASH/TPA/APPYPAY
+        if (relatorio.getTotaisPorMetodo() != null) {
+            for (TotalPorMetodoPagamentoResponse t : relatorio.getTotaisPorMetodo()) {
+                if ("CASH".equalsIgnoreCase(t.getMetodoPagamento())) s.setTotalCash(t.getTotalConfirmado());
+                if ("TPA".equalsIgnoreCase(t.getMetodoPagamento())) s.setTotalTpa(t.getTotalConfirmado());
+                if ("APPYPAY".equalsIgnoreCase(t.getMetodoPagamento())) s.setTotalAppyPay(t.getTotalConfirmado());
+            }
+        }
+
+        if (s.getAlertasFinanceiros() != null) {
+            s.setTotalPagamentosPendentes(s.getAlertasFinanceiros().getTotalPagamentosPendentes());
+            s.setTotalCriticos(s.getAlertasFinanceiros().getTotalCriticos());
+        }
+
+        s.setObservacoes(Map.of(
+                "forcarFecho", forcarFecho,
+                "temAlertasFinanceiros", pre.getAlertasFinanceiros() != null && pre.getAlertasFinanceiros().getTotalPagamentosPendentes() > 0
+        ));
+        return s;
     }
 
     private OperationalOrigem resolveOrigemFromRoles(TenantContext ctx) {

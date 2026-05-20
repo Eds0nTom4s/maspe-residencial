@@ -6,9 +6,15 @@ import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Pagamento;
+import com.restaurante.model.entity.OrdemPagamento;
 import com.restaurante.model.entity.SubPedido;
+import com.restaurante.model.entity.FundoConsumo;
+import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TurnoOperacional;
+import com.restaurante.model.entity.Instituicao;
+import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.OperationalActorType;
 import com.restaurante.model.enums.OperationalEntityType;
@@ -238,6 +244,105 @@ public class OperationalEventLogService {
         );
     }
 
+    @Transactional
+    public void logOrdemPagamentoEvent(OperationalEventType eventType,
+                                       OrdemPagamento ordem,
+                                       OperationalOrigem origem,
+                                       String motivo,
+                                       Map<String, Object> metadata,
+                                       String ip,
+                                       String userAgent) {
+        if (ordem == null || ordem.getTenant() == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+
+        OperationalEventLog log = new OperationalEventLog();
+        log.setTenant(ordem.getTenant());
+        log.setInstituicao(ordem.getInstituicao());
+        log.setUnidadeAtendimento(ordem.getUnidadeAtendimento());
+        if (ordem.getSessaoConsumo() != null) {
+            log.setMesa(ordem.getSessaoConsumo().getMesa());
+        }
+        log.setTurno(ordem.getTurnoOperacional());
+        log.setPedido(ordem.getPedido());
+
+        log.setEventType(eventType);
+        log.setEntityType(OperationalEntityType.ORDEM_PAGAMENTO);
+        log.setEntityId(ordem.getId() != null ? ordem.getId() : 0L);
+        log.setStatusAnterior(null);
+        log.setStatusNovo(ordem.getStatus() != null ? ordem.getStatus().name() : null);
+        log.setOrigem(origem != null ? origem : OperationalOrigem.SYSTEM);
+        log.setMotivo(motivo);
+        log.setMetadataJson(metadata != null ? toJson(metadata) : null);
+        log.setIp(ip);
+        log.setUserAgent(userAgent);
+
+        applyActor(log, origem, ip, userAgent);
+        operationalEventLogRepository.save(log);
+    }
+
+    @Transactional
+    public void logFundoConsumoEvent(OperationalEventType eventType,
+                                     FundoConsumo fundo,
+                                     OperationalOrigem origem,
+                                     String motivo,
+                                     Map<String, Object> metadata,
+                                     String ip,
+                                     String userAgent) {
+        if (fundo == null || fundo.getSessaoConsumo() == null || fundo.getSessaoConsumo().getTenant() == null) {
+            throw new ResourceNotFoundException("Recurso não encontrado.");
+        }
+
+        OperationalEventLog log = new OperationalEventLog();
+        log.setTenant(fundo.getSessaoConsumo().getTenant());
+        log.setInstituicao(fundo.getSessaoConsumo().getInstituicao());
+        log.setUnidadeAtendimento(fundo.getSessaoConsumo().getUnidadeAtendimento());
+        log.setMesa(fundo.getSessaoConsumo().getMesa());
+        log.setTurno(null);
+
+        log.setEventType(eventType);
+        log.setEntityType(OperationalEntityType.FUNDO_CONSUMO);
+        log.setEntityId(fundo.getId() != null ? fundo.getId() : 0L);
+        log.setStatusNovo(fundo.getAtivo() != null && fundo.getAtivo() ? "ATIVO" : "ENCERRADO");
+        log.setOrigem(origem != null ? origem : OperationalOrigem.SYSTEM);
+        log.setMotivo(motivo);
+        log.setMetadataJson(metadata != null ? toJson(metadata) : null);
+        log.setIp(ip);
+        log.setUserAgent(userAgent);
+
+        applyActor(log, origem, ip, userAgent);
+        operationalEventLogRepository.save(log);
+    }
+
+    @Transactional
+    public void logSessaoConsumoEvent(OperationalEventType eventType,
+                                      SessaoConsumo sessao,
+                                      OperationalOrigem origem,
+                                      String motivo,
+                                      Map<String, Object> metadata,
+                                      String ip,
+                                      String userAgent) {
+        if (sessao == null || sessao.getTenant() == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+
+        OperationalEventLog log = new OperationalEventLog();
+        log.setTenant(sessao.getTenant());
+        log.setInstituicao(sessao.getInstituicao());
+        log.setUnidadeAtendimento(sessao.getUnidadeAtendimento());
+        log.setMesa(sessao.getMesa());
+        log.setTurno(null);
+
+        log.setEventType(eventType);
+        log.setEntityType(OperationalEntityType.SESSAO_CONSUMO);
+        log.setEntityId(sessao.getId() != null ? sessao.getId() : 0L);
+        log.setStatusNovo(sessao.getStatus() != null ? sessao.getStatus().name() : null);
+        log.setOrigem(origem != null ? origem : OperationalOrigem.SYSTEM);
+        log.setMotivo(motivo);
+        log.setMetadataJson(metadata != null ? toJson(metadata) : null);
+        log.setIp(ip);
+        log.setUserAgent(userAgent);
+
+        applyActor(log, origem, ip, userAgent);
+        operationalEventLogRepository.save(log);
+    }
+
     private void log(OperationalEventType eventType,
                      OperationalEntityType entityType,
                      Long entityId,
@@ -320,6 +425,51 @@ public class OperationalEventLogService {
         log.setUserAgent(userAgent);
 
         applyActor(log, origem, ip, userAgent);
+
+        operationalEventLogRepository.save(log);
+    }
+
+    /**
+     * Log explícito para fluxos públicos (sem TenantContext e sem DevicePrincipal).
+     * Usado quando o tenant é resolvido por QR token (ex.: /public/q/*) e precisamos manter auditoria.
+     *
+     * Regras:
+     * - actorType=SYSTEM
+     * - origem deve ser informada (ex.: QR_PUBLICO)
+     * - metadata deve ser sanitizada pelo caller
+     */
+    @Transactional
+    public void logPublicEvent(Tenant tenant,
+                               Instituicao instituicao,
+                               UnidadeAtendimento unidadeAtendimento,
+                               Mesa mesa,
+                               TurnoOperacional turno,
+                               OperationalEventType eventType,
+                               OperationalEntityType entityType,
+                               Long entityId,
+                               OperationalOrigem origem,
+                               String motivo,
+                               Map<String, Object> metadata,
+                               String ip,
+                               String userAgent) {
+        if (tenant == null || tenant.getId() == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+
+        OperationalEventLog log = new OperationalEventLog();
+        log.setTenant(tenant);
+        log.setInstituicao(instituicao);
+        log.setUnidadeAtendimento(unidadeAtendimento);
+        log.setMesa(mesa);
+        log.setTurno(turno);
+
+        log.setActorType(OperationalActorType.SYSTEM);
+        log.setEventType(eventType);
+        log.setEntityType(entityType);
+        log.setEntityId(entityId != null ? entityId : 0L);
+        log.setOrigem(origem != null ? origem : OperationalOrigem.QR_PUBLICO);
+        log.setMotivo(motivo);
+        log.setMetadataJson(metadata != null ? toJson(metadata) : null);
+        log.setIp(ip);
+        log.setUserAgent(userAgent);
 
         operationalEventLogRepository.save(log);
     }

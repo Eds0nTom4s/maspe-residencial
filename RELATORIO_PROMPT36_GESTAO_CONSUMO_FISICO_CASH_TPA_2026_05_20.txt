@@ -1,0 +1,285 @@
+PROMPT 36 — Gestão de Consumo físico: FundoConsumo + OrdemPagamento manual (CASH/TPA)
+Data: 2026-05-20 (Africa/Luanda)
+Autor: Arquitetura/Implementação (Spring Boot + PostgreSQL + JPA/Hibernate)
+
+================================================================================
+1) RESUMO EXECUTIVO
+================================================================================
+Foi implementada a camada de operação presencial sem dependência obrigatória de AppyPay:
+- Consumo anónimo criado via QR operacional (mesa/unidade), com SessaoConsumo + FundoConsumo.
+- Criação de OrdemPagamento manual (CASH/TPA) para carregar FundoConsumo e (quando solicitado) pagar Pedido.
+- POS (device) consegue escanear ordem por token e confirmar manualmente com idempotência e locks.
+- Confirmação manual credita o FundoConsumo de forma síncrona (ledger append-only) e/ou marca Pedido como pago.
+- Tenant consegue bloquear/desbloquear fundo e encerrar consumo.
+- Reimpressão lógica (QR/conta/comprovativo) disponível por device (sem driver real de impressora).
+- Auditoria completa via OperationalEventLog, sem misturar confirmação manual com AppyPay.
+
+Escopo explicitamente preservado:
+- Callback AppyPay não foi alterado.
+- Polling AppyPay não foi alterado.
+- Não foi implementado refund/settlement/billing/offline.
+
+================================================================================
+2) MIGRATIONS CRIADAS/USADAS
+================================================================================
+Nota: a baseline já continha migrations do Prompt 36; esta fase conectou as peças em código/testes.
+
+- `src/main/resources/db/migration/V24__ordens_pagamento_manual_cash_tpa.sql`
+  - `ordens_pagamento`
+  - colunas de bloqueio em `fundos_consumo` (`bloqueado`, `bloqueado_em`, `bloqueado_motivo`)
+- `src/main/resources/db/migration/V25__ordem_pagamento_manual_idempotency.sql`
+  - `ordem_pagamento_manual_idempotency_records`
+
+================================================================================
+3) ENTIDADES / FIELDS ALTERADOS
+================================================================================
+Entidades (já existentes na baseline, agora efetivamente usadas no fluxo):
+- `src/main/java/com/restaurante/model/entity/OrdemPagamento.java`
+- `src/main/java/com/restaurante/model/entity/OrdemPagamentoManualIdempotencyRecord.java`
+
+Entidades ajustadas/reutilizadas:
+- `src/main/java/com/restaurante/model/entity/FundoConsumo.java`
+  - suporte a bloqueio operacional (`bloqueado`, `bloqueadoEm`, `bloqueadoMotivo`) e validações no crédito/débito.
+
+Repositórios ajustados (tenant-safe e idempotência por merchantTransactionId):
+- `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java`
+- `src/main/java/com/restaurante/repository/FundoConsumoRepository.java`
+- `src/main/java/com/restaurante/repository/TransacaoFundoRepository.java`
+
+================================================================================
+4) ENDPOINTS IMPLEMENTADOS
+================================================================================
+Público (QR operacional):
+- `GET  /public/q/{token}/consumos/opcoes`
+- `POST /public/q/{token}/consumos/anonimo`
+- `POST /public/q/{token}/consumos/{codigoConsumo}/carregamentos` (CASH/TPA → cria OrdemPagamento FUNDO_CONSUMO)
+- `POST /public/q/{token}/pedidos/{pedidoId}/ordens-pagamento-manual` (CASH/TPA → cria OrdemPagamento PEDIDO)
+- `GET  /public/ordens-pagamento/{token}/status`
+
+Device (POS):
+- `GET  /device/ordens-pagamento/{token}` (scan)
+- `POST /device/ordens-pagamento/{ordemId}/confirmar-manual` (Idempotency-Key + clientRequestId)
+- `POST /device/consumos/{codigoConsumo}/reimprimir-qr`
+- `POST /device/consumos/{codigoConsumo}/reimprimir-conta`
+- `POST /device/consumos/ordens-pagamento/{ordemId}/reimprimir-comprovativo`
+
+Tenant (admin/operacional):
+- `POST /tenant/consumos/{codigoConsumo}/bloquear`
+- `POST /tenant/consumos/{codigoConsumo}/desbloquear`
+- `POST /tenant/consumos/{codigoConsumo}/encerrar`
+
+Controllers adicionados:
+- `src/main/java/com/restaurante/controller/PublicQrConsumoController.java`
+- `src/main/java/com/restaurante/controller/PublicOrdemPagamentoController.java`
+- `src/main/java/com/restaurante/controller/DeviceOrdemPagamentoController.java`
+- `src/main/java/com/restaurante/controller/DeviceConsumoController.java`
+- `src/main/java/com/restaurante/controller/TenantConsumoController.java`
+
+================================================================================
+5) CAPABILITIES / SEGURANÇA DEVICE
+================================================================================
+DevicePrincipal continua fonte de verdade (tenant/instituição/unidade). Não se aceita tenantId no request.
+
+Capabilities usadas para o Prompt 36 (já existentes na baseline e agora aplicadas):
+- `VIEW_PAYMENT_ORDER`
+- `CONFIRM_CASH_PAYMENT`
+- `CONFIRM_TPA_PAYMENT`
+- `MANAGE_CONSUMPTION_FUND` (reservada para evoluções)
+- `REPRINT_CONSUMPTION_DOCUMENTS`
+
+Mapeamento padrão por tipo (reforçado):
+- `src/main/java/com/restaurante/service/device/DeviceCapabilities.java`
+
+================================================================================
+6) REGRA DE TURNO (OBRIGATÓRIA PARA MANUAL)
+================================================================================
+Property:
+- `consuma.operacao.require-open-turno-for-manual-payments=true` (default)
+
+Regras aplicadas:
+- Confirmação manual (CASH/TPA) por device exige turno ABERTO para tenant/instituição/unidade do device.
+- Ordem com turno já definido deve ser compatível com o turno aberto.
+- Fluxo AppyPay permanece separado (não passa por confirmação manual).
+
+================================================================================
+7) ESTRATÉGIA DE IDEMPOTÊNCIA E LOCKS
+================================================================================
+Confirmação manual (device):
+- Header `Idempotency-Key` + body `clientRequestId` obrigatórios.
+- `PESSIMISTIC_WRITE` na OrdemPagamento (`OrdemPagamentoRepository.findForUpdateById`) para serializar confirmação.
+- Tabela `ordem_pagamento_manual_idempotency_records` garante:
+  - replay do mesmo requestHash retorna resposta idempotente;
+  - conflito de key/clientRequestId com body diferente retorna 409;
+  - IN_PROGRESS retorna 409 recoverable (RETRY).
+
+Crédito do FundoConsumo:
+- Idempotência no ledger por `merchantTransactionId = ORD-{ordemId}` (único em `transacoes_fundo`).
+- Assim, mesmo que haja retry/duplo clique, não há duplo crédito.
+
+================================================================================
+8) CASH/TPA MANUAL (SEPARADO DE APPYPAY)
+================================================================================
+Manual:
+- OrdemPagamento criada com método solicitado CASH/TPA.
+- POS confirma manualmente e o sistema aplica efeito imediato:
+  - FUNDO_CONSUMO: credita fundo e registra pagamento confirmado (sem gateway).
+  - PEDIDO: cria pagamento confirmado (sem gateway) e marca pedido como PAGO.
+
+AppyPay:
+- Continua no fluxo de gateway/callback/polling existente.
+- Nenhuma alteração no callback e no polling.
+
+================================================================================
+9) BLOQUEIO / DESBLOQUEIO / ENCERRAMENTO
+================================================================================
+Tenant:
+- Bloqueia e desbloqueia FundoConsumo por `codigoConsumo` (qrCodeSessao) tenant-safe.
+- Encerramento de SessaoConsumo por `codigoConsumo` respeita regras existentes (sem pedidos em aberto).
+- Encerramento com saldo positivo exige OWNER/ADMIN (reforço no serviço).
+
+================================================================================
+10) REIMPRESSÃO (LÓGICA, SEM DRIVER)
+================================================================================
+Device:
+- Reimpressão retorna payload lógico (conteúdo imprimível + qr payload quando aplicável).
+- Eventos são registrados, sem expor tokens/secrets do device.
+
+Arquivos:
+- `src/main/java/com/restaurante/service/device/DeviceConsumoDocumentService.java`
+- `src/main/java/com/restaurante/dto/response/ReimpressaoDocumentoResponse.java`
+
+================================================================================
+11) AUDITORIA (OPERATIONAL EVENT LOG)
+================================================================================
+Eventos usados no Prompt 36:
+- `ORDEM_PAGAMENTO_CRIADA`
+- `ORDEM_PAGAMENTO_CONFIRMADA_MANUAL`
+- `PAGAMENTO_CASH_CONFIRMADO_DEVICE`
+- `PAGAMENTO_TPA_CONFIRMADO_DEVICE`
+- `FUNDO_CONSUMO_CREDITADO_MANUAL`
+- `FUNDO_CONSUMO_BLOQUEADO`
+- `FUNDO_CONSUMO_DESBLOQUEADO`
+- `SESSAO_CONSUMO_ENCERRADA`
+- `CONSUMO_QR_REIMPRESSO_DEVICE`
+- `CONTA_REIMPRESSA_DEVICE`
+- `COMPROVATIVO_ORDEM_REIMPRESSO_DEVICE`
+
+Suporte no serviço:
+- `src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java`
+  - novos helpers: `logOrdemPagamentoEvent`, `logFundoConsumoEvent`, `logSessaoConsumoEvent`
+  - log público via `logPublicEvent` (actorType=SYSTEM) quando origem é QR público.
+
+================================================================================
+12) TESTES CRIADOS/ALTERADOS
+================================================================================
+Testcontainers/PostgreSQL:
+- `src/test/java/com/restaurante/consumo/Prompt36ManualCashTpaIT.java`
+  - cria consumo anónimo via QR operacional
+  - cria ordem de carregamento CASH
+  - device escaneia e confirma com idempotência (replay não duplica)
+  - confirmação sem turno aberto retorna 409
+- `src/test/java/com/restaurante/consumo/TenantConsumoAdminIT.java`
+  - tenant OPERATOR bloqueia/desbloqueia e encerra consumo
+
+================================================================================
+13) COMANDOS EXECUTADOS
+================================================================================
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+================================================================================
+14) RESULTADO DOS COMANDOS
+================================================================================
+- `mvn -q -DskipTests compile` : OK
+- `mvn test` : BUILD SUCCESS (149 testes, 0 failures, 0 errors)
+
+================================================================================
+15) ARQUIVOS CRIADOS/ALTERADOS (PRINCIPAIS)
+================================================================================
+Docs:
+- `docs/tenant-core/36-gestao-consumo-fisico-ordem-pagamento-manual.md`
+
+Controllers:
+- `src/main/java/com/restaurante/controller/PublicQrConsumoController.java`
+- `src/main/java/com/restaurante/controller/PublicOrdemPagamentoController.java`
+- `src/main/java/com/restaurante/controller/DeviceOrdemPagamentoController.java`
+- `src/main/java/com/restaurante/controller/DeviceConsumoController.java`
+- `src/main/java/com/restaurante/controller/TenantConsumoController.java`
+
+Services:
+- `src/main/java/com/restaurante/service/ConsumoPublicService.java`
+- `src/main/java/com/restaurante/service/ConsumoAdminService.java`
+- `src/main/java/com/restaurante/service/device/DeviceOrdemPagamentoService.java`
+- `src/main/java/com/restaurante/service/device/DeviceConsumoDocumentService.java`
+- `src/main/java/com/restaurante/financeiro/service/OrdemPagamentoService.java`
+- `src/main/java/com/restaurante/financeiro/service/OrdemPagamentoTokenService.java`
+
+DTOs:
+- `src/main/java/com/restaurante/dto/request/CriarCarregamentoFundoRequest.java`
+- `src/main/java/com/restaurante/dto/request/PublicCriarOrdemPagamentoManualPedidoRequest.java`
+- `src/main/java/com/restaurante/dto/request/ConfirmarOrdemManualRequest.java`
+- `src/main/java/com/restaurante/dto/response/OrdemPagamentoResponse.java`
+- `src/main/java/com/restaurante/dto/response/OrdemPagamentoStatusResponse.java`
+- `src/main/java/com/restaurante/dto/response/DeviceOrdemPagamentoResponse.java`
+- `src/main/java/com/restaurante/dto/response/ConfirmarOrdemManualResponse.java`
+- `src/main/java/com/restaurante/dto/response/ReimpressaoDocumentoResponse.java`
+- `src/main/java/com/restaurante/dto/response/GerirConsumoOptionsResponse.java`
+
+Repos:
+- `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java`
+- `src/main/java/com/restaurante/repository/FundoConsumoRepository.java`
+- `src/main/java/com/restaurante/repository/TransacaoFundoRepository.java`
+
+Tests:
+- `src/test/java/com/restaurante/consumo/Prompt36ManualCashTpaIT.java`
+- `src/test/java/com/restaurante/consumo/TenantConsumoAdminIT.java`
+
+================================================================================
+16) DECISÕES TÉCNICAS TOMADAS
+================================================================================
+1. OrdemPagamento é o “contrato” de pagamento manual: é o que o cliente mostra e o POS confirma.
+2. Crédito do fundo é idempotente por `merchantTransactionId` determinístico (`ORD-{ordemId}`) no ledger de transações.
+3. Pagamento manual não usa gateway: Pagamento é persistido como confirmado (status CONFIRMADO) e método gateway fica null.
+4. Turno aberto é obrigatório por default para confirmação manual (disciplina operacional).
+5. Reimpressão é “lógica” (payload) para não acoplar driver térmico nesta fase.
+
+================================================================================
+17) RISCOS RESTANTES
+================================================================================
+- Fraude/erro humano: confirmação manual depende de RBAC/capabilities e disciplina de turno; precisa de UX e playbooks.
+- Conciliação operacional: sem “caixa” completo ainda, o resumo por turno deve evoluir para incluir CASH/TPA.
+- Campos nulos em Pagamento (método gateway) exigem cuidado em relatórios/exportações futuras.
+- Volume de OperationalEventLog: manter plano de retenção/partição quando pilotos crescerem.
+
+================================================================================
+18) CHECKLIST DE ACEITAÇÃO (PROMPT 36)
+================================================================================
+- QR mostra opção Gerir Consumo: OK (endpoint de opções)
+- consumo anónimo criado: OK
+- consumo identificado/OTP: NÃO implementado (apenas sinalizado como indisponível; preparado para futuro)
+- ordem de carregamento CASH/TPA criada: OK
+- POS escaneia ordem: OK
+- POS confirma CASH: OK
+- POS confirma TPA: OK (validação de referência/observação mínima aplicada)
+- confirmação manual credita FundoConsumo: OK (ledger + saldo)
+- ordem tipo PEDIDO confirmável manualmente: OK (ordem pode ser criada e confirmada)
+- AppyPay não exige confirmação manual: OK (fluxos separados)
+- turno aberto obrigatório para manual: OK
+- idempotência impede duplo crédito/pagamento: OK (idempotency record + merchantTransactionId)
+- tenant bloqueia/desbloqueia/encerra: OK
+- reimpressão lógica: OK
+- auditoria em OperationalEventLog: OK
+- cross-tenant/cross-unidade protegido: OK (device valida tenant/unidade; public token não enumerável)
+- testes passam: OK
+
+================================================================================
+19) PRÓXIMO PROMPT RECOMENDADO
+================================================================================
+Prompt 37 — Relatório de caixa por turno (CASH/TPA + AppyPay) + resumo operacional financeiro
+
+Objetivo: consolidar o fecho do turno com visão mínima de caixa (sem conciliação bancária final),
+separando claramente:
+- digital (AppyPay confirmado via callback/polling)
+- manual (CASH/TPA confirmado por POS)
+e expondo no resumo_json do turno e em endpoints tenant.
+

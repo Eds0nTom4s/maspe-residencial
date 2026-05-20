@@ -7,6 +7,8 @@ public enum OperationalEntityType {
     SESSAO_CONSUMO,
     MESA,
     PAGAMENTO,
+    ORDEM_PAGAMENTO,
+    FUNDO_CONSUMO,
     TURNO_OPERACIONAL,
     CHECKLIST_OPERACIONAL
 }

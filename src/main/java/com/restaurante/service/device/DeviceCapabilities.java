@@ -20,7 +20,12 @@ public final class DeviceCapabilities {
                     DeviceCapability.VIEW_ORDERS,
                     DeviceCapability.VIEW_PAYMENTS,
                     DeviceCapability.CREATE_ORDER,
-                    DeviceCapability.INITIATE_PAYMENT
+                    DeviceCapability.INITIATE_PAYMENT,
+                    DeviceCapability.VIEW_PAYMENT_ORDER,
+                    DeviceCapability.CONFIRM_CASH_PAYMENT,
+                    DeviceCapability.CONFIRM_TPA_PAYMENT,
+                    DeviceCapability.MANAGE_CONSUMPTION_FUND,
+                    DeviceCapability.REPRINT_CONSUMPTION_DOCUMENTS
             ));
             case KDS, COZINHA, BAR -> List.copyOf(EnumSet.of(
                     DeviceCapability.HEARTBEAT,
@@ -32,7 +37,12 @@ public final class DeviceCapabilities {
                     DeviceCapability.VIEW_ORDERS,
                     DeviceCapability.VIEW_PAYMENTS,
                     DeviceCapability.CREATE_ORDER,
-                    DeviceCapability.INITIATE_PAYMENT
+                    DeviceCapability.INITIATE_PAYMENT,
+                    DeviceCapability.VIEW_PAYMENT_ORDER,
+                    DeviceCapability.CONFIRM_CASH_PAYMENT,
+                    DeviceCapability.CONFIRM_TPA_PAYMENT,
+                    DeviceCapability.MANAGE_CONSUMPTION_FUND,
+                    DeviceCapability.REPRINT_CONSUMPTION_DOCUMENTS
             ));
             case QUIOSQUE -> List.copyOf(EnumSet.of(
                     DeviceCapability.HEARTBEAT,

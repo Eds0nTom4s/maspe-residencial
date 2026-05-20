@@ -192,6 +192,50 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
             from Pagamento p
               join fetch p.pedido ped
             where p.tenant.id = :tenantId
+              and ped.turnoOperacional.id = :turnoId
+            order by p.createdAt asc
+            """)
+    List<Pagamento> findAllByTenantIdAndPedidoTurnoOperacionalId(@Param("tenantId") Long tenantId, @Param("turnoId") Long turnoId);
+
+    @Query("""
+            select p
+            from Pagamento p
+              join fetch p.pedido ped
+            where p.tenant.id = :tenantId
+              and ped.turnoOperacional.id = :turnoId
+              and p.status = :status
+            order by p.createdAt asc
+            """)
+    List<Pagamento> findAllByTenantIdAndPedidoTurnoOperacionalIdAndStatus(@Param("tenantId") Long tenantId,
+                                                                          @Param("turnoId") Long turnoId,
+                                                                          @Param("status") StatusPagamentoGateway status);
+
+    @Query("""
+            select p
+            from Pagamento p
+              join fetch p.fundoConsumo f
+              join fetch f.sessaoConsumo s
+            where p.tenant.id = :tenantId
+              and p.tipoPagamento = :tipo
+              and p.status = :status
+              and p.externalReference is not null
+              and s.unidadeAtendimento.id = :unidadeAtendimentoId
+              and p.createdAt >= :from
+              and p.createdAt <= :to
+            order by p.createdAt asc
+            """)
+    List<Pagamento> findGatewayFundPaymentsByTenantAndWindow(@Param("tenantId") Long tenantId,
+                                                             @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+                                                             @Param("from") LocalDateTime from,
+                                                             @Param("to") LocalDateTime to,
+                                                             @Param("tipo") TipoPagamentoFinanceiro tipo,
+                                                             @Param("status") StatusPagamentoGateway status);
+
+    @Query("""
+            select p
+            from Pagamento p
+              join fetch p.pedido ped
+            where p.tenant.id = :tenantId
               and p.status = 'PENDENTE'
               and (:turnoId is null or ped.turnoOperacional.id = :turnoId)
               and (:pedidoId is null or ped.id = :pedidoId)

@@ -33,6 +33,10 @@ public interface TransacaoFundoRepository extends JpaRepository<TransacaoFundo, 
      */
     Optional<TransacaoFundo> findByPedidoIdAndTipo(Long pedidoId, TipoTransacaoFundo tipo);
 
+    Optional<TransacaoFundo> findByMerchantTransactionId(String merchantTransactionId);
+
+    boolean existsByMerchantTransactionId(String merchantTransactionId);
+
     /**
      * Verifica se pedido já foi debitado
      */

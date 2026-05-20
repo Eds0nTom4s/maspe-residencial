@@ -30,6 +30,11 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
     Optional<SessaoConsumo> findByQrCodeSessao(String qrCodeSessao);
 
     /**
+     * Busca sessão pelo QR Code da sessão dentro do tenant (tenant-safe).
+     */
+    Optional<SessaoConsumo> findByTenantIdAndQrCodeSessao(Long tenantId, String qrCodeSessao);
+
+    /**
      * Busca a sessão de uma mesa com determinado status.
      * Principal uso: buscar a sessão ABERTA da mesa para vincular pedidos.
      */

@@ -264,3 +264,29 @@ Próxima fase comercial racional:
 ================================================================================
 A CONSUMA hoje já é, tecnicamente, uma plataforma SaaS transacional multi-tenant com um núcleo operacional forte para “consumo/pedidos/pagamentos/produção” e com disciplina de turno suficiente para um piloto controlado. O próximo movimento mais inteligente não é adicionar novas verticais ou features grandes: é provar a operação no campo com pilotos pequenos, reduzir fricção de uso, fortalecer suporte/observabilidade e transformar o que já existe em um “produto replicável” (processo + UX + métricas + oferta comercial). Isso mantém alinhamento com a visão maior: a estrutura é CONSUMA — mas só vira infraestrutura nacional quando o primeiro motor operar impecavelmente no mundo real.
 
+================================================================================
+13. PRÓXIMO MARCO TÉCNICO (EM ABERTO): PROMPT 36 — CONSUMO FÍSICO COM CASH/TPA
+================================================================================
+Status (2026-05-19):
+- Ainda não implementado nesta baseline (considerar “próxima grande peça” para operação presencial sem gateway).
+
+Por que é o próximo passo racional (depois do piloto com pagamentos digitais):
+- Fecha o ciclo de operação presencial para negócios que não querem/ não podem depender de AppyPay.
+- Reduz risco operacional no piloto (contingência) e aumenta adoção em segmentos “cash-first”.
+- Mantém coerência com a visão “infra operacional angolana”, porque inclui o mundo real (CASH/TPA físico).
+
+Definição objetiva do que o Prompt 36 adiciona (sem expandir além do essencial):
+- Gestão de consumo físico (SessaoConsumo + FundoConsumo) com posse por QR/código.
+- OrdemPagamento manual (CASH/TPA) confirmada por POS autorizado, com idempotência e locks.
+- Crédito síncrono do FundoConsumo após confirmação manual.
+- Pagamento manual de Pedido (CASH/TPA) como alternativa ao gateway, sem mexer em callback/polling AppyPay.
+- Bloqueio/desbloqueio/encerramento do consumo/fundo e reimpressão lógica (QR/conta/comprovativo) com auditoria.
+- Turno obrigatório para confirmação manual (disciplina operacional).
+
+Riscos a gerir (se/ao implementar):
+- Fraude/erro humano: confirmação manual precisa de RBAC + capabilities e trilha auditável forte.
+- Conciliação: não é “contabilidade”, mas precisa invariantes claras (um pagamento manual = confirmado imediatamente).
+- Complexidade: manter separação rígida entre fluxo AppyPay (callback/polling) e fluxo manual (CASH/TPA).
+
+Critério de sucesso:
+- Operação presencial consegue funcionar com disciplina de turno, mesmo sem gateway, com zero duplicação (idempotência) e auditoria suficiente para suporte.

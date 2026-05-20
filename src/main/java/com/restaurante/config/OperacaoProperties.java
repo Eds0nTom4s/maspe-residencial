@@ -26,6 +26,12 @@ public class OperacaoProperties {
     private boolean requireOpenTurnoForDevicePayments = true;
 
     /**
+     * Quando true, exige turno ABERTO para confirmação manual de pagamentos (CASH/TPA) por device/POS.
+     * Default true para evitar confirmação fora de disciplina operacional.
+     */
+    private boolean requireOpenTurnoForManualPayments = true;
+
+    /**
      * Limiar em minutos para considerar dispositivo "offline" no pré-fecho (informativo/warning).
      */
     private int deviceOfflineMinutes = 10;
@@ -60,5 +66,13 @@ public class OperacaoProperties {
 
     public void setRequireOpenTurnoForDevicePayments(boolean requireOpenTurnoForDevicePayments) {
         this.requireOpenTurnoForDevicePayments = requireOpenTurnoForDevicePayments;
+    }
+
+    public boolean isRequireOpenTurnoForManualPayments() {
+        return requireOpenTurnoForManualPayments;
+    }
+
+    public void setRequireOpenTurnoForManualPayments(boolean requireOpenTurnoForManualPayments) {
+        this.requireOpenTurnoForManualPayments = requireOpenTurnoForManualPayments;
     }
 }

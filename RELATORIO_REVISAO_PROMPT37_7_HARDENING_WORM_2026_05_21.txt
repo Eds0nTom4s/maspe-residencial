@@ -1,0 +1,137 @@
+RELATÓRIO DE REVISÃO — PROMPT 37.7 (HARDENING WORM: TRIGGER ANTI-UPDATE/DELETE + JOB RETENÇÃO LÓGICA)
+Data: 2026-05-21
+Repositório: Sistema de Restauração (CONSUMA)
+
+================================================================================
+1) Resumo executivo
+================================================================================
+O Prompt 37.7 NÃO está completamente implementado no código atual.
+
+O que está implementado neste momento cobre apenas parte da “retenção lógica” (service + queries + enums + properties) e compila/testa com sucesso, mas ainda falta o núcleo do hardening WORM exigido pelo prompt:
+
+- Migration Flyway com trigger PostgreSQL anti-UPDATE/DELETE em `turno_evidence_bundles`;
+- Job agendado (`@Scheduled`) que execute a retenção automática;
+- Testes específicos para validar bloqueio de mutação (UPDATE/DELETE) por trigger;
+- Documentação da fase 37.7.
+
+Resultado: a solução ainda depende principalmente de proteção lógica por API/service; o banco ainda permite mutações diretas se feitas fora da aplicação.
+
+================================================================================
+2) Evidências verificadas no workspace
+================================================================================
+Status Git (arquivos modificados / novos):
+- M `src/main/java/com/restaurante/financeiro/snapshot/evidence/EvidenceBundleProperties.java`
+- M `src/main/java/com/restaurante/financeiro/snapshot/evidence/repository/TurnoEvidenceBundleRepository.java`
+- M `src/main/java/com/restaurante/model/enums/EvidenceBundleAccessType.java`
+- M `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+- M `src/main/resources/application.properties`
+- ?? `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/EvidenceBundleRetentionService.java`
+
+================================================================================
+3) O que foi implementado (parcial 37.7)
+================================================================================
+3.1 Properties de retenção (config)
+- Adicionado no `EvidenceBundleProperties`:
+  - `retentionJobEnabled` (default true)
+  - `retentionJobCron` (default "0 0 3 * * *")
+  - `retentionJobBatchSize` (default 100)
+Arquivo: `src/main/java/com/restaurante/financeiro/snapshot/evidence/EvidenceBundleProperties.java`
+
+- Adicionado em `application.properties`:
+  - `consuma.financeiro.evidence-bundle.retention-job-enabled`
+  - `consuma.financeiro.evidence-bundle.retention-job-cron`
+  - `consuma.financeiro.evidence-bundle.retention-job-batch-size`
+Arquivo: `src/main/resources/application.properties`
+
+3.2 Enums / auditoria (base)
+- Adicionado `RETENTION_EXPIRED` ao enum de access log:
+  - `EvidenceBundleAccessType.RETENTION_EXPIRED`
+Arquivo: `src/main/java/com/restaurante/model/enums/EvidenceBundleAccessType.java`
+
+- Adicionado evento operacional:
+  - `OperationalEventType.EVIDENCE_BUNDLE_RETENTION_EXPIRED`
+Arquivo: `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+
+3.3 Repository para retenção em lote (PostgreSQL)
+- Adicionadas queries nativas:
+  - `lockExpiredIdsForRetention(batchSize)` com `FOR UPDATE SKIP LOCKED`
+  - `markRetentionExpired(ids, modifiedBy)` atualizando apenas `status`, `updated_at`, `modified_by`
+Arquivo: `src/main/java/com/restaurante/financeiro/snapshot/evidence/repository/TurnoEvidenceBundleRepository.java`
+
+3.4 Service de retenção lógica (app-layer)
+- Implementado `EvidenceBundleRetentionService.runOnce(triggeredBy)`:
+  - busca IDs expirados por retenção com lock;
+  - marca status como `RETENTION_EXPIRED` (sem delete físico);
+  - registra access log (`RETENTION_EXPIRED`, actorType=SYSTEM);
+  - registra `OperationalEventLog` sanitizado `EVIDENCE_BUNDLE_RETENTION_EXPIRED` para o turno.
+Arquivo: `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/EvidenceBundleRetentionService.java`
+
+Observações:
+- A lógica é idempotente por desenho (um bundle já expirado não volta a ACTIVE).
+- Não há trigger no banco ainda; portanto a integridade WORM ainda depende de “não expor endpoints de mutação”.
+
+================================================================================
+4) O que NÃO foi implementado (lacunas do Prompt 37.7)
+================================================================================
+4.1 Trigger PostgreSQL anti-mutation (obrigatório no prompt)
+FALTA criar migration Flyway para:
+- bloquear DELETE em `turno_evidence_bundles` sempre;
+- bloquear UPDATE de campos críticos (bundle_json/hash/assinaturas/cadeia/tenant/turno/etc.);
+- permitir somente transições controladas de `status` (ex: ACTIVE/SUPERSEDED → RETENTION_EXPIRED/QUARANTINED).
+
+Não existe novo arquivo `VXX__harden_turno_evidence_bundle_worm.sql` no diretório `src/main/resources/db/migration/`.
+
+4.2 Job agendado de retenção lógica
+FALTA criar `EvidenceBundleRetentionJob` com `@Scheduled`, condicionável por property, chamando `EvidenceBundleRetentionService`.
+
+Nota: o projeto já tem `@EnableScheduling` habilitado, então a implementação do job é viável sem ativar scheduling global.
+
+4.3 Testes obrigatórios de trigger/WORM
+FALTAM testes que comprovem:
+- UPDATE de `bundle_json` falha;
+- UPDATE de `bundle_hash`, `bundle_signature`, `chain_hash`, `chain_signature`, `sequence_number`, etc. falham;
+- DELETE falha;
+- transição ACTIVE → RETENTION_EXPIRED passa;
+- transições inválidas falham.
+
+4.4 Documentação 37.7
+FALTA criar:
+- `docs/tenant-core/37-7-hardening-worm-trigger-retencao-logica.md`
+
+================================================================================
+5) Comandos executados (verificação)
+================================================================================
+- `mvn -q -DskipTests compile` -> OK
+- `mvn test` -> BUILD SUCCESS (Tests run: 156, Failures: 0, Errors: 0, Skipped: 9)
+
+================================================================================
+6) Checklist de aceitação do Prompt 37.7 (status)
+================================================================================
+[ ] DELETE em `turno_evidence_bundles` é bloqueado. (NÃO IMPLEMENTADO — falta trigger)
+[ ] UPDATE de `bundle_json` é bloqueado. (NÃO IMPLEMENTADO — falta trigger)
+[ ] UPDATE de hashes/assinaturas/cadeia é bloqueado. (NÃO IMPLEMENTADO — falta trigger)
+[ ] UPDATE de tenant/turno é bloqueado. (NÃO IMPLEMENTADO — falta trigger)
+[ ] Transição ACTIVE → RETENTION_EXPIRED é permitida. (PARCIAL — app-layer existe; sem trigger ainda)
+[ ] Transição inválida para ACTIVE é bloqueada. (NÃO IMPLEMENTADO — falta trigger/testes)
+[ ] Job de retenção existe. (NÃO IMPLEMENTADO — falta job)
+[ ] Job marca bundles vencidos como RETENTION_EXPIRED. (PARCIAL — service existe; falta job)
+[ ] Job não apaga fisicamente. (OK — sem delete)
+[ ] Job não altera campos críticos. (OK — update limitado a status/updated_at/modified_by)
+[ ] Job é idempotente. (OK por desenho; faltam testes dedicados)
+[ ] Bundle expirado continua consultável. (NÃO VERIFICADO NESTA REVISÃO)
+[ ] Bundle expirado continua verificável. (NÃO VERIFICADO NESTA REVISÃO)
+[ ] Access log/evento de retenção é registrado. (OK — implementado no service)
+[ ] Cross-tenant continua protegido. (NÃO REVALIDADO NESTA REVISÃO)
+[ ] OPERATOR/KITCHEN continuam bloqueados. (NÃO REVALIDADO NESTA REVISÃO)
+[ ] Criar/listar/detail/verify bundle continuam funcionando. (NÃO REVALIDADO NESTA REVISÃO)
+
+================================================================================
+7) Conclusão e próximos passos imediatos (para fechar 37.7)
+================================================================================
+Para considerar o Prompt 37.7 “corretamente implementado”, ainda é necessário:
+
+1) Adicionar migration Flyway com trigger anti-UPDATE/DELETE (WORM hardening no banco).
+2) Adicionar `EvidenceBundleRetentionJob` (`@Scheduled`) com `@ConditionalOnProperty`.
+3) Criar testes (preferencialmente com PostgreSQL/Testcontainers) para validar trigger e transições.
+4) Criar documentação 37.7 explicando imutabilidade, transições permitidas e significado de RETENTION_EXPIRED.
+

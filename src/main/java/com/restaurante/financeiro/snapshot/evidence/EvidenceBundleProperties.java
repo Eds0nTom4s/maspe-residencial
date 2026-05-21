@@ -16,6 +16,10 @@ public class EvidenceBundleProperties {
     private String canonicalizationVersion = "1.0";
     private String hashAlgorithm = "SHA-256";
 
+    private boolean retentionJobEnabled = true;
+    private String retentionJobCron = "0 0 3 * * *";
+    private int retentionJobBatchSize = 100;
+
     public boolean isRetentionEnabled() {
         return retentionEnabled;
     }
@@ -71,5 +75,28 @@ public class EvidenceBundleProperties {
     public void setHashAlgorithm(String hashAlgorithm) {
         this.hashAlgorithm = hashAlgorithm;
     }
-}
 
+    public boolean isRetentionJobEnabled() {
+        return retentionJobEnabled;
+    }
+
+    public void setRetentionJobEnabled(boolean retentionJobEnabled) {
+        this.retentionJobEnabled = retentionJobEnabled;
+    }
+
+    public String getRetentionJobCron() {
+        return retentionJobCron;
+    }
+
+    public void setRetentionJobCron(String retentionJobCron) {
+        this.retentionJobCron = retentionJobCron;
+    }
+
+    public int getRetentionJobBatchSize() {
+        return retentionJobBatchSize;
+    }
+
+    public void setRetentionJobBatchSize(int retentionJobBatchSize) {
+        this.retentionJobBatchSize = retentionJobBatchSize;
+    }
+}

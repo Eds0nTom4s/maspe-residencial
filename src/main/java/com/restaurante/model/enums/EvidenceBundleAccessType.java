@@ -5,6 +5,6 @@ public enum EvidenceBundleAccessType {
     EXPORTED,
     VERIFIED,
     INTEGRITY_FAILED,
-    RETENTION_CHECKED
+    RETENTION_CHECKED,
+    RETENTION_EXPIRED
 }
-

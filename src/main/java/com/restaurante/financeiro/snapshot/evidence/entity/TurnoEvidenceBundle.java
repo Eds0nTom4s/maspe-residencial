@@ -37,28 +37,28 @@ import java.time.LocalDateTime;
 public class TurnoEvidenceBundle extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "tenant_id", nullable = false)
+    @JoinColumn(name = "tenant_id", nullable = false, updatable = false)
     private Tenant tenant;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "turno_id", nullable = false)
+    @JoinColumn(name = "turno_id", nullable = false, updatable = false)
     private TurnoOperacional turno;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "instituicao_id")
+    @JoinColumn(name = "instituicao_id", updatable = false)
     private Instituicao instituicao;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "unidade_atendimento_id")
+    @JoinColumn(name = "unidade_atendimento_id", updatable = false)
     private UnidadeAtendimento unidadeAtendimento;
 
     @NotNull
-    @Column(name = "bundle_version", nullable = false, length = 30)
+    @Column(name = "bundle_version", nullable = false, length = 30, updatable = false)
     private String bundleVersion;
 
     @NotNull
     @Enumerated(EnumType.STRING)
-    @Column(name = "bundle_type", nullable = false, length = 50)
+    @Column(name = "bundle_type", nullable = false, length = 50, updatable = false)
     private EvidenceBundleType bundleType = EvidenceBundleType.FINANCEIRO_TURNO_SNAPSHOT_EVIDENCE;
 
     @NotNull
@@ -67,86 +67,85 @@ public class TurnoEvidenceBundle extends BaseEntity {
     private EvidenceBundleStatus status = EvidenceBundleStatus.ACTIVE;
 
     @NotNull
-    @Column(name = "sequence_number", nullable = false)
+    @Column(name = "sequence_number", nullable = false, updatable = false)
     private Integer sequenceNumber;
 
     @NotNull
-    @Column(name = "generated_at", nullable = false)
+    @Column(name = "generated_at", nullable = false, updatable = false)
     private LocalDateTime generatedAt;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "generated_by_user_id")
+    @JoinColumn(name = "generated_by_user_id", updatable = false)
     private User generatedByUser;
 
-    @Column(name = "generated_by_actor_type", length = 50)
+    @Column(name = "generated_by_actor_type", length = 50, updatable = false)
     private String generatedByActorType;
 
-    @Column(name = "source_endpoint", length = 150)
+    @Column(name = "source_endpoint", length = 150, updatable = false)
     private String sourceEndpoint;
 
     @NotNull
-    @Column(name = "canonicalization_version", nullable = false, length = 20)
+    @Column(name = "canonicalization_version", nullable = false, length = 20, updatable = false)
     private String canonicalizationVersion;
 
     @NotNull
-    @Column(name = "hash_algorithm", nullable = false, length = 50)
+    @Column(name = "hash_algorithm", nullable = false, length = 50, updatable = false)
     private String hashAlgorithm;
 
     @NotNull
-    @Column(name = "bundle_hash", nullable = false, length = 128)
+    @Column(name = "bundle_hash", nullable = false, length = 128, updatable = false)
     private String bundleHash;
 
     @NotNull
-    @Column(name = "signature_algorithm", nullable = false, length = 50)
+    @Column(name = "signature_algorithm", nullable = false, length = 50, updatable = false)
     private String signatureAlgorithm;
 
     @NotNull
-    @Column(name = "bundle_signature", nullable = false, columnDefinition = "text")
+    @Column(name = "bundle_signature", nullable = false, columnDefinition = "text", updatable = false)
     private String bundleSignature;
 
     @NotNull
-    @Column(name = "signature_key_id", nullable = false, length = 100)
+    @Column(name = "signature_key_id", nullable = false, length = 100, updatable = false)
     private String signatureKeyId;
 
     @NotNull
-    @Column(name = "signature_generated_at", nullable = false)
+    @Column(name = "signature_generated_at", nullable = false, updatable = false)
     private LocalDateTime signatureGeneratedAt;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "previous_bundle_id")
+    @JoinColumn(name = "previous_bundle_id", updatable = false)
     private TurnoEvidenceBundle previousBundle;
 
-    @Column(name = "previous_bundle_hash", length = 128)
+    @Column(name = "previous_bundle_hash", length = 128, updatable = false)
     private String previousBundleHash;
 
     @NotNull
-    @Column(name = "chain_hash", nullable = false, length = 128)
+    @Column(name = "chain_hash", nullable = false, length = 128, updatable = false)
     private String chainHash;
 
     @NotNull
-    @Column(name = "chain_signature", nullable = false, columnDefinition = "text")
+    @Column(name = "chain_signature", nullable = false, columnDefinition = "text", updatable = false)
     private String chainSignature;
 
     @NotNull
-    @Column(name = "chain_signature_key_id", nullable = false, length = 100)
+    @Column(name = "chain_signature_key_id", nullable = false, length = 100, updatable = false)
     private String chainSignatureKeyId;
 
     @NotNull
-    @Column(name = "chain_signature_generated_at", nullable = false)
+    @Column(name = "chain_signature_generated_at", nullable = false, updatable = false)
     private LocalDateTime chainSignatureGeneratedAt;
 
-    @Column(name = "retention_until")
+    @Column(name = "retention_until", updatable = false)
     private LocalDateTime retentionUntil;
 
     @NotNull
-    @Column(name = "worm_locked", nullable = false)
+    @Column(name = "worm_locked", nullable = false, updatable = false)
     private boolean wormLocked = true;
 
     @NotNull
-    @Column(name = "bundle_json", nullable = false, columnDefinition = "jsonb")
+    @Column(name = "bundle_json", nullable = false, columnDefinition = "jsonb", updatable = false)
     private String bundleJson;
 
-    @Column(name = "metadata_json", columnDefinition = "jsonb")
+    @Column(name = "metadata_json", columnDefinition = "jsonb", updatable = false)
     private String metadataJson;
 }
-

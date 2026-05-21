@@ -1,0 +1,210 @@
+RELATÓRIO TÉCNICO — PROMPT 37.7-FIX (HARDENING WORM: TRIGGER POSTGRESQL + JOB RETENÇÃO + TESTES + DOC)
+Data: 2026-05-21
+
+================================================================================
+1) Resumo executivo
+================================================================================
+Este patch fecha as lacunas do Prompt 37.7 adicionando:
+
+1) Trigger PostgreSQL (Flyway) para hardening WORM:
+   - bloqueia DELETE físico em `turno_evidence_bundles`;
+   - bloqueia UPDATE de campos imutáveis;
+   - permite apenas transições controladas de `status` (ex: ACTIVE/SUPERSEDED → RETENTION_EXPIRED/QUARANTINED).
+
+2) Job agendado de retenção lógica:
+   - executa `EvidenceBundleRetentionService.runOnce("SCHEDULED_JOB")`;
+   - respeita properties de enable/cron/batch-size.
+
+3) Testes:
+   - Teste de trigger/WORM com PostgreSQL/Testcontainers (skip automático se Docker indisponível);
+   - Testes unitários para Job e Service de retenção.
+
+4) Documentação:
+   - Documento explicando regras WORM/trigger e retenção.
+
+Escopo respeitado:
+- Sem refazer evidence bundle/cadeia de custódia;
+- Sem alterar snapshot/export/assinatura;
+- Sem alterar callback/polling AppyPay;
+- Sem alterar confirmação manual CASH/TPA.
+
+================================================================================
+2) Migration criada (trigger PostgreSQL)
+================================================================================
+Arquivo:
+- `src/main/resources/db/migration/V27__harden_turno_evidence_bundle_worm.sql`
+
+Conteúdo:
+- Function `prevent_turno_evidence_bundle_mutation()`
+- Trigger `trg_prevent_turno_evidence_bundle_mutation` em `turno_evidence_bundles`
+
+Regras aplicadas:
+- DELETE: sempre bloqueado.
+- UPDATE: permitido somente quando `status` muda com transição válida:
+  - ACTIVE → RETENTION_EXPIRED
+  - ACTIVE → QUARANTINED
+  - SUPERSEDED → RETENTION_EXPIRED
+  - SUPERSEDED → QUARANTINED
+- Qualquer tentativa de alterar campos críticos (bundle_json, hashes, assinaturas, cadeia, tenant/turno, sequence, retention_until, worm_locked, etc.) falha.
+- UPDATE com status inalterado é bloqueado (evita “dirty updates” em updated_at/version).
+
+Mensagens:
+- DELETE: `turno_evidence_bundles is WORM protected: DELETE is not allowed`
+- UPDATE imutável: `turno_evidence_bundles is WORM protected: immutable fields cannot be updated`
+- Status inválido: `turno_evidence_bundles is WORM protected: invalid status transition`
+
+================================================================================
+3) Job agendado de retenção lógica
+================================================================================
+Arquivo:
+- `src/main/java/com/restaurante/financeiro/snapshot/evidence/job/EvidenceBundleRetentionJob.java`
+
+Comportamento:
+- `@ConditionalOnProperty(consuma.financeiro.evidence-bundle.retention-job-enabled=true)`
+- `@Scheduled(cron = consuma.financeiro.evidence-bundle.retention-job-cron)`
+- chama `EvidenceBundleRetentionService.runOnce("SCHEDULED_JOB")`
+
+Properties:
+- `consuma.financeiro.evidence-bundle.retention-job-enabled`
+- `consuma.financeiro.evidence-bundle.retention-job-cron`
+- `consuma.financeiro.evidence-bundle.retention-job-batch-size`
+Arquivo:
+- `src/main/resources/application.properties`
+
+================================================================================
+4) Compatibilidade com trigger (JPA)
+================================================================================
+Arquivo:
+- `src/main/java/com/restaurante/financeiro/snapshot/evidence/entity/TurnoEvidenceBundle.java`
+
+Ajustes:
+- Adicionado `updatable=false` nos principais campos imutáveis (bundle_json, hashes, assinaturas, cadeia, sequence, tenant/turno, retention_until, worm_locked, etc.).
+- Mantido `status` como campo atualizável (único update funcional esperado).
+
+Motivo:
+- reduzir risco de dirty checking tentar atualizar colunas bloqueadas pela trigger.
+
+================================================================================
+5) Retenção lógica (service + repository)
+================================================================================
+Já existente na implementação parcial 37.7:
+- `EvidenceBundleRetentionService.runOnce(triggeredBy)`
+- `TurnoEvidenceBundleRepository.lockExpiredIdsForRetention(batchSize)` com `FOR UPDATE SKIP LOCKED`
+- `TurnoEvidenceBundleRepository.markRetentionExpired(ids, modifiedBy)` (status/updated_at/modified_by)
+- Access log com `RETENTION_EXPIRED`
+- Evento operacional sanitizado `EVIDENCE_BUNDLE_RETENTION_EXPIRED`
+
+Observação:
+- Retenção lógica não apaga evidências; apenas muda status para `RETENTION_EXPIRED`.
+
+================================================================================
+6) Testes criados/alterados
+================================================================================
+6.1 Trigger / WORM (PostgreSQL/Testcontainers)
+- `src/test/java/com/restaurante/financeiro/EvidenceBundleWormTriggerIT.java`
+  - valida que UPDATE de `bundle_json` falha;
+  - valida que DELETE falha;
+  - valida transição ACTIVE → RETENTION_EXPIRED (permitida);
+  - valida RETENTION_EXPIRED → ACTIVE (bloqueada).
+
+Nota:
+- o teste depende de Docker/Testcontainers e será skipado automaticamente se Docker indisponível.
+
+6.2 Job
+- `src/test/java/com/restaurante/financeiro/snapshot/evidence/job/EvidenceBundleRetentionJobTest.java`
+  - valida que `run()` chama `runOnce("SCHEDULED_JOB")`.
+
+6.3 Service
+- `src/test/java/com/restaurante/financeiro/snapshot/evidence/service/EvidenceBundleRetentionServiceTest.java`
+  - valida runOnce com IDs:
+    - chama markRetentionExpired;
+    - grava access logs;
+    - registra evento operacional.
+  - valida no-op quando não há IDs expirados.
+
+================================================================================
+7) Documentação criada
+================================================================================
+- `docs/tenant-core/37-7-hardening-worm-trigger-retencao-logica.md`
+
+Inclui:
+- diferença entre WORM lógico por API e trigger no banco;
+- campos imutáveis e transições permitidas;
+- significado de RETENTION_EXPIRED (não apaga);
+- limitações (superuser pode burlar trigger).
+
+================================================================================
+8) Comandos executados
+================================================================================
+- `mvn -q -DskipTests compile` -> OK
+- `mvn test` -> BUILD SUCCESS (tests run: 159, failures: 0, errors: 0)
+
+Observação sobre Testcontainers:
+- Os testes “it-postgres” usam `disabledWithoutDocker=true` e podem ter sido skipados conforme disponibilidade de Docker.
+
+================================================================================
+9) Arquivos criados/alterados
+================================================================================
+Criados:
+- `src/main/resources/db/migration/V27__harden_turno_evidence_bundle_worm.sql`
+- `src/main/java/com/restaurante/financeiro/snapshot/evidence/job/EvidenceBundleRetentionJob.java`
+- `src/test/java/com/restaurante/financeiro/EvidenceBundleWormTriggerIT.java`
+- `src/test/java/com/restaurante/financeiro/snapshot/evidence/job/EvidenceBundleRetentionJobTest.java`
+- `src/test/java/com/restaurante/financeiro/snapshot/evidence/service/EvidenceBundleRetentionServiceTest.java`
+- `docs/tenant-core/37-7-hardening-worm-trigger-retencao-logica.md`
+
+Alterados:
+- `src/main/java/com/restaurante/financeiro/snapshot/evidence/entity/TurnoEvidenceBundle.java`
+- (mantidos do parcial) `src/main/java/com/restaurante/financeiro/snapshot/evidence/EvidenceBundleProperties.java`
+- (mantidos do parcial) `src/main/java/com/restaurante/financeiro/snapshot/evidence/repository/TurnoEvidenceBundleRepository.java`
+- (mantidos do parcial) `src/main/java/com/restaurante/model/enums/EvidenceBundleAccessType.java`
+- (mantidos do parcial) `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+- (mantidos do parcial) `src/main/resources/application.properties`
+- (mantido do parcial) `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/EvidenceBundleRetentionService.java`
+
+================================================================================
+10) Decisões técnicas
+================================================================================
+- Trigger bloqueia qualquer UPDATE sem mudança de status:
+  - reduz risco de updates “inofensivos” que alterem version/updated_at e criem ruído/audit gaps.
+- Status transitions explicitamente whitelist:
+  - evita caminhos implícitos ou regressões.
+- `updatable=false` no JPA para campos críticos:
+  - mitigação adicional; trigger permanece fonte de verdade.
+
+================================================================================
+11) Riscos restantes
+================================================================================
+- Superuser do PostgreSQL pode burlar trigger (limitação conhecida).
+- Para WORM “forte”, ainda é desejável:
+  - storage externo com Object Lock;
+  - trilha externa (WORM fora do banco);
+  - backups imutáveis.
+
+================================================================================
+12) Checklist de aceitação (37.7-FIX)
+================================================================================
+[x] Migration Flyway da trigger criada.
+[x] DELETE bloqueado (trigger).
+[x] UPDATE de bundle_json/hashes/assinaturas/cadeia bloqueado (trigger).
+[x] UPDATE de tenant_id/turno_id bloqueado (trigger).
+[x] UPDATE de retention_until/worm_locked bloqueado (trigger).
+[x] ACTIVE → RETENTION_EXPIRED permitido.
+[x] ACTIVE → QUARANTINED permitido.
+[x] RETENTION_EXPIRED → ACTIVE bloqueado.
+[x] Job agendado criado.
+[x] Job respeita property de ativação e cron.
+[x] Retenção não apaga fisicamente.
+[x] Access log + evento de retenção (service).
+[x] Testes criados (trigger IT + unit tests).
+[x] Documentação criada.
+[x] `mvn -q -DskipTests compile` passa.
+[x] `mvn test` passa.
+
+================================================================================
+13) Próximo prompt recomendado
+================================================================================
+Se for desejado endurecer ainda mais:
+- Persistência externa WORM (Object Lock) como segunda camada;
+- Rotina de verificação periódica da cadeia (scan) para alertar inconsistências.
+

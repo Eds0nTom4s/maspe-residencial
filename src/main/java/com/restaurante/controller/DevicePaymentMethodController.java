@@ -3,9 +3,8 @@ package com.restaurante.controller;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.AvailablePaymentMethodResponse;
 import com.restaurante.exception.DeviceUnauthorizedException;
-import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.model.enums.PaymentDestination;
-import com.restaurante.model.enums.PaymentUsageContext;
 import com.restaurante.security.device.DevicePrincipal;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,7 +25,7 @@ import java.util.List;
 @Tag(name = "Device Payment Methods", description = "Métodos de pagamento disponíveis para o device (tenant-aware)")
 public class DevicePaymentMethodController {
 
-    private final TenantPaymentMethodService tenantPaymentMethodService;
+    private final PaymentMethodPolicyResolutionService policyResolutionService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<AvailablePaymentMethodResponse>>> list(
@@ -34,26 +33,7 @@ public class DevicePaymentMethodController {
             HttpServletRequest http
     ) {
         DevicePrincipal device = requireDevicePrincipal();
-        List<AvailablePaymentMethodResponse> methods = tenantPaymentMethodService
-                .listAvailableForContext(device.tenantId(), PaymentUsageContext.DEVICE_POS, destination)
-                .stream()
-                .map(m -> {
-                    AvailablePaymentMethodResponse r = new AvailablePaymentMethodResponse();
-                    r.setCode(m.getCode());
-                    r.setDisplayName(m.getDisplayName());
-                    r.setDescription(m.getDescription());
-                    r.setType(m.getType());
-                    r.setConfirmationMode(m.getConfirmationMode());
-                    r.setProvider(m.getProvider());
-                    r.setRequiresOpenTurno(m.isRequiresOpenTurno());
-                    r.setMinAmount(m.getMinAmount());
-                    r.setMaxAmount(m.getMaxAmount());
-                    r.setCurrency(m.getCurrency());
-                    r.setSortOrder(m.getSortOrder());
-                    r.setIconKey(m.getIconKey());
-                    return r;
-                })
-                .toList();
+        List<AvailablePaymentMethodResponse> methods = policyResolutionService.listEffectiveForDevice(device, destination);
 
         return ResponseEntity.ok(ApiResponse.success("Métodos de pagamento disponíveis", methods));
     }
@@ -66,4 +46,3 @@ public class DevicePaymentMethodController {
         return device;
     }
 }
-

@@ -13,6 +13,7 @@ import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
 import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeRequest;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.DevicePagamentoIdempotencyRecord;
@@ -69,6 +70,7 @@ public class DevicePagamentoService {
     private final ObjectMapper objectMapper;
     private final OperationalEventLogService operationalEventLogService;
     private final TenantPaymentMethodService tenantPaymentMethodService;
+    private final PaymentMethodPolicyResolutionService policyResolutionService;
 
     @Transactional
     public DevicePagamentoResponse iniciarPagamento(Long pedidoId,
@@ -157,10 +159,9 @@ public class DevicePagamentoService {
         }
 
         try {
-            tenantPaymentMethodService.validateMethodAllowed(
-                    tenantId,
+            policyResolutionService.validateGatewayStartDevice(
+                    device,
                     PaymentMethodCode.APPYPAY,
-                    PaymentUsageContext.DEVICE_POS,
                     PaymentDestination.PEDIDO,
                     pedido.getTotal()
             );

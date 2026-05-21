@@ -8,9 +8,8 @@ import com.restaurante.dto.response.PublicQrPedidoResponse;
 import com.restaurante.dto.response.PublicQrPagamentoResponse;
 import com.restaurante.dto.response.QrPublicContext;
 import com.restaurante.dto.response.AvailablePaymentMethodResponse;
-import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.model.enums.PaymentDestination;
-import com.restaurante.model.enums.PaymentUsageContext;
 import com.restaurante.service.PublicQrPagamentoService;
 import com.restaurante.service.PublicQrPedidoService;
 import com.restaurante.service.QrCodeOperacionalService;
@@ -43,7 +42,7 @@ public class PublicQrController {
     private final QrCodeOperacionalService qrCodeOperacionalService;
     private final PublicQrPedidoService publicQrPedidoService;
     private final PublicQrPagamentoService publicQrPagamentoService;
-    private final TenantPaymentMethodService tenantPaymentMethodService;
+    private final PaymentMethodPolicyResolutionService policyResolutionService;
 
     @GetMapping("/{token}")
     @Operation(summary = "Resolver QR operacional por token", description = "Retorna metadados públicos (tenant/instituição/unidade/mesa) a partir do token não enumerável.")
@@ -66,25 +65,7 @@ public class PublicQrController {
             @RequestParam PaymentDestination destination
     ) {
         QrPublicContext ctx = qrCodeOperacionalService.resolverPublico(token);
-        var methods = tenantPaymentMethodService.listAvailableForContext(ctx.getTenantId(), PaymentUsageContext.QR_PUBLICO, destination)
-                .stream()
-                .map(m -> {
-                    AvailablePaymentMethodResponse r = new AvailablePaymentMethodResponse();
-                    r.setCode(m.getCode());
-                    r.setDisplayName(m.getDisplayName());
-                    r.setDescription(m.getDescription());
-                    r.setType(m.getType());
-                    r.setConfirmationMode(m.getConfirmationMode());
-                    r.setProvider(m.getProvider());
-                    r.setRequiresOpenTurno(m.isRequiresOpenTurno());
-                    r.setMinAmount(m.getMinAmount());
-                    r.setMaxAmount(m.getMaxAmount());
-                    r.setCurrency(m.getCurrency());
-                    r.setSortOrder(m.getSortOrder());
-                    r.setIconKey(m.getIconKey());
-                    return r;
-                })
-                .toList();
+        var methods = policyResolutionService.listEffectiveForQr(ctx.getTenantId(), ctx.getUnidadeAtendimentoId(), destination);
 
         return ResponseEntity.ok(ApiResponse.success("Métodos de pagamento disponíveis", methods));
     }

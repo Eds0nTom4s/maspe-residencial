@@ -11,6 +11,7 @@ import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
 import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeRequest;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.Instituicao;
@@ -45,6 +46,7 @@ public class PublicQrPagamentoService {
     private final AppyPayProperties appyPayProperties;
     private final ObjectMapper objectMapper;
     private final TenantPaymentMethodService tenantPaymentMethodService;
+    private final PaymentMethodPolicyResolutionService policyResolutionService;
 
     @Transactional
     public PublicQrPagamentoResponse iniciarPagamentoPedidoPorQr(
@@ -68,10 +70,10 @@ public class PublicQrPagamentoService {
             throw new BusinessException("Pedido já está pago.");
         }
 
-        tenantPaymentMethodService.validateMethodAllowed(
+        policyResolutionService.validateGatewayStartQr(
                 tenant.getId(),
+                qr.getUnidadeAtendimento() != null ? qr.getUnidadeAtendimento().getId() : null,
                 PaymentMethodCode.APPYPAY,
-                PaymentUsageContext.QR_PUBLICO,
                 PaymentDestination.PEDIDO,
                 pedido.getTotal()
         );

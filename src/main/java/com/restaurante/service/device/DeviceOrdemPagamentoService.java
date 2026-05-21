@@ -10,6 +10,7 @@ import com.restaurante.exception.DeviceUnauthorizedException;
 import com.restaurante.financeiro.repository.OrdemPagamentoManualIdempotencyRepository;
 import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
 import com.restaurante.model.entity.DispositivoOperacional;
@@ -65,6 +66,7 @@ public class DeviceOrdemPagamentoService {
     private final FundoConsumoService fundoConsumoService;
     private final OperationalEventLogService operationalEventLogService;
     private final TenantPaymentMethodService tenantPaymentMethodService;
+    private final PaymentMethodPolicyResolutionService policyResolutionService;
 
     @Transactional(readOnly = true)
     public DeviceOrdemPagamentoResponse escanearPorToken(String token) {
@@ -267,10 +269,9 @@ public class DeviceOrdemPagamentoService {
         PaymentMethodCode methodCode = request.getMetodoConfirmado() == MetodoPagamentoManual.CASH ? PaymentMethodCode.CASH : PaymentMethodCode.TPA;
         PaymentDestination destination = ordemLocked.getTipo() == OrdemPagamentoTipo.FUNDO_CONSUMO ? PaymentDestination.FUNDO_CONSUMO : PaymentDestination.PEDIDO;
         try {
-            tenantPaymentMethodService.validateMethodAllowed(
-                    device.tenantId(),
+            policyResolutionService.validateManualConfirmation(
+                    device,
                     methodCode,
-                    PaymentUsageContext.DEVICE_POS,
                     destination,
                     ordemLocked.getValor()
             );

@@ -1,0 +1,114 @@
+RELATORIO — PROMPT 38.2 (Política de métodos de pagamento por unidade/device)
+Data: 2026-05-21
+
+1) Resumo executivo
+- Foi implementada a política hierárquica de métodos de pagamento:
+  `TenantPaymentMethod` → `UnidadePaymentMethodPolicy` → `DevicePaymentMethodPolicy`.
+- A disponibilidade efetiva agora é calculada por herança/restrição, sem permitir que unidade/device “expanda” permissões acima do tenant.
+- Endpoints de listagem existentes foram atualizados:
+  - QR público passa a considerar policy da unidade.
+  - Device/POS passa a considerar policy da unidade + do device.
+- Fluxos críticos foram integrados:
+  - criação de ordem manual (QR) respeita policy da unidade;
+  - confirmação manual (POS) respeita policy da unidade + device e bloqueia quando `canConfirmManual=false`;
+  - iniciação AppyPay (QR/POS) respeita policy e bloqueia quando `canStartGateway=false`.
+- Callback/polling AppyPay não foram alterados.
+
+2) Migration criada
+- src/main/resources/db/migration/V29__payment_method_policies_unidade_device.sql
+  - Cria `unidade_payment_method_policies`
+  - Cria `device_payment_method_policies`
+  - Índices/constraints + checks min/max
+
+3) Enums criados/alterados
+- src/main/java/com/restaurante/model/enums/PaymentMethodPolicyStatus.java
+  - INHERIT | ALLOW | BLOCK | SUSPENDED
+- src/main/java/com/restaurante/model/enums/OperationalEventType.java
+  - PAYMENT_METHOD_UNIT_POLICY_UPDATED / REMOVED
+  - PAYMENT_METHOD_DEVICE_POLICY_UPDATED / REMOVED
+- src/main/java/com/restaurante/model/enums/OperationalEntityType.java
+  - UNIDADE_PAYMENT_METHOD_POLICY
+  - DEVICE_PAYMENT_METHOD_POLICY
+
+4) Entidades e repositories
+- src/main/java/com/restaurante/financeiro/paymentmethod/entity/UnidadePaymentMethodPolicy.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/entity/DevicePaymentMethodPolicy.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/repository/UnidadePaymentMethodPolicyRepository.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/repository/DevicePaymentMethodPolicyRepository.java
+
+5) Services criados
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/PaymentMethodPolicyResolutionService.java
+  - Resolve política efetiva para:
+    - QR: tenant + unidade
+    - Device: tenant + unidade + device
+  - Aplica bloqueios (`BLOCK`/`SUSPENDED`) e herança.
+  - Aplica limites por interseção (min=max maior/menor).
+  - Validações específicas:
+    - confirmação manual: exige método manual + `canConfirmManual=true`
+    - gateway start: exige método gateway + `canStartGateway=true`
+
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/UnidadePaymentMethodPolicyAdminService.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/DevicePaymentMethodPolicyAdminService.java
+  - CRUD tenant-safe por unidade/device, com RBAC e auditoria (OperationalEventLog).
+
+6) Endpoints admin criados
+- Unidade:
+  - src/main/java/com/restaurante/financeiro/controller/TenantUnidadePaymentMethodPolicyController.java
+  - GET/PUT/DELETE `/tenant/unidades/{unidadeId}/payment-method-policies`
+- Device:
+  - src/main/java/com/restaurante/financeiro/controller/TenantDevicePaymentMethodPolicyController.java
+  - GET/PUT/DELETE `/tenant/devices/{deviceId}/payment-method-policies`
+
+RBAC:
+- OWNER / ADMIN / FINANCE: alteram
+- CASHIER: read-only
+- OPERATOR / KITCHEN: bloqueados (TenantGuard)
+
+7) DTOs criados
+- src/main/java/com/restaurante/dto/request/UpdateUnidadePaymentMethodPolicyRequest.java
+- src/main/java/com/restaurante/dto/request/UpdateDevicePaymentMethodPolicyRequest.java
+- src/main/java/com/restaurante/dto/response/PaymentMethodPolicyResponse.java
+
+8) Integrações em endpoints/fluxos existentes
+- src/main/java/com/restaurante/controller/PublicQrController.java
+  - `GET /public/q/{token}/payment-methods` agora usa policy da unidade via `PaymentMethodPolicyResolutionService`.
+- src/main/java/com/restaurante/controller/DevicePaymentMethodController.java
+  - `GET /device/payment-methods` agora usa policy unidade+device via `PaymentMethodPolicyResolutionService`.
+- src/main/java/com/restaurante/service/ConsumoPublicService.java
+  - criação de ordens manuais (FUNDO_CONSUMO e PEDIDO) valida policy QR/unidade.
+- src/main/java/com/restaurante/service/device/DeviceOrdemPagamentoService.java
+  - confirmação manual valida policy efetiva do device e bloqueia quando policy impedir.
+- src/main/java/com/restaurante/service/PublicQrPagamentoService.java
+  - iniciação AppyPay por QR valida policy QR/unidade.
+- src/main/java/com/restaurante/service/device/DevicePagamentoService.java
+  - iniciação AppyPay por POS valida policy unidade+device.
+
+9) Testes adicionados
+- src/test/java/com/restaurante/financeiro/paymentmethod/PaymentMethodPolicyResolutionServiceTest.java
+  - unidade BLOCK remove método do QR
+  - device `canStartGateway=false` remove gateway do POS
+  - interseção min/max efetiva
+  - validateGatewayStartDevice bloqueia quando policy não permite gateway
+
+10) Documentação
+- docs/tenant-core/38-2-politica-metodos-pagamento-unidade-device.md
+
+11) Comandos executados / resultado
+- mvn -q -DskipTests compile: OK
+- mvn test: BUILD SUCCESS
+  - Observação: Testcontainers/PostgreSQL fica SKIPPED quando Docker não está disponível (por design), mas a suíte permanece compatível e executa em ambiente com Docker.
+
+12) Decisões técnicas
+- Políticas inferiores só restringem: não permitem “reativar” algo bloqueado no tenant.
+- Limites são combinados por interseção (min=max maior/menor) para evitar expansão.
+- Listagem de métodos no device é “acionável”:
+  - métodos gateway exigem `canStartGateway=true`
+  - métodos manuais exigem `canConfirmManual=true`
+
+13) Riscos restantes
+- Sem Docker, os testes IT (PostgreSQL) ficam SKIPPED; ideal rodar CI com Docker para validar Postgres real.
+- Ainda não existe template/policy por tipo de device (POS/KDS) — recomendado como próximo passo.
+
+14) Próximo prompt recomendado
+- Prompt 38.3 — Templates de policy por tipo de device + rollout por unidade (sem UI complexa).
+

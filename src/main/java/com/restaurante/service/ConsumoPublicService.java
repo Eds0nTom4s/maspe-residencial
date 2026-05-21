@@ -10,6 +10,7 @@ import com.restaurante.dto.response.QrPublicContext;
 import com.restaurante.dto.response.SessaoConsumoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
 import com.restaurante.model.entity.FundoConsumo;
@@ -44,6 +45,7 @@ public class ConsumoPublicService {
     private final OrdemPagamentoService ordemPagamentoService;
     private final PedidoRepository pedidoRepository;
     private final TenantPaymentMethodService tenantPaymentMethodService;
+    private final PaymentMethodPolicyResolutionService policyResolutionService;
 
     @Transactional(readOnly = true)
     public GerirConsumoOptionsResponse opcoes(String qrToken) {
@@ -99,13 +101,14 @@ public class ConsumoPublicService {
                 : null;
 
         PaymentMethodCode code = request.getMetodoPagamento() == MetodoPagamentoManual.CASH ? PaymentMethodCode.CASH : PaymentMethodCode.TPA;
-        var method = tenantPaymentMethodService.validateMethodAllowed(
+        policyResolutionService.validateForQr(
                 qr.getTenant().getId(),
+                qr.getUnidadeAtendimento() != null ? qr.getUnidadeAtendimento().getId() : null,
                 code,
-                PaymentUsageContext.QR_PUBLICO,
                 PaymentDestination.FUNDO_CONSUMO,
                 request.getValor()
         );
+        var method = tenantPaymentMethodService.getOrThrow(qr.getTenant().getId(), code);
         if (method.isRequiresOpenTurno() && turno == null) {
             throw new BusinessException("Turno aberto é obrigatório para este método de pagamento.");
         }
@@ -173,13 +176,14 @@ public class ConsumoPublicService {
                 : null;
 
         PaymentMethodCode code = request.getMetodoPagamento() == MetodoPagamentoManual.CASH ? PaymentMethodCode.CASH : PaymentMethodCode.TPA;
-        var method = tenantPaymentMethodService.validateMethodAllowed(
+        policyResolutionService.validateForQr(
                 qr.getTenant().getId(),
+                qr.getUnidadeAtendimento() != null ? qr.getUnidadeAtendimento().getId() : null,
                 code,
-                PaymentUsageContext.QR_PUBLICO,
                 PaymentDestination.PEDIDO,
                 pedido.getTotal()
         );
+        var method = tenantPaymentMethodService.getOrThrow(qr.getTenant().getId(), code);
         if (method.isRequiresOpenTurno() && turno == null) {
             throw new BusinessException("Turno aberto é obrigatório para este método de pagamento.");
         }

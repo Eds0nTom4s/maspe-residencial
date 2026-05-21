@@ -30,9 +30,20 @@ Observação importante:
 ## Testes adicionados
 - IT QR + método inativo (bloqueio de iniciação AppyPay e filtragem de lista).
 - IT admin RBAC (CASHIER read-only).
+- IT device/POS (`/device/payment-methods`) garantindo filtro por `enabledForPos` e `ACTIVE-only`.
+- IT cross-tenant:
+  - QR token resolve tenant correto (sem vazamento entre tenants);
+  - device de outro tenant não confirma ordem manual de outro tenant.
+- IT manual (CASH):
+  - confirmação manual bloqueada se método for desativado após criação;
+  - confirmação manual bloqueada se método for suspenso após criação;
+  - confirmação manual exige turno aberto.
+- IT AppyPay POS:
+  - iniciação por POS bloqueada quando `APPYPAY` estiver `INACTIVE`.
+- IT polling AppyPay após desativação:
+  - pagamento já iniciado continua confirmável via polling manual mesmo se `APPYPAY` for desativado depois.
 - Testes unitários para validações adicionais no service/admin.
 
 ## Limitações conhecidas
 - Config AppyPay ainda é global por ambiente; tenant-aware controla “permitido/visível/ativo”, mas não credenciais por tenant.
 - Ainda não existe política por unidade/device (fora do escopo).
-

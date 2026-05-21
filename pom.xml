@@ -232,6 +232,11 @@
                       Testes E2E/concorrência devem ser executados em profile separado (ex.: `-Pe2e`),
                       pois dependem de ambiente/infra e tendem a ser flakey por natureza.
                     -->
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*Tests.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
                     <excludes>
                         <exclude>**/e2e/**</exclude>
                         <exclude>**/*E2E*Test.java</exclude>

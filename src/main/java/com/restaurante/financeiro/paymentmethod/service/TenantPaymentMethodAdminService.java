@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.UpdateTenantPaymentMethodRequest;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import com.restaurante.financeiro.paymentmethod.entity.TenantPaymentMethod;
 import com.restaurante.financeiro.paymentmethod.repository.TenantPaymentMethodRepository;
 import com.restaurante.model.entity.Tenant;
@@ -34,6 +35,7 @@ public class TenantPaymentMethodAdminService {
     private final TenantPaymentMethodService methodService;
     private final OperationalEventLogService operationalEventLogService;
     private final ObjectMapper objectMapper;
+    private final AppyPayProperties appyPayProperties;
 
     @Value("${consuma.financeiro.payment-methods.allow-no-active-method:false}")
     private boolean allowNoActiveMethod;
@@ -84,6 +86,12 @@ public class TenantPaymentMethodAdminService {
 
         if (req.getMinAmount() != null) m.setMinAmount(req.getMinAmount());
         if (req.getMaxAmount() != null) m.setMaxAmount(req.getMaxAmount());
+        if (m.getMinAmount() != null && m.getMinAmount().compareTo(java.math.BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Configuração inválida: minAmount negativo.");
+        }
+        if (m.getMaxAmount() != null && m.getMaxAmount().compareTo(java.math.BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Configuração inválida: maxAmount negativo.");
+        }
         if (m.getMinAmount() != null && m.getMaxAmount() != null && m.getMaxAmount().compareTo(m.getMinAmount()) < 0) {
             throw new BusinessException("Configuração inválida: maxAmount < minAmount.");
         }
@@ -93,6 +101,11 @@ public class TenantPaymentMethodAdminService {
         if (req.getMetadata() != null) m.setMetadataJson(writeJson(req.getMetadata()));
 
         if (req.getStatus() != null && req.getStatus() != m.getStatus()) {
+            if (req.getStatus() == PaymentMethodStatus.ACTIVE && code == PaymentMethodCode.APPYPAY) {
+                if (!isAppyPayConfigured()) {
+                    throw new BusinessException("Não é possível ativar APPYPAY: configuração do gateway ausente.");
+                }
+            }
             // Aplicar regra de não deixar tenant sem método ativo para PEDIDO (default)
             if (!allowNoActiveMethod && req.getStatus() != PaymentMethodStatus.ACTIVE) {
                 if (m.isEnabledForPedido() && m.getStatus() == PaymentMethodStatus.ACTIVE) {
@@ -148,6 +161,9 @@ public class TenantPaymentMethodAdminService {
         TenantPaymentMethod m = methodService.getOrThrow(ctx.tenantId(), code);
         if (m.getStatus() == PaymentMethodStatus.ACTIVE) return m;
         PaymentMethodStatus anterior = m.getStatus();
+        if (code == PaymentMethodCode.APPYPAY && !isAppyPayConfigured()) {
+            throw new BusinessException("Não é possível ativar APPYPAY: configuração do gateway ausente.");
+        }
         m.setStatus(PaymentMethodStatus.ACTIVE);
         TenantPaymentMethod saved = repository.save(m);
         operationalEventLogService.logPublicEvent(
@@ -197,6 +213,16 @@ public class TenantPaymentMethodAdminService {
         return saved;
     }
 
+    private boolean isAppyPayConfigured() {
+        if (appyPayProperties == null) return false;
+        if (appyPayProperties.isMock()) return true;
+        return appyPayProperties.getBaseUrl() != null && !appyPayProperties.getBaseUrl().isBlank()
+                && appyPayProperties.getTokenUrl() != null && !appyPayProperties.getTokenUrl().isBlank()
+                && appyPayProperties.getClientId() != null && !appyPayProperties.getClientId().isBlank()
+                && appyPayProperties.getClientSecret() != null && !appyPayProperties.getClientSecret().isBlank()
+                && appyPayProperties.getResource() != null && !appyPayProperties.getResource().isBlank();
+    }
+
     @SuppressWarnings("unchecked")
     public Map<String, Object> readMetadata(String json) {
         if (json == null || json.isBlank()) return null;
@@ -215,4 +241,3 @@ public class TenantPaymentMethodAdminService {
         }
     }
 }
-

@@ -89,3 +89,5 @@ Mudanças de configuração são registradas via `OperationalEventLog` (metadata
 - UI administrativa mínima para configuração (frontend).
 - Configuração “per unidade”/“per device” se necessário (sem quebrar tenant-level).
 
+## Hardening (Prompt 38.1)
+Ver: `docs/tenant-core/38-1-hardening-validacoes-testes-metodos-pagamento.md`

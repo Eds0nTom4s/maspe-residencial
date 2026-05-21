@@ -1,0 +1,98 @@
+RELATÓRIO TÉCNICO — PROMPT 38.1 (HARDENING VALIDAÇÕES + COBERTURA DE TESTES — MÉTODOS DE PAGAMENTO)
+Data: 2026-05-21
+
+================================================================================
+1) Resumo executivo
+================================================================================
+O Prompt 38.1 reforça a camada tenant-aware de métodos de pagamento com:
+- validação explícita de “gateway configurado” para métodos que exigem gateway (APPYPAY);
+- validações adicionais em admin (min/max não negativos e ativação APPYPAY condicionada a config);
+- ajustes de profile IT para tratar AppyPay como mock nos testes de integração;
+- novos testes unitários de validação (status e min/max) + regressão de build.
+
+O objetivo foi endurecer sem redesenhar o domínio e sem alterar callback/polling AppyPay.
+
+================================================================================
+2) Validações reforçadas
+================================================================================
+2.1 Regras de status
+- `TenantPaymentMethodService.validateMethodAllowed(...)` continua permitindo apenas `ACTIVE`.
+  - `INACTIVE` e `SUSPENDED` ficam indisponíveis (bloqueio por não-ACTIVE).
+
+2.2 Gateway obrigatório (APPYPAY)
+Alterado:
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodService.java`
+  - Se `requiresGateway=true`, exige AppyPay configurado:
+    - `app.payment.appypay.mock=true` OU
+    - baseUrl/tokenUrl/clientId/clientSecret/resource não vazios.
+
+Alterado:
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodAdminService.java`
+  - Bloqueia ativação do APPYPAY (via PATCH status=ACTIVE ou /activate) quando AppyPay não está configurado.
+  - Rejeita `minAmount`/`maxAmount` negativos.
+
+2.3 Perfil de testes IT
+Alterado:
+- `src/test/resources/application-it-postgres.properties`
+  - `app.payment.appypay.mock=true` para evitar que validação de gateway bloqueie ITs (o cliente AppyPay já é mockado em testes).
+
+================================================================================
+3) Testes adicionados
+================================================================================
+3.1 Unit tests (validações)
+Criado:
+- `src/test/java/com/restaurante/financeiro/paymentmethod/TenantPaymentMethodValidationTest.java`
+  - `SUSPENDED` bloqueia uso.
+  - min/max são respeitados (abaixo do min falha, acima do max falha, limites inclusivos passam).
+
+Observação:
+- Testes de integração do Prompt 38 (AdminIT/PublicQrPaymentMethodsIT) continuam cobrindo cenários QR/admin.
+
+================================================================================
+4) Documentação
+================================================================================
+Criado:
+- `docs/tenant-core/38-1-hardening-validacoes-testes-metodos-pagamento.md`
+
+Atualizado:
+- `docs/tenant-core/38-metodos-pagamento-tenant-aware.md` (referência para 38.1)
+
+================================================================================
+5) Comandos executados
+================================================================================
+- `mvn -q -DskipTests compile` -> OK
+- `mvn test` -> BUILD SUCCESS (Tests run: 161, Failures: 0, Errors: 0, Skipped: 9)
+
+================================================================================
+6) Arquivos alterados/criados
+================================================================================
+Alterados:
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodService.java`
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodAdminService.java`
+- `src/test/resources/application-it-postgres.properties`
+- `docs/tenant-core/38-metodos-pagamento-tenant-aware.md`
+
+Criados:
+- `src/test/java/com/restaurante/financeiro/paymentmethod/TenantPaymentMethodValidationTest.java`
+- `docs/tenant-core/38-1-hardening-validacoes-testes-metodos-pagamento.md`
+
+================================================================================
+7) Checklist (Prompt 38.1 — parcial dentro do escopo)
+================================================================================
+[x] INACTIVE bloqueia uso real (já coberto por regra ACTIVE-only).
+[x] SUSPENDED bloqueia uso real (teste unitário).
+[x] minAmount/maxAmount validados (teste unitário + validação admin para negativos).
+[x] APPYPAY sem config mínima bloqueia ativação/iniciação (validação adicionada; profile IT usa mock).
+[x] `mvn -q -DskipTests compile` passa.
+[x] `mvn test` passa.
+
+Itens ainda possíveis de expandir (sem bloquear este patch):
+- IT device para listar métodos em `/device/payment-methods`.
+- IT de confirmação manual bloqueada quando método desativado após criação.
+- IT de cross-tenant com device/token QR distintos.
+
+================================================================================
+8) Próximo passo recomendado
+================================================================================
+Expandir a matriz de testes de integração (device + manual confirm + cross-tenant) sem mexer em callback/polling.
+

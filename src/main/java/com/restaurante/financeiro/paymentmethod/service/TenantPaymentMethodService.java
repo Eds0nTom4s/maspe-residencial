@@ -2,6 +2,7 @@ package com.restaurante.financeiro.paymentmethod.service;
 
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import com.restaurante.financeiro.paymentmethod.entity.TenantPaymentMethod;
 import com.restaurante.financeiro.paymentmethod.repository.TenantPaymentMethodRepository;
 import com.restaurante.model.enums.PaymentDestination;
@@ -22,6 +23,7 @@ public class TenantPaymentMethodService {
 
     private final TenantPaymentMethodRepository repository;
     private final TenantPaymentMethodBootstrapService bootstrapService;
+    private final AppyPayProperties appyPayProperties;
 
     @Value("${consuma.financeiro.payment-methods.allow-no-active-method:false}")
     private boolean allowNoActiveMethod;
@@ -73,6 +75,11 @@ public class TenantPaymentMethodService {
         if (!isAllowedForDestination(m, destination)) {
             throw new BusinessException("Método de pagamento não permitido para este destino.");
         }
+        if (m.isRequiresGateway()) {
+            if (!isAppyPayConfigured()) {
+                throw new BusinessException("Método gateway indisponível: configuração do AppyPay ausente.");
+            }
+        }
         if (amount != null) {
             if (m.getMinAmount() != null && amount.compareTo(m.getMinAmount()) < 0) {
                 throw new BusinessException("Valor abaixo do mínimo permitido para este método.");
@@ -82,6 +89,16 @@ public class TenantPaymentMethodService {
             }
         }
         return m;
+    }
+
+    private boolean isAppyPayConfigured() {
+        if (appyPayProperties == null) return false;
+        if (appyPayProperties.isMock()) return true;
+        return appyPayProperties.getBaseUrl() != null && !appyPayProperties.getBaseUrl().isBlank()
+                && appyPayProperties.getTokenUrl() != null && !appyPayProperties.getTokenUrl().isBlank()
+                && appyPayProperties.getClientId() != null && !appyPayProperties.getClientId().isBlank()
+                && appyPayProperties.getClientSecret() != null && !appyPayProperties.getClientSecret().isBlank()
+                && appyPayProperties.getResource() != null && !appyPayProperties.getResource().isBlank();
     }
 
     private boolean isAllowedForContext(TenantPaymentMethod m, PaymentUsageContext context) {
@@ -101,4 +118,3 @@ public class TenantPaymentMethodService {
         };
     }
 }
-

@@ -58,6 +58,36 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
 
     List<SessaoConsumo> findByTenantIdAndStatus(Long tenantId, StatusSessaoConsumo status);
 
+    Optional<SessaoConsumo> findByTenantIdAndIdAndStatus(Long tenantId, Long id, StatusSessaoConsumo status);
+
+    @Query("""
+            select s
+            from SessaoConsumo s
+            where s.tenant.id = :tenantId
+              and s.status = :status
+              and s.telefoneIdentificado = :telefoneNormalizado
+              and (:unidadeAtendimentoId is null or s.unidadeAtendimento.id = :unidadeAtendimentoId)
+            order by s.abertaEm desc
+            """)
+    List<SessaoConsumo> findOpenByTenantAndTelefoneIdentificado(@Param("tenantId") Long tenantId,
+                                                                @Param("telefoneNormalizado") String telefoneNormalizado,
+                                                                @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+                                                                @Param("status") StatusSessaoConsumo status);
+
+    @Query("""
+            select s
+            from SessaoConsumo s
+            where s.tenant.id = :tenantId
+              and s.status = :status
+              and s.clienteConsumo.id = :clienteConsumoId
+              and (:unidadeAtendimentoId is null or s.unidadeAtendimento.id = :unidadeAtendimentoId)
+            order by s.abertaEm desc
+            """)
+    List<SessaoConsumo> findOpenByTenantAndClienteConsumoId(@Param("tenantId") Long tenantId,
+                                                            @Param("clienteConsumoId") Long clienteConsumoId,
+                                                            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+                                                            @Param("status") StatusSessaoConsumo status);
+
     long countByTenantIdAndUnidadeAtendimentoIdAndStatus(Long tenantId, Long unidadeAtendimentoId, StatusSessaoConsumo status);
 
     boolean existsByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);

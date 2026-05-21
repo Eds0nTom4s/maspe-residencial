@@ -1,12 +1,14 @@
 package com.restaurante.model.entity;
 
 import com.restaurante.model.enums.StatusSessaoConsumo;
+import com.restaurante.model.enums.SessaoIdentificacaoStatus;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import java.util.Objects;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -98,6 +100,23 @@ public class SessaoConsumo extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cliente_id")
     private Cliente cliente;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cliente_consumo_id")
+    private com.restaurante.consumo.identificacao.entity.ClienteConsumo clienteConsumo;
+
+    @Column(name = "telefone_identificado", length = 30)
+    private String telefoneIdentificado;
+
+    @Column(name = "telefone_identificado_em")
+    private Instant telefoneIdentificadoEm;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "identificacao_status", length = 30)
+    private SessaoIdentificacaoStatus identificacaoStatus;
+
+    @Column(name = "identificado_por_otp", nullable = false)
+    private boolean identificadoPorOtp = false;
 
     /**
      * Atendente que abriu a sessão (opcional).
@@ -221,6 +240,21 @@ public class SessaoConsumo extends BaseEntity {
     
     public Cliente getCliente() { return cliente; }
     public void setCliente(Cliente cliente) { this.cliente = cliente; }
+
+    public com.restaurante.consumo.identificacao.entity.ClienteConsumo getClienteConsumo() { return clienteConsumo; }
+    public void setClienteConsumo(com.restaurante.consumo.identificacao.entity.ClienteConsumo clienteConsumo) { this.clienteConsumo = clienteConsumo; }
+
+    public String getTelefoneIdentificado() { return telefoneIdentificado; }
+    public void setTelefoneIdentificado(String telefoneIdentificado) { this.telefoneIdentificado = telefoneIdentificado; }
+
+    public Instant getTelefoneIdentificadoEm() { return telefoneIdentificadoEm; }
+    public void setTelefoneIdentificadoEm(Instant telefoneIdentificadoEm) { this.telefoneIdentificadoEm = telefoneIdentificadoEm; }
+
+    public SessaoIdentificacaoStatus getIdentificacaoStatus() { return identificacaoStatus; }
+    public void setIdentificacaoStatus(SessaoIdentificacaoStatus identificacaoStatus) { this.identificacaoStatus = identificacaoStatus; }
+
+    public boolean isIdentificadoPorOtp() { return identificadoPorOtp; }
+    public void setIdentificadoPorOtp(boolean identificadoPorOtp) { this.identificadoPorOtp = identificadoPorOtp; }
     
     public Atendente getAberturaPor() { return aberturaPor; }
     public void setAberturaPor(Atendente aberturaPor) { this.aberturaPor = aberturaPor; }

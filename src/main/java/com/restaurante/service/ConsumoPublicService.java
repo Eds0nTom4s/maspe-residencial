@@ -53,8 +53,7 @@ public class ConsumoPublicService {
         qrCodeOperacionalService.resolverOperacionalAtivoParaOperacao(qrToken);
         GerirConsumoOptionsResponse resp = new GerirConsumoOptionsResponse();
         resp.setMensagem("Escolha como deseja gerir o seu consumo.");
-        // OTP não é implementado nesta fase
-        resp.setConsumoIdentificadoDisponivel(false);
+        resp.setConsumoIdentificadoDisponivel(true);
         return resp;
     }
 

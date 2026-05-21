@@ -5,6 +5,8 @@ public enum OperationalEntityType {
     SUBPEDIDO,
     ITEM_PEDIDO,
     SESSAO_CONSUMO,
+    CLIENTE_CONSUMO,
+    TELEFONE_OTP_CHALLENGE,
     MESA,
     PAGAMENTO,
     ORDEM_PAGAMENTO,

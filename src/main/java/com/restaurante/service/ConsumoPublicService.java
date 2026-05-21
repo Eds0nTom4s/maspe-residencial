@@ -10,6 +10,7 @@ import com.restaurante.dto.response.QrPublicContext;
 import com.restaurante.dto.response.SessaoConsumoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
 import com.restaurante.model.entity.FundoConsumo;
 import com.restaurante.model.entity.OrdemPagamento;
@@ -21,6 +22,9 @@ import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.OrdemPagamentoTipo;
+import com.restaurante.model.enums.PaymentDestination;
+import com.restaurante.model.enums.PaymentMethodCode;
+import com.restaurante.model.enums.PaymentUsageContext;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
@@ -39,6 +43,7 @@ public class ConsumoPublicService {
     private final TurnoOperacionalRepository turnoOperacionalRepository;
     private final OrdemPagamentoService ordemPagamentoService;
     private final PedidoRepository pedidoRepository;
+    private final TenantPaymentMethodService tenantPaymentMethodService;
 
     @Transactional(readOnly = true)
     public GerirConsumoOptionsResponse opcoes(String qrToken) {
@@ -92,6 +97,18 @@ public class ConsumoPublicService {
                         qr.getUnidadeAtendimento().getId()
                 ).orElse(null)
                 : null;
+
+        PaymentMethodCode code = request.getMetodoPagamento() == MetodoPagamentoManual.CASH ? PaymentMethodCode.CASH : PaymentMethodCode.TPA;
+        var method = tenantPaymentMethodService.validateMethodAllowed(
+                qr.getTenant().getId(),
+                code,
+                PaymentUsageContext.QR_PUBLICO,
+                PaymentDestination.FUNDO_CONSUMO,
+                request.getValor()
+        );
+        if (method.isRequiresOpenTurno() && turno == null) {
+            throw new BusinessException("Turno aberto é obrigatório para este método de pagamento.");
+        }
 
         OrdemPagamento ordem = ordemPagamentoService.criarOrdemCarregamentoFundo(
                 qr.getTenant(),
@@ -155,6 +172,18 @@ public class ConsumoPublicService {
         ).orElse(null)
                 : null;
 
+        PaymentMethodCode code = request.getMetodoPagamento() == MetodoPagamentoManual.CASH ? PaymentMethodCode.CASH : PaymentMethodCode.TPA;
+        var method = tenantPaymentMethodService.validateMethodAllowed(
+                qr.getTenant().getId(),
+                code,
+                PaymentUsageContext.QR_PUBLICO,
+                PaymentDestination.PEDIDO,
+                pedido.getTotal()
+        );
+        if (method.isRequiresOpenTurno() && turno == null) {
+            throw new BusinessException("Turno aberto é obrigatório para este método de pagamento.");
+        }
+
         OrdemPagamento ordem = ordemPagamentoService.criarOrdemPagamentoPedido(
                 qr.getTenant(),
                 qr.getInstituicao(),
@@ -213,4 +242,3 @@ public class ConsumoPublicService {
         return resp;
     }
 }
-

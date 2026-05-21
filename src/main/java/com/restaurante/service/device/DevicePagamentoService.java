@@ -13,6 +13,7 @@ import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
 import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeRequest;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
+import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.DevicePagamentoIdempotencyRecord;
 import com.restaurante.model.entity.DispositivoOperacional;
@@ -24,6 +25,9 @@ import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DevicePagamentoIdempotencyStatus;
 import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.PaymentDestination;
+import com.restaurante.model.enums.PaymentMethodCode;
+import com.restaurante.model.enums.PaymentUsageContext;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.repository.DevicePagamentoIdempotencyRepository;
 import com.restaurante.repository.DispositivoOperacionalRepository;
@@ -64,6 +68,7 @@ public class DevicePagamentoService {
     private final AppyPayProperties appyPayProperties;
     private final ObjectMapper objectMapper;
     private final OperationalEventLogService operationalEventLogService;
+    private final TenantPaymentMethodService tenantPaymentMethodService;
 
     @Transactional
     public DevicePagamentoResponse iniciarPagamento(Long pedidoId,
@@ -148,6 +153,23 @@ public class DevicePagamentoService {
                     "Pedido já está pago.",
                     false,
                     DeviceErrorResponse.DeviceRecoveryAction.NONE,
+                    null);
+        }
+
+        try {
+            tenantPaymentMethodService.validateMethodAllowed(
+                    tenantId,
+                    PaymentMethodCode.APPYPAY,
+                    PaymentUsageContext.DEVICE_POS,
+                    PaymentDestination.PEDIDO,
+                    pedido.getTotal()
+            );
+        } catch (RuntimeException e) {
+            throw new DeviceApiException(HttpStatus.CONFLICT,
+                    DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_VALIDATION_FAILED,
+                    e.getMessage(),
+                    true,
+                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
                     null);
         }
 
@@ -448,4 +470,3 @@ public class DevicePagamentoService {
         }
     }
 }
-

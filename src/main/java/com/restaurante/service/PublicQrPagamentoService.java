@@ -11,6 +11,7 @@ import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
 import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeRequest;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
+import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
@@ -20,6 +21,9 @@ import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.enums.PaymentDestination;
+import com.restaurante.model.enums.PaymentMethodCode;
+import com.restaurante.model.enums.PaymentUsageContext;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.repository.PedidoRepository;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +44,7 @@ public class PublicQrPagamentoService {
     private final AppyPayClient appyPayClient;
     private final AppyPayProperties appyPayProperties;
     private final ObjectMapper objectMapper;
+    private final TenantPaymentMethodService tenantPaymentMethodService;
 
     @Transactional
     public PublicQrPagamentoResponse iniciarPagamentoPedidoPorQr(
@@ -62,6 +67,14 @@ public class PublicQrPagamentoService {
         if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PAGO) {
             throw new BusinessException("Pedido já está pago.");
         }
+
+        tenantPaymentMethodService.validateMethodAllowed(
+                tenant.getId(),
+                PaymentMethodCode.APPYPAY,
+                PaymentUsageContext.QR_PUBLICO,
+                PaymentDestination.PEDIDO,
+                pedido.getTotal()
+        );
 
         String idemKey = idempotencyService.requireKey(idempotencyKeyHeader, request.getIdempotencyKey());
         String requestHash = idempotencyService.computeRequestHash(

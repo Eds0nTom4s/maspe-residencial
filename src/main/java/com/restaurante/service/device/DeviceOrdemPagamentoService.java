@@ -10,6 +10,7 @@ import com.restaurante.exception.DeviceUnauthorizedException;
 import com.restaurante.financeiro.repository.OrdemPagamentoManualIdempotencyRepository;
 import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
+import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.OrdemPagamento;
@@ -25,6 +26,9 @@ import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.OrdemPagamentoManualIdempotencyStatus;
 import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.OrdemPagamentoTipo;
+import com.restaurante.model.enums.PaymentDestination;
+import com.restaurante.model.enums.PaymentMethodCode;
+import com.restaurante.model.enums.PaymentUsageContext;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
@@ -60,6 +64,7 @@ public class DeviceOrdemPagamentoService {
     private final PagamentoGatewayRepository pagamentoGatewayRepository;
     private final FundoConsumoService fundoConsumoService;
     private final OperationalEventLogService operationalEventLogService;
+    private final TenantPaymentMethodService tenantPaymentMethodService;
 
     @Transactional(readOnly = true)
     public DeviceOrdemPagamentoResponse escanearPorToken(String token) {
@@ -256,6 +261,27 @@ public class DeviceOrdemPagamentoService {
                         DeviceErrorResponse.DeviceRecoveryAction.NONE,
                         null);
             }
+        }
+
+        // Validar método tenant-aware no instante da confirmação (evita confirmar método desativado depois da criação)
+        PaymentMethodCode methodCode = request.getMetodoConfirmado() == MetodoPagamentoManual.CASH ? PaymentMethodCode.CASH : PaymentMethodCode.TPA;
+        PaymentDestination destination = ordemLocked.getTipo() == OrdemPagamentoTipo.FUNDO_CONSUMO ? PaymentDestination.FUNDO_CONSUMO : PaymentDestination.PEDIDO;
+        try {
+            tenantPaymentMethodService.validateMethodAllowed(
+                    device.tenantId(),
+                    methodCode,
+                    PaymentUsageContext.DEVICE_POS,
+                    destination,
+                    ordemLocked.getValor()
+            );
+        } catch (RuntimeException e) {
+            markFailed(idem.record, "PAYMENT_METHOD_INACTIVE_OR_NOT_ALLOWED");
+            throw new DeviceApiException(HttpStatus.CONFLICT,
+                    DeviceErrorResponse.DeviceErrorCode.DEVICE_REQUEST_INVALID,
+                    e.getMessage(),
+                    true,
+                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
+                    null);
         }
 
         // aplica confirmação e efeitos (pagamento/pedido ou crédito fundo)

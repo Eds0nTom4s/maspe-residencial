@@ -196,8 +196,16 @@ public class PaymentMethodPolicyAsyncRolloutService {
                 .orElseThrow(() -> new ResourceNotFoundException("Rollout não encontrado."));
         if (rollout.getExecutionMode() != PaymentMethodPolicyRolloutExecutionMode.ASYNC) throw new BusinessException("Rerun só é suportado para rollouts ASYNC.");
 
-        if (rollout.getStatus() == PaymentMethodPolicyRolloutStatus.PENDING || rollout.getStatus() == PaymentMethodPolicyRolloutStatus.RUNNING) {
-            throw new BusinessException("Rerun não permitido: rollout ainda está PENDING/RUNNING.");
+        if (rollout.getStatus() == PaymentMethodPolicyRolloutStatus.PENDING
+                || rollout.getStatus() == PaymentMethodPolicyRolloutStatus.RUNNING
+                || rollout.getStatus() == PaymentMethodPolicyRolloutStatus.CANCEL_REQUESTED) {
+            throw new BusinessException("Rerun não permitido: rollout ainda está PENDING/RUNNING/CANCEL_REQUESTED.");
+        }
+        if (rollout.getStatus() == PaymentMethodPolicyRolloutStatus.CANCELLED && !props.isAllowRerunCancelled()) {
+            throw new BusinessException("Rerun não permitido: rollout CANCELLED.");
+        }
+        if (rollout.getStatus() == PaymentMethodPolicyRolloutStatus.COMPLETED) {
+            throw new BusinessException("Rerun não permitido: rollout COMPLETED sem itens reprocessáveis.");
         }
 
         Set<PaymentMethodPolicyRolloutItemStatus> statuses = (onlyStatuses == null || onlyStatuses.isEmpty())
@@ -216,16 +224,23 @@ public class PaymentMethodPolicyAsyncRolloutService {
                 if (!statuses.contains(item.getStatus())) continue;
                 if (item.getStatus() == PaymentMethodPolicyRolloutItemStatus.SKIPPED && item.isManualOverrideDetected()) continue;
                 if (item.getStatus() == PaymentMethodPolicyRolloutItemStatus.CREATED || item.getStatus() == PaymentMethodPolicyRolloutItemStatus.UPDATED) continue;
+                if (item.getStatus() == PaymentMethodPolicyRolloutItemStatus.CANCELLED) continue;
                 item.setStatus(PaymentMethodPolicyRolloutItemStatus.PENDING);
                 item.setErrorCode(null);
                 item.setErrorMessage(null);
                 item.setStartedAt(null);
                 item.setFinishedAt(null);
+                item.setNextRetryAt(null);
+                item.setTerminalFailure(false);
                 resetCount++;
             }
             itemRepository.saveAll(p.getContent());
             if (!p.hasNext()) break;
             page++;
+        }
+
+        if (resetCount == 0) {
+            throw new BusinessException("Nada a reprocessar para este rollout com os statuses informados.");
         }
 
         rollout.setRetryCount(rollout.getRetryCount() + 1);
@@ -258,6 +273,106 @@ public class PaymentMethodPolicyAsyncRolloutService {
         );
 
         return rollout;
+    }
+
+    @Transactional
+    public PaymentMethodPolicyRollout cancel(Long rolloutId, String reason, String ip, String userAgent) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        TenantContext ctx = TenantContextHolder.require();
+        Tenant tenant = tenantRepository.findById(ctx.tenantId()).orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+
+        PaymentMethodPolicyRollout rollout = rolloutRepository.findByIdAndTenant_Id(rolloutId, ctx.tenantId())
+                .orElseThrow(() -> new ResourceNotFoundException("Rollout não encontrado."));
+        if (rollout.getExecutionMode() != PaymentMethodPolicyRolloutExecutionMode.ASYNC) throw new BusinessException("Cancelamento só é suportado para rollouts ASYNC.");
+
+        if (rollout.getStatus() == PaymentMethodPolicyRolloutStatus.COMPLETED
+                || rollout.getStatus() == PaymentMethodPolicyRolloutStatus.COMPLETED_WITH_SKIPS) {
+            throw new BusinessException("Cancelamento não permitido: rollout já está concluído.");
+        }
+        if (rollout.getStatus() == PaymentMethodPolicyRolloutStatus.CANCELLED) return rollout;
+
+        Instant now = Instant.now();
+        rollout.setCancelRequested(true);
+        rollout.setCancelRequestedAt(now);
+        rollout.setCancelRequestedBy(ctx.userId());
+        rollout.setCancellationReason(trimReason(reason));
+
+        if (rollout.getStatus() == PaymentMethodPolicyRolloutStatus.PENDING) {
+            rollout.setStatus(PaymentMethodPolicyRolloutStatus.CANCELLED);
+            rollout.setCancelledAt(now);
+            // cancelar itens PENDING imediatamente
+            cancelPendingItems(ctx.tenantId(), rolloutId, now);
+
+            operationalEventLogService.logPublicEvent(
+                    tenant,
+                    null,
+                    rollout.getUnidadeAtendimento(),
+                    null,
+                    null,
+                    OperationalEventType.PAYMENT_POLICY_ROLLOUT_CANCELLED,
+                    OperationalEntityType.PAYMENT_POLICY_ROLLOUT,
+                    rollout.getId(),
+                    OperationalOrigem.TENANT_ADMIN,
+                    "Rollout cancelado",
+                    Map.ofEntries(
+                            Map.entry("rolloutId", rollout.getId()),
+                            Map.entry("reason", rollout.getCancellationReason())
+                    ),
+                    ip,
+                    userAgent
+            );
+        } else if (rollout.getStatus() == PaymentMethodPolicyRolloutStatus.RUNNING) {
+            rollout.setStatus(PaymentMethodPolicyRolloutStatus.CANCEL_REQUESTED);
+            operationalEventLogService.logPublicEvent(
+                    tenant,
+                    null,
+                    rollout.getUnidadeAtendimento(),
+                    null,
+                    null,
+                    OperationalEventType.PAYMENT_POLICY_ROLLOUT_CANCEL_REQUESTED,
+                    OperationalEntityType.PAYMENT_POLICY_ROLLOUT,
+                    rollout.getId(),
+                    OperationalOrigem.TENANT_ADMIN,
+                    "Cancelamento de rollout solicitado",
+                    Map.ofEntries(
+                            Map.entry("rolloutId", rollout.getId()),
+                            Map.entry("reason", rollout.getCancellationReason())
+                    ),
+                    ip,
+                    userAgent
+            );
+        } else {
+            // FAILED/PARTIAL_FAILED/etc: manter como cancelRequested e marcar CANCELLED
+            rollout.setStatus(PaymentMethodPolicyRolloutStatus.CANCELLED);
+            rollout.setCancelledAt(now);
+            cancelPendingItems(ctx.tenantId(), rolloutId, now);
+        }
+
+        return rolloutRepository.save(rollout);
+    }
+
+    private void cancelPendingItems(Long tenantId, Long rolloutId, Instant now) {
+        // Atualização em massa segura: só PENDING vira CANCELLED (não reverte CREATED/UPDATED)
+        // Mantém running/failed/skipped como estão; worker resolverá o restante.
+        while (true) {
+            Page<PaymentMethodPolicyRolloutItem> p = itemRepository.pageByRolloutAndStatus(
+                    tenantId, rolloutId, PaymentMethodPolicyRolloutItemStatus.PENDING, PageRequest.of(0, 500)
+            );
+            if (p.isEmpty()) break;
+            for (PaymentMethodPolicyRolloutItem item : p.getContent()) {
+                item.setStatus(PaymentMethodPolicyRolloutItemStatus.CANCELLED);
+                item.setSkippedReason(PaymentMethodPolicyRolloutSkippedReason.CANCELLED_BY_USER);
+                item.setFinishedAt(now);
+            }
+            itemRepository.saveAll(p.getContent());
+        }
+    }
+
+    private String trimReason(String reason) {
+        if (reason == null) return null;
+        String r = reason.trim();
+        if (r.isBlank()) return null;
+        return r.length() > 255 ? r.substring(0, 255) : r;
     }
 
     private UnidadeAtendimento requireUnidadeOfTenant(Long tenantId, Long unidadeId) {

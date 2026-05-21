@@ -87,6 +87,24 @@ public class PaymentMethodPolicyRolloutItem {
     @Column(name = "attempts", nullable = false)
     private int attempts = 0;
 
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
+
+    @Column(name = "last_attempt_at")
+    private Instant lastAttemptAt;
+
+    @Column(name = "last_locked_at")
+    private Instant lastLockedAt;
+
+    @Column(name = "locked_by", length = 100)
+    private String lockedBy;
+
+    @Column(name = "stale_recovery_count", nullable = false)
+    private int staleRecoveryCount = 0;
+
+    @Column(name = "terminal_failure", nullable = false)
+    private boolean terminalFailure = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -109,4 +127,3 @@ public class PaymentMethodPolicyRolloutItem {
         updatedAt = Instant.now();
     }
 }
-

@@ -133,6 +133,30 @@ public class PaymentMethodPolicyRollout {
     @Column(name = "idempotency_key", length = 120)
     private String idempotencyKey;
 
+    @Column(name = "cancel_requested", nullable = false)
+    private boolean cancelRequested = false;
+
+    @Column(name = "cancel_requested_at")
+    private Instant cancelRequestedAt;
+
+    @Column(name = "cancel_requested_by")
+    private Long cancelRequestedBy;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "cancellation_reason", length = 255)
+    private String cancellationReason;
+
+    @Column(name = "last_progress_event_at")
+    private Instant lastProgressEventAt;
+
+    @Column(name = "last_progress_event_percent")
+    private Integer lastProgressEventPercent;
+
+    @Column(name = "stale_recovery_count", nullable = false)
+    private int staleRecoveryCount;
+
     @PrePersist
     void onCreate() {
         if (requestedAt == null) requestedAt = Instant.now();

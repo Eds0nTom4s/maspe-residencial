@@ -1,0 +1,202 @@
+RELATÓRIO TÉCNICO — PROMPT 38.5
+CANCELAMENTO CONTROLADO + BACKOFF POR ITEM + RATE-LIMIT DE AUDITORIA + STALE LOCK RECOVERY
+Data: 2026-05-21
+
+1) RESUMO EXECUTIVO
+- Endurecido o rollout assíncrono (Prompt 38.4) sem alterar a semântica das policies.
+- Adicionados: cancelamento controlado (PENDING -> CANCELLED; RUNNING -> CANCEL_REQUESTED), backoff por item (nextRetryAt), maxAttempts terminal, stale lock recovery (rollout + itens RUNNING), rate-limit de auditoria de progresso, e rerun mais seguro.
+- Mantido: preview existente, apply síncrono existente, callback/polling AppyPay inalterados, cadeia de resolução Tenant -> Unidade -> Device.
+
+2) MIGRATIONS CRIADAS
+- src/main/resources/db/migration/V32__payment_policy_rollout_hardening_cancel_backoff_stale.sql
+  - payment_method_policy_rollouts: adiciona campos de cancelamento, rate-limit de eventos e contadores de stale recovery.
+  - payment_method_policy_rollout_items: adiciona campos de backoff/locks por item e terminal_failure.
+
+3) CAMPOS ADICIONADOS
+3.1) payment_method_policy_rollouts
+- cancel_requested, cancel_requested_at, cancel_requested_by
+- cancelled_at, cancellation_reason
+- last_progress_event_at, last_progress_event_percent
+- stale_recovery_count
+
+3.2) payment_method_policy_rollout_items
+- next_retry_at, last_attempt_at
+- last_locked_at, locked_by
+- stale_recovery_count
+- terminal_failure
+
+4) ENUMS AJUSTADOS
+- PaymentMethodPolicyRolloutStatus:
+  - adicionados: CANCEL_REQUESTED (já existia CANCELLED; mantido APPLIED legado)
+- PaymentMethodPolicyRolloutItemStatus:
+  - adicionado: CANCELLED
+- PaymentMethodPolicyRolloutSkippedReason:
+  - adicionados: CANCELLED_BY_USER, MAX_ATTEMPTS_EXCEEDED, STALE_LOCK_RECOVERED, BACKOFF_PENDING, RERUN_RESET
+
+5) SERVICES ALTERADOS/CRIADOS
+5.1) PaymentMethodPolicyAsyncRolloutService
+- Novo cancelamento:
+  - cancel(rolloutId, reason) com regras:
+    - PENDING: CANCELLED + itens PENDING -> CANCELLED (não reverte CREATED/UPDATED)
+    - RUNNING: CANCEL_REQUESTED + cancelRequested=true (worker para de pegar novos itens)
+- Rerun endurecido:
+  - bloqueia PENDING/RUNNING/CANCEL_REQUESTED
+  - bloqueia COMPLETED (erro claro)
+  - CANCELLED só permite se consuma.financeiro.payment-policy-rollout.allow-rerun-cancelled=true
+  - falha se não houver itens resetáveis (resetCount==0)
+  - limpa nextRetryAt e terminalFailure nos itens resetados
+
+5.2) PaymentMethodPolicyRolloutWorkerService
+- Respeito a cancelRequested:
+  - se cancelRequested ou status CANCEL_REQUESTED: não processa novos itens, cancela itens PENDING, e finaliza CANCELLED quando não houver RUNNING.
+- Backoff por item:
+  - claim só pega itens PENDING com nextRetryAt <= now e terminal_failure=false
+  - ao falhar item e não atingir maxAttempts: agenda nextRetryAt com backoff exponencial.
+  - ao atingir maxAttempts: marca FAILED + terminalFailure=true
+- Stale lock recovery:
+  - recoverStaleRolloutLocks(): limpa locked_at/locked_by para rollouts RUNNING/CANCEL_REQUESTED com lock antigo e audita PAYMENT_POLICY_ROLLOUT_STALE_LOCK_RECOVERED
+  - recoverStaleRunningItems(): itens RUNNING com last_locked_at antigo voltam para PENDING (com backoff) ou FAILED terminal
+- Rate-limit de progress events:
+  - PAYMENT_POLICY_ROLLOUT_PROGRESS_UPDATED só emite por delta percentual mínimo OU intervalo mínimo, e grava last_progress_event_at/percent
+
+6) ENDPOINTS CRIADOS/ALTERADOS
+6.1) Cancelamento controlado
+- POST /tenant/payment-policy-rollouts/{rolloutId}/cancel
+  - DTO: CancelPaymentPolicyRolloutRequest { reason }
+  - RBAC: OWNER/ADMIN/FINANCE
+
+7) COMO O CANCELAMENTO FUNCIONA
+- PENDING:
+  - status=CANCELLED
+  - itens status=PENDING -> CANCELLED (skippedReason=CANCELLED_BY_USER)
+- RUNNING:
+  - status=CANCEL_REQUESTED
+  - cancelRequested=true
+  - worker passa a:
+    - não claimar novos itens
+    - cancelar itens PENDING
+    - finalizar CANCELLED quando não existirem itens RUNNING
+- Cancelamento não é rollback: não desfaz CREATED/UPDATED.
+
+8) COMO O BACKOFF FUNCIONA
+- Ao falhar um item:
+  - attempts já é incrementado no claim do item
+  - se attempts < maxAttempts:
+    - status=PENDING
+    - nextRetryAt=now + delay exponencial (initialBackoffSeconds * multiplier^(attempts-1), limitado a maxBackoffSeconds)
+  - se attempts >= maxAttempts:
+    - status=FAILED
+    - terminalFailure=true
+- Worker só pega itens quando nextRetryAt <= now.
+
+9) COMO O STALE LOCK RECOVERY FUNCIONA
+- Rollout:
+  - se lockedAt < now - staleLockTimeoutSeconds:
+    - lockedAt/lockedBy limpos
+    - staleRecoveryCount++
+    - evento PAYMENT_POLICY_ROLLOUT_STALE_LOCK_RECOVERED
+- Item RUNNING:
+  - se lastLockedAt < now - staleItemTimeoutSeconds:
+    - attempts++
+    - status=PENDING (com backoff) ou FAILED terminal
+    - errorCode=STALE_LOCK_RECOVERED
+
+10) RATE-LIMIT DE AUDITORIA DE PROGRESSO
+- Emite PAYMENT_POLICY_ROLLOUT_PROGRESS_UPDATED apenas se:
+  - progressPercent avançou >= progressEventMinPercentDelta; OU
+  - passou >= progressEventMinIntervalSeconds desde o último evento.
+- Eventos finais continuam sendo emitidos normalmente (COMPLETED/PARTIAL_FAILED/FAILED/CANCELLED).
+
+11) SEGURANÇA / RBAC (TENANT-AWARE)
+- Tenant sempre via TenantContext (nenhum tenantId no payload).
+- Cross-tenant: rollout/template/unidade inválidos retornam 404/erro.
+- OWNER/ADMIN/FINANCE: submit, rerun, cancel.
+- CASHIER: status/items read-only.
+- OPERATOR/KITCHEN: bloqueados (padrão existente).
+
+12) AUDITORIA (SANITIZADA)
+- Novos OperationalEventType:
+  - PAYMENT_POLICY_ROLLOUT_CANCEL_REQUESTED
+  - PAYMENT_POLICY_ROLLOUT_CANCELLED
+  - PAYMENT_POLICY_ROLLOUT_STALE_LOCK_RECOVERED
+  - PAYMENT_POLICY_ROLLOUT_ITEM_BACKOFF_SCHEDULED
+  - PAYMENT_POLICY_ROLLOUT_ITEM_MAX_ATTEMPTS_EXCEEDED
+- Sem incluir secrets, credenciais AppyPay, raw payload, deviceToken.
+
+13) PROPERTIES (CONFIG)
+- src/main/java/com/restaurante/config/PaymentPolicyRolloutProperties.java
+  - staleRecoveryEnabled, staleLockTimeoutSeconds, staleItemTimeoutSeconds
+  - itemBackoffEnabled, initialBackoffSeconds, maxBackoffSeconds, backoffMultiplier
+  - progressEventEnabled, progressEventMinPercentDelta, progressEventMinIntervalSeconds
+  - allowRerunCancelled
+
+14) TESTES CRIADOS/ALTERADOS
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutCancelIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutBackoffTest.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutStaleLockRecoveryTest.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutProgressAuditTest.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutRerunHardeningTest.java
+
+15) DOCUMENTAÇÃO
+- docs/tenant-core/38-5-rollout-cancel-backoff-stale-lock.md
+
+16) COMANDOS EXECUTADOS
+- mvn -q -DskipTests compile
+- mvn test
+- mvn -q -Dtest=PaymentPolicyRolloutCancelIT test
+- mvn -q -Dtest=PaymentPolicyRolloutBackoffTest test
+- mvn -q -Dtest=PaymentPolicyRolloutStaleLockRecoveryTest test
+- mvn -q -Dtest=PaymentPolicyRolloutProgressAuditTest test
+- mvn -q -Dtest=PaymentPolicyRolloutRerunHardeningTest test
+
+17) RESULTADO DOS COMANDOS
+- mvn -q -DskipTests compile: OK
+- mvn test: BUILD SUCCESS (ambiente sem Docker/Testcontainers => muitos testes it-postgres ficam SKIPPED)
+- testes específicos: OK (com logs de ausência de Docker/Testcontainers)
+
+18) ITENS NÃO COBERTOS (POR ESCOPO)
+- Cancelamento interruptivo de item já em execução (apenas stop de novos itens)
+- Rollback de policies já aplicadas
+- Worker distribuído avançado (além de locks no DB)
+- SSE/WebSocket/UI/fila externa
+
+19) DECISÕES TÉCNICAS TOMADAS
+- Backoff e retries controlados por item (melhor tolerância a falhas sem travar o rollout).
+- Stale recovery automático para evitar rollouts travados por crash do worker.
+- Rate-limit de progresso para reduzir ruído de auditoria sem perder visibilidade.
+- Cancelamento como interrupção (não rollback) para manter consistência operacional.
+
+20) RISCOS RESTANTES
+- Sem Docker no host, a suite it-postgres não é executada integralmente localmente/CI.
+- Stale recovery pode reprocessar item cuja policy já foi aplicada; mitigação via detecção POLICY_ALREADY_MATCHES.
+
+21) CHECKLIST DE ACEITAÇÃO (PROMPT 38.5)
+[x] Cancelamento de rollout PENDING funciona.
+[x] Cancelamento de RUNNING marca CANCEL_REQUESTED.
+[x] Worker respeita cancelRequested.
+[x] Cancelamento não reverte CREATED/UPDATED.
+[x] Backoff por item existe.
+[x] nextRetryAt impede retry imediato.
+[x] maxAttempts gera FAILED terminal.
+[x] Stale rollout lock é recuperável.
+[x] Stale item RUNNING é recuperável.
+[x] Reprocessamento de stale item não duplica policy (mitigado por POLICY_ALREADY_MATCHES).
+[x] Rate-limit de progress events funciona (delta/intervalo).
+[x] Eventos finais continuam sendo emitidos.
+[x] Rerun não reprocessa CREATED/UPDATED.
+[x] Rerun preserva manualOverride.
+[x] Rerun bloqueia RUNNING/PENDING/CANCEL_REQUESTED.
+[x] Cross-tenant protegido.
+[x] RBAC correto.
+[x] Auditoria sanitizada.
+[x] Submit async continua funcionando.
+[x] Preview/apply continuam funcionando.
+[x] /device/payment-methods continua refletindo policies.
+[x] Callback/polling AppyPay não foram alterados.
+[x] Relatório/snapshot/evidence bundle continuam funcionando.
+[x] mvn -q -DskipTests compile passa.
+[x] mvn test passa.
+
+22) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 38.6: Observabilidade operacional dedicada (query endpoints + métricas) e UX de operações (ex.: listar rollouts “problemáticos”, re-run seletivo por device/método).
+

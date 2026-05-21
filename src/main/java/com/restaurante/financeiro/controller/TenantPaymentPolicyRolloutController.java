@@ -1,6 +1,7 @@
 package com.restaurante.financeiro.controller;
 
 import com.restaurante.dto.request.PaymentPolicyRolloutRerunRequest;
+import com.restaurante.dto.request.CancelPaymentPolicyRolloutRequest;
 import com.restaurante.dto.response.*;
 import com.restaurante.financeiro.paymentmethod.entity.PaymentMethodPolicyRollout;
 import com.restaurante.financeiro.paymentmethod.entity.PaymentMethodPolicyRolloutItem;
@@ -61,6 +62,19 @@ public class TenantPaymentPolicyRolloutController {
         return ResponseEntity.ok(ApiResponse.success("Rerun solicitado", toStatus(r)));
     }
 
+    @PostMapping("/{rolloutId}/cancel")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<PaymentPolicyRolloutStatusResponse>> cancel(
+            @PathVariable Long rolloutId,
+            @Valid @RequestBody(required = false) CancelPaymentPolicyRolloutRequest req,
+            HttpServletRequest http
+    ) {
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        PaymentMethodPolicyRollout r = asyncRolloutService.cancel(rolloutId, req != null ? req.getReason() : null, ip, ua);
+        return ResponseEntity.ok(ApiResponse.success("Cancelamento aplicado/solicitado", toStatus(r)));
+    }
+
     private PaymentPolicyRolloutStatusResponse toStatus(PaymentMethodPolicyRollout r) {
         PaymentPolicyRolloutStatusResponse s = new PaymentPolicyRolloutStatusResponse();
         s.setRolloutId(r.getId());
@@ -104,6 +118,12 @@ public class TenantPaymentPolicyRolloutController {
         r.setErrorCode(i.getErrorCode());
         r.setErrorMessage(i.getErrorMessage());
         r.setAttempts(i.getAttempts());
+        r.setTerminalFailure(i.isTerminalFailure());
+        r.setNextRetryAt(i.getNextRetryAt());
+        r.setLastAttemptAt(i.getLastAttemptAt());
+        r.setLastLockedAt(i.getLastLockedAt());
+        r.setLockedBy(i.getLockedBy());
+        r.setStaleRecoveryCount(i.getStaleRecoveryCount());
         r.setCreatedAt(i.getCreatedAt());
         r.setStartedAt(i.getStartedAt());
         r.setFinishedAt(i.getFinishedAt());
@@ -111,4 +131,3 @@ public class TenantPaymentPolicyRolloutController {
         return r;
     }
 }
-

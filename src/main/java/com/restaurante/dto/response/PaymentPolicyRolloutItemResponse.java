@@ -25,9 +25,14 @@ public class PaymentPolicyRolloutItemResponse {
     private String errorCode;
     private String errorMessage;
     private int attempts;
+    private boolean terminalFailure;
+    private Instant nextRetryAt;
+    private Instant lastAttemptAt;
+    private Instant lastLockedAt;
+    private String lockedBy;
+    private int staleRecoveryCount;
     private Instant createdAt;
     private Instant startedAt;
     private Instant finishedAt;
     private Instant updatedAt;
 }
-

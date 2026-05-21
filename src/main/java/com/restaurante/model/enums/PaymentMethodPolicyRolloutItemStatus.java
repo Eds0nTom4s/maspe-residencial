@@ -6,6 +6,6 @@ public enum PaymentMethodPolicyRolloutItemStatus {
     CREATED,
     UPDATED,
     SKIPPED,
-    FAILED
+    FAILED,
+    CANCELLED
 }
-

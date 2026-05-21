@@ -14,6 +14,10 @@ public class SnapshotIntegridadeProperties {
 
     private boolean signatureEnabled = true;
     private String signatureAlgorithm = "HMAC-SHA256";
+    private String activeKeyId;
+    private java.util.Map<String, SnapshotSignatureKeyProperties> keys = new java.util.HashMap<>();
+
+    // Legacy (Prompt 37.3) — compat
     private String signatureKeyId = "platform-snapshot-key-v1";
     private String signatureSecret;
 
@@ -79,5 +83,21 @@ public class SnapshotIntegridadeProperties {
 
     public void setSignatureSecret(String signatureSecret) {
         this.signatureSecret = signatureSecret;
+    }
+
+    public String getActiveKeyId() {
+        return activeKeyId;
+    }
+
+    public void setActiveKeyId(String activeKeyId) {
+        this.activeKeyId = activeKeyId;
+    }
+
+    public java.util.Map<String, SnapshotSignatureKeyProperties> getKeys() {
+        return keys;
+    }
+
+    public void setKeys(java.util.Map<String, SnapshotSignatureKeyProperties> keys) {
+        this.keys = keys != null ? keys : new java.util.HashMap<>();
     }
 }

@@ -8,6 +8,8 @@ import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.financeiro.snapshot.CanonicalJsonHashService;
 import com.restaurante.financeiro.snapshot.SnapshotIntegridadeProperties;
 import com.restaurante.financeiro.snapshot.SnapshotSignatureService;
+import com.restaurante.financeiro.snapshot.dto.SnapshotSignatureResult;
+import com.restaurante.financeiro.snapshot.dto.SnapshotSignatureVerificationResult;
 import com.restaurante.financeiro.snapshot.dto.SnapshotFinanceiroExportResponse;
 import com.restaurante.financeiro.snapshot.dto.SnapshotIntegridadeResponse;
 import com.restaurante.financeiro.snapshot.dto.SnapshotVerificacaoIntegridadeResponse;
@@ -142,6 +144,26 @@ public class SnapshotFinanceiroExportService {
                     ip,
                     userAgent
             );
+
+            // Sinaliza rotação: snapshot válido, mas assinado por chave DEPRECATED (ainda verificável).
+            if (props.isSignatureEnabled()
+                    && ver.isValido()
+                    && "DEPRECATED".equalsIgnoreCase(ver.getAssinaturaKeyStatus())
+                    && integ != null
+                    && integ.getSignatureKeyId() != null) {
+                operationalEventLogService.logTurnoEvent(
+                        OperationalEventType.SNAPSHOT_FINANCEIRO_KEY_ROTATION_VERIFICADA,
+                        turno,
+                        resolveOrigemFromRoles(ctx),
+                        "Snapshot financeiro verificado com chave DEPRECATED (rotação em andamento)",
+                        new HashMap<>() {{
+                            put("signatureKeyId", integ.getSignatureKeyId());
+                            put("signatureKeyStatus", ver.getAssinaturaKeyStatus());
+                        }},
+                        ip,
+                        userAgent
+                );
+            }
         }
         if (!ver.isValido()) {
             if (Boolean.FALSE.equals(ver.getHashValido())) {
@@ -159,6 +181,33 @@ public class SnapshotFinanceiroExportService {
                         userAgent
                 );
             } else if (Boolean.FALSE.equals(ver.getAssinaturaValida())) {
+                if ("KEY_NOT_FOUND".equals(ver.getAssinaturaFailureReason())) {
+                    operationalEventLogService.logTurnoEvent(
+                            OperationalEventType.SNAPSHOT_FINANCEIRO_KEY_ID_DESCONHECIDO,
+                            turno,
+                            resolveOrigemFromRoles(ctx),
+                            "Snapshot financeiro com keyId desconhecido",
+                            new HashMap<>() {{
+                                put("signatureKeyId", integ != null ? integ.getSignatureKeyId() : null);
+                                put("failureReason", ver.getAssinaturaFailureReason());
+                            }},
+                            ip,
+                            userAgent
+                    );
+                } else if ("KEY_DISABLED".equals(ver.getAssinaturaFailureReason())) {
+                    operationalEventLogService.logTurnoEvent(
+                            OperationalEventType.SNAPSHOT_FINANCEIRO_KEY_DISABLED,
+                            turno,
+                            resolveOrigemFromRoles(ctx),
+                            "Snapshot financeiro com keyId desativado",
+                            new HashMap<>() {{
+                                put("signatureKeyId", integ != null ? integ.getSignatureKeyId() : null);
+                                put("failureReason", ver.getAssinaturaFailureReason());
+                            }},
+                            ip,
+                            userAgent
+                    );
+                }
                 operationalEventLogService.logTurnoEvent(
                         OperationalEventType.SNAPSHOT_FINANCEIRO_ASSINATURA_INVALIDA,
                         turno,
@@ -233,15 +282,12 @@ public class SnapshotFinanceiroExportService {
 
     private SnapshotIntegridadeResponse addSignature(SnapshotIntegridadeResponse integ) {
         if (integ == null || integ.getSnapshotHash() == null || integ.getSnapshotHash().isBlank()) return integ;
-        String secret = props.getSignatureSecret();
-        if (secret == null || secret.isBlank()) {
-            throw new IllegalStateException("Secret HMAC ausente para assinatura do snapshot (signature-enabled=true).");
-        }
-        integ.setSignatureAlgorithm(props.getSignatureAlgorithm());
-        integ.setSignatureKeyId(props.getSignatureKeyId());
-        integ.setSignatureGeneratedAt(LocalDateTime.now());
+        SnapshotSignatureResult sig = snapshotSignatureService.sign(integ.getSnapshotHash());
+        integ.setSignatureAlgorithm(sig.getAlgorithm());
+        integ.setSignatureKeyId(sig.getKeyId());
+        integ.setSignatureGeneratedAt(sig.getGeneratedAt() != null ? sig.getGeneratedAt() : LocalDateTime.now());
         integ.setSignatureScope("snapshotHash");
-        integ.setSnapshotSignature(snapshotSignatureService.signSnapshotHash(integ.getSnapshotHash(), secret));
+        integ.setSnapshotSignature(sig.getSignature());
         return integ;
     }
 
@@ -272,14 +318,15 @@ public class SnapshotFinanceiroExportService {
         ver.setHashValido(hashOk);
 
         Boolean sigOk = null;
+        SnapshotSignatureVerificationResult sigRes = null;
         if (props.isSignatureEnabled()) {
-            if (integ.getSnapshotSignature() == null || integ.getSnapshotSignature().isBlank()) {
-                sigOk = false;
-            } else {
-                sigOk = snapshotSignatureService.verifySnapshotHashSignature(integ.getSnapshotHash(), integ.getSnapshotSignature(), props.getSignatureSecret());
-            }
+            sigRes = snapshotSignatureService.verify(integ.getSnapshotHash(), integ.getSnapshotSignature(), integ.getSignatureKeyId());
+            sigOk = sigRes.isSignatureValid();
             ver.setAssinaturaValida(sigOk);
             ver.setAssinaturaPersistida(integ.getSnapshotSignature());
+            ver.setAssinaturaKeyFound(sigRes.isKeyFound());
+            ver.setAssinaturaKeyStatus(sigRes.getKeyStatus() != null ? sigRes.getKeyStatus().name() : null);
+            ver.setAssinaturaFailureReason(sigRes.getFailureReason() != null ? sigRes.getFailureReason().name() : null);
             // Não recalculamos assinatura (para não expor/depender do segredo fora do serviço); mas podemos retornar expected para debug?
             // Mantemos null para evitar expor assinatura calculada (a persistida já é evidência suficiente).
             ver.setAssinaturaRecalculada(null);
@@ -291,7 +338,11 @@ public class SnapshotFinanceiroExportService {
         if (!hashOk) {
             ver.setMotivo("Hash não confere (snapshot possivelmente adulterado).");
         } else if (props.isSignatureEnabled() && !Boolean.TRUE.equals(sigOk)) {
-            ver.setMotivo("Assinatura não confere ou ausente (snapshot possivelmente adulterado).");
+            if (sigRes != null && sigRes.getFailureReason() != null) {
+                ver.setMotivo("Assinatura inválida: " + sigRes.getFailureReason().name());
+            } else {
+                ver.setMotivo("Assinatura não confere ou ausente (snapshot possivelmente adulterado).");
+            }
         } else {
             ver.setMotivo(props.isSignatureEnabled() ? "OK (hash + assinatura)" : "OK (apenas hash)");
         }

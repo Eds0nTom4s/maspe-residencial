@@ -1,0 +1,99 @@
+RELATÓRIO TÉCNICO — PROMPT 37.4
+Rotação de chaves HMAC + Evidence Bundle do snapshot financeiro
+Data: 2026-05-20 (Africa/Luanda)
+
+1) Resumo executivo
+- Implementado keyring HMAC com múltiplos `keyId` e status (ACTIVE/DEPRECATED/DISABLED).
+- A assinatura do snapshot financeiro passa a usar sempre a chave ACTIVE (via `active-key-id`).
+- A verificação passa a usar o `signatureKeyId` persistido no snapshot, suportando chaves DEPRECATED para validação.
+- Export passou a reportar falhas explícitas para keyId desconhecido ou desativado.
+- Criado Evidence Bundle (JSON lógico) com snapshot+verificação+eventos relevantes do turno, com auditoria.
+
+2) Modelo de keyring implementado
+- Properties:
+  - `consuma.financeiro.snapshot-integridade.active-key-id`
+  - `consuma.financeiro.snapshot-integridade.keys.<keyId>.status`
+  - `consuma.financeiro.snapshot-integridade.keys.<keyId>.secret`
+- Status:
+  - ACTIVE: assina e verifica
+  - DEPRECATED: verifica apenas
+  - DISABLED: não assina nem verifica
+
+3) Arquivos criados
+- Keyring types:
+  - `src/main/java/com/restaurante/financeiro/snapshot/SnapshotSignatureKeyStatus.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/SnapshotSignatureKeyProperties.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/SnapshotSignatureFailureReason.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/dto/SnapshotSignatureResult.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/dto/SnapshotSignatureVerificationResult.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/SnapshotSignatureKeyringValidator.java` (prod)
+- Evidence bundle:
+  - `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/SnapshotFinanceiroEvidenceBundleService.java`
+  - DTOs em `src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/*`
+- Docs/relatório:
+  - `docs/tenant-core/37-4-rotacao-chaves-hmac-evidence-bundle.md`
+  - `RELATORIO_PROMPT37_4_ROTACAO_CHAVES_HMAC_EVIDENCE_BUNDLE_2026_05_20.txt`
+
+4) Arquivos alterados
+- `src/main/java/com/restaurante/financeiro/snapshot/SnapshotIntegridadeProperties.java`
+- `src/main/java/com/restaurante/financeiro/snapshot/SnapshotSignatureService.java`
+- `src/main/java/com/restaurante/financeiro/snapshot/service/SnapshotFinanceiroExportService.java`
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+- `src/main/java/com/restaurante/controller/TenantOperacaoController.java` (endpoint evidence bundle)
+- `src/main/resources/application.properties` (properties keyring)
+- Test properties:
+  - `src/test/resources/application-it-postgres.properties`
+  - `src/test/resources/application-test.properties`
+
+5) Rotação de chaves HMAC
+- `SnapshotSignatureService.sign(...)` usa sempre a chave ACTIVE (`active-key-id`).
+- `verify(...)` valida com a chave indicada em `signatureKeyId` do snapshot.
+- KeyId desconhecido e key desativada geram failureReason claros e eventos dedicados.
+
+6) Export/verificação atualizado
+- `verificacao` inclui:
+  - hashValido
+  - assinaturaValida
+  - assinaturaKeyFound
+  - assinaturaKeyStatus
+  - assinaturaFailureReason
+- Validade:
+  - assinatura habilitada: `valido = hashValido && assinaturaValida`
+  - assinatura desabilitada: `valido = hashValido`
+
+7) Evidence bundle criado
+- Endpoint:
+  - `GET /tenant/operacao/turnos/{turnoId}/snapshot/evidence-bundle`
+- Conteúdo:
+  - snapshot exportado (snapshot + integridade + verificação)
+  - metadados do turno/tenant/instituição/unidade
+  - eventos relevantes do turno
+  - resumo financeiro derivado do snapshot (sem recálculo)
+- Auditoria:
+  - evento `SNAPSHOT_FINANCEIRO_EVIDENCE_BUNDLE_EXPORTADO` em cada export
+
+8) Eventos/auditoria
+- Novos event types:
+  - `SNAPSHOT_FINANCEIRO_EVIDENCE_BUNDLE_EXPORTADO`
+  - `SNAPSHOT_FINANCEIRO_KEY_ID_DESCONHECIDO`
+  - `SNAPSHOT_FINANCEIRO_KEY_DISABLED`
+  - `SNAPSHOT_FINANCEIRO_KEY_ROTATION_VERIFICADA` (emitido quando snapshot válido usa chave DEPRECATED)
+
+9) Testes criados/alterados
+- `src/test/java/com/restaurante/financeiro/SnapshotKeyRotationTest.java`
+- `src/test/java/com/restaurante/financeiro/SnapshotKeyDisabledTest.java`
+- `src/test/java/com/restaurante/financeiro/SnapshotEvidenceBundleTest.java`
+
+10) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+11) Resultado
+- BUILD SUCCESS
+
+12) Riscos restantes
+- Rotação avançada (múltiplas chaves ACTIVE temporariamente) não é suportada por design; mantemos 1 ACTIVE para previsibilidade.
+- Evidence bundle não é WORM storage; é export lógico.
+
+13) Próximo prompt recomendado
+- Persistir evidence bundles em storage WORM (interno) e/ou export assinado externo, mantendo sem PDF/Excel.

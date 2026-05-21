@@ -1,7 +1,10 @@
 package com.restaurante.testsupport;
 
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Assumptions;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -14,6 +17,17 @@ public abstract class PostgresTestcontainersConfig {
             .withDatabaseName("consuma_test")
             .withUsername("consuma")
             .withPassword("consuma");
+
+    @BeforeAll
+    static void requireDocker() {
+        boolean available;
+        try {
+            available = DockerClientFactory.instance().isDockerAvailable();
+        } catch (Throwable t) {
+            available = false;
+        }
+        Assumptions.assumeTrue(available, "Docker indisponível: testes com Testcontainers serão ignorados.");
+    }
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {

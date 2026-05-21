@@ -17,6 +17,7 @@ import com.restaurante.financeiro.snapshot.CanonicalJsonHashService;
 import com.restaurante.financeiro.snapshot.SnapshotIntegridadeProperties;
 import com.restaurante.financeiro.snapshot.SnapshotSignatureService;
 import com.restaurante.financeiro.snapshot.dto.SnapshotIntegridadeResponse;
+import com.restaurante.financeiro.snapshot.dto.SnapshotSignatureResult;
 import com.restaurante.model.entity.ChecklistOperacionalRun;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Tenant;
@@ -495,15 +496,12 @@ public class TurnoOperacionalService {
             integ.setSnapshotHash(hash);
 
             if (snapshotIntegridadeProperties.isSignatureEnabled()) {
-                String secret = snapshotIntegridadeProperties.getSignatureSecret();
-                if (secret == null || secret.isBlank()) {
-                    throw new IllegalStateException("Secret HMAC ausente para assinatura do snapshot (signature-enabled=true).");
-                }
-                integ.setSignatureAlgorithm(snapshotIntegridadeProperties.getSignatureAlgorithm());
-                integ.setSignatureKeyId(snapshotIntegridadeProperties.getSignatureKeyId());
-                integ.setSignatureGeneratedAt(fechadoEm);
                 integ.setSignatureScope("snapshotHash");
-                integ.setSnapshotSignature(snapshotSignatureService.signSnapshotHash(hash, secret));
+                SnapshotSignatureResult sig = snapshotSignatureService.sign(hash);
+                integ.setSignatureAlgorithm(sig.getAlgorithm());
+                integ.setSignatureKeyId(sig.getKeyId());
+                integ.setSignatureGeneratedAt(sig.getGeneratedAt() != null ? sig.getGeneratedAt() : fechadoEm);
+                integ.setSnapshotSignature(sig.getSignature());
             }
 
             s.setIntegridade(integ);

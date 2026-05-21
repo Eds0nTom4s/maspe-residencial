@@ -1,0 +1,203 @@
+RELATÓRIO TÉCNICO — PROMPT 37.5/37.6
+Persistência interna do Evidence Bundle + cadeia de custódia + retenção/WORM lógico
+Data: 2026-05-21 (Africa/Luanda)
+
+1) Resumo executivo
+- Foi implementada a persistência interna (PostgreSQL) do Evidence Bundle do turno como registro evidencial append-only.
+- Cada bundle persistido recebe:
+  - bundleHash (SHA-256 sobre JSON canônico do bundle completo)
+  - bundleSignature (HMAC-SHA256 do bundleHash usando keyring ACTIVE)
+  - cadeia de custódia por turno (sequenceNumber + previousBundleHash + chainHash + chainSignature)
+  - retenção lógica (retentionUntil) e WORM lógico (wormLocked=true) no MVP.
+- Foram criados endpoints tenant para:
+  - gerar/persistir bundle (POST)
+  - listar bundles persistidos do turno
+  - obter bundle persistido (detail)
+  - verificar integridade/cadeia do bundle persistido.
+- Foi criado access log dedicado (cadeia de custódia de acesso) separado do registro evidencial.
+
+2) Migrations criadas
+- src/main/resources/db/migration/V26__turno_evidence_bundle_worm.sql
+  - Cria:
+    - turno_evidence_bundles (bundle persistido)
+    - turno_evidence_bundle_access_logs (log de acessos)
+  - Índices e constraints:
+    - UNIQUE (tenant_id, turno_id, sequence_number)
+    - FK para tenant/turno/instituição/unidade + previous_bundle_id.
+
+3) Entidades/fields adicionados
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/entity/TurnoEvidenceBundle.java
+  - Registro evidencial persistido (inclui bundle_json, bundleHash, bundleSignature, chainHash, chainSignature, retentionUntil, wormLocked, previous link, sequenceNumber).
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/entity/TurnoEvidenceBundleAccessLog.java
+  - Log de acesso/consulta/verificação (CREATED/EXPORTED/VERIFIED...).
+- Enums:
+  - src/main/java/com/restaurante/model/enums/EvidenceBundleStatus.java
+  - src/main/java/com/restaurante/model/enums/EvidenceBundleType.java
+  - src/main/java/com/restaurante/model/enums/EvidenceBundleAccessType.java
+
+4) Repositories criados
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/repository/TurnoEvidenceBundleRepository.java
+  - Query de “last bundle” com PESSIMISTIC_WRITE para serializar o sequenceNumber.
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/repository/TurnoEvidenceBundleAccessLogRepository.java
+
+5) Services criados/alterados
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/service/EvidenceBundleIntegrityService.java
+  - Gera bundleHash (SHA-256 canônico) e bundleSignature (HMAC).
+  - Gera chainHash (SHA-256 canônico do payload de chain) e chainSignature (HMAC).
+  - Verifica:
+    - bundleHash vs recalculado
+    - assinatura do bundleHash (keyId do bundle)
+    - chainHash vs esperado
+    - assinatura do chainHash (keyId do chain)
+    - link com previousBundleHash
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/service/TurnoEvidenceBundleService.java
+  - Regra de persistência:
+    - exige turno FECHADO
+    - exige snapshot exportável e com integridade válida (hash + assinatura)
+    - gera bundle lógico (sem recálculo financeiro)
+    - calcula integridade e cadeia
+    - persiste bundle (append-only)
+    - registra access log (CREATED/EXPORTED/VERIFIED)
+    - registra OperationalEventLog sanitizado
+  - Verificação:
+    - recalcula bundleHash e valida assinatura/cadeia sem “corrigir” bundle
+    - emite eventos diferentes para falhas de integridade vs cadeia.
+- Properties:
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/EvidenceBundleProperties.java
+
+6) DTOs criados
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/persist/EvidenceBundlePersistResponse.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/persist/EvidenceBundleListItemResponse.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/persist/EvidenceBundleDetailResponse.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/persist/EvidenceBundleIntegrityResponse.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/persist/EvidenceBundleChainResponse.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/persist/EvidenceBundleRetentionResponse.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/persist/EvidenceBundleVerificationResponse.java
+
+7) Endpoints criados
+- src/main/java/com/restaurante/controller/TenantEvidenceBundleController.java
+  - POST /tenant/operacao/turnos/{turnoId}/snapshot/evidence-bundles
+    - RBAC: OWNER/ADMIN/FINANCE
+    - efeito colateral intencional: persiste evidência (por isso POST).
+  - GET /tenant/operacao/turnos/{turnoId}/snapshot/evidence-bundles
+    - RBAC: OWNER/ADMIN/FINANCE/CASHIER
+  - GET /tenant/operacao/turnos/{turnoId}/snapshot/evidence-bundles/{bundleId}
+    - RBAC: OWNER/ADMIN/FINANCE/CASHIER
+    - registra access log EXPORTED
+  - POST /tenant/operacao/turnos/{turnoId}/snapshot/evidence-bundles/{bundleId}/verify
+    - RBAC: OWNER/ADMIN/FINANCE/CASHIER
+    - registra access log VERIFIED e event log conforme resultado
+
+8) Segurança / tenant-safety
+- TenantId vem do TenantContext; não é aceito no request.
+- Cross-tenant:
+  - Turno de outro tenant: 404.
+  - Bundle de outro tenant/turno: 404.
+- Não expõe secrets HMAC, deviceToken, raw payload gateway.
+- BundleHash/ChainHash/Signatures são expostos por serem parte da evidência.
+
+9) WORM lógico + retenção (MVP)
+- WORM lógico aplicado por desenho:
+  - Sem endpoints de update/delete do bundle.
+  - Bundle persistido nasce com wormLocked=true (configurável, padrão true).
+  - Access logs registram contagem/uso sem alterar o bundle.
+- Retention:
+  - retentionUntil calculado por defaultRetentionDays (padrão 1825 dias).
+  - Não há job/expiração nesta fase; não existe delete físico via API.
+- Trigger PostgreSQL anti-UPDATE/DELETE não foi implementado nesta fase (proteção por API/service + ausência de rotas de mutação).
+
+10) Cadeia de custódia
+- sequenceNumber monotônico por (tenantId, turnoId) com lock pessimista ao gerar novo bundle.
+- previousBundleHash e previousBundleId encadeiam versões do mesmo turno.
+- chainHash/cadeia são assinados via HMAC e verificáveis posteriormente.
+
+11) Auditoria (OperationalEventLog)
+- Atualizado OperationalEventType:
+  - EVIDENCE_BUNDLE_PERSISTIDO
+  - EVIDENCE_BUNDLE_EXPORTADO
+  - EVIDENCE_BUNDLE_VERIFICADO
+  - EVIDENCE_BUNDLE_INTEGRIDADE_INVALIDA
+  - EVIDENCE_BUNDLE_CHAIN_INVALIDA
+  - EVIDENCE_BUNDLE_RETENTION_APLICADA
+  - EVIDENCE_BUNDLE_WORM_LOCK_APLICADO
+- Access log separado:
+  - turno_evidence_bundle_access_logs registra CREATED/EXPORTED/VERIFIED.
+
+12) Properties adicionadas
+- src/main/resources/application.properties
+  - consuma.financeiro.evidence-bundle.retention-enabled
+  - consuma.financeiro.evidence-bundle.default-retention-days
+  - consuma.financeiro.evidence-bundle.worm-lock-enabled
+  - consuma.financeiro.evidence-bundle.allow-physical-delete (mantido false)
+  - consuma.financeiro.evidence-bundle.max-events
+  - consuma.financeiro.evidence-bundle.canonicalization-version
+  - consuma.financeiro.evidence-bundle.hash-algorithm
+
+13) Testes criados/alterados
+- src/test/java/com/restaurante/financeiro/EvidenceBundlePersistenceTest.java
+  - Persiste bundle (sequence=1) e valida hash/chain/retention/wormLocked.
+  - Cria 2 bundles no mesmo turno e valida encadeamento (sequence=2, previousBundleId/hash, chainHash/signature).
+Observação:
+- Testcontainers pode ficar indisponível no ambiente atual; testes IT com Postgres via Testcontainers são ignorados quando Docker não está disponível (comportamento já existente no projeto).
+
+14) Comandos executados
+- mvn -q -DskipTests compile
+- mvn test
+
+15) Resultado dos comandos
+- BUILD SUCCESS
+
+16) Arquivos criados/alterados (principais)
+Criados:
+- src/main/resources/db/migration/V26__turno_evidence_bundle_worm.sql
+- src/main/java/com/restaurante/controller/TenantEvidenceBundleController.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/EvidenceBundleProperties.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/entity/TurnoEvidenceBundle.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/entity/TurnoEvidenceBundleAccessLog.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/repository/TurnoEvidenceBundleRepository.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/repository/TurnoEvidenceBundleAccessLogRepository.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/service/EvidenceBundleIntegrityService.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/service/TurnoEvidenceBundleService.java
+- src/main/java/com/restaurante/model/enums/EvidenceBundleAccessType.java
+- src/main/java/com/restaurante/model/enums/EvidenceBundleStatus.java
+- src/main/java/com/restaurante/model/enums/EvidenceBundleType.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/persist/* (DTOs)
+- src/test/java/com/restaurante/financeiro/EvidenceBundlePersistenceTest.java
+- docs/tenant-core/37-5-37-6-evidence-bundle-cadeia-custodia-worm-logico.md
+
+Alterados:
+- src/main/java/com/restaurante/model/enums/OperationalEventType.java
+- src/main/resources/application.properties
+
+17) Decisões técnicas tomadas
+- Persistência de evidência usa POST (não GET) para evitar efeito colateral inesperado.
+- Imutabilidade MVP via desenho de API/service + access log separado (sem “export_count” no bundle).
+- Cadeia calculada via JSON canônico (não concatenação simples).
+- Assinatura do bundle e da cadeia reutiliza keyring HMAC existente (ACTIVE assina; DEPRECATED verifica; DISABLED não verifica).
+
+18) Riscos restantes
+- Sem trigger PostgreSQL anti-mutation: um DBA malicioso ainda poderia alterar linhas; a integridade/cadeia detecta adulteração, mas não impede.
+- Sem storage externo WORM (S3 Object Lock/MinIO): retenção é lógica, não física.
+- Não há job de expiração (RETENTION_EXPIRED) nesta fase.
+
+19) Checklist de aceitação (status)
+[OK] Evidence Bundle pode ser persistido por POST.
+[OK] Tabela própria para bundles e access logs.
+[OK] Bundle persistido tenant-safe + turno FECHADO obrigatório.
+[OK] Usa snapshot congelado; não recalcula financeiro.
+[OK] bundle_json + bundleHash + bundleSignature persistidos.
+[OK] sequenceNumber + previous link + chainHash + chainSignature.
+[OK] Listagem, detalhe e verify endpoints.
+[OK] Access log registra CREATED/EXPORTED/VERIFIED.
+[OK] Eventos sanitizados.
+[OK] Sem delete físico via API; WORM lógico aplicado.
+[OK] retentionUntil calculado.
+[OK] RBAC: criar (OWNER/ADMIN/FINANCE), consultar/verificar (inclui CASHIER).
+[OK] Segredos HMAC não expostos.
+[OK] mvn compile e mvn test passam.
+
+20) Próximo prompt recomendado
+- Trigger PostgreSQL para impedir UPDATE/DELETE de evidências (hardening).
+- Job de retenção lógica (marcar RETENTION_EXPIRED) sem delete físico.
+- Abstração EvidenceBundleStoragePort + adapter externo WORM (opcional, não obrigatório).
+

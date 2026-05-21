@@ -9,6 +9,9 @@ public class SnapshotVerificacaoIntegridadeResponse {
     private boolean valido;
     private Boolean hashValido;
     private Boolean assinaturaValida;
+    private Boolean assinaturaKeyFound;
+    private String assinaturaKeyStatus;
+    private String assinaturaFailureReason;
 
     private String hashPersistido;
     private String hashRecalculado;

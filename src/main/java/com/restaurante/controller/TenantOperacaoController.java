@@ -7,10 +7,12 @@ import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.ChecklistTemplateResponse;
 import com.restaurante.dto.response.TurnoOperacionalResponse;
 import com.restaurante.dto.response.TurnoPreFechoResponse;
+import com.restaurante.financeiro.snapshot.evidence.dto.SnapshotFinanceiroEvidenceBundleResponse;
 import com.restaurante.model.enums.ChecklistTipo;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TurnoOperacionalStatus;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.financeiro.snapshot.evidence.service.SnapshotFinanceiroEvidenceBundleService;
 import com.restaurante.service.operacao.ChecklistOperacionalService;
 import com.restaurante.service.operacao.TurnoOperacionalService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -42,6 +44,7 @@ public class TenantOperacaoController {
     private final TenantGuard tenantGuard;
     private final TurnoOperacionalService turnoService;
     private final ChecklistOperacionalService checklistService;
+    private final SnapshotFinanceiroEvidenceBundleService evidenceBundleService;
 
     @PostMapping("/turnos/abrir")
     @PreAuthorize("isAuthenticated()")
@@ -133,6 +136,22 @@ public class TenantOperacaoController {
         return ResponseEntity.ok(ApiResponse.success("Pré-fecho", turnoService.preFecho(turnoId)));
     }
 
+    @GetMapping("/turnos/{turnoId}/snapshot/evidence-bundle")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<SnapshotFinanceiroEvidenceBundleResponse>> evidenceBundle(@PathVariable Long turnoId,
+                                                                                               HttpServletRequest http) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_FINANCE,
+                TenantUserRole.TENANT_CASHIER
+        );
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        SnapshotFinanceiroEvidenceBundleResponse resp = evidenceBundleService.gerar(turnoId, ip, ua);
+        return ResponseEntity.ok(ApiResponse.success("Evidence bundle do snapshot financeiro", resp));
+    }
+
     @PostMapping("/turnos/{turnoId}/fechar")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<TurnoOperacionalResponse>> fechar(@PathVariable Long turnoId,
@@ -173,4 +192,3 @@ public class TenantOperacaoController {
         return ResponseEntity.ok(ApiResponse.success("Templates de checklist ativos", checklistService.listarTemplatesAtivos(tenantId, tipo)));
     }
 }
-

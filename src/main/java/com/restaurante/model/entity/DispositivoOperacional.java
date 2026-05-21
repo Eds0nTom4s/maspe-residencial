@@ -2,6 +2,7 @@ package com.restaurante.model.entity;
 
 import com.restaurante.model.enums.DispositivoStatus;
 import com.restaurante.model.enums.DispositivoTipo;
+import com.restaurante.model.enums.OperationalDeviceType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -62,6 +63,11 @@ public class DispositivoOperacional extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "tipo", nullable = false, length = 30)
     private DispositivoTipo tipo = DispositivoTipo.OUTRO;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "operational_device_type", nullable = false, length = 50)
+    private OperationalDeviceType operationalDeviceType = OperationalDeviceType.GENERIC_DEVICE;
 
     @NotNull
     @Enumerated(EnumType.STRING)

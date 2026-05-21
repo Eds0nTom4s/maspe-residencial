@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -78,6 +79,15 @@ public class DevicePaymentMethodPolicyAdminService {
 
         PaymentMethodPolicyStatus anterior = policy.getStatus();
 
+        // Se havia sido gerenciado por template, qualquer ajuste via endpoint manual passa a ser override manual
+        policy.setManualOverride(true);
+        if (policy.isTemplateManaged()) {
+            policy.setTemplateManaged(false);
+            policy.setSourceTemplate(null);
+            policy.setSourceRollout(null);
+            policy.setTemplateAppliedAt(null);
+        }
+
         if (req.getInheritFromUnidade() != null) policy.setInheritFromUnidade(req.getInheritFromUnidade());
         boolean inherit = policy.isInheritFromUnidade();
         if (inherit) {
@@ -99,6 +109,7 @@ public class DevicePaymentMethodPolicyAdminService {
         if (req.getMetadata() != null) policy.setMetadataJson(writeMetadata(req.getMetadata()));
         policy.setUpdatedBy(ctx.userId());
 
+        validateMinMax(policy.getMinAmount(), policy.getMaxAmount());
         validatePolicyCompatibility(tenantMethod, policy);
 
         DevicePaymentMethodPolicy saved = policyRepository.save(policy);
@@ -186,5 +197,11 @@ public class DevicePaymentMethodPolicyAdminService {
                 throw new BusinessException("Política inválida: tenant bloqueia FUNDO_CONSUMO.");
             }
         }
+    }
+
+    private void validateMinMax(BigDecimal min, BigDecimal max) {
+        if (min != null && min.compareTo(BigDecimal.ZERO) < 0) throw new BusinessException("minAmount não pode ser negativo.");
+        if (max != null && max.compareTo(BigDecimal.ZERO) < 0) throw new BusinessException("maxAmount não pode ser negativo.");
+        if (min != null && max != null && max.compareTo(min) < 0) throw new BusinessException("maxAmount deve ser >= minAmount.");
     }
 }

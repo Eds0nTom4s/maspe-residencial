@@ -3,6 +3,7 @@ package com.restaurante.repository;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.enums.DispositivoStatus;
 import com.restaurante.model.enums.DispositivoTipo;
+import com.restaurante.model.enums.OperationalDeviceType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +11,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface DispositivoOperacionalRepository extends JpaRepository<DispositivoOperacional, Long> {
@@ -67,6 +70,34 @@ public interface DispositivoOperacionalRepository extends JpaRepository<Disposit
             @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
             @Param("unidadeProducaoId") Long unidadeProducaoId,
             Pageable pageable
+    );
+
+    @Query("""
+            select d
+            from DispositivoOperacional d
+            where d.tenant.id = :tenantId
+              and d.unidadeAtendimento.id = :unidadeAtendimentoId
+              and (:deviceType is null or d.operationalDeviceType = :deviceType)
+            order by d.id asc
+            """)
+    List<DispositivoOperacional> findByTenantAndUnidadeAtendimentoAndOperationalType(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("deviceType") OperationalDeviceType deviceType
+    );
+
+    @Query("""
+            select d
+            from DispositivoOperacional d
+            where d.tenant.id = :tenantId
+              and d.unidadeAtendimento.id = :unidadeAtendimentoId
+              and d.id in :ids
+            order by d.id asc
+            """)
+    List<DispositivoOperacional> findByTenantAndUnidadeAtendimentoAndIds(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("ids") Collection<Long> ids
     );
 
     @Query("""

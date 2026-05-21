@@ -1,0 +1,11 @@
+package com.restaurante.model.enums;
+
+public enum PaymentMethodPolicyRolloutSkippedReason {
+    EXISTING_POLICY_SKIP_MODE,
+    MANUAL_OVERRIDE_PROTECTED,
+    TEMPLATE_ITEM_NOT_APPLICABLE,
+    DEVICE_NOT_TARGETED,
+    TENANT_OR_UNIDADE_BLOCKS_EFFECTIVE_USE,
+    POLICY_ALREADY_MATCHES
+}
+

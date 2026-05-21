@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -97,6 +98,7 @@ public class UnidadePaymentMethodPolicyAdminService {
         if (req.getMetadata() != null) policy.setMetadataJson(writeMetadata(req.getMetadata()));
         policy.setUpdatedBy(ctx.userId());
 
+        validateMinMax(policy.getMinAmount(), policy.getMaxAmount());
         validatePolicyCompatibility(tenantMethod, policy);
 
         UnidadePaymentMethodPolicy saved = policyRepository.save(policy);
@@ -186,5 +188,11 @@ public class UnidadePaymentMethodPolicyAdminService {
                 throw new BusinessException("Política inválida: tenant bloqueia FUNDO_CONSUMO.");
             }
         }
+    }
+
+    private void validateMinMax(BigDecimal min, BigDecimal max) {
+        if (min != null && min.compareTo(BigDecimal.ZERO) < 0) throw new BusinessException("minAmount não pode ser negativo.");
+        if (max != null && max.compareTo(BigDecimal.ZERO) < 0) throw new BusinessException("maxAmount não pode ser negativo.");
+        if (min != null && max != null && max.compareTo(min) < 0) throw new BusinessException("maxAmount deve ser >= minAmount.");
     }
 }

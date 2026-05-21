@@ -1,8 +1,6 @@
 package com.restaurante.financeiro.paymentmethod.entity;
 
-import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Tenant;
-import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.PaymentMethodPolicyStatus;
 import jakarta.persistence.*;
@@ -14,12 +12,12 @@ import java.time.Instant;
 
 @Entity
 @Table(
-        name = "device_payment_method_policies",
-        uniqueConstraints = @UniqueConstraint(name = "uk_device_payment_method_policy", columnNames = {"tenant_id", "dispositivo_operacional_id", "payment_method_code"})
+        name = "payment_method_policy_template_items",
+        uniqueConstraints = @UniqueConstraint(name = "uk_payment_policy_template_item", columnNames = {"tenant_id", "template_id", "payment_method_code"})
 )
 @Getter
 @Setter
-public class DevicePaymentMethodPolicy {
+public class PaymentMethodPolicyTemplateItem {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,20 +28,16 @@ public class DevicePaymentMethodPolicy {
     private Tenant tenant;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "dispositivo_operacional_id", nullable = false, updatable = false)
-    private DispositivoOperacional dispositivoOperacional;
-
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "unidade_atendimento_id", nullable = false, updatable = false)
-    private UnidadeAtendimento unidadeAtendimento;
+    @JoinColumn(name = "template_id", nullable = false, updatable = false)
+    private PaymentMethodPolicyTemplate template;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method_code", nullable = false, updatable = false, length = 50)
     private PaymentMethodCode paymentMethodCode;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 30)
-    private PaymentMethodPolicyStatus status;
+    @Column(name = "policy_status", nullable = false, length = 30)
+    private PaymentMethodPolicyStatus policyStatus;
 
     @Column(name = "enabled_for_pos")
     private Boolean enabledForPos;
@@ -66,26 +60,6 @@ public class DevicePaymentMethodPolicy {
     @Column(name = "max_amount", precision = 19, scale = 2)
     private BigDecimal maxAmount;
 
-    @Column(name = "inherit_from_unidade", nullable = false)
-    private boolean inheritFromUnidade = true;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "source_template_id")
-    private PaymentMethodPolicyTemplate sourceTemplate;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "source_rollout_id")
-    private PaymentMethodPolicyRollout sourceRollout;
-
-    @Column(name = "template_managed", nullable = false)
-    private boolean templateManaged = false;
-
-    @Column(name = "manual_override", nullable = false)
-    private boolean manualOverride = false;
-
-    @Column(name = "template_applied_at")
-    private Instant templateAppliedAt;
-
     @Column(name = "override_reason", length = 255)
     private String overrideReason;
 
@@ -98,12 +72,6 @@ public class DevicePaymentMethodPolicy {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    @Column(name = "created_by", updatable = false)
-    private Long createdBy;
-
-    @Column(name = "updated_by")
-    private Long updatedBy;
-
     @PrePersist
     void onCreate() {
         if (createdAt == null) createdAt = Instant.now();
@@ -114,3 +82,4 @@ public class DevicePaymentMethodPolicy {
         updatedAt = Instant.now();
     }
 }
+

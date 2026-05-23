@@ -1,0 +1,212 @@
+RELATÓRIO TÉCNICO — PROMPT 40.4
+Replay assíncrono com operationId + progress tracking + rate-limit por tenant
+Data: 2026-05-23
+
+1) RESUMO EXECUTIVO
+- O replay controlado (Prompt 40.3) foi evoluído para execução assíncrona rastreável por `operationId`.
+- O submit cria uma operação `PENDING` + itens por comando elegível; o worker processa em batch e atualiza progresso/contadores.
+- Há rate-limit por tenant no submit (operações ativas e por hora) e lock para evitar replay concorrente do mesmo comando.
+- Progress events possuem rate-limit (delta percentual + intervalo mínimo), com eventos finais sempre emitidos.
+- Re-run seguro permite reprocessar itens (FAILED/BLOCKED/PENDING) sem tocar em SUCCEEDED/NOOP.
+
+2) MIGRATIONS CRIADAS
+- `src/main/resources/db/migration/V40__device_offline_replay_async_operations.sql`
+  - Cria `device_offline_replay_operations`
+  - Cria `device_offline_replay_operation_items`
+  - Adiciona em `device_offline_commands`:
+    - `replay_in_progress BOOLEAN NOT NULL DEFAULT false`
+    - `current_replay_operation_id BIGINT NULL`
+  - Índices e constraints conforme uso do worker/consulta.
+
+3) CAMPOS ADICIONADOS / MODELO
+- `device_offline_replay_operations` (header):
+  - `operation_id`, `status`, timestamps, locks (`locked_at/locked_by`), `reason`, `force`
+  - counters: `pending/running/succeeded/noop/blocked/failed`, `progress_percent`, `retry_count`
+  - rate-limit de auditoria de progresso: `last_progress_event_at/percent`
+- `device_offline_replay_operation_items`:
+  - vincula `device_offline_command_id` e registra `previous_status`, `item_status`, `attempts`, `next_retry_at`
+  - captura `eligibility_status/eligibility_reason` e `replay_attempt_id` (tabela do 40.3)
+- `device_offline_commands`:
+  - `replay_in_progress`, `current_replay_operation_id` para impedir concorrência entre operações.
+
+4) ENUMS AJUSTADOS / CRIADOS
+- `src/main/java/com/restaurante/model/enums/DeviceOfflineReplayOperationStatus.java`
+  - `PENDING`, `RUNNING`, `COMPLETED`, `COMPLETED_WITH_NOOPS`, `PARTIAL_FAILED`, `FAILED`, `CANCELLED`
+- `src/main/java/com/restaurante/model/enums/DeviceOfflineReplayOperationItemStatus.java`
+  - `PENDING`, `RUNNING`, `SUCCEEDED`, `NOOP`, `BLOCKED`, `FAILED`, `CANCELLED`
+- `src/main/java/com/restaurante/model/enums/DeviceOfflineReplayRateLimitReason.java`
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+  - adicionados eventos do 40.4 (submit/start/progress/final/rerun/rate-limited)
+- `src/main/java/com/restaurante/model/enums/OperationalEntityType.java`
+  - adicionado `DEVICE_OFFLINE_REPLAY_OPERATION`
+
+5) ENTIDADES/REPOSITORIES (NOVOS)
+- Entidades:
+  - `src/main/java/com/restaurante/device/offline/entity/DeviceOfflineReplayOperation.java`
+  - `src/main/java/com/restaurante/device/offline/entity/DeviceOfflineReplayOperationItem.java`
+- Repositories:
+  - `src/main/java/com/restaurante/device/offline/repository/DeviceOfflineReplayOperationRepository.java`
+  - `src/main/java/com/restaurante/device/offline/repository/DeviceOfflineReplayOperationItemRepository.java`
+- Ajuste em entity/repo existente:
+  - `src/main/java/com/restaurante/device/offline/entity/DeviceOfflineCommand.java` (novos campos)
+  - `src/main/java/com/restaurante/device/offline/repository/DeviceOfflineCommandRepository.java`
+    - `markReplayInProgress`, `clearReplayInProgress`, `clearReplayInProgressForOperation`
+
+6) PROPERTIES (NOVO)
+- `src/main/java/com/restaurante/config/DeviceOfflineReplayAsyncProperties.java`
+  - prefix: `consuma.device.offline-replay.async.*`
+  - batch-size, lock-timeout, max attempts/backoff, limites de operações por tenant, rate-limit de progress event.
+
+7) SERVICES / WORKER / JOB (NOVOS)
+- Submit/status/items/rerun (tenant/admin):
+  - `src/main/java/com/restaurante/service/tenant/offline/TenantOfflineSyncReplayAsyncService.java`
+    - rate-limit no submit:
+      - max operações `PENDING/RUNNING` por tenant
+      - max operações por hora por tenant
+      - bloqueia nova operação para o mesmo `serverSyncId` quando já há `PENDING/RUNNING`
+    - cria operação + itens somente para comandos elegíveis (reusa `DeviceOfflineReplayEligibilityService`)
+    - trava comandos (`replay_in_progress=true`) para impedir concorrência
+    - rerun reseta itens selecionados para `PENDING` e incrementa `retry_count`
+- Worker:
+  - `src/main/java/com/restaurante/service/tenant/offline/DeviceOfflineReplayAsyncWorkerService.java`
+    - claim de itens `PENDING` com `FOR UPDATE SKIP LOCKED`
+    - execução do replay reutilizando o core do 40.3: `TenantOfflineSyncReplayService.replayOne(...)`
+    - backoff por item (`nextRetryAt`) + `maxAttemptsPerItem`
+    - progress tracking por contadores + `progressPercent`
+    - auditoria de progress com rate-limit (delta% + intervalo), e eventos finais sempre emitidos
+    - libera `replay_in_progress` ao final de cada item (safety net ao finalizar operação)
+- Job:
+  - `src/main/java/com/restaurante/device/offline/job/DeviceOfflineReplayAsyncJob.java`
+    - `@Scheduled(cron=${consuma.device.offline-replay.async.worker-cron:*/30 * * * * *})`
+
+8) ENDPOINTS (NOVOS)
+- Controller:
+  - `src/main/java/com/restaurante/controller/TenantOfflineSyncReplayAsyncController.java`
+- Rotas:
+  - `POST /tenant/offline-sync/sessions/{serverSyncId}/replay/submit`
+  - `GET  /tenant/offline-sync/replay-operations/{operationId}`
+  - `GET  /tenant/offline-sync/replay-operations/{operationId}/items?status=...`
+  - `POST /tenant/offline-sync/replay-operations/{operationId}/rerun`
+
+9) COMO O SUBMIT ASYNC FUNCIONA
+- Admin envia filtros (statuses/types/ids) + `reason` obrigatório (+ `force` opcional).
+- Serviço:
+  - valida tenant/RBAC e rate-limit;
+  - resolve `serverSyncId` tenant-safe;
+  - avalia elegibilidade (Prompt 40.3);
+  - cria operação `PENDING` e itens `PENDING`;
+  - marca comandos com `replay_in_progress=true` (impede concorrência).
+- Resposta retorna `operationId` para polling.
+
+10) COMO OPERATIONID / ITEMS FUNCIONAM
+- `operationId` (UUID) é o identificador público estável.
+- Cada item referencia um `device_offline_command_id` (com payload imutável).
+- Item mantém estado e retry/backoff independente.
+
+11) PROGRESS TRACKING
+- `progressPercent = (succeeded + noop + blocked + failed) / total * 100`
+- Counters recalculados pelo worker a cada batch/itens.
+
+12) RATE-LIMIT POR TENANT
+- No submit:
+  - bloqueia acima de `max-active-operations-per-tenant`
+  - bloqueia acima de `max-operations-per-tenant-per-hour`
+  - bloqueia submit concorrente para o mesmo `serverSyncId` com operação `PENDING/RUNNING`
+- Evento `DEVICE_OFFLINE_REPLAY_RATE_LIMITED` registrado (sanitizado).
+
+13) replayInProgress (CONCORRÊNCIA)
+- No submit, cada comando selecionado recebe `replay_in_progress=true` + `current_replay_operation_id`.
+- O worker limpa o lock do comando ao terminar o item (e limpa tudo ao finalizar a operação como safety net).
+- Mantém o replay individual/síncrono protegido contra concorrência (o comando fica marcado como “em replay”).
+
+14) RE-RUN SEGURO
+- `POST .../rerun`:
+  - bloqueia se operação está `PENDING/RUNNING`
+  - reseta apenas itens nos statuses informados (default recomendado: FAILED/BLOCKED)
+  - não reseta SUCCEEDED/NOOP
+  - incrementa `retry_count`
+
+15) SEGURANÇA / RBAC / CROSS-TENANT
+- Submit/rerun: apenas `TENANT_OWNER`/`TENANT_ADMIN`.
+- Status/items: `TENANT_OWNER`/`TENANT_ADMIN`/`TENANT_FINANCE`.
+- Cross-tenant protegido por `tenantId` via `TenantContext` (404 para recursos fora do tenant).
+- Regras do replay (40.3) continuam garantindo:
+  - não reprocessar APPLIED/DUPLICATE/IDEMPOTENCY_CONFLICT;
+  - revalidação por handlers (capability/policy/turno/estado de entidades);
+  - payload/clientRequestId/payloadHash imutáveis.
+
+16) AUDITORIA (SANITIZADA)
+- Eventos adicionados:
+  - `DEVICE_OFFLINE_REPLAY_OPERATION_SUBMITTED`
+  - `DEVICE_OFFLINE_REPLAY_OPERATION_STARTED`
+  - `DEVICE_OFFLINE_REPLAY_OPERATION_PROGRESS` (rate-limited)
+  - `DEVICE_OFFLINE_REPLAY_OPERATION_COMPLETED`
+  - `DEVICE_OFFLINE_REPLAY_OPERATION_PARTIAL_FAILED`
+  - `DEVICE_OFFLINE_REPLAY_OPERATION_FAILED`
+  - `DEVICE_OFFLINE_REPLAY_OPERATION_RERUN_REQUESTED`
+  - `DEVICE_OFFLINE_REPLAY_RATE_LIMITED`
+- Sem payload completo, sem OTP, sem deviceToken, sem AppyPay raw.
+
+17) TESTES (NOVOS/ALTERADOS)
+- `src/test/java/com/restaurante/device/TenantOfflineSyncReplayAsyncServiceTest.java`
+  - rate-limit por operações ativas
+  - submit cria operação apenas para comandos elegíveis
+
+18) DOCUMENTAÇÃO (NOVA)
+- `docs/tenant-core/40-4-replay-assincrono-operationid-progress-rate-limit.md`
+
+19) COMANDOS EXECUTADOS (OBRIGATÓRIOS) + RESULTADOS
+- `mvn -q -DskipTests compile`
+  - OK (exit code 0)
+- `mvn test`
+  - BUILD SUCCESS
+  - Observação do ambiente: Testcontainers/Docker indisponível; vários ITs são SKIPPED (comportamento já existente).
+  - Resumo do Maven: `Tests run: 374, Failures: 0, Errors: 0, Skipped: 208`
+
+20) ITENS NÃO COBERTOS (POR ESCOPO)
+- Cancelamento avançado de replay operation (CANCEL_REQUESTED/interruptivo).
+- UI/Dashboard/WS/SSE.
+- Fila externa.
+- Edição de payload antes do replay.
+
+21) DECISÕES TÉCNICAS TOMADAS
+- Reutilização do core de replay do Prompt 40.3 (`TenantOfflineSyncReplayService.replayOne`) para evitar divergência de regras.
+- Worker com claim por item via `FOR UPDATE SKIP LOCKED` + backoff por item.
+- `replay_in_progress` no comando como lock simples contra concorrência entre operações/replays.
+- Progress audit com rate-limit para reduzir ruído, mas eventos finais sempre emitidos.
+
+22) RISCOS RESTANTES
+- Operações muito grandes ainda podem gerar custo DB alto (recompute counters via múltiplos counts). Otimizável com contadores incrementais.
+- Sem cancelamento avançado, um tenant pode precisar esperar itens expirarem/backoff ou usar rerun.
+- Em cluster multi-instância, locks dependem de `locked_at` e timeout; ajuste fino pode ser necessário em produção.
+
+23) CHECKLIST DE ACEITAÇÃO (40.4)
+[x] Existe tabela de replay operations.
+[x] Existe tabela de operation items.
+[x] Existe operationId.
+[x] Submit async cria operation PENDING.
+[x] Operation items criados apenas para comandos elegíveis (via eligibility do 40.3).
+[x] APPLIED/DUPLICATE/IDEMPOTENCY_CONFLICT ficam fora.
+[x] Worker processa operation.
+[x] Progress tracking funciona (counters + progressPercent).
+[x] Status/items endpoints funcionam.
+[x] Rate-limit por tenant no submit.
+[x] replayInProgress impede concorrência do mesmo comando.
+[x] Rerun seguro existe.
+[x] Payload não é alterado.
+[x] clientRequestId não é alterado.
+[x] payloadHash não é alterado.
+[x] RBAC correto (owner/admin submit+rerun; finance read).
+[x] Cross-tenant protegido.
+[x] Auditoria sanitizada.
+[x] Replay síncrono 40.3 continua funcionando (não alterado).
+[x] Export diagnóstico 40.3 continua funcionando (não alterado).
+[x] Batch sync continua funcionando (não alterado).
+[x] AppyPay/OTP offline continuam bloqueados.
+[x] Relatório/snapshot/evidence bundle continuam funcionando (não alterado).
+[x] `mvn -q -DskipTests compile` passa.
+[x] `mvn test` passa.
+
+24) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 40.5: Cancelamento controlado de replay operations (PENDING cancelável + cancelRequested em RUNNING, com finalização segura), espelhando o hardening do rollout (38.5).
+

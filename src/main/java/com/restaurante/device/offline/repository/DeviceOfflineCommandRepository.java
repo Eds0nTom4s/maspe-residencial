@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
@@ -55,6 +56,43 @@ public interface DeviceOfflineCommandRepository extends JpaRepository<DeviceOffl
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from DeviceOfflineCommand c where c.id = :id")
     Optional<DeviceOfflineCommand> findForUpdateById(@Param("id") Long id);
+
+    @Modifying
+    @Query("""
+            update DeviceOfflineCommand c
+               set c.replayInProgress = true,
+                   c.currentReplayOperationId = :operationDbId
+             where c.tenant.id = :tenantId
+               and c.id in :commandIds
+               and c.replayInProgress = false
+            """)
+    int markReplayInProgress(@Param("tenantId") Long tenantId,
+                             @Param("commandIds") List<Long> commandIds,
+                             @Param("operationDbId") Long operationDbId);
+
+    @Modifying
+    @Query("""
+            update DeviceOfflineCommand c
+               set c.replayInProgress = false,
+                   c.currentReplayOperationId = null
+             where c.tenant.id = :tenantId
+               and c.id = :commandId
+               and c.currentReplayOperationId = :operationDbId
+            """)
+    int clearReplayInProgress(@Param("tenantId") Long tenantId,
+                              @Param("commandId") Long commandId,
+                              @Param("operationDbId") Long operationDbId);
+
+    @Modifying
+    @Query("""
+            update DeviceOfflineCommand c
+               set c.replayInProgress = false,
+                   c.currentReplayOperationId = null
+             where c.tenant.id = :tenantId
+               and c.currentReplayOperationId = :operationDbId
+            """)
+    int clearReplayInProgressForOperation(@Param("tenantId") Long tenantId,
+                                          @Param("operationDbId") Long operationDbId);
 
     @Query("""
             select c.conflictCode, count(c)

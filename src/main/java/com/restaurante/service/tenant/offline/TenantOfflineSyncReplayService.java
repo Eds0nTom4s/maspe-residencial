@@ -616,7 +616,7 @@ public class TenantOfflineSyncReplayService {
 
     private record ResolvedEntityRef(String entityType, Long entityId, String sourceClientRequestId) {}
 
-    private DevicePrincipal buildDevicePrincipal(Long tenantId, Long deviceId, String ip, String userAgent) {
+    protected DevicePrincipal buildDevicePrincipal(Long tenantId, Long deviceId, String ip, String userAgent) {
         DispositivoOperacional device = dispositivoOperacionalRepository.findByIdAndTenantId(deviceId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("DispositivoOperacional", "id", deviceId));
 

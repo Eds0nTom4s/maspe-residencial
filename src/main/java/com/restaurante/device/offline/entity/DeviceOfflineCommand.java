@@ -135,6 +135,12 @@ public class DeviceOfflineCommand {
     @JoinColumn(name = "last_replay_attempt_id")
     private DeviceOfflineCommandReplayAttempt lastReplayAttempt;
 
+    @Column(name = "replay_in_progress", nullable = false)
+    private boolean replayInProgress = false;
+
+    @Column(name = "current_replay_operation_id")
+    private Long currentReplayOperationId;
+
     @Column(name = "idempotency_scope", nullable = false, length = 150)
     private String idempotencyScope;
 

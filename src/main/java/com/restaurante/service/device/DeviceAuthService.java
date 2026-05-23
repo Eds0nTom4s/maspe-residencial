@@ -28,6 +28,7 @@ public class DeviceAuthService {
     private final TenantRepository tenantRepository;
     private final DeviceEventLogService deviceEventLogService;
     private final DeviceSyncMetricsService metrics;
+    private final com.restaurante.device.capability.service.DeviceCapabilityBootstrapService capabilityBootstrapService;
 
     @Transactional
     public DevicePrincipal authenticateDeviceHeader(String authorizationHeader, String userAgent, String ip) {
@@ -96,6 +97,9 @@ public class DeviceAuthService {
         );
         metrics.recordDeviceAuth("SUCCESS");
 
+        capabilityBootstrapService.ensureDefaults(dispositivo, ip, userAgent);
+        var caps = capabilityBootstrapService.listEnabledCapabilities(dispositivo.getTenant().getId(), dispositivo.getId());
+
         return new DevicePrincipal(
                 dispositivo.getId(),
                 dispositivo.getCodigo(),
@@ -106,7 +110,7 @@ public class DeviceAuthService {
                 dispositivo.getUnidadeProducao() != null ? dispositivo.getUnidadeProducao().getId() : null,
                 dispositivo.getTipo(),
                 dispositivo.getStatus(),
-                DeviceCapabilities.forTipo(dispositivo.getTipo()),
+                caps,
                 dispositivo.getTokenVersion()
         );
     }

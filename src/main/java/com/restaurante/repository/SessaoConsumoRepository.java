@@ -4,6 +4,7 @@ import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.enums.StatusSessaoConsumo;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Collection;
 import com.restaurante.repository.projection.SessionOpenAggProjection;
+import jakarta.persistence.LockModeType;
 
 /**
  * Repository para SessaoConsumo.
@@ -51,6 +53,10 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
     // ---------------------------------------------------------------------
 
     Optional<SessaoConsumo> findByIdAndTenantId(Long id, Long tenantId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from SessaoConsumo s where s.id = :id and s.tenant.id = :tenantId")
+    Optional<SessaoConsumo> findByIdAndTenantIdForUpdate(@Param("id") Long id, @Param("tenantId") Long tenantId);
 
     Optional<SessaoConsumo> findByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);
 

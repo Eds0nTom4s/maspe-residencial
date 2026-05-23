@@ -73,7 +73,7 @@ class DeviceClienteConsumoIT extends PostgresTestcontainersConfig {
                 null,
                 DispositivoTipo.POS,
                 DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.MANAGE_CONSUMPTION_FUND),
+                List.of(DeviceCapability.LOOKUP_CONSUMPTION_BY_PHONE),
                 1
         );
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(

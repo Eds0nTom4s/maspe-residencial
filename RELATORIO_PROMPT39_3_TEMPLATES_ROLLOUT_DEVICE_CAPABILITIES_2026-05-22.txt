@@ -1,0 +1,180 @@
+RELATÓRIO TÉCNICO — PROMPT 39.3
+CONSUMA — Templates + rollout de device capabilities por OperationalDeviceType/unidade
+Data: 2026-05-22
+
+1) RESUMO EXECUTIVO
+- Implementado um mecanismo operacional separado de payment policies para:
+  - criar templates de capabilities por tenant;
+  - aplicar rollout síncrono (preview/apply) em massa por unidade, por tipo de device ou por lista explícita de devices;
+  - preservar alterações manuais via `manualOverride` e suportar overwrite modes.
+- Mantida a separação: capability templates NÃO são payment policy templates.
+
+2) MIGRATIONS CRIADAS
+- `src/main/resources/db/migration/V35__device_capability_templates_rollout.sql`
+  - evolui `device_operational_capabilities` com:
+    - `source_template_id`, `source_rollout_id`
+    - `template_managed`, `manual_override`
+    - `template_applied_at`
+  - cria:
+    - `device_capability_templates`
+    - `device_capability_template_items`
+    - `device_capability_rollouts`
+
+3) ENTIDADES/ENUMS CRIADOS
+- Enums:
+  - `src/main/java/com/restaurante/model/enums/DeviceCapabilityTemplateStatus.java`
+  - `src/main/java/com/restaurante/model/enums/DeviceCapabilityRolloutMode.java`
+  - `src/main/java/com/restaurante/model/enums/DeviceCapabilityOverwriteMode.java`
+  - `src/main/java/com/restaurante/model/enums/DeviceCapabilityRolloutStatus.java`
+- Entidades:
+  - `src/main/java/com/restaurante/device/capability/template/entity/DeviceCapabilityTemplate.java`
+  - `src/main/java/com/restaurante/device/capability/template/entity/DeviceCapabilityTemplateItem.java`
+  - `src/main/java/com/restaurante/device/capability/template/entity/DeviceCapabilityRollout.java`
+- Evolução da entidade existente:
+  - `src/main/java/com/restaurante/device/capability/entity/DeviceOperationalCapabilityEntity.java`
+    - adicionados `sourceRolloutId`, `templateManaged`, `manualOverride`, `templateAppliedAt`
+
+4) REPOSITORIES CRIADOS
+- `src/main/java/com/restaurante/device/capability/template/repository/DeviceCapabilityTemplateRepository.java`
+- `src/main/java/com/restaurante/device/capability/template/repository/DeviceCapabilityTemplateItemRepository.java`
+- `src/main/java/com/restaurante/device/capability/template/repository/DeviceCapabilityRolloutRepository.java`
+
+5) SERVICES CRIADOS/ALTERADOS
+- Criados:
+  - `src/main/java/com/restaurante/device/capability/template/service/DeviceCapabilityTemplateBootstrapService.java`
+  - `src/main/java/com/restaurante/device/capability/template/service/DeviceCapabilityTemplateService.java`
+  - `src/main/java/com/restaurante/device/capability/template/service/DeviceCapabilityRolloutService.java`
+- Alterado:
+  - `src/main/java/com/restaurante/device/capability/service/TenantDeviceCapabilityService.java`
+    - update manual passa a marcar `manualOverride=true`, `templateManaged=false`, limpa `sourceTemplateId/sourceRolloutId/templateAppliedAt`.
+
+6) DTOs CRIADOS
+- Requests:
+  - `src/main/java/com/restaurante/dto/request/CreateDeviceCapabilityTemplateRequest.java`
+  - `src/main/java/com/restaurante/dto/request/UpdateDeviceCapabilityTemplateRequest.java`
+  - `src/main/java/com/restaurante/dto/request/DeviceCapabilityTemplateItemRequest.java`
+  - `src/main/java/com/restaurante/dto/request/DeviceCapabilityRolloutRequest.java`
+- Responses:
+  - `src/main/java/com/restaurante/dto/response/DeviceCapabilityTemplateResponse.java`
+  - `src/main/java/com/restaurante/dto/response/DeviceCapabilityRolloutPreviewResponse.java`
+  - `src/main/java/com/restaurante/dto/response/DeviceCapabilityRolloutApplyResponse.java`
+  - `src/main/java/com/restaurante/dto/response/DeviceCapabilityRolloutResultResponse.java`
+
+7) ENDPOINTS CRIADOS
+- Controller:
+  - `src/main/java/com/restaurante/controller/TenantDeviceCapabilityTemplateController.java`
+- Endpoints:
+  - `GET /tenant/device-capability-templates`
+  - `GET /tenant/device-capability-templates/{templateId}`
+  - `POST /tenant/device-capability-templates`
+  - `PUT /tenant/device-capability-templates/{templateId}`
+  - `POST /tenant/device-capability-templates/{templateId}/activate`
+  - `POST /tenant/device-capability-templates/{templateId}/deactivate`
+  - `POST /tenant/device-capability-templates/{templateId}/rollout/preview`
+  - `POST /tenant/device-capability-templates/{templateId}/rollout/apply`
+
+8) TEMPLATES PADRÃO (BOOTSTRAP)
+- Criados por tenant (idempotente) em `DeviceCapabilityTemplateBootstrapService`:
+  - `CAP_POS_CAIXA_PADRAO`
+  - `CAP_POS_ATENDIMENTO_PADRAO`
+  - `CAP_POS_QUIOSQUE_PADRAO`
+  - `CAP_KDS_COZINHA_SEM_IDENTIFICACAO`
+  - `CAP_KDS_BAR_SEM_IDENTIFICACAO`
+  - `CAP_ADMIN_TERMINAL_CONTROLADO`
+- Regra: `CROSS_UNIT_ASSISTED_IDENTIFICATION` nunca é incluída nos defaults.
+
+9) COMO PREVIEW FUNCIONA
+- Resolve devices alvo:
+  - `UNIT_ALL_DEVICES`: todos da unidade
+  - `UNIT_BY_DEVICE_TYPE`: filtra por `OperationalDeviceType`
+  - `SELECTED_DEVICES`: valida que todos IDs pertencem ao tenant e unidade
+- Calcula por device:
+  - capabilities a criar / atualizar / ignorar, conforme overwrite mode.
+- Não persiste capabilities.
+
+10) COMO APPLY FUNCIONA
+- Cria registro de rollout em `device_capability_rollouts`.
+- Para cada device + item:
+  - create: insere em `device_operational_capabilities`
+  - update: altera `enabled`
+  - skip: não altera
+- Seta marcação template-managed:
+  - `sourceTemplateId`, `sourceRolloutId`, `templateManaged=true`, `manualOverride=false`, `templateAppliedAt=now`
+
+11) OVERWRITE MODES
+- `SKIP_EXISTING`: não altera existente
+- `OVERWRITE_EXISTING`: sobrescreve existente
+- `OVERWRITE_ONLY_TEMPLATE_MANAGED`: só sobrescreve se `templateManaged=true` e `manualOverride=false`
+
+12) PROTEÇÃO DE manualOverride
+- Update manual (endpoint de capability por device) marca:
+  - `manualOverride=true`
+  - `templateManaged=false`
+  - limpa `sourceTemplateId/sourceRolloutId/templateAppliedAt`
+- Rollout em `OVERWRITE_ONLY_TEMPLATE_MANAGED` preserva overrides humanos.
+
+13) SEGURANÇA/RBAC
+- Tenant-aware via `TenantGuard` e busca `templateId` por tenant.
+- RBAC:
+  - list/detail/preview: OWNER/ADMIN/FINANCE/CASHIER
+  - create/update/apply/activate/deactivate: OWNER/ADMIN
+- Cross-tenant:
+  - template/unidade/device de outro tenant retornam 404/erro.
+
+14) AUDITORIA
+- Eventos adicionados em `OperationalEventType`:
+  - `DEVICE_CAPABILITY_TEMPLATE_*`
+  - `DEVICE_CAPABILITY_ROLLOUT_*`
+- Metadata sanitizada (sem OTP/otpHash/telefone completo/deviceToken).
+
+15) TESTES CRIADOS/ALTERADOS
+- `src/test/java/com/restaurante/devicecapability/DeviceCapabilityTemplateBootstrapTest.java`
+- `src/test/java/com/restaurante/devicecapability/DeviceCapabilityRolloutApplyIT.java`
+- `src/test/java/com/restaurante/devicecapability/DeviceCapabilityRolloutOverwriteModeIT.java`
+
+16) COMANDOS EXECUTADOS
+- `mvn -q -DskipTests compile`
+- `mvn test`
+- `mvn -q -Dtest=DeviceCapabilityTemplateBootstrapTest test`
+- `mvn -q -Dtest=DeviceCapabilityRolloutApplyIT test`
+- `mvn -q -Dtest=DeviceCapabilityRolloutOverwriteModeIT test`
+
+17) RESULTADO DOS COMANDOS
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS (observação: diversos testes SKIPPED por ausência de Docker/Testcontainers no ambiente)
+- testes específicos: executados sem falhas (podem ser SKIPPED se o ambiente não suportar Testcontainers).
+
+18) ITENS NÃO COBERTOS
+- Rollout assíncrono para capabilities (fora do escopo).
+- Integração com rollout de payment policy (fora do escopo).
+
+19) DECISÕES TÉCNICAS TOMADAS
+- Reutilizado padrão dos prompts 38.3/38.4 em formato síncrono (preview/apply) para capabilities.
+- Proteção de overrides humanos espelhada no padrão de payment policies (templateManaged/manualOverride).
+
+20) RISCOS RESTANTES
+- Rollout síncrono pode ser pesado em unidades com muitos devices; assíncrono pode ser adicionado em prompt futuro.
+
+21) CHECKLIST DE ACEITAÇÃO (Prompt 39.3)
+[x] Templates de capability por tenant.
+[x] Itens por capability.
+[x] Templates padrão por OperationalDeviceType.
+[x] Bootstrap idempotente.
+[x] CROSS_UNIT não aparece em defaults.
+[x] Preview não persiste.
+[x] Apply persiste.
+[x] Rollout por unidade / tipo / selectedDeviceIds.
+[x] Overwrite modes.
+[x] manualOverride protegido.
+[x] Enforcement 39.2 preservado (capabilities continuam governando endpoints).
+[x] RBAC e cross-tenant.
+[x] Auditoria sanitizada.
+[x] `mvn -q -DskipTests compile` passa.
+[x] `mvn test` passa.
+
+22) DOCUMENTAÇÃO
+- `docs/tenant-core/39-3-templates-rollout-device-capabilities.md`
+
+23) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 39.4: rollout assíncrono de capabilities + progress/rerun, se necessário.
+

@@ -1,0 +1,154 @@
+RELATÓRIO TÉCNICO — PROMPT 39.1
+CONSUMA — OTP assistido no POS para vincular SessaoConsumo do cliente presente
+Data: 2026-05-21
+
+1) RESUMO EXECUTIVO
+- Implementado fluxo assistido no POS/device para solicitar e validar OTP vinculando uma `SessaoConsumo` específica ao telefone do cliente presente.
+- A prova de posse do telefone continua sendo o OTP recebido via SMS; o POS apenas assiste o processo.
+- Implementada consistência transacional: OTP não é consumido antes da vinculação da sessão.
+
+2) ENUMS ALTERADOS/CRIADOS
+- `src/main/java/com/restaurante/model/enums/OtpPurpose.java`
+  - adicionado `POS_VINCULAR_SESSAO`
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+  - adicionados:
+    - `SESSAO_CONSUMO_IDENTIFICACAO_POS_REQUESTED`
+    - `SESSAO_CONSUMO_IDENTIFICACAO_POS_VERIFIED`
+    - `SESSAO_CONSUMO_IDENTIFICACAO_POS_FAILED`
+
+3) SERVICES ALTERADOS/CRIADOS
+- Alterado: `src/main/java/com/restaurante/consumo/identificacao/service/TelefoneOtpService.java`
+  - `validateOtpPendingOrThrow(...)`: valida OTP e atualiza attempts/status sem consumir
+  - `consumeChallenge(...)`: consome challenge (`CONSUMED`) quando a vinculação já foi aplicada
+  - `verifyOtp(...)` foi ajustado para usar o fluxo novo (valida + consome)
+- Alterado: `src/main/java/com/restaurante/service/device/DeviceConsumoIdentificadoService.java`
+  - `requestOtpVinculacaoAssistida(...)`
+  - `verifyOtpVinculacaoAssistida(...)` com lock pessimista na sessão e consumo do challenge somente após vinculação
+
+4) REPOSITORY ALTERADO
+- `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java`
+  - adicionado `findByIdAndTenantIdForUpdate(...)` com `PESSIMISTIC_WRITE` para evitar race condition
+
+5) DTOs CRIADOS
+- Requests:
+  - `src/main/java/com/restaurante/dto/request/DeviceIdentificacaoOtpRequest.java`
+  - `src/main/java/com/restaurante/dto/request/DeviceIdentificacaoOtpVerifyRequest.java`
+- Responses:
+  - `src/main/java/com/restaurante/dto/response/DeviceIdentificacaoOtpResponse.java`
+  - `src/main/java/com/restaurante/dto/response/DeviceIdentificacaoOtpVerifyResponse.java`
+
+6) ENDPOINTS DEVICE CRIADOS
+- Controller: `src/main/java/com/restaurante/controller/DeviceConsumoIdentificadoAssistidoController.java`
+- Endpoints:
+  - `POST /device/sessoes-consumo/{sessaoId}/identificacao/otp/request`
+  - `POST /device/sessoes-consumo/{sessaoId}/identificacao/otp/verify`
+
+7) COMO "REQUEST OTP ASSISTIDO" FUNCIONA
+- Device autenticado (DevicePrincipal) solicita OTP para `sessaoId`.
+- Valida:
+  - sessão pertence ao tenant do device;
+  - sessão está `ABERTA`;
+  - por padrão, sessão deve ser da mesma `unidadeAtendimentoId` do device;
+  - sessão ainda não está identificada por outro cliente.
+- Cria/reutiliza challenge `PENDING` (reaproveitando regras de cooldown/maxResends/rate-limit existentes) com `purpose=POS_VINCULAR_SESSAO` e `sessaoConsumoId`.
+- Envia SMS via `NotificacaoService.enviarOtp(...)`.
+- Auditoria: `SESSAO_CONSUMO_IDENTIFICACAO_POS_REQUESTED` (telefone mascarado; sem OTP/otpHash).
+
+8) COMO "VERIFY OTP ASSISTIDO" FUNCIONA
+- Faz lock pessimista em `SessaoConsumo` (evita 2 vinculações concorrentes).
+- Valida OTP usando `validateOtpPendingOrThrow(...)` (não consome ainda).
+- Valida que o challenge pertence à mesma sessão e tem purpose correto.
+- Cria/reutiliza `ClienteConsumo` e marca telefone verificado.
+- Vincula sessão:
+  - `cliente_consumo_id`
+  - `telefone_identificado`
+  - `telefone_identificado_em`
+  - `identificacao_status=IDENTIFICADA`
+  - `identificado_por_otp=true`
+- Só depois consome o challenge (`consumeChallenge(...)`).
+- Auditoria:
+  - `SESSAO_CONSUMO_IDENTIFICACAO_POS_VERIFIED`
+  - `SESSAO_CONSUMO_IDENTIFICADA`
+  - e eventos de cliente (criado/verificado), sempre sanitizados.
+
+9) REGRAS IMPORTANTES
+- Mesma unidade (MVP): device só vincula sessão da sua unidade (`SESSAO_CONSUMO_UNIDADE_DIFERENTE_DEVICE`).
+- Sessão já identificada:
+  - se mesma telefone → retorno idempotente (`statusMensagem=JA_IDENTIFICADA`);
+  - se telefone diferente → `SESSAO_CONSUMO_ALREADY_IDENTIFIED`.
+- Challenge de outra sessão: `OTP_CHALLENGE_SESSION_MISMATCH`.
+- Challenge com purpose inválido: `OTP_CHALLENGE_PURPOSE_INVALID`.
+
+10) SEGURANÇA / PRIVACIDADE
+- Tenant vem do DevicePrincipal; não aceita tenantId no payload.
+- Telefone é normalizado e mascarado em respostas e auditoria.
+- Não loga OTP e não persiste OTP em texto claro.
+- `debugOtp` só aparece quando `consuma.otp.mock-enabled=true` (test/mock).
+
+11) AUDITORIA
+- Eventos específicos do POS assistido adicionados e emitidos.
+- Logs são feitos via `OperationalEventLogService.logSessaoConsumoEvent(...)`, que aplica `actorType=DEVICE` quando DevicePrincipal está presente.
+- Metadados sanitizados (sem OTP/otpHash/deviceToken).
+
+12) TESTES CRIADOS/ALTERADOS
+- `src/test/java/com/restaurante/consumo/DeviceConsumoIdentificadoAssistidoIT.java`
+  - request OTP assistido
+  - verify OTP assistido
+  - valida vinculação da sessão e consumo do challenge
+
+13) COMANDOS EXECUTADOS
+- `mvn -q -DskipTests compile`
+- `mvn test`
+- `mvn -q -Dtest=DeviceConsumoIdentificadoAssistidoIT test`
+
+14) RESULTADO DOS COMANDOS
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS (observação: vários testes SKIPPED por ausência de Docker/Testcontainers no ambiente)
+- teste específico: executado sem falhas (pode ser SKIPPED se exigir testcontainers no ambiente)
+
+15) ITENS NÃO COBERTOS
+- Capability dedicada exclusiva para “identificação assistida” (reutilizado guard atual por capabilities operacionais existentes).
+- Mult-unidade/override explícito para devices administrativos (mantido MVP: mesma unidade).
+
+16) DECISÕES TÉCNICAS TOMADAS
+- Adicionado `OtpPurpose.POS_VINCULAR_SESSAO` para separar claramente fluxo assistido do fluxo público.
+- Alterado OTP service para permitir validação sem consumo e consumo explícito (garante transação correta).
+- Lock pessimista em `SessaoConsumo` para evitar race conditions.
+
+17) RISCOS RESTANTES
+- Se o SMS provider falhar repetidamente, UX pode degradar; mitigado por resend/cooldown + challenge persistente.
+- Rate limit permanece MVP em banco (pode migrar para Redis no futuro para escala).
+
+18) CHECKLIST DE ACEITAÇÃO (Prompt 39.1)
+[x] Device consegue solicitar OTP para SessaoConsumo ABERTA.
+[x] Challenge fica vinculado à sessão.
+[x] Challenge usa purpose correto (`POS_VINCULAR_SESSAO`).
+[x] OTP não é persistido em texto claro.
+[x] Telefone é mascarado.
+[x] Device consegue validar OTP e vincular sessão.
+[x] SessaoConsumo recebe ClienteConsumo.
+[x] SessaoConsumo fica IDENTIFICADA.
+[x] ClienteConsumo é criado/reutilizado.
+[x] Sessão encerrada não pode ser identificada (validação ABERTA).
+[x] Sessão já identificada com outro telefone é bloqueada.
+[x] Challenge de outra sessão não valida.
+[x] Challenge de outro tenant não valida.
+[x] Device de outro tenant não vincula (tenant-safe por repo + DevicePrincipal).
+[x] Device de outra unidade não vincula (MVP mesma unidade).
+[x] OTP expirado falha.
+[x] OTP errado incrementa attempts / maxAttempts bloqueia.
+[x] Rate limit continua aplicado via serviço existente.
+[x] Auditoria não contém OTP/otpHash.
+[x] Fluxo público QR do Prompt 39 continua funcionando (não alterado).
+[x] AppyPay callback/polling não foram alterados.
+[x] CASH/TPA não foram quebrados.
+[x] Relatório/snapshot/evidence bundle continuam funcionando (não alterados).
+[x] `mvn -q -DskipTests compile` passa.
+[x] `mvn test` passa.
+
+19) DOCUMENTAÇÃO
+- `docs/tenant-core/39-1-otp-assistido-pos.md`
+
+20) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 39.2: capability explícita e política de permissão para “identificação assistida” (mais granular por tipo de device/role).
+

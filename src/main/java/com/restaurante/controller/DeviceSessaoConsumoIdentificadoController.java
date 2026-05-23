@@ -32,7 +32,9 @@ public class DeviceSessaoConsumoIdentificadoController {
             HttpServletRequest http
     ) {
         DevicePrincipal device = requireDevicePrincipal();
-        var list = deviceConsumoIdentificadoService.listarSessoesAbertasPorTelefone(device, telefone);
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        String ip = http != null ? http.getRemoteAddr() : null;
+        var list = deviceConsumoIdentificadoService.listarSessoesAbertasPorTelefone(device, telefone, ip, ua);
         DeviceSessaoConsumoPorTelefoneResponse resp = new DeviceSessaoConsumoPorTelefoneResponse();
         resp.setTelefoneMascarado(phoneNormalizerService.mask(phoneNormalizerService.normalizeOrThrow(telefone)));
         resp.setSessoesAtivas(list);

@@ -106,6 +106,15 @@ public class TelefoneOtpService {
 
     @Transactional
     public TelefoneOtpChallenge verifyOtp(Long tenantId, Long challengeId, String rawPhone, String otp) {
+        TelefoneOtpChallenge c = validateOtpPendingOrThrow(tenantId, challengeId, rawPhone, otp);
+        c.setStatus(OtpStatus.CONSUMED);
+        c.setConsumedAt(Instant.now());
+        repository.save(c);
+        return c;
+    }
+
+    @Transactional
+    public TelefoneOtpChallenge validateOtpPendingOrThrow(Long tenantId, Long challengeId, String rawPhone, String otp) {
         String phone = phoneNormalizerService.normalizeOrThrow(rawPhone);
         TelefoneOtpChallenge c = repository.findByIdAndTenant_Id(challengeId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("OTP_CHALLENGE_NOT_FOUND"));
@@ -131,6 +140,21 @@ public class TelefoneOtpService {
             throw new BusinessException("OTP_INVALID");
         }
 
+        return c;
+    }
+
+    @Transactional
+    public TelefoneOtpChallenge consumeChallenge(Long tenantId, Long challengeId) {
+        TelefoneOtpChallenge c = repository.findByIdAndTenant_Id(challengeId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("OTP_CHALLENGE_NOT_FOUND"));
+        if (c.getStatus() == OtpStatus.CONSUMED) return c;
+        if (c.getStatus() != OtpStatus.PENDING) throw new BusinessException("OTP_INVALID");
+        Instant now = Instant.now();
+        if (c.getExpiresAt() != null && c.getExpiresAt().isBefore(now)) {
+            c.setStatus(OtpStatus.EXPIRED);
+            repository.save(c);
+            throw new BusinessException("OTP_CHALLENGE_EXPIRED");
+        }
         c.setStatus(OtpStatus.CONSUMED);
         c.setConsumedAt(now);
         repository.save(c);

@@ -343,6 +343,35 @@ public class OperationalEventLogService {
         operationalEventLogRepository.save(log);
     }
 
+    /**
+     * Log genérico tenant-aware para eventos que não estão diretamente ligados a Pedido/SubPedido.
+     * Usa TenantContext (user) ou DevicePrincipal (device) para identificar actor.
+     */
+    @Transactional
+    public void logGeneric(OperationalEventType eventType,
+                           OperationalEntityType entityType,
+                           Long entityId,
+                           OperationalOrigem origem,
+                           String motivo,
+                           Map<String, Object> metadata,
+                           String ip,
+                           String userAgent) {
+        log(
+                eventType,
+                entityType,
+                entityId,
+                null,
+                null,
+                null,
+                null,
+                origem,
+                motivo,
+                metadata,
+                ip,
+                userAgent
+        );
+    }
+
     private void log(OperationalEventType eventType,
                      OperationalEntityType entityType,
                      Long entityId,

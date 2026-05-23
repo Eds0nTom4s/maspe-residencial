@@ -6,14 +6,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.restaurante.config.DeviceOfflineSyncProperties;
+import com.restaurante.device.offline.entity.DeviceOfflineSyncSession;
 import com.restaurante.device.offline.entity.DeviceOfflineCommand;
 import com.restaurante.device.offline.repository.DeviceOfflineCommandRepository;
+import com.restaurante.device.offline.repository.DeviceOfflineSyncSessionRepository;
 import com.restaurante.dto.request.DeviceOfflineCommandRequest;
 import com.restaurante.dto.request.DeviceOfflineSyncBatchRequest;
 import com.restaurante.dto.response.DeviceErrorResponse;
 import com.restaurante.dto.response.DeviceOfflineCapabilitiesResponse;
 import com.restaurante.dto.response.DeviceOfflineCommandResultResponse;
 import com.restaurante.dto.response.DeviceOfflineSyncBatchResponse;
+import com.restaurante.dto.response.DeviceOfflineSyncSessionResponse;
 import com.restaurante.exception.DeviceApiException;
 import com.restaurante.exception.DeviceUnauthorizedException;
 import com.restaurante.model.entity.Instituicao;
@@ -24,6 +27,7 @@ import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DeviceOfflineCommandStatus;
 import com.restaurante.model.enums.DeviceOfflineCommandType;
 import com.restaurante.model.enums.DeviceOfflineConflictCode;
+import com.restaurante.model.enums.DeviceOfflineSyncSessionStatus;
 import com.restaurante.model.enums.OperationalEntityType;
 import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.OperationalOrigem;
@@ -60,6 +64,7 @@ public class DeviceOfflineSyncService {
 
     private final DeviceOfflineSyncProperties properties;
     private final DeviceOfflineCommandRepository repository;
+    private final DeviceOfflineSyncSessionRepository syncSessionRepository;
     private final DeviceOfflineCommandProcessor processor;
     private final ObjectMapper objectMapper;
     private final TenantRepository tenantRepository;
@@ -123,6 +128,63 @@ public class DeviceOfflineSyncService {
         return r;
     }
 
+    @Transactional(readOnly = true)
+    public DeviceOfflineSyncSessionResponse getSessionForDevice(String serverSyncId) {
+        DevicePrincipal device = requireDevicePrincipal();
+        DeviceOfflineSyncSession s = syncSessionRepository.findByTenantIdAndServerSyncId(device.tenantId(), serverSyncId)
+                .orElseThrow(() -> new DeviceApiException(HttpStatus.NOT_FOUND,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_REQUEST_INVALID,
+                        "Recurso não encontrado.",
+                        false,
+                        DeviceErrorResponse.DeviceRecoveryAction.NONE,
+                        null));
+        if (s.getDispositivoOperacional() == null || !s.getDispositivoOperacional().getId().equals(device.dispositivoId())) {
+            throw new DeviceApiException(HttpStatus.NOT_FOUND,
+                    DeviceErrorResponse.DeviceErrorCode.DEVICE_REQUEST_INVALID,
+                    "Recurso não encontrado.",
+                    false,
+                    DeviceErrorResponse.DeviceRecoveryAction.NONE,
+                    null);
+        }
+        return toDeviceSessionResponse(s);
+    }
+
+    @Transactional(readOnly = true)
+    public List<DeviceOfflineSyncSessionResponse> listSessionsForDevice(Integer limit, DeviceOfflineSyncSessionStatus status) {
+        DevicePrincipal device = requireDevicePrincipal();
+        int effectiveLimit = limit != null && limit > 0 ? Math.min(limit, 50) : 20;
+        var page = syncSessionRepository.findByTenantIdAndDispositivoOperacionalIdOrderByReceivedAtDesc(
+                device.tenantId(), device.dispositivoId(),
+                org.springframework.data.domain.PageRequest.of(0, effectiveLimit)
+        );
+        return page.getContent().stream()
+                .filter(s -> status == null || s.getStatus() == status)
+                .map(this::toDeviceSessionResponse)
+                .toList();
+    }
+
+    private DeviceOfflineSyncSessionResponse toDeviceSessionResponse(DeviceOfflineSyncSession s) {
+        DeviceOfflineSyncSessionResponse r = new DeviceOfflineSyncSessionResponse();
+        r.setServerSyncId(s.getServerSyncId());
+        r.setSyncSessionId(s.getSyncSessionId());
+        r.setStatus(s.getStatus() != null ? s.getStatus().name() : null);
+        r.setAppVersion(s.getAppVersion());
+        r.setReceivedAt(s.getReceivedAt());
+        r.setStartedProcessingAt(s.getStartedProcessingAt());
+        r.setFinishedProcessingAt(s.getFinishedProcessingAt());
+        r.setDurationMs(s.getDurationMs());
+        r.setTotalCommands(s.getTotalCommands());
+        r.setAppliedCount(s.getAppliedCount());
+        r.setDuplicateCount(s.getDuplicateCount());
+        r.setRejectedCount(s.getRejectedCount());
+        r.setConflictCount(s.getConflictCount());
+        r.setFailedCount(s.getFailedCount());
+        r.setTotalPayloadBytes(s.getTotalPayloadBytes());
+        r.setSummary(safeReadTree(s.getSummaryJson()));
+        r.setErrorSummary(safeReadTree(s.getErrorSummaryJson()));
+        return r;
+    }
+
     @Transactional
     public DeviceOfflineSyncBatchResponse syncBatch(DeviceOfflineSyncBatchRequest request, String ip, String userAgent) {
         DevicePrincipal device = requireDevicePrincipal();
@@ -166,6 +228,29 @@ public class DeviceOfflineSyncService {
         ));
         Instituicao inst = device.instituicaoId() != null ? instituicaoRepository.findById(device.instituicaoId()).orElse(null) : null;
         UnidadeAtendimento unidade = device.unidadeAtendimentoId() != null ? unidadeAtendimentoRepository.findById(device.unidadeAtendimentoId()).orElse(null) : null;
+        if (unidade == null) {
+            throw new DeviceApiException(HttpStatus.FORBIDDEN,
+                    DeviceErrorResponse.DeviceErrorCode.DEVICE_REQUEST_INVALID,
+                    "Dispositivo sem unidade operacional para sync offline.",
+                    false,
+                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
+                    null);
+        }
+        DispositivoOperacional dispositivoOperacional = dispositivoOperacionalRepository.findById(device.dispositivoId())
+                .orElseThrow(() -> new DeviceApiException(
+                        HttpStatus.NOT_FOUND,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_REQUEST_INVALID,
+                        "Recurso não encontrado.",
+                        false,
+                        DeviceErrorResponse.DeviceRecoveryAction.NONE,
+                        null
+                ));
+
+        // Prompt 40.2: sync session header (observabilidade)
+        DeviceOfflineSyncSession session = createOrReuseSyncSession(tenant, unidade, dispositivoOperacional, request, ip, userAgent);
+        session.setStatus(DeviceOfflineSyncSessionStatus.PROCESSING);
+        session.setStartedProcessingAt(Instant.now());
+        syncSessionRepository.save(session);
 
         operationalEventLogService.logPublicEvent(
                 tenant,
@@ -184,9 +269,24 @@ public class DeviceOfflineSyncService {
         );
 
         List<DeviceOfflineCommandRequest> ordered = orderCommands(request.getCommands());
+        BatchStats batchStats = computeBatchStats(ordered);
+        session.setTotalCommands(ordered.size());
+        session.setTotalPayloadBytes(batchStats.totalPayloadBytes());
+        session.setMaxCommandPayloadBytes(batchStats.maxCommandPayloadBytes());
+        session.setLocalRefCount(batchStats.localRefCount());
+        syncSessionRepository.save(session);
         try {
             validateBatchIdsAndLimits(ordered);
         } catch (DeviceApiException ex) {
+            session.setStatus(DeviceOfflineSyncSessionStatus.REJECTED);
+            session.setFinishedProcessingAt(Instant.now());
+            session.setDurationMs(Duration.between(session.getStartedProcessingAt(), session.getFinishedProcessingAt()).toMillis());
+            session.setErrorSummaryJson(writeSafeJson(Map.of(
+                    "errorCode", ex.getCode().name(),
+                    "message", ex.getMessage()
+            )));
+            syncSessionRepository.save(session);
+
             OperationalEventType evt = switch (ex.getCode()) {
                 case OFFLINE_BATCH_PAYLOAD_TOO_LARGE, OFFLINE_COMMAND_PAYLOAD_TOO_LARGE, OFFLINE_TOO_MANY_ITEMS, OFFLINE_BATCH_TOO_LARGE -> OperationalEventType.DEVICE_OFFLINE_PAYLOAD_LIMIT_REJECTED;
                 case OFFLINE_LOCALREF_CIRCULAR_DEPENDENCY, OFFLINE_LOCALREF_FORWARD_REFERENCE_NOT_ALLOWED, OFFLINE_DEPENDENCY_DEPTH_EXCEEDED -> OperationalEventType.DEVICE_OFFLINE_DEPENDENCY_FAILED;
@@ -202,6 +302,25 @@ public class DeviceOfflineSyncService {
                     Map.of("tenantId", device.tenantId(), "deviceId", device.dispositivoId(), "syncId", syncId, "errorCode", ex.getCode().name()),
                     ip, userAgent
             );
+
+            operationalEventLogService.logPublicEvent(
+                    tenant, inst, unidade, null, null,
+                    OperationalEventType.DEVICE_OFFLINE_SYNC_SESSION_REJECTED,
+                    OperationalEntityType.DEVICE_OFFLINE_SYNC,
+                    session.getId(),
+                    OperationalOrigem.DEVICE_POS,
+                    "Offline sync session rejected",
+                    Map.of(
+                            "tenantId", device.tenantId(),
+                            "deviceId", device.dispositivoId(),
+                            "serverSyncId", session.getServerSyncId(),
+                            "syncSessionId", session.getSyncSessionId(),
+                            "status", session.getStatus().name(),
+                            "totalCommands", session.getTotalCommands(),
+                            "errorCode", ex.getCode().name()
+                    ),
+                    ip, userAgent
+            );
             throw ex;
         }
 
@@ -209,6 +328,10 @@ public class DeviceOfflineSyncService {
         resp.setSyncId(syncId);
         resp.setReceivedAt(receivedAt);
         resp.setTotal(ordered.size());
+        resp.setServerSyncId(session.getServerSyncId());
+        resp.setSyncSessionId(session.getSyncSessionId());
+        resp.setStartedProcessingAt(session.getStartedProcessingAt());
+        resp.setTotalPayloadBytes(session.getTotalPayloadBytes());
 
         int applied = 0, duplicates = 0, rejected = 0, conflicts = 0, failed = 0;
 
@@ -217,7 +340,7 @@ public class DeviceOfflineSyncService {
         Map<String, DeviceOfflineCommandStatus> outcomeByClientRequestId = new HashMap<>();
         for (int i = 0; i < ordered.size(); i++) {
             DeviceOfflineCommandRequest cmdReq = ordered.get(i);
-            DeviceOfflineCommandResultResponse r = processOne(device, tenant, inst, unidade, cmdReq, i, resolved, outcomeByClientRequestId, ip, userAgent);
+            DeviceOfflineCommandResultResponse r = processOne(session, device, tenant, inst, unidade, cmdReq, i, resolved, outcomeByClientRequestId, ip, userAgent);
             results.add(r);
             if (r.getStatus() == DeviceOfflineCommandStatus.APPLIED) applied++;
             else if (r.getStatus() == DeviceOfflineCommandStatus.DUPLICATE) duplicates++;
@@ -232,6 +355,34 @@ public class DeviceOfflineSyncService {
         resp.setConflicts(conflicts);
         resp.setFailed(failed);
         resp.setResults(results);
+
+        session.setAppliedCount(applied);
+        session.setDuplicateCount(duplicates);
+        session.setRejectedCount(rejected);
+        session.setConflictCount(conflicts);
+        session.setFailedCount(failed);
+        session.setDependencyFailedCount((int) results.stream()
+                .filter(r -> DeviceOfflineConflictCode.LOCAL_REF_FAILED_DEPENDENCY.name().equals(r.getConflictCode()))
+                .count());
+        session.setPayloadLimitRejectedCount(0);
+        session.setFinishedProcessingAt(Instant.now());
+        session.setDurationMs(Duration.between(session.getStartedProcessingAt(), session.getFinishedProcessingAt()).toMillis());
+        session.setStatus(resolveFinalSessionStatus(applied, duplicates, rejected, conflicts, failed));
+        session.setSummaryJson(writeSafeJson(Map.of(
+                "syncId", syncId,
+                "total", ordered.size(),
+                "applied", applied,
+                "duplicates", duplicates,
+                "rejected", rejected,
+                "conflicts", conflicts,
+                "failed", failed
+        )));
+        session.setErrorSummaryJson(writeSafeJson(buildErrorSummary(results)));
+        syncSessionRepository.save(session);
+
+        resp.setSyncSessionStatus(session.getStatus().name());
+        resp.setFinishedProcessingAt(session.getFinishedProcessingAt());
+        resp.setDurationMs(session.getDurationMs());
 
         operationalEventLogService.logPublicEvent(
                 tenant,
@@ -259,6 +410,35 @@ public class DeviceOfflineSyncService {
                 userAgent
         );
 
+        OperationalEventType finalEvt = switch (session.getStatus()) {
+            case COMPLETED, COMPLETED_WITH_WARNINGS -> OperationalEventType.DEVICE_OFFLINE_SYNC_SESSION_COMPLETED;
+            case PARTIAL_FAILED, FAILED -> OperationalEventType.DEVICE_OFFLINE_SYNC_SESSION_PARTIAL_FAILED;
+            case REJECTED -> OperationalEventType.DEVICE_OFFLINE_SYNC_SESSION_REJECTED;
+            default -> OperationalEventType.DEVICE_OFFLINE_SYNC_SESSION_COMPLETED;
+        };
+        operationalEventLogService.logPublicEvent(
+                tenant, inst, unidade, null, null,
+                finalEvt,
+                OperationalEntityType.DEVICE_OFFLINE_SYNC,
+                session.getId(),
+                OperationalOrigem.DEVICE_POS,
+                "Offline sync session finished",
+                Map.ofEntries(
+                        Map.entry("tenantId", device.tenantId()),
+                        Map.entry("deviceId", device.dispositivoId()),
+                        Map.entry("serverSyncId", session.getServerSyncId()),
+                        Map.entry("syncSessionId", session.getSyncSessionId()),
+                        Map.entry("status", session.getStatus().name()),
+                        Map.entry("totalCommands", session.getTotalCommands()),
+                        Map.entry("applied", session.getAppliedCount()),
+                        Map.entry("duplicates", session.getDuplicateCount()),
+                        Map.entry("rejected", session.getRejectedCount()),
+                        Map.entry("conflicts", session.getConflictCount()),
+                        Map.entry("failed", session.getFailedCount())
+                ),
+                ip, userAgent
+        );
+
         return resp;
     }
 
@@ -271,6 +451,128 @@ public class DeviceOfflineSyncService {
     }
 
     private record ResolvedEntityRef(String entityType, Long entityId, String sourceClientRequestId) {}
+
+    private record BatchStats(int totalPayloadBytes, int maxCommandPayloadBytes, int localRefCount) {}
+
+    private BatchStats computeBatchStats(List<DeviceOfflineCommandRequest> ordered) {
+        if (ordered == null || ordered.isEmpty()) return new BatchStats(0, 0, 0);
+        int totalBytes = 0;
+        int maxCmdBytes = 0;
+        int localRefCount = 0;
+        for (DeviceOfflineCommandRequest req : ordered) {
+            if (req == null) continue;
+            String payloadJson = writeCanonicalJson(req.getPayload());
+            int bytes = payloadJson.getBytes(StandardCharsets.UTF_8).length;
+            totalBytes += bytes;
+            maxCmdBytes = Math.max(maxCmdBytes, bytes);
+            if ((req.getLocalRef() != null && !req.getLocalRef().isBlank()) || (req.getDependsOn() != null && !req.getDependsOn().isEmpty())) {
+                localRefCount++;
+            }
+        }
+        return new BatchStats(totalBytes, maxCmdBytes, localRefCount);
+    }
+
+    private DeviceOfflineSyncSession createOrReuseSyncSession(
+            Tenant tenant,
+            UnidadeAtendimento unidade,
+            DispositivoOperacional dispositivoOperacional,
+            DeviceOfflineSyncBatchRequest request,
+            String ip,
+            String userAgent
+    ) {
+        String syncSessionId = request != null && request.getSyncSessionId() != null && !request.getSyncSessionId().isBlank()
+                ? request.getSyncSessionId().trim()
+                : null;
+
+        DeviceOfflineSyncSession existing = syncSessionId != null
+                ? syncSessionRepository.findByTenantIdAndDispositivoOperacionalIdAndSyncSessionId(tenant.getId(), dispositivoOperacional.getId(), syncSessionId).orElse(null)
+                : null;
+
+        if (existing != null) {
+            existing.setAppVersion(request != null ? request.getAppVersion() : null);
+            existing.setDeviceLocalTime(request != null ? request.getDeviceLocalTime() : null);
+            existing.setOfflineStartedAt(request != null ? request.getOfflineStartedAt() : null);
+            existing.setOfflineEndedAt(request != null ? request.getOfflineEndedAt() : null);
+            if (existing.getClientIp() == null) existing.setClientIp(ip);
+            if (existing.getUserAgent() == null) existing.setUserAgent(userAgent);
+            return existing;
+        }
+
+        String serverSyncId = UUID.randomUUID().toString();
+        String effectiveSyncSessionId = syncSessionId != null ? syncSessionId : serverSyncId;
+
+        DeviceOfflineSyncSession s = new DeviceOfflineSyncSession();
+        s.setTenant(tenant);
+        s.setUnidadeAtendimento(unidade);
+        s.setDispositivoOperacional(dispositivoOperacional);
+        s.setSyncSessionId(effectiveSyncSessionId);
+        s.setServerSyncId(serverSyncId);
+        s.setStatus(DeviceOfflineSyncSessionStatus.RECEIVED);
+        s.setAppVersion(request != null ? request.getAppVersion() : null);
+        s.setDeviceLocalTime(request != null ? request.getDeviceLocalTime() : null);
+        s.setOfflineStartedAt(request != null ? request.getOfflineStartedAt() : null);
+        s.setOfflineEndedAt(request != null ? request.getOfflineEndedAt() : null);
+        s.setClientIp(ip);
+        s.setUserAgent(userAgent);
+        s.setTotalCommands(0);
+        s.setAppliedCount(0);
+        s.setDuplicateCount(0);
+        s.setRejectedCount(0);
+        s.setConflictCount(0);
+        s.setFailedCount(0);
+        s.setDependencyFailedCount(0);
+        s.setPayloadLimitRejectedCount(0);
+        s.setLocalRefCount(0);
+        syncSessionRepository.save(s);
+
+        operationalEventLogService.logPublicEvent(
+                tenant, null, unidade, null, null,
+                OperationalEventType.DEVICE_OFFLINE_SYNC_SESSION_CREATED,
+                OperationalEntityType.DEVICE_OFFLINE_SYNC,
+                s.getId(),
+                OperationalOrigem.DEVICE_POS,
+                "Offline sync session created",
+                Map.of(
+                        "tenantId", tenant.getId(),
+                        "deviceId", dispositivoOperacional.getId(),
+                        "serverSyncId", s.getServerSyncId(),
+                        "syncSessionId", s.getSyncSessionId(),
+                        "status", s.getStatus().name()
+                ),
+                ip, userAgent
+        );
+
+        return s;
+    }
+
+    private DeviceOfflineSyncSessionStatus resolveFinalSessionStatus(int applied, int duplicates, int rejected, int conflicts, int failed) {
+        if (failed == 0 && conflicts == 0) {
+            if (rejected == 0) return DeviceOfflineSyncSessionStatus.COMPLETED;
+            return DeviceOfflineSyncSessionStatus.COMPLETED_WITH_WARNINGS;
+        }
+        if (applied > 0 || duplicates > 0) return DeviceOfflineSyncSessionStatus.PARTIAL_FAILED;
+        return DeviceOfflineSyncSessionStatus.FAILED;
+    }
+
+    private Map<String, Object> buildErrorSummary(List<DeviceOfflineCommandResultResponse> results) {
+        if (results == null || results.isEmpty()) return Map.of();
+        Map<String, Integer> byError = new HashMap<>();
+        Map<String, Integer> byConflict = new HashMap<>();
+        for (DeviceOfflineCommandResultResponse r : results) {
+            if (r == null) continue;
+            if (r.getErrorCode() != null) byError.merge(r.getErrorCode(), 1, Integer::sum);
+            if (r.getConflictCode() != null) byConflict.merge(r.getConflictCode(), 1, Integer::sum);
+        }
+        return Map.of("errorCodes", byError, "conflictCodes", byConflict);
+    }
+
+    private String writeSafeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     private void validateBatchIdsAndLimits(List<DeviceOfflineCommandRequest> ordered) {
         Set<String> ids = new HashSet<>();
@@ -438,7 +740,8 @@ public class DeviceOfflineSyncService {
         return d;
     }
 
-    private DeviceOfflineCommandResultResponse processOne(DevicePrincipal device,
+    private DeviceOfflineCommandResultResponse processOne(DeviceOfflineSyncSession session,
+                                                         DevicePrincipal device,
                                                          Tenant tenant,
                                                          Instituicao inst,
                                                          UnidadeAtendimento unidade,
@@ -505,6 +808,11 @@ public class DeviceOfflineSyncService {
         DeviceOfflineCommand existing = repository.findByTenantIdAndDispositivoOperacionalIdAndClientRequestId(device.tenantId(), device.dispositivoId(), clientRequestId)
                 .orElse(null);
         if (existing != null) {
+            if (existing.getSyncSession() == null && existing.getServerSyncId() == null && session != null) {
+                existing.setSyncSession(session);
+                existing.setServerSyncId(session.getServerSyncId());
+                repository.save(existing);
+            }
             if (!payloadHash.equals(existing.getPayloadHash())) {
                 JsonNode stored = safeReadTree(existing.getResultJson());
                 DeviceOfflineCommandResultResponse r = toResult(existing, DeviceOfflineCommandStatus.CONFLICT, extractStoredResult(stored));
@@ -541,6 +849,8 @@ public class DeviceOfflineSyncService {
         cmd.setUnidadeAtendimento(unidade);
         DispositivoOperacional dispRef = dispositivoOperacionalRepository.getReferenceById(device.dispositivoId());
         cmd.setDispositivoOperacional(dispRef);
+        cmd.setSyncSession(session);
+        cmd.setServerSyncId(session != null ? session.getServerSyncId() : null);
         cmd.setClientRequestId(clientRequestId);
         cmd.setCommandType(type);
         cmd.setCommandVersion(req.getCommandVersion() != null ? req.getCommandVersion().trim() : "1");
@@ -561,6 +871,11 @@ public class DeviceOfflineSyncService {
         } catch (DataIntegrityViolationException ex) {
             // corrida: recarrega como existente
             DeviceOfflineCommand raced = repository.findByTenantIdAndDispositivoOperacionalIdAndClientRequestId(device.tenantId(), device.dispositivoId(), clientRequestId).orElseThrow(() -> ex);
+            if (raced.getSyncSession() == null && raced.getServerSyncId() == null && session != null) {
+                raced.setSyncSession(session);
+                raced.setServerSyncId(session.getServerSyncId());
+                repository.save(raced);
+            }
             if (!payloadHash.equals(raced.getPayloadHash())) {
                 JsonNode stored = safeReadTree(raced.getResultJson());
                 DeviceOfflineCommandResultResponse r = toResult(raced, DeviceOfflineCommandStatus.CONFLICT, extractStoredResult(stored));

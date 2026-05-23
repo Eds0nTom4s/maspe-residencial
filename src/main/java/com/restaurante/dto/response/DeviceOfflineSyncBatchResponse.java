@@ -5,8 +5,15 @@ import java.util.List;
 
 public class DeviceOfflineSyncBatchResponse {
 
+    private String serverSyncId;
+    private String syncSessionId;
+    private String syncSessionStatus;
     private String syncId;
     private Instant receivedAt;
+    private Instant startedProcessingAt;
+    private Instant finishedProcessingAt;
+    private Long durationMs;
+    private Integer totalPayloadBytes;
     private int total;
     private int applied;
     private int duplicates;
@@ -14,6 +21,30 @@ public class DeviceOfflineSyncBatchResponse {
     private int conflicts;
     private int failed;
     private List<DeviceOfflineCommandResultResponse> results;
+
+    public String getServerSyncId() {
+        return serverSyncId;
+    }
+
+    public void setServerSyncId(String serverSyncId) {
+        this.serverSyncId = serverSyncId;
+    }
+
+    public String getSyncSessionId() {
+        return syncSessionId;
+    }
+
+    public void setSyncSessionId(String syncSessionId) {
+        this.syncSessionId = syncSessionId;
+    }
+
+    public String getSyncSessionStatus() {
+        return syncSessionStatus;
+    }
+
+    public void setSyncSessionStatus(String syncSessionStatus) {
+        this.syncSessionStatus = syncSessionStatus;
+    }
 
     public String getSyncId() {
         return syncId;
@@ -29,6 +60,38 @@ public class DeviceOfflineSyncBatchResponse {
 
     public void setReceivedAt(Instant receivedAt) {
         this.receivedAt = receivedAt;
+    }
+
+    public Instant getStartedProcessingAt() {
+        return startedProcessingAt;
+    }
+
+    public void setStartedProcessingAt(Instant startedProcessingAt) {
+        this.startedProcessingAt = startedProcessingAt;
+    }
+
+    public Instant getFinishedProcessingAt() {
+        return finishedProcessingAt;
+    }
+
+    public void setFinishedProcessingAt(Instant finishedProcessingAt) {
+        this.finishedProcessingAt = finishedProcessingAt;
+    }
+
+    public Long getDurationMs() {
+        return durationMs;
+    }
+
+    public void setDurationMs(Long durationMs) {
+        this.durationMs = durationMs;
+    }
+
+    public Integer getTotalPayloadBytes() {
+        return totalPayloadBytes;
+    }
+
+    public void setTotalPayloadBytes(Integer totalPayloadBytes) {
+        this.totalPayloadBytes = totalPayloadBytes;
     }
 
     public int getTotal() {
@@ -87,4 +150,3 @@ public class DeviceOfflineSyncBatchResponse {
         this.results = results;
     }
 }
-

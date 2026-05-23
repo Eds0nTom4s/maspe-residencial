@@ -103,6 +103,13 @@ public class DeviceOfflineCommand {
     @Column(name = "dependency_status", length = 30)
     private String dependencyStatus;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sync_session_db_id")
+    private DeviceOfflineSyncSession syncSession;
+
+    @Column(name = "server_sync_id", length = 120)
+    private String serverSyncId;
+
     @Column(name = "result_json", columnDefinition = "jsonb")
     private String resultJson;
 

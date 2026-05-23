@@ -125,6 +125,16 @@ public class DeviceOfflineCommand {
     @Column(name = "retry_count", nullable = false)
     private int retryCount = 0;
 
+    @Column(name = "replay_count", nullable = false)
+    private int replayCount = 0;
+
+    @Column(name = "last_replay_attempt_at")
+    private Instant lastReplayAttemptAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "last_replay_attempt_id")
+    private DeviceOfflineCommandReplayAttempt lastReplayAttempt;
+
     @Column(name = "idempotency_scope", nullable = false, length = 150)
     private String idempotencyScope;
 

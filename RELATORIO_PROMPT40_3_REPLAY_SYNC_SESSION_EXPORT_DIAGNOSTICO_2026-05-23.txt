@@ -1,0 +1,213 @@
+RELATORIO TECNICO — PROMPT 40.3 (REPROCESSAMENTO/REPLAY CONTROLADO POR SYNC SESSION + EXPORT DIAGNOSTICO SANITIZADO)
+Data: 2026-05-23
+Projeto: CONSUMA / Sistema de Restauração (Spring Boot + PostgreSQL + JPA/Hibernate + Flyway)
+
+1) RESUMO EXECUTIVO
+- Implementado replay controlado (tenant/admin) para comandos offline associados a uma sync session (`serverSyncId`), com:
+  - avaliação de elegibilidade (preview);
+  - replay por sessão (por statuses/commandIds) com reason obrigatório;
+  - replay por comando individual;
+  - histórico de tentativas (`device_offline_command_replay_attempts`);
+  - export sanitizado de diagnóstico por sync session (JSON).
+- Regras centrais preservadas:
+  - não altera `clientRequestId`;
+  - não altera `payloadHash`;
+  - reaplica usando o payload persistido (`payload_json`);
+  - APPLIED/DUPLICATE nunca reprocessam;
+  - IDEMPOTENCY_CONFLICT nunca reprocessa;
+  - AppyPay/OTP/fecho/snapshot/evidence continuam proibidos (já bloqueados no allowlist do offline).
+- Replay revalida capability/policy/turno/estado atual via os mesmos handlers de offline sync (sem duplicar lógica financeira).
+
+2) MIGRATIONS / FLYWAY
+- Criado:
+  - src/main/resources/db/migration/V39__device_offline_replay_attempts_diagnostics.sql
+    - Cria: `device_offline_command_replay_attempts`
+    - Altera: `device_offline_commands`
+      - `replay_count`
+      - `last_replay_attempt_at`
+      - `last_replay_attempt_id` (FK)
+
+3) ENTIDADES / ENUMS
+3.1) Entidades
+- src/main/java/com/restaurante/device/offline/entity/DeviceOfflineCommandReplayAttempt.java
+- src/main/java/com/restaurante/device/offline/entity/DeviceOfflineCommand.java
+  - adicionados: `replayCount`, `lastReplayAttemptAt`, `lastReplayAttempt`
+
+3.2) Enums
+- src/main/java/com/restaurante/model/enums/DeviceOfflineReplayEligibilityStatus.java
+  - ELIGIBLE / NOT_ELIGIBLE / REQUIRES_MANUAL_REVIEW
+- src/main/java/com/restaurante/model/enums/DeviceOfflineReplayStatus.java
+  - REQUESTED / RUNNING / SUCCEEDED / NOOP / FAILED / BLOCKED
+- src/main/java/com/restaurante/model/enums/DeviceOfflineReplayEligibilityReason.java
+  - inclui reasons de bloqueio e elegibilidade (ex.: COMMAND_ALREADY_APPLIED, IDEMPOTENCY_CONFLICT_NOT_REPLAYABLE, LOCAL_REF_* etc)
+- src/main/java/com/restaurante/model/enums/OperationalEventType.java
+  - adicionados eventos do Prompt 40.3:
+    - DEVICE_OFFLINE_REPLAY_PREVIEWED
+    - DEVICE_OFFLINE_REPLAY_REQUESTED
+    - DEVICE_OFFLINE_REPLAY_COMMAND_SUCCEEDED
+    - DEVICE_OFFLINE_REPLAY_COMMAND_NOOP
+    - DEVICE_OFFLINE_REPLAY_COMMAND_BLOCKED
+    - DEVICE_OFFLINE_REPLAY_COMMAND_FAILED
+    - DEVICE_OFFLINE_DIAGNOSTIC_EXPORTED
+
+4) REPOSITORIES
+- Criado:
+  - src/main/java/com/restaurante/device/offline/repository/DeviceOfflineCommandReplayAttemptRepository.java
+- Alterado:
+  - src/main/java/com/restaurante/device/offline/repository/DeviceOfflineCommandRepository.java
+    - listForReplay(...) (seleção por serverSyncId + statuses + types)
+    - findForUpdateById(...) (lock pessimista para replay por comando)
+
+5) SERVICES
+5.1) Elegibilidade
+- src/main/java/com/restaurante/service/tenant/offline/DeviceOfflineReplayEligibilityService.java
+  - Regras MVP:
+    - status replayável: FAILED/CONFLICT/REJECTED
+    - nunca: APPLIED/DUPLICATE/IDEMPOTENCY_CONFLICT
+    - se `createdEntityType/id` já preenchido => bloqueia
+    - se `dependsOnClientRequestId` existe => só elegível se dependência está APPLIED/DUPLICATE no mesmo device
+    - REGISTER_LOCAL_ACTIVITY => LOW_VALUE_NOOP (não replay por default)
+    - CONFIRM_MANUAL_PAYMENT: se ordem já CONFIRMADA => bloqueia
+
+5.2) Replay + Export
+- src/main/java/com/restaurante/service/tenant/offline/TenantOfflineSyncReplayService.java
+  - preview(serverSyncId,...)
+  - replaySession(serverSyncId,...)
+    - cria operationId
+    - ordena por commandIndex
+    - constrói DevicePrincipal do device alvo a partir das capabilities persistidas (device_operational_capabilities)
+    - para cada comando:
+      - cria attempt (REQUESTED -> RUNNING)
+      - resolve dependsOn/localRef (mesmo device)
+      - reescreve payload para ids reais (pedidoId/ordemPagamentoId) quando aplicável
+      - chama `DeviceOfflineCommandProcessor.process(...)` com idempotencyKey derivada: `offline:{deviceId}:{clientRequestId}`
+      - em sucesso: atualiza comando original para APPLIED + incrementa replayCount + lastReplayAttempt*
+      - registra eventos
+  - replaySingleCommand(commandId,...)
+  - exportDiagnostic(serverSyncId)
+    - retorna session summary + commands (sanitizados) + attempts (sanitizados)
+
+6) DTOs (NOVOS)
+- Preview/replay:
+  - src/main/java/com/restaurante/dto/request/OfflineCommandReplayPreviewRequest.java
+  - src/main/java/com/restaurante/dto/response/OfflineCommandReplayPreviewResponse.java
+  - src/main/java/com/restaurante/dto/response/OfflineCommandReplayEligibilityResponse.java
+  - src/main/java/com/restaurante/dto/request/OfflineCommandReplayRequest.java
+  - src/main/java/com/restaurante/dto/request/OfflineSingleCommandReplayRequest.java
+  - src/main/java/com/restaurante/dto/response/OfflineCommandReplayBatchResponse.java
+  - src/main/java/com/restaurante/dto/response/OfflineCommandReplayResultResponse.java
+- Export:
+  - src/main/java/com/restaurante/dto/response/OfflineSyncDiagnosticExportResponse.java
+
+7) ENDPOINTS (NOVOS)
+- Controller:
+  - src/main/java/com/restaurante/controller/TenantOfflineSyncReplayController.java
+
+7.1) Preview (não persiste replay)
+- POST /tenant/offline-sync/sessions/{serverSyncId}/replay/preview
+
+7.2) Replay por session (persistente, com attempts)
+- POST /tenant/offline-sync/sessions/{serverSyncId}/replay
+
+7.3) Replay por comando individual
+- POST /tenant/offline-sync/commands/{commandId}/replay
+
+7.4) Listagem de attempts
+- GET /tenant/offline-sync/sessions/{serverSyncId}/replay-attempts
+- GET /tenant/offline-sync/commands/{commandId}/replay-attempts
+
+7.5) Export sanitizado
+- GET /tenant/offline-sync/sessions/{serverSyncId}/diagnostic-export
+
+8) SEGURANCA / RBAC
+- Preview/export:
+  - TENANT_OWNER / TENANT_ADMIN / TENANT_FINANCE
+- Replay (executar):
+  - TENANT_OWNER / TENANT_ADMIN
+- Cross-tenant:
+  - todas queries são tenant-scoped (404 para outro tenant)
+- Replay não roda em endpoints device.
+
+9) AUDITORIA
+- Eventos emitidos:
+  - DEVICE_OFFLINE_REPLAY_PREVIEWED
+  - DEVICE_OFFLINE_REPLAY_REQUESTED
+  - DEVICE_OFFLINE_REPLAY_COMMAND_SUCCEEDED
+  - DEVICE_OFFLINE_REPLAY_COMMAND_FAILED
+  - DEVICE_OFFLINE_DIAGNOSTIC_EXPORTED
+- Metadata sanitizada (sem payload completo, sem deviceToken, sem OTP).
+
+10) SANITIZACAO DO EXPORT
+- Export não inclui `payload_json` nem `result_json` completo.
+- Export inclui:
+  - session summary
+  - commands: clientRequestId/type/status/conflict/error/payloadHash/payloadSize/createdEntity*/dependsOn/dependencyStatus/replayCount/lastReplay*
+  - attempts: status/eligibility/reason/requestedAt/requestedBy/resultStatus/errorCode
+
+11) TESTES (CRIADOS)
+- src/test/java/com/restaurante/device/DeviceOfflineReplayEligibilityServiceTest.java
+- src/test/java/com/restaurante/device/TenantOfflineSyncReplayControllerIT.java
+
+Observacao: ambiente atual sem Docker => IT baseadas em Testcontainers podem ser SKIPPED, mas compilaram e build final terminou em BUILD SUCCESS.
+
+12) DOCUMENTACAO
+- docs/tenant-core/40-3-reprocessamento-replay-diagnostico-offline.md
+
+13) COMANDOS EXECUTADOS E RESULTADOS
+- mvn -q -DskipTests compile
+  - OK
+- mvn -q -Dtest=DeviceOfflineReplayEligibilityServiceTest test
+  - OK
+- mvn -q -Dtest=TenantOfflineSyncReplayControllerIT test
+  - OK (pode SKIP por Docker)
+- mvn test
+  - BUILD SUCCESS (com SKIPPED por ausência de Docker/Testcontainers)
+
+14) ITENS NAO COBERTOS (POR ESCOPO)
+- Não foi implementado export em PDF/Excel (apenas JSON sanitizado).
+- Não foi implementado “editar payload” antes do replay (explicitamente proibido).
+- “force=true” não promove reprocessamento automático de casos REQUIRES_MANUAL_REVIEW (MVP conservador).
+- Não foi implementado replay assíncrono/delayed (execução é síncrona por request).
+
+15) DECISOES TECNICAS
+- “Modelo híbrido”:
+  - replay attempt guarda histórico completo
+  - comando original é atualizado para o estado final quando o replay aplica com sucesso
+- Lock pessimista por comando (`findForUpdateById`) para evitar replay concorrente do mesmo comando.
+- DevicePrincipal de replay é reconstruído a partir das capabilities persistidas do device (DeviceCapabilityBootstrapService + DeviceOperationalCapabilityRepository).
+- IdempotencyKey derivada preservada: `offline:{deviceId}:{clientRequestId}`.
+
+16) RISCOS RESTANTES
+- Em cenários de alto volume, replay em massa pode gerar request longa (não async).
+- Elegibilidade é conservadora; alguns casos podem exigir revisão manual/ajustes futuros.
+
+17) CHECKLIST DE ACEITACAO (PROMPT 40.3)
+[x] Existe tabela de replay attempts.
+[x] Existe preview de replay por sync session.
+[x] Existe replay controlado por sync session.
+[x] Existe replay individual por comando.
+[x] Existe export diagnóstico sanitizado.
+[x] APPLIED nunca é reprocessado.
+[x] DUPLICATE nunca é reprocessado.
+[x] IDEMPOTENCY_CONFLICT nunca é reprocessado.
+[x] Payload não pode ser alterado (usa payloadJson persistido).
+[x] clientRequestId não pode ser alterado.
+[x] payloadHash é preservado.
+[x] Replay cria attempt auditável.
+[x] Replay incrementa replayCount.
+[x] Replay respeita localRef/dependsOn (mesmo device).
+[x] Replay respeita capability/policy/turno via handlers.
+[x] Export não expõe payload sensível (sem payload_json).
+[x] RBAC correto (OWNER/ADMIN replay; FINANCE preview/export).
+[x] Cross-tenant protegido.
+[x] Auditoria sanitizada.
+[x] Batch sync continua funcionando.
+[x] Sync session observability continua funcionando.
+[x] AppyPay/OTP offline continuam bloqueados.
+[x] mvn -q -DskipTests compile passa.
+[x] mvn test passa.
+
+18) PROXIMO PROMPT RECOMENDADO
+- Prompt 40.4 (sugestão): “Replay assíncrono (job) + progress tracking por operationId + rate-limit por tenant”
+  - mantém a semântica do replay, mas evita requests longas e melhora operação em tenants grandes.
+

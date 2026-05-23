@@ -4,8 +4,10 @@ import com.restaurante.device.offline.entity.DeviceOfflineCommand;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,6 +35,26 @@ public interface DeviceOfflineCommandRepository extends JpaRepository<DeviceOffl
                                               @Param("conflictCode") String conflictCode,
                                               @Param("errorCode") String errorCode,
                                               Pageable pageable);
+
+    @Query("""
+            select c
+              from DeviceOfflineCommand c
+             where c.tenant.id = :tenantId
+               and c.serverSyncId = :serverSyncId
+               and (:statusesEmpty = true or c.status in :statuses)
+               and (:typesEmpty = true or c.commandType in :types)
+             order by c.commandIndex asc
+            """)
+    List<DeviceOfflineCommand> listForReplay(@Param("tenantId") Long tenantId,
+                                            @Param("serverSyncId") String serverSyncId,
+                                            @Param("statuses") List<com.restaurante.model.enums.DeviceOfflineCommandStatus> statuses,
+                                            @Param("statusesEmpty") boolean statusesEmpty,
+                                            @Param("types") List<com.restaurante.model.enums.DeviceOfflineCommandType> types,
+                                            @Param("typesEmpty") boolean typesEmpty);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from DeviceOfflineCommand c where c.id = :id")
+    Optional<DeviceOfflineCommand> findForUpdateById(@Param("id") Long id);
 
     @Query("""
             select c.conflictCode, count(c)

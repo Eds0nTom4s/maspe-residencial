@@ -1,0 +1,100 @@
+RELATÓRIO EXECUTIVO — PROMPT 41.1 — PARTICIPANTES ASSISTIDOS NO POS
+Data: 2026-05-23
+
+1) Objetivo
+- Permitir que POS/device gerencie participantes de uma SessaoConsumo (sessão compartilhada), com OTP assistido, capabilities explícitas por ação, tenant-safety/unidade-safety, auditoria e privacidade.
+
+2) Entregas principais
+- Endpoints device/POS para:
+  - listar participantes (resumo);
+  - solicitar OTP para adicionar participante;
+  - validar OTP e adicionar participante;
+  - remover participante;
+  - promover/rebaixar participante (role);
+  - bloquear/restaurar participante (status).
+- Enforcement por DeviceCapability (cada ação sensível exige capability própria).
+- Proteção transacional do último OWNER (não remover/rebaixar/bloquear se for o único OWNER ACTIVE).
+- Regra MVP de pedido atribuído:
+  - OWNER/MEMBER podem pedir;
+  - GUEST não pode pedir.
+- Auditoria sanitizada de:
+  - operações permitidas (request/verify/remove/promote/demote/block/restore);
+  - tentativas negadas por capability.
+
+3) Migrations
+- Reutilizada (já existente): src/main/resources/db/migration/V42__sessao_participantes_pos_management.sql
+
+4) Enums / Capabilities
+- DeviceCapability (já existente, reutilizada):
+  - VIEW_SESSION_PARTICIPANTS
+  - ADD_SESSION_PARTICIPANT
+  - REMOVE_SESSION_PARTICIPANT
+  - PROMOTE_SESSION_PARTICIPANT
+  - DEMOTE_SESSION_PARTICIPANT
+  - BLOCK_SESSION_PARTICIPANT
+  - RESTORE_SESSION_PARTICIPANT
+  - MANAGE_SESSION_PARTICIPANTS (agregada, reservada)
+- OtpPurpose (já existente, reutilizada):
+  - POS_ADICIONAR_PARTICIPANTE_SESSAO
+
+5) Código (arquivos relevantes)
+- Service:
+  - src/main/java/com/restaurante/consumo/participante/service/SessaoConsumoParticipanteService.java
+- Controller device:
+  - src/main/java/com/restaurante/controller/DeviceSessaoParticipanteController.java
+- Regra de pedido por role:
+  - src/main/java/com/restaurante/service/PedidoService.java
+- DTOs novos (responses device):
+  - src/main/java/com/restaurante/dto/response/DeviceSessaoParticipanteOtpChallengeResponse.java
+  - src/main/java/com/restaurante/dto/response/DeviceSessaoParticipanteJoinVerifyResponse.java
+  - src/main/java/com/restaurante/dto/response/DeviceSessaoParticipanteManagementResponse.java
+- Docs:
+  - docs/tenant-core/41-1-participantes-assistidos-pos.md
+
+6) Endpoints device (resumo)
+Base: /device/sessoes-consumo/{sessaoId}/participantes
+- GET /
+  - capability: VIEW_SESSION_PARTICIPANTS
+- POST /otp/request
+  - capability: ADD_SESSION_PARTICIPANT
+  - purpose OTP: POS_ADICIONAR_PARTICIPANTE_SESSAO
+- POST /otp/verify
+  - capability: ADD_SESSION_PARTICIPANT
+- POST /{participanteId}/remove
+  - capability: REMOVE_SESSION_PARTICIPANT
+  - reason obrigatório
+- POST /{participanteId}/promote
+  - capability: PROMOTE_SESSION_PARTICIPANT
+  - targetRole=OWNER; reason obrigatório
+- POST /{participanteId}/demote
+  - capability: DEMOTE_SESSION_PARTICIPANT
+  - targetRole=MEMBER|GUEST; reason obrigatório
+- POST /{participanteId}/block
+  - capability: BLOCK_SESSION_PARTICIPANT
+  - reason obrigatório
+- POST /{participanteId}/restore
+  - capability: RESTORE_SESSION_PARTICIPANT
+  - reason obrigatório
+
+7) Segurança / privacidade
+- tenantId e unidadeId derivam do DevicePrincipal; payload não aceita tenantId como fonte de verdade.
+- mesma unidade obrigatória (MVP): sessão em outra unidade retorna 404.
+- auditoria e responses não incluem OTP/otpHash/telefone completo/deviceToken (telefone apenas mascarado).
+
+8) Testes
+- Ajuste: src/test/java/com/restaurante/consumo/SessaoConsumoParticipanteServiceTest.java (injeção de novo repo)
+- Novo IT: src/test/java/com/restaurante/consumo/DeviceSessaoParticipanteManagementIT.java
+
+9) Comandos obrigatórios executados
+- mvn -q -DskipTests compile
+  - OK
+- mvn test
+  - BUILD SUCCESS
+  - Observação: testes com Testcontainers podem ser SKIPPED quando Docker está indisponível (comportamento já existente no projeto).
+
+10) Fora de escopo (mantido)
+- Split de pagamento e pagamento por participante.
+- OTP offline / participantes offline.
+- Alterações em AppyPay callback/polling.
+- Alterações em WORM/evidence bundle.
+

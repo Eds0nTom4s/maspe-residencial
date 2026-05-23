@@ -21,14 +21,25 @@ public final class DeviceCapabilityDefaults {
                     DeviceCapability.OFFLINE_SYNC,
                     DeviceCapability.OFFLINE_CREATE_ORDER,
                     DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER,
-                    DeviceCapability.OFFLINE_CONFIRM_MANUAL_PAYMENT
+                    DeviceCapability.OFFLINE_CONFIRM_MANUAL_PAYMENT,
+                    DeviceCapability.VIEW_SESSION_PARTICIPANTS,
+                    DeviceCapability.ADD_SESSION_PARTICIPANT,
+                    DeviceCapability.REMOVE_SESSION_PARTICIPANT,
+                    DeviceCapability.VIEW_PENDING_SESSION_PARTICIPANTS,
+                    DeviceCapability.APPROVE_SESSION_PARTICIPANT,
+                    DeviceCapability.REJECT_SESSION_PARTICIPANT,
+                    DeviceCapability.INVITE_SESSION_PARTICIPANT
             );
             case POS_ATENDIMENTO -> EnumSet.of(
                     DeviceCapability.LOOKUP_CONSUMPTION_BY_PHONE,
                     DeviceCapability.REQUEST_ASSISTED_IDENTIFICATION_OTP,
                     DeviceCapability.OFFLINE_SYNC,
                     DeviceCapability.OFFLINE_CREATE_ORDER,
-                    DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER
+                    DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER,
+                    DeviceCapability.VIEW_SESSION_PARTICIPANTS,
+                    DeviceCapability.ADD_SESSION_PARTICIPANT,
+                    DeviceCapability.VIEW_PENDING_SESSION_PARTICIPANTS,
+                    DeviceCapability.INVITE_SESSION_PARTICIPANT
             );
             case POS_QUIOSQUE, KDS_COZINHA, KDS_BAR, DISPLAY_SENHA, ADMIN_TERMINAL, GENERIC_DEVICE -> EnumSet.noneOf(DeviceCapability.class);
         };

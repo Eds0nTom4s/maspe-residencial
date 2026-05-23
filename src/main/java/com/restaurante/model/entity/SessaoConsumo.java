@@ -2,6 +2,7 @@ package com.restaurante.model.entity;
 
 import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.SessaoIdentificacaoStatus;
+import com.restaurante.model.enums.SessaoParticipantEntryPolicy;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import java.util.Objects;
@@ -117,6 +118,20 @@ public class SessaoConsumo extends BaseEntity {
 
     @Column(name = "identificado_por_otp", nullable = false)
     private boolean identificadoPorOtp = false;
+
+    // Prompt 41.2: política de entrada para sessão compartilhada
+    @Enumerated(EnumType.STRING)
+    @Column(name = "participant_entry_policy", nullable = false, length = 50)
+    private SessaoParticipantEntryPolicy participantEntryPolicy = SessaoParticipantEntryPolicy.OTP_AUTO_JOIN;
+
+    @Column(name = "participant_policy_updated_at")
+    private Instant participantPolicyUpdatedAt;
+
+    @Column(name = "participant_policy_updated_by_cliente_id")
+    private Long participantPolicyUpdatedByClienteId;
+
+    @Column(name = "participant_policy_updated_by_device_id")
+    private Long participantPolicyUpdatedByDeviceId;
 
     /**
      * Atendente que abriu a sessão (opcional).
@@ -255,6 +270,18 @@ public class SessaoConsumo extends BaseEntity {
 
     public boolean isIdentificadoPorOtp() { return identificadoPorOtp; }
     public void setIdentificadoPorOtp(boolean identificadoPorOtp) { this.identificadoPorOtp = identificadoPorOtp; }
+
+    public SessaoParticipantEntryPolicy getParticipantEntryPolicy() { return participantEntryPolicy; }
+    public void setParticipantEntryPolicy(SessaoParticipantEntryPolicy participantEntryPolicy) { this.participantEntryPolicy = participantEntryPolicy; }
+
+    public Instant getParticipantPolicyUpdatedAt() { return participantPolicyUpdatedAt; }
+    public void setParticipantPolicyUpdatedAt(Instant participantPolicyUpdatedAt) { this.participantPolicyUpdatedAt = participantPolicyUpdatedAt; }
+
+    public Long getParticipantPolicyUpdatedByClienteId() { return participantPolicyUpdatedByClienteId; }
+    public void setParticipantPolicyUpdatedByClienteId(Long participantPolicyUpdatedByClienteId) { this.participantPolicyUpdatedByClienteId = participantPolicyUpdatedByClienteId; }
+
+    public Long getParticipantPolicyUpdatedByDeviceId() { return participantPolicyUpdatedByDeviceId; }
+    public void setParticipantPolicyUpdatedByDeviceId(Long participantPolicyUpdatedByDeviceId) { this.participantPolicyUpdatedByDeviceId = participantPolicyUpdatedByDeviceId; }
     
     public Atendente getAberturaPor() { return aberturaPor; }
     public void setAberturaPor(Atendente aberturaPor) { this.aberturaPor = aberturaPor; }

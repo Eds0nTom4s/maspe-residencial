@@ -80,11 +80,77 @@ public class SessaoConsumoParticipante {
     @Column(name = "removed_at")
     private Instant removedAt;
 
+    @Column(name = "removed_by_device_id")
+    private Long removedByDeviceId;
+
     @Column(name = "left_at")
     private Instant leftAt;
 
     @Column(name = "blocked_at")
     private Instant blockedAt;
+
+    @Column(name = "blocked_by_device_id")
+    private Long blockedByDeviceId;
+
+    @Column(name = "restored_by_device_id")
+    private Long restoredByDeviceId;
+
+    @Column(name = "promoted_at")
+    private Instant promotedAt;
+
+    @Column(name = "demoted_at")
+    private Instant demotedAt;
+
+    @Column(name = "promoted_by_device_id")
+    private Long promotedByDeviceId;
+
+    @Column(name = "demoted_by_device_id")
+    private Long demotedByDeviceId;
+
+    @Column(name = "invited_by_participante_id")
+    private Long invitedByParticipanteId;
+
+    @Column(name = "invited_by_device_id")
+    private Long invitedByDeviceId;
+
+    @Column(name = "invited_at")
+    private Instant invitedAt;
+
+    @Column(name = "invitation_expires_at")
+    private Instant invitationExpiresAt;
+
+    @Column(name = "approval_requested_at")
+    private Instant approvalRequestedAt;
+
+    @Column(name = "approved_by_participante_id")
+    private Long approvedByParticipanteId;
+
+    @Column(name = "approved_by_device_id")
+    private Long approvedByDeviceId;
+
+    @Column(name = "rejected_by_participante_id")
+    private Long rejectedByParticipanteId;
+
+    @Column(name = "rejected_by_device_id")
+    private Long rejectedByDeviceId;
+
+    @Column(name = "approval_decided_at")
+    private Instant approvalDecidedAt;
+
+    @Column(name = "approval_reason", length = 255)
+    private String approvalReason;
+
+    @Column(name = "rejection_reason", length = 255)
+    private String rejectionReason;
+
+    @Column(name = "entry_policy_snapshot", length = 50)
+    private String entryPolicySnapshot;
+
+    @Column(name = "role_changed_reason", length = 255)
+    private String roleChangedReason;
+
+    @Column(name = "status_changed_reason", length = 255)
+    private String statusChangedReason;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "added_by_cliente_consumo_id")
@@ -122,4 +188,3 @@ public class SessaoConsumoParticipante {
         return status == SessaoParticipanteStatus.ACTIVE;
     }
 }
-

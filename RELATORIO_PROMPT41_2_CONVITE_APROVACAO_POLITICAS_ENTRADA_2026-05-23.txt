@@ -1,0 +1,128 @@
+RELATÓRIO EXECUTIVO — PROMPT 41.2 — CONVITE/APROVAÇÃO DE PARTICIPANTES PELO OWNER + POLÍTICAS DE ENTRADA
+Data: 2026-05-23
+
+1) Objetivo
+- Introduzir governança mínima de entrada em SessaoConsumo compartilhada:
+  - política de entrada por sessão;
+  - participantes PENDING_APPROVAL;
+  - aprovação/rejeição pelo OWNER (via OTP, sem JWT permanente);
+  - aprovação/rejeição pelo POS com capabilities;
+  - convite por telefone (OWNER/POS) + aceitação por OTP.
+- Pagamento permanece no nível da SessaoConsumo (sem split).
+
+2) Entregas principais
+- Policy de entrada em SessaoConsumo: SessaoParticipantEntryPolicy
+  - OTP_AUTO_JOIN (default)
+  - OTP_REQUIRES_OWNER_APPROVAL
+  - INVITE_ONLY
+  - POS_ONLY
+- SessaoParticipanteStatus ampliado:
+  - PENDING_APPROVAL
+  - EXPIRED
+- Fluxo público (QR):
+  - join request/verify respeita policy:
+    - bloqueia join livre em INVITE_ONLY e POS_ONLY;
+    - cria participante PENDING_APPROVAL em OTP_REQUIRES_OWNER_APPROVAL.
+  - owner auth OTP:
+    - request OTP do OWNER (purpose OWNER_APPROVAL_AUTH) e uso do OTP para:
+      - listar pendentes;
+      - aprovar;
+      - rejeitar.
+  - convite pelo OWNER:
+    - cria participante INVITED e envia OTP ao convidado (purpose ACEITAR_CONVITE_SESSAO);
+    - convidado aceita e vira ACTIVE.
+- Fluxo device/POS:
+  - listar pendentes;
+  - aprovar/rejeitar pendentes;
+  - alterar policy da sessão;
+  - convidar participante por telefone (OTP ao convidado).
+
+3) Migrations
+- Criada: src/main/resources/db/migration/V43__sessao_participante_entry_policy_owner_approval.sql
+  - adiciona campos de policy em sessoes_consumo;
+  - adiciona campos de convite/aprovação em sessao_consumo_participantes;
+  - FKs auxiliares (invited/approved/rejected).
+
+4) Enums / Capabilities
+- Novo enum:
+  - src/main/java/com/restaurante/model/enums/SessaoParticipantEntryPolicy.java
+- Alterado:
+  - src/main/java/com/restaurante/model/enums/SessaoParticipanteStatus.java
+    - adiciona PENDING_APPROVAL, EXPIRED
+  - src/main/java/com/restaurante/model/enums/OtpPurpose.java
+    - adiciona OWNER_APPROVAL_AUTH, ACEITAR_CONVITE_SESSAO
+  - src/main/java/com/restaurante/model/enums/DeviceCapability.java
+    - adiciona VIEW_PENDING_SESSION_PARTICIPANTS
+    - adiciona APPROVE_SESSION_PARTICIPANT
+    - adiciona REJECT_SESSION_PARTICIPANT
+    - adiciona CHANGE_SESSION_ENTRY_POLICY
+    - adiciona INVITE_SESSION_PARTICIPANT
+  - src/main/java/com/restaurante/model/enums/OperationalEventType.java
+    - eventos de policy/approval/invite/owner-auth
+
+5) Defaults/Templates de capability
+- Atualizados:
+  - src/main/java/com/restaurante/device/capability/service/DeviceCapabilityDefaults.java
+  - src/main/java/com/restaurante/device/capability/template/service/DeviceCapabilityTemplateBootstrapService.java
+
+6) Endpoints públicos (QR) adicionados
+- Controller:
+  - src/main/java/com/restaurante/controller/PublicSessaoParticipanteApprovalController.java
+- Endpoints:
+  - POST /public/q/{token}/owner-auth/otp/request
+  - POST /public/q/{token}/participantes/pending
+  - POST /public/q/{token}/participantes/{participanteId}/approve
+  - POST /public/q/{token}/participantes/{participanteId}/reject
+  - POST /public/q/{token}/participantes/invite
+  - POST /public/q/{token}/participantes/invite/accept
+
+7) Endpoints device/POS adicionados
+- Alterado:
+  - src/main/java/com/restaurante/controller/DeviceSessaoParticipanteController.java
+- Endpoints:
+  - GET  /device/sessoes-consumo/{sessaoId}/participantes/pending
+  - POST /device/sessoes-consumo/{sessaoId}/participantes/{participanteId}/approve
+  - POST /device/sessoes-consumo/{sessaoId}/participantes/{participanteId}/reject
+  - PUT  /device/sessoes-consumo/{sessaoId}/participantes/participant-entry-policy
+  - POST /device/sessoes-consumo/{sessaoId}/participantes/invite
+
+8) Regras de pedido (hardening)
+- Pedido atribuído a participante:
+  - somente ACTIVE pode pedir;
+  - PENDING_APPROVAL / INVITED / REJECTED retornam erros específicos;
+  - GUEST continua bloqueado.
+- Arquivo:
+  - src/main/java/com/restaurante/service/PedidoService.java
+
+9) Segurança e privacidade
+- OWNER approval: prova de posse via OTP (purpose OWNER_APPROVAL_AUTH), sem login/JWT permanente.
+- POS approval: exige capabilities específicas por endpoint.
+- Tenant/unidade: tenant vem do QR token / DevicePrincipal; mesma unidade continua obrigatória no MVP.
+- Auditoria sanitizada: não inclui OTP/otpHash/telefone completo/deviceToken.
+
+10) Testes
+- Alterado:
+  - src/test/java/com/restaurante/consumo/SessaoConsumoParticipanteServiceTest.java
+    - cobre policy OTP_REQUIRES_OWNER_APPROVAL e bloqueio INVITE_ONLY
+- Novo:
+  - src/test/java/com/restaurante/consumo/SessaoParticipanteOwnerApprovalServiceTest.java
+    - cobre approve pelo OWNER via OTP
+
+11) Documentação
+- Criada:
+  - docs/tenant-core/41-2-convite-aprovacao-politicas-entrada.md
+
+12) Comandos obrigatórios executados
+- mvn -q -DskipTests compile
+  - OK
+- mvn test
+  - BUILD SUCCESS
+  - Observação: testes com Testcontainers podem ser SKIPPED quando Docker está indisponível (comportamento já existente no projeto).
+
+13) Fora de escopo (mantido)
+- Split de pagamento e pagamento por participante.
+- App mobile / push / chat / WhatsApp.
+- Participantes offline / OTP offline.
+- Alterações em AppyPay callback/polling.
+- Alterações em WORM/evidence bundle.
+

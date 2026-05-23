@@ -171,7 +171,19 @@ public class PedidoService {
                 throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
             }
             if (!participante.isActive()) {
+                if (participante.getStatus() == com.restaurante.model.enums.SessaoParticipanteStatus.PENDING_APPROVAL) {
+                    throw new BusinessException("PARTICIPANT_PENDING_APPROVAL");
+                }
+                if (participante.getStatus() == com.restaurante.model.enums.SessaoParticipanteStatus.INVITED) {
+                    throw new BusinessException("PARTICIPANT_INVITED_NOT_ACCEPTED");
+                }
+                if (participante.getStatus() == com.restaurante.model.enums.SessaoParticipanteStatus.REJECTED) {
+                    throw new BusinessException("PARTICIPANT_REJECTED");
+                }
                 throw new BusinessException("SESSAO_PARTICIPANTE_NOT_ACTIVE");
+            }
+            if (participante.getRole() == com.restaurante.model.enums.SessaoParticipanteRole.GUEST) {
+                throw new BusinessException("PARTICIPANT_ROLE_NOT_ALLOWED_TO_ORDER");
             }
             pedido.setSessaoParticipante(participante);
             pedido.setClienteConsumo(participante.getClienteConsumo());

@@ -21,6 +21,15 @@ public interface SessaoConsumoParticipanteRepository extends JpaRepository<Sessa
             select p
               from SessaoConsumoParticipante p
              where p.tenant.id = :tenantId
+               and p.id = :id
+            """)
+    Optional<SessaoConsumoParticipante> findForUpdateById(@Param("tenantId") Long tenantId, @Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p
+              from SessaoConsumoParticipante p
+             where p.tenant.id = :tenantId
                and p.sessaoConsumo.id = :sessaoId
                and p.clienteConsumo.id = :clienteConsumoId
             """)
@@ -54,5 +63,20 @@ public interface SessaoConsumoParticipanteRepository extends JpaRepository<Sessa
     Optional<SessaoConsumoParticipante> findByTenant_IdAndSessaoConsumo_IdAndClienteConsumo_IdAndStatus(Long tenantId, Long sessaoId, Long clienteConsumoId, SessaoParticipanteStatus status);
 
     Optional<SessaoConsumoParticipante> findByTenant_IdAndSessaoConsumo_IdAndRole(Long tenantId, Long sessaoId, SessaoParticipanteRole role);
-}
 
+    Optional<SessaoConsumoParticipante> findByTenant_IdAndSessaoConsumo_IdAndTelefoneNormalizadoAndRoleAndStatus(Long tenantId,
+                                                                                                                 Long sessaoId,
+                                                                                                                 String telefoneNormalizado,
+                                                                                                                 SessaoParticipanteRole role,
+                                                                                                                 SessaoParticipanteStatus status);
+
+    @Query("""
+            select count(p)
+              from SessaoConsumoParticipante p
+             where p.tenant.id = :tenantId
+               and p.sessaoConsumo.id = :sessaoId
+               and p.role = com.restaurante.model.enums.SessaoParticipanteRole.OWNER
+               and p.status = com.restaurante.model.enums.SessaoParticipanteStatus.ACTIVE
+            """)
+    long countActiveOwners(@Param("tenantId") Long tenantId, @Param("sessaoId") Long sessaoId);
+}

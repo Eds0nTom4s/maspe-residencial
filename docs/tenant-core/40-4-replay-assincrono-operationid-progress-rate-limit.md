@@ -113,3 +113,4 @@ RBAC:
 - Cancelamento controlado de replay operations (PENDING cancelável + cancelRequested para RUNNING), alinhado ao hardening do rollout (38.5).
 - UI de troubleshooting no painel (fora de escopo).
 
+> Dívida técnica registrada (não implementada aqui): **Prompt 40.5 — cancelamento controlado de replay operations**.

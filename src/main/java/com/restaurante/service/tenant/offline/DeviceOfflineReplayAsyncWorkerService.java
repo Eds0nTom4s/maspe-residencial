@@ -47,6 +47,16 @@ import java.util.UUID;
 @Slf4j
 public class DeviceOfflineReplayAsyncWorkerService {
 
+    // TODO Prompt 40.5: cancelamento controlado de replay operations
+    // Escopo futuro:
+    // - permitir cancelamento de operações PENDING;
+    // - suportar cancelRequested em operações RUNNING;
+    // - impedir novos itens após cancelamento;
+    // - finalizar operação com status CANCELLED quando seguro;
+    // - liberar replay_in_progress dos comandos pendentes;
+    // - auditar cancelamento sem reverter comandos já processados.
+    // Não implementar nesta fase.
+
     private final DeviceOfflineReplayAsyncProperties props;
     private final JdbcTemplate jdbcTemplate;
     private final TenantRepository tenantRepository;

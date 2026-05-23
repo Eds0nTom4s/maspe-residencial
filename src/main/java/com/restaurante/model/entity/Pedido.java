@@ -38,6 +38,30 @@ public class Pedido extends BaseEntity {
     @JoinColumn(name = "sessao_consumo_id", nullable = false)
     private SessaoConsumo sessaoConsumo;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sessao_participante_id")
+    private com.restaurante.consumo.participante.entity.SessaoConsumoParticipante sessaoParticipante;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cliente_consumo_id")
+    private com.restaurante.consumo.identificacao.entity.ClienteConsumo clienteConsumo;
+
+    public com.restaurante.consumo.participante.entity.SessaoConsumoParticipante getSessaoParticipante() {
+        return sessaoParticipante;
+    }
+
+    public void setSessaoParticipante(com.restaurante.consumo.participante.entity.SessaoConsumoParticipante sessaoParticipante) {
+        this.sessaoParticipante = sessaoParticipante;
+    }
+
+    public com.restaurante.consumo.identificacao.entity.ClienteConsumo getClienteConsumo() {
+        return clienteConsumo;
+    }
+
+    public void setClienteConsumo(com.restaurante.consumo.identificacao.entity.ClienteConsumo clienteConsumo) {
+        this.clienteConsumo = clienteConsumo;
+    }
+
     /**
      * Turno operacional associado (janela de operação formal).
      * Nullable nesta fase para não quebrar fluxos existentes.

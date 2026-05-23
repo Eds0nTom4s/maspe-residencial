@@ -13,15 +13,21 @@ import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
+import com.restaurante.consumo.participante.entity.SessaoConsumoParticipante;
+import com.restaurante.consumo.participante.repository.SessaoConsumoParticipanteRepository;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
+import com.restaurante.model.enums.OperationalEntityType;
+import com.restaurante.model.enums.OperationalEventType;
+import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
+import com.restaurante.service.operacional.OperationalEventLogService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -61,6 +67,8 @@ public class PedidoService {
     private final NotificacaoService notificacaoService;
     @org.springframework.context.annotation.Lazy
     private final SessaoConsumoService sessaoConsumoService;
+    private final SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository;
+    private final OperationalEventLogService operationalEventLogService;
 
     public PedidoService(PedidoRepository pedidoRepository,
                          SessaoConsumoRepository sessaoConsumoRepository,
@@ -71,7 +79,9 @@ public class PedidoService {
                          PedidoFinanceiroService pedidoFinanceiroService,
                          FundoConsumoService fundoConsumoService,
                          NotificacaoService notificacaoService,
-                         @org.springframework.context.annotation.Lazy SessaoConsumoService sessaoConsumoService) {
+                         @org.springframework.context.annotation.Lazy SessaoConsumoService sessaoConsumoService,
+                         SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository,
+                         OperationalEventLogService operationalEventLogService) {
         this.pedidoRepository = pedidoRepository;
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.produtoService = produtoService;
@@ -82,6 +92,8 @@ public class PedidoService {
         this.fundoConsumoService = fundoConsumoService;
         this.notificacaoService = notificacaoService;
         this.sessaoConsumoService = sessaoConsumoService;
+        this.sessaoConsumoParticipanteRepository = sessaoConsumoParticipanteRepository;
+        this.operationalEventLogService = operationalEventLogService;
     }
 
     /**
@@ -149,6 +161,23 @@ public class PedidoService {
                 .observacoes(request.getObservacoes())
                 .build();
 
+        // Prompt 41: atribuição opcional do pedido a um participante ACTIVE da sessão
+        SessaoConsumoParticipante participanteAtribuido = null;
+        if (request.getParticipanteId() != null) {
+            SessaoConsumoParticipante participante = sessaoConsumoParticipanteRepository
+                    .findByTenant_IdAndId(sessaoConsumo.getTenant().getId(), request.getParticipanteId())
+                    .orElseThrow(() -> new BusinessException("SESSAO_PARTICIPANTE_NOT_FOUND"));
+            if (!participante.getSessaoConsumo().getId().equals(sessaoConsumo.getId())) {
+                throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
+            }
+            if (!participante.isActive()) {
+                throw new BusinessException("SESSAO_PARTICIPANTE_NOT_ACTIVE");
+            }
+            pedido.setSessaoParticipante(participante);
+            pedido.setClienteConsumo(participante.getClienteConsumo());
+            participanteAtribuido = participante;
+        }
+
         log.info("📄 PEDIDO CRIADO");
         log.info("  ┣ Número: {}", pedido.getNumero());
         log.info("  ┣ Status: {}", pedido.getStatus());
@@ -189,6 +218,30 @@ public class PedidoService {
 
         // Salvar pedido VAZIO primeiro (sem itens ainda)
         pedido = pedidoRepository.save(pedido);
+
+        if (participanteAtribuido != null) {
+            operationalEventLogService.logPublicEvent(
+                    sessaoConsumo.getTenant(),
+                    sessaoConsumo.getInstituicao(),
+                    sessaoConsumo.getUnidadeAtendimento(),
+                    sessaoConsumo.getMesa(),
+                    null,
+                    OperationalEventType.PEDIDO_ATRIBUIDO_PARTICIPANTE,
+                    OperationalEntityType.PEDIDO,
+                    pedido.getId(),
+                    OperationalOrigem.QR_PUBLICO,
+                    "Pedido atribuído a participante",
+                    Map.of(
+                            "tenantId", sessaoConsumo.getTenant().getId(),
+                            "sessaoConsumoId", sessaoConsumo.getId(),
+                            "pedidoId", pedido.getId(),
+                            "participanteId", participanteAtribuido.getId(),
+                            "clienteConsumoId", participanteAtribuido.getClienteConsumo() != null ? participanteAtribuido.getClienteConsumo().getId() : null
+                    ),
+                    null,
+                    null
+            );
+        }
 
         // Criar SubPedidos primeiro, DEPOIS criar ItemPedidos com subPedido já associado
         int contadorSubPedido = 1;

@@ -14,6 +14,10 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class DeviceOfflineReplayAsyncJob {
 
+    // TODO Prompt 40.5: cancelamento controlado de replay operations
+    // PENDING cancelável; RUNNING com cancelRequested; liberar replay_in_progress com segurança.
+    // Não implementar nesta fase.
+
     private final DeviceOfflineReplayAsyncProperties props;
     private final DeviceOfflineReplayAsyncWorkerService workerService;
 
@@ -27,4 +31,3 @@ public class DeviceOfflineReplayAsyncJob {
         }
     }
 }
-

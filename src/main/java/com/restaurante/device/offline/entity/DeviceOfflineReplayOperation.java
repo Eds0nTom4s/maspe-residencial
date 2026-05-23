@@ -36,6 +36,10 @@ import java.time.Instant;
 @Setter
 public class DeviceOfflineReplayOperation {
 
+    // TODO Prompt 40.5: cancelamento controlado de replay operations
+    // PENDING cancelável; RUNNING com cancelRequested; liberar replay_in_progress com segurança.
+    // Não implementar nesta fase.
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

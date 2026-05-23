@@ -4,14 +4,22 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.restaurante.model.enums.DeviceOfflineCommandStatus;
 import com.restaurante.model.enums.DeviceOfflineCommandType;
 
+import java.util.List;
+import java.util.Map;
+
 public class DeviceOfflineCommandResultResponse {
 
     private String clientRequestId;
+    private String localRef;
+    private List<String> dependsOn;
+    private String dependencyStatus;
     private DeviceOfflineCommandType commandType;
     private DeviceOfflineCommandStatus status;
     private String createdEntityType;
     private Long createdEntityId;
     private JsonNode result;
+    private Map<String, Object> resolvedRefs;
+    private List<String> warnings;
     private String errorCode;
     private String errorMessage;
     private String conflictCode;
@@ -22,6 +30,30 @@ public class DeviceOfflineCommandResultResponse {
 
     public void setClientRequestId(String clientRequestId) {
         this.clientRequestId = clientRequestId;
+    }
+
+    public String getLocalRef() {
+        return localRef;
+    }
+
+    public void setLocalRef(String localRef) {
+        this.localRef = localRef;
+    }
+
+    public List<String> getDependsOn() {
+        return dependsOn;
+    }
+
+    public void setDependsOn(List<String> dependsOn) {
+        this.dependsOn = dependsOn;
+    }
+
+    public String getDependencyStatus() {
+        return dependencyStatus;
+    }
+
+    public void setDependencyStatus(String dependencyStatus) {
+        this.dependencyStatus = dependencyStatus;
     }
 
     public DeviceOfflineCommandType getCommandType() {
@@ -64,6 +96,22 @@ public class DeviceOfflineCommandResultResponse {
         this.result = result;
     }
 
+    public Map<String, Object> getResolvedRefs() {
+        return resolvedRefs;
+    }
+
+    public void setResolvedRefs(Map<String, Object> resolvedRefs) {
+        this.resolvedRefs = resolvedRefs;
+    }
+
+    public List<String> getWarnings() {
+        return warnings;
+    }
+
+    public void setWarnings(List<String> warnings) {
+        this.warnings = warnings;
+    }
+
     public String getErrorCode() {
         return errorCode;
     }
@@ -88,4 +136,3 @@ public class DeviceOfflineCommandResultResponse {
         this.conflictCode = conflictCode;
     }
 }
-

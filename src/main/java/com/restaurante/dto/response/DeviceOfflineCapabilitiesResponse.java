@@ -11,6 +11,11 @@ public class DeviceOfflineCapabilitiesResponse {
     private Set<DeviceOfflineCommandType> allowedCommandTypes;
     private int maxBatchSize;
     private int maxOfflineAgeMinutes;
+    private int maxBatchPayloadBytes;
+    private int maxCommandPayloadBytes;
+    private int maxPedidoItems;
+    private int maxLocalRefDepth;
+    private boolean allowForwardLocalRefs;
     private Instant serverTime;
     private Long deviceId;
     private Long unidadeId;
@@ -48,6 +53,46 @@ public class DeviceOfflineCapabilitiesResponse {
         this.maxOfflineAgeMinutes = maxOfflineAgeMinutes;
     }
 
+    public int getMaxBatchPayloadBytes() {
+        return maxBatchPayloadBytes;
+    }
+
+    public void setMaxBatchPayloadBytes(int maxBatchPayloadBytes) {
+        this.maxBatchPayloadBytes = maxBatchPayloadBytes;
+    }
+
+    public int getMaxCommandPayloadBytes() {
+        return maxCommandPayloadBytes;
+    }
+
+    public void setMaxCommandPayloadBytes(int maxCommandPayloadBytes) {
+        this.maxCommandPayloadBytes = maxCommandPayloadBytes;
+    }
+
+    public int getMaxPedidoItems() {
+        return maxPedidoItems;
+    }
+
+    public void setMaxPedidoItems(int maxPedidoItems) {
+        this.maxPedidoItems = maxPedidoItems;
+    }
+
+    public int getMaxLocalRefDepth() {
+        return maxLocalRefDepth;
+    }
+
+    public void setMaxLocalRefDepth(int maxLocalRefDepth) {
+        this.maxLocalRefDepth = maxLocalRefDepth;
+    }
+
+    public boolean isAllowForwardLocalRefs() {
+        return allowForwardLocalRefs;
+    }
+
+    public void setAllowForwardLocalRefs(boolean allowForwardLocalRefs) {
+        this.allowForwardLocalRefs = allowForwardLocalRefs;
+    }
+
     public Instant getServerTime() {
         return serverTime;
     }
@@ -80,4 +125,3 @@ public class DeviceOfflineCapabilitiesResponse {
         this.tenantId = tenantId;
     }
 }
-

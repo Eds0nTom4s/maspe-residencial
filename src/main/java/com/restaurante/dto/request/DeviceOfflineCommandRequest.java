@@ -6,11 +6,24 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
+import java.util.List;
 
 public class DeviceOfflineCommandRequest {
 
     @NotBlank
     private String clientRequestId;
+
+    /**
+     * Referência local opcional. Default = clientRequestId.
+     * Usada apenas para resolução de dependências dentro do batch.
+     */
+    private String localRef;
+
+    /**
+     * Lista opcional de dependências (clientRequestId/localRef) que devem estar RESOLVIDAS antes deste comando.
+     * Se ausente, pode ser inferida do payload para comandos conhecidos.
+     */
+    private List<String> dependsOn;
 
     @NotNull
     private DeviceOfflineCommandType commandType;
@@ -30,6 +43,22 @@ public class DeviceOfflineCommandRequest {
 
     public void setClientRequestId(String clientRequestId) {
         this.clientRequestId = clientRequestId;
+    }
+
+    public String getLocalRef() {
+        return localRef;
+    }
+
+    public void setLocalRef(String localRef) {
+        this.localRef = localRef;
+    }
+
+    public List<String> getDependsOn() {
+        return dependsOn;
+    }
+
+    public void setDependsOn(List<String> dependsOn) {
+        this.dependsOn = dependsOn;
     }
 
     public DeviceOfflineCommandType getCommandType() {
@@ -72,4 +101,3 @@ public class DeviceOfflineCommandRequest {
         this.payload = payload;
     }
 }
-

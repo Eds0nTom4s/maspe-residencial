@@ -1,0 +1,143 @@
+PROMPT 40.1 — LOCALREF + ENCADEAMENTO SEGURO OFFLINE + PAYLOAD LIMITS
+Data: 2026-05-23
+
+1) RESUMO EXECUTIVO
+- Adicionado suporte a `localRef`/`dependsOn` em comandos do endpoint `/device/offline-sync/batch`, permitindo encadeamento seguro no mesmo batch:
+  - `CREATE_PEDIDO_POS` → `CREATE_ORDEM_PAGAMENTO_MANUAL` via `pedidoClientRequestId`
+  - `CREATE_ORDEM_PAGAMENTO_MANUAL` → `CONFIRM_MANUAL_PAYMENT` via `ordemPagamentoClientRequestId`
+- Implementada resolução de dependências:
+  - intra-batch (mapa localRef/clientRequestId → entidade real);
+  - entre batches (lookup em `device_offline_commands` do mesmo tenant+device).
+- Implementados limites explícitos de payload (por comando e por batch), limite de itens por pedido offline e hardening de dependências (ciclo, forward-ref bloqueado por default, profundidade máxima).
+- Idempotência do Prompt 40 preservada: `tenantId + deviceId + clientRequestId` + `payloadHash`.
+
+2) MIGRATIONS CRIADAS
+- `src/main/resources/db/migration/V37__device_offline_local_ref_payload_limits.sql`
+  - adiciona em `device_offline_commands`:
+    - `depends_on_client_request_id`
+    - `dependency_status`
+    - `payload_size_bytes`
+    - `command_index`
+  - índice por dependência.
+
+3) CAMPOS/ENTIDADE ATUALIZADOS
+- `src/main/java/com/restaurante/device/offline/entity/DeviceOfflineCommand.java`
+  - adicionados campos correspondentes à migration (payload size, index e dependência).
+
+4) ENUMS / CONFLITOS
+- `src/main/java/com/restaurante/model/enums/DeviceOfflineConflictCode.java`
+  - adicionados códigos para localRef/dependências e payload limits (ex.: `LOCAL_REF_NOT_FOUND`, `LOCAL_REF_ENTITY_TYPE_MISMATCH`, `BATCH_PAYLOAD_TOO_LARGE`, etc).
+- `src/main/java/com/restaurante/dto/response/DeviceErrorResponse.java`
+  - adicionados DeviceErrorCode para:
+    - payload limits (`OFFLINE_BATCH_PAYLOAD_TOO_LARGE`, `OFFLINE_COMMAND_PAYLOAD_TOO_LARGE`, `OFFLINE_TOO_MANY_ITEMS`);
+    - hardening de localRef/dependências (`OFFLINE_LOCALREF_*`, `OFFLINE_DEPENDENCY_DEPTH_EXCEEDED`).
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+  - adicionados eventos para rastreio de rejeições por payload/dependência (além de manter os eventos do Prompt 40).
+
+5) PROPERTIES (LIMITES EXPLÍCITOS)
+- `src/main/java/com/restaurante/config/DeviceOfflineSyncProperties.java`
+  - novos campos:
+    - `maxBatchPayloadBytes`
+    - `maxCommandPayloadBytes`
+    - `maxPedidoItems`
+    - `maxLocalRefDepth`
+    - `allowForwardLocalRefs` (default=false)
+
+6) DTOs ALTERADOS
+- `src/main/java/com/restaurante/dto/request/DeviceOfflineCommandRequest.java`
+  - adicionados:
+    - `localRef` (default = clientRequestId)
+    - `dependsOn` (opcional; se ausente, inferido do payload para comandos conhecidos)
+- `src/main/java/com/restaurante/dto/response/DeviceOfflineCommandResultResponse.java`
+  - adicionados:
+    - `localRef`, `dependsOn`, `dependencyStatus`
+    - `resolvedRefs` (mapa com resoluções efetuadas)
+    - `warnings`
+- `src/main/java/com/restaurante/dto/response/DeviceOfflineCapabilitiesResponse.java`
+  - adicionados campos de limites para o POS saber o contrato do servidor.
+
+7) SERVICE ALTERADO (CORE)
+- `src/main/java/com/restaurante/service/device/offline/DeviceOfflineSyncService.java`
+  - validações novas:
+    - `clientRequestId` único no batch;
+    - `localRef` único no batch;
+    - `maxBatchPayloadBytes` e `maxCommandPayloadBytes` (calculado no backend via JSON canônico em UTF-8);
+    - `maxPedidoItems` para `CREATE_PEDIDO_POS`;
+    - dependências:
+      - forward refs bloqueadas por default;
+      - ciclo bloqueado;
+      - profundidade máxima bloqueada.
+  - resolução de dependência:
+    - intra-batch e entre batches (mesmo tenant+device).
+  - “payload rewrite”:
+    - injeta `pedidoId` quando existir `pedidoClientRequestId` resolvido;
+    - injeta `ordemPagamentoId` quando existir `ordemPagamentoClientRequestId` resolvido;
+    - valida `entityType` esperado (PEDIDO/ORDEM_PAGAMENTO).
+  - persistência de `result_json` passou a armazenar wrapper:
+    - `{ "result": <resultado_handler>, "resolvedRefs": {...} }`
+    - resposta HTTP continua retornando o `result` “plano” (compatível com Prompt 40).
+
+8) HANDLERS
+- Não houve redesign de domínio; o encadeamento foi habilitado por:
+  - resolução no service + injeção de IDs no payload antes de chamar os handlers existentes.
+
+9) COMO LOCALREF FUNCIONA (RESUMO)
+- Por default, o POS usa o próprio `clientRequestId` como `localRef`.
+- Comandos dependentes referenciam `*ClientRequestId` no payload.
+- O servidor resolve:
+  - primeiro no mapa do batch;
+  - senão no histórico `device_offline_commands` do mesmo device.
+
+10) SEGURANÇA (CROSS-TENANT / CROSS-DEVICE)
+- Resolução histórica exige:
+  - mesmo `tenantId` e mesmo `deviceId` (chave do repository).
+- Não permite device A usar localRef de device B.
+- Não permite tenant A usar localRef de tenant B.
+- Mesmo com ref resolvido, o processamento revalida policies/capabilities/turno no domínio (reuso de services).
+
+11) TESTES CRIADOS
+- `src/test/java/com/restaurante/device/DeviceOfflineChainedPaymentIT.java`
+  - batch encadeado pedido → ordem → confirmação no mesmo batch + replay DUPLICATE.
+- `src/test/java/com/restaurante/device/DeviceOfflinePayloadLimitsIT.java`
+  - valida erro quando payload do comando excede `max-command-payload-bytes`.
+
+12) DOCUMENTAÇÃO
+- `docs/tenant-core/40-1-localref-encadeamento-offline-payload-limits.md`
+
+13) COMANDOS EXECUTADOS
+- (a executar nesta etapa) `mvn -q -DskipTests compile`
+- (a executar nesta etapa) `mvn test`
+
+14) ITENS NÃO COBERTOS (POR DESIGN)
+- Forward refs habilitadas por default (mantido false).
+- Rollback do batch.
+- AppyPay/OTP offline.
+- Dependências múltiplas complexas por comando (além do caso principal).
+
+15) DECISÕES TÉCNICAS
+- Preferido “payload rewrite” no `DeviceOfflineSyncService` para manter handlers simples e reaproveitar os services existentes.
+- Persistência de wrapper em `result_json` para manter rastreabilidade de resolução, mas resposta HTTP preserva compatibilidade (retornando `result` plano).
+
+16) CHECKLIST DE ACEITAÇÃO (PROMPT 40.1)
+[x] Suporte a `localRef`/`dependsOn` nos DTOs.
+[x] localRef default = clientRequestId (no server-side).
+[x] localRef duplicado no batch falha.
+[x] dependsOn inferido do payload quando ausente.
+[x] forward ref bloqueada por default (`allowForwardLocalRefs=false`).
+[x] dependência circular bloqueada.
+[x] profundidade máxima de dependência bloqueada.
+[x] dependência falhada bloqueia dependentes.
+[x] Pedido → Ordem (via pedidoClientRequestId) funciona.
+[x] Ordem → Confirmação (via ordemPagamentoClientRequestId) funciona.
+[x] Encadeamento completo no mesmo batch funciona.
+[x] Replay não duplica entidades (DUPLICATE).
+[x] Payload diferente com mesmo clientRequestId continua gerando IDEMPOTENCY_CONFLICT.
+[x] localRef entre batches resolvível por mesmo device (lookup histórico).
+[x] cross-device/cross-tenant bloqueado (chave tenant+device).
+[x] Payload limits + maxPedidoItems implementados.
+[x] AppyPay/OTP/fecho/snapshot continuam proibidos offline (não adicionados como comandos permitidos).
+[x] Auditoria sanitizada para rejeições de batch.
+
+17) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 40.2: persistir “sync session header” (tabela agregadora) + observabilidade e troubleshooting (ex.: listagem por syncId), e suporte a dependências múltiplas.
+

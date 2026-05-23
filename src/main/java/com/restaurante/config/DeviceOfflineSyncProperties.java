@@ -14,6 +14,11 @@ public class DeviceOfflineSyncProperties {
     private boolean enabled = true;
     private int maxBatchSize = 100;
     private int maxOfflineAgeMinutes = 720;
+    private int maxBatchPayloadBytes = 1_048_576; // 1 MiB
+    private int maxCommandPayloadBytes = 65_536;  // 64 KiB
+    private int maxPedidoItems = 50;
+    private int maxLocalRefDepth = 3;
+    private boolean allowForwardLocalRefs = false;
     private boolean rejectPriceChanges = true;
     private boolean requireOpenTurnoForManualPayment = true;
     private Set<DeviceOfflineCommandType> allowedCommandTypes = EnumSet.of(
@@ -47,6 +52,46 @@ public class DeviceOfflineSyncProperties {
         this.maxOfflineAgeMinutes = maxOfflineAgeMinutes;
     }
 
+    public int getMaxBatchPayloadBytes() {
+        return maxBatchPayloadBytes;
+    }
+
+    public void setMaxBatchPayloadBytes(int maxBatchPayloadBytes) {
+        this.maxBatchPayloadBytes = maxBatchPayloadBytes;
+    }
+
+    public int getMaxCommandPayloadBytes() {
+        return maxCommandPayloadBytes;
+    }
+
+    public void setMaxCommandPayloadBytes(int maxCommandPayloadBytes) {
+        this.maxCommandPayloadBytes = maxCommandPayloadBytes;
+    }
+
+    public int getMaxPedidoItems() {
+        return maxPedidoItems;
+    }
+
+    public void setMaxPedidoItems(int maxPedidoItems) {
+        this.maxPedidoItems = maxPedidoItems;
+    }
+
+    public int getMaxLocalRefDepth() {
+        return maxLocalRefDepth;
+    }
+
+    public void setMaxLocalRefDepth(int maxLocalRefDepth) {
+        this.maxLocalRefDepth = maxLocalRefDepth;
+    }
+
+    public boolean isAllowForwardLocalRefs() {
+        return allowForwardLocalRefs;
+    }
+
+    public void setAllowForwardLocalRefs(boolean allowForwardLocalRefs) {
+        this.allowForwardLocalRefs = allowForwardLocalRefs;
+    }
+
     public boolean isRejectPriceChanges() {
         return rejectPriceChanges;
     }
@@ -71,4 +116,3 @@ public class DeviceOfflineSyncProperties {
         this.allowedCommandTypes = allowedCommandTypes;
     }
 }
-

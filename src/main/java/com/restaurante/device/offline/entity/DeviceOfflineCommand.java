@@ -91,6 +91,18 @@ public class DeviceOfflineCommand {
     @Column(name = "payload_json", nullable = false, columnDefinition = "jsonb")
     private String payloadJson;
 
+    @Column(name = "payload_size_bytes")
+    private Integer payloadSizeBytes;
+
+    @Column(name = "command_index")
+    private Integer commandIndex;
+
+    @Column(name = "depends_on_client_request_id", length = 120)
+    private String dependsOnClientRequestId;
+
+    @Column(name = "dependency_status", length = 30)
+    private String dependencyStatus;
+
     @Column(name = "result_json", columnDefinition = "jsonb")
     private String resultJson;
 
@@ -133,4 +145,3 @@ public class DeviceOfflineCommand {
         updatedAt = Instant.now();
     }
 }
-

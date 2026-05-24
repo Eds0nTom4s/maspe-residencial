@@ -31,5 +31,8 @@ public enum OperationalEntityType {
     TENANT_TAX_POLICY,
     PRODUCT_TAX_CLASSIFICATION,
     // Prompt 43.1: auto-emissão fiscal pós-pagamento
-    FISCAL_AUTO_ISSUE_JOB
+    FISCAL_AUTO_ISSUE_JOB,
+    // Prompt 43.2: correções fiscais internas (assessment + notas)
+    FISCAL_ADJUSTMENT_ASSESSMENT,
+    TENANT_FISCAL_CORRECTION_POLICY
 }

@@ -4,6 +4,7 @@ import com.restaurante.model.enums.FiscalDocumentSource;
 import com.restaurante.model.enums.FiscalDocumentStatus;
 import com.restaurante.model.enums.FiscalDocumentType;
 import com.restaurante.model.enums.FiscalRegime;
+import com.restaurante.model.enums.FiscalCorrectionSource;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -68,6 +69,25 @@ public class FiscalDocument extends BaseEntity {
     @JoinColumn(name = "caixa_operador_session_id")
     private CaixaOperadorSession caixaOperadorSession;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "original_fiscal_document_id")
+    private FiscalDocument originalFiscalDocument;
+
+    @Column(name = "correction_reason", columnDefinition = "text")
+    private String correctionReason;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "correction_source", length = 80)
+    private FiscalCorrectionSource correctionSource;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "caixa_operador_adjustment_id")
+    private CaixaOperadorAdjustment caixaOperadorAdjustment;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "fiscal_adjustment_assessment_id")
+    private FiscalAdjustmentAssessment fiscalAdjustmentAssessment;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "document_type", nullable = false, length = 50)
     private FiscalDocumentType documentType;
@@ -128,4 +148,3 @@ public class FiscalDocument extends BaseEntity {
     @OneToMany(mappedBy = "fiscalDocument", fetch = FetchType.LAZY)
     private List<FiscalDocumentLine> lines = new ArrayList<>();
 }
-

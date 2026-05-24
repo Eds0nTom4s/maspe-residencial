@@ -104,3 +104,12 @@ Hashes determinísticos:
 ## Próximo passo recomendado
 **Prompt 42.3**: anexos/comprovativos com hash, storage seguro e cadeia de custódia documental.
 
+## Relação com Fiscalidade (Prompt 43.2)
+O `CaixaOperadorAdjustment` é **governança operacional** e não deve editar valores de caixa fechado nem, por padrão, reescrever documentos fiscais internos já emitidos.
+
+Quando um ajuste operacional aprovado **pode** ter impacto fiscal, a correção deve ser tratada no módulo fiscal como **documento corretivo interno** (nota de crédito/débito interna), mantendo:
+- `FiscalDocument` original imutável;
+- trilha auditável (assessment + correção);
+- integração no `taxEvidence` de bundles futuros.
+
+Ver: `docs/tenant-core/43-2-notas-credito-debito-ajustes-fiscais.md`.

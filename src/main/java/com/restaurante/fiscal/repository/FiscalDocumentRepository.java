@@ -2,6 +2,7 @@ package com.restaurante.fiscal.repository;
 
 import com.restaurante.model.entity.FiscalDocument;
 import com.restaurante.model.enums.FiscalDocumentStatus;
+import com.restaurante.model.enums.FiscalDocumentType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -29,6 +30,10 @@ public interface FiscalDocumentRepository extends JpaRepository<FiscalDocument, 
 
     Optional<FiscalDocument> findByTenantIdAndPagamentoId(Long tenantId, Long pagamentoId);
 
+    Optional<FiscalDocument> findByTenantIdAndFiscalAdjustmentAssessmentId(Long tenantId, Long assessmentId);
+
+    Optional<FiscalDocument> findByTenantIdAndCaixaOperadorAdjustmentId(Long tenantId, Long adjustmentId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from FiscalDocument d where d.id = :id")
     Optional<FiscalDocument> findByIdForUpdate(@Param("id") Long id);
@@ -41,5 +46,15 @@ public interface FiscalDocumentRepository extends JpaRepository<FiscalDocument, 
             """)
     List<FiscalDocument> findAllByTenantIdAndTurnoOperacionalId(@Param("tenantId") Long tenantId,
                                                                 @Param("turnoId") Long turnoId);
-}
 
+    @Query("""
+            select d from FiscalDocument d
+            where d.tenant.id = :tenantId
+              and d.turnoOperacional.id = :turnoId
+              and d.documentType in (:types)
+            order by d.issuedAt asc nulls last, d.id asc
+            """)
+    List<FiscalDocument> findAllByTenantIdAndTurnoOperacionalIdAndDocumentTypeIn(@Param("tenantId") Long tenantId,
+                                                                                @Param("turnoId") Long turnoId,
+                                                                                @Param("types") List<FiscalDocumentType> types);
+}

@@ -7,6 +7,7 @@ import com.restaurante.financeiro.caixa.divergence.config.CaixaOperadorDivergenc
 import com.restaurante.financeiro.caixa.divergence.repository.CaixaOperadorAdjustmentRepository;
 import com.restaurante.financeiro.caixa.divergence.repository.CaixaOperadorDivergenceRepository;
 import com.restaurante.financeiro.caixa.repository.CaixaOperadorSessionRepository;
+import com.restaurante.fiscal.corrections.event.CaixaOperadorAdjustmentApprovedForFiscalAssessmentEvent;
 import com.restaurante.model.entity.CaixaOperadorAdjustment;
 import com.restaurante.model.entity.CaixaOperadorDivergence;
 import com.restaurante.model.entity.CaixaOperadorSession;
@@ -31,6 +32,7 @@ import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -54,6 +56,7 @@ public class CaixaOperadorDivergenceService {
     private final UserRepository userRepository;
     private final TenantGuard tenantGuard;
     private final OperationalEventLogService operationalEventLogService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public List<CaixaOperadorDivergence> autoCreateDraftsIfNeeded(CaixaOperadorSession caixa, String ip, String userAgent) {
@@ -245,6 +248,12 @@ public class CaixaOperadorDivergenceService {
                     null,
                     null
             );
+
+            // Prompt 43.2: avaliação fiscal pós-commit (falha fiscal não reverte aprovação do ajuste)
+            eventPublisher.publishEvent(new CaixaOperadorAdjustmentApprovedForFiscalAssessmentEvent(
+                    d.getTenant().getId(),
+                    adj.getId()
+            ));
         }
 
         operationalEventLogService.logGeneric(

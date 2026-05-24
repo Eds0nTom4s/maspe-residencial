@@ -2,17 +2,22 @@ package com.restaurante.fiscal.evidence.service;
 
 import com.restaurante.fiscal.config.TaxProperties;
 import com.restaurante.fiscal.autoissue.repository.FiscalAutoIssueJobRepository;
+import com.restaurante.fiscal.repository.FiscalAdjustmentAssessmentRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentLineRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentRepository;
 import com.restaurante.fiscal.repository.TenantFiscalProfileRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
+import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceAssessmentItemDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceByTaxRateDTO;
+import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceCorrectionDocumentItemDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceDocumentItemDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceSectionDTO;
 import com.restaurante.model.entity.FiscalDocument;
 import com.restaurante.model.entity.FiscalDocumentLine;
 import com.restaurante.model.entity.TenantFiscalProfile;
+import com.restaurante.model.enums.FiscalAdjustmentAssessmentStatus;
 import com.restaurante.model.enums.FiscalDocumentStatus;
+import com.restaurante.model.enums.FiscalDocumentType;
 import com.restaurante.model.enums.FiscalRegime;
 import com.restaurante.model.enums.FiscalAutoIssueJobStatus;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +43,7 @@ public class TaxEvidenceService {
     private final FiscalDocumentLineRepository fiscalDocumentLineRepository;
     private final FiscalAutoIssueJobRepository autoIssueJobRepository;
     private final PagamentoGatewayRepository pagamentoGatewayRepository;
+    private final FiscalAdjustmentAssessmentRepository assessmentRepository;
 
     public TaxEvidenceSectionDTO buildForTurno(Long tenantId, Long turnoId) {
         TaxEvidenceSectionDTO out = new TaxEvidenceSectionDTO();
@@ -65,7 +71,13 @@ public class TaxEvidenceService {
         TenantFiscalProfile profile = fiscalProfileRepository.findByTenantId(tenantId).orElse(null);
         out.setFiscalRegime(profile != null ? profile.getFiscalRegime().name() : FiscalRegime.NOT_CONFIGURED.name());
 
-        List<FiscalDocument> docs = fiscalDocumentRepository.findAllByTenantIdAndTurnoOperacionalId(tenantId, turnoId);
+        List<FiscalDocument> allDocs = fiscalDocumentRepository.findAllByTenantIdAndTurnoOperacionalId(tenantId, turnoId);
+        List<FiscalDocument> corrections = allDocs.stream()
+                .filter(d -> d != null && (d.getDocumentType() == FiscalDocumentType.INTERNAL_CREDIT_NOTE || d.getDocumentType() == FiscalDocumentType.INTERNAL_DEBIT_NOTE))
+                .toList();
+        List<FiscalDocument> docs = allDocs.stream()
+                .filter(d -> d != null && d.getDocumentType() != FiscalDocumentType.INTERNAL_CREDIT_NOTE && d.getDocumentType() != FiscalDocumentType.INTERNAL_DEBIT_NOTE)
+                .toList();
 
         int total = docs.size();
         int issued = (int) docs.stream().filter(d -> d.getStatus() == FiscalDocumentStatus.ISSUED).count();
@@ -79,6 +91,12 @@ public class TaxEvidenceService {
         Map<String, Agg> byRate = new HashMap<>();
         List<String> warnings = new ArrayList<>();
         List<TaxEvidenceDocumentItemDTO> items = new ArrayList<>();
+        List<TaxEvidenceCorrectionDocumentItemDTO> correctionItems = new ArrayList<>();
+        List<TaxEvidenceAssessmentItemDTO> assessmentItems = new ArrayList<>();
+
+        BigDecimal correctionNet = BigDecimal.ZERO;
+        BigDecimal correctionTax = BigDecimal.ZERO;
+        BigDecimal correctionGross = BigDecimal.ZERO;
 
         if (profile == null || profile.getFiscalRegime() == FiscalRegime.NOT_CONFIGURED) {
             warnings.add("TENANT_FISCAL_PROFILE_NOT_CONFIGURED");
@@ -118,6 +136,76 @@ public class TaxEvidenceService {
             }
         } catch (Exception ignored) {
             // evidence deve ser tolerante: não falhar snapshot por falha de métricas
+        }
+
+        // Prompt 43.2: assessments + documentos corretivos internos
+        try {
+            var assessmentStatusCounts = new HashMap<FiscalAdjustmentAssessmentStatus, Integer>();
+            for (var row : assessmentRepository.countByTenantAndTurnoGroupByStatus(tenantId, turnoId)) {
+                if (row == null || row.length < 2) continue;
+                FiscalAdjustmentAssessmentStatus st = (FiscalAdjustmentAssessmentStatus) row[0];
+                Long cnt = (Long) row[1];
+                assessmentStatusCounts.put(st, cnt != null ? cnt.intValue() : 0);
+            }
+            out.setPendingFiscalAssessments(assessmentStatusCounts.getOrDefault(FiscalAdjustmentAssessmentStatus.PENDING, 0));
+            out.setNoImpactAssessments(assessmentStatusCounts.getOrDefault(FiscalAdjustmentAssessmentStatus.NO_FISCAL_IMPACT, 0));
+            out.setAssessmentsRequiringCreditNote(assessmentStatusCounts.getOrDefault(FiscalAdjustmentAssessmentStatus.REQUIRES_CREDIT_NOTE, 0));
+            out.setAssessmentsRequiringDebitNote(assessmentStatusCounts.getOrDefault(FiscalAdjustmentAssessmentStatus.REQUIRES_DEBIT_NOTE, 0));
+            out.setCorrectionIssuedAssessments(assessmentStatusCounts.getOrDefault(FiscalAdjustmentAssessmentStatus.CORRECTION_ISSUED, 0));
+
+            if (out.getPendingFiscalAssessments() != null && out.getPendingFiscalAssessments() > 0) warnings.add("FISCAL_ASSESSMENT_PENDING");
+            if (out.getAssessmentsRequiringCreditNote() != null && out.getAssessmentsRequiringCreditNote() > 0) warnings.add("FISCAL_ASSESSMENT_REQUIRES_CREDIT_NOTE");
+            if (out.getAssessmentsRequiringDebitNote() != null && out.getAssessmentsRequiringDebitNote() > 0) warnings.add("FISCAL_ASSESSMENT_REQUIRES_DEBIT_NOTE");
+
+            // items (determinísticos + hash)
+            for (var a : assessmentRepository.findAllByTenantIdAndTurnoOperacionalId(tenantId, turnoId)) {
+                if (a == null) continue;
+                TaxEvidenceAssessmentItemDTO it = new TaxEvidenceAssessmentItemDTO();
+                it.setAssessmentId(a.getId());
+                it.setCaixaAdjustmentId(a.getAdjustment() != null ? a.getAdjustment().getId() : null);
+                it.setOriginalFiscalDocumentId(a.getOriginalFiscalDocument() != null ? a.getOriginalFiscalDocument().getId() : null);
+                it.setStatus(a.getStatus());
+                it.setImpactType(a.getImpactType());
+                it.setAssessedAt(a.getAssessedAt());
+                it.setAssessmentHash(hashForAssessment(a));
+                assessmentItems.add(it);
+            }
+
+            int creditCount = (int) corrections.stream().filter(d -> d.getDocumentType() == FiscalDocumentType.INTERNAL_CREDIT_NOTE).count();
+            int debitCount = (int) corrections.stream().filter(d -> d.getDocumentType() == FiscalDocumentType.INTERNAL_DEBIT_NOTE).count();
+            out.setTotalCorrectionDocuments(corrections.size());
+            out.setCreditNotesCount(creditCount);
+            out.setDebitNotesCount(debitCount);
+
+            for (FiscalDocument d : corrections) {
+                if (d == null) continue;
+                correctionNet = correctionNet.add(nz(d.getTaxableAmount()));
+                correctionTax = correctionTax.add(nz(d.getTaxAmount()));
+                correctionGross = correctionGross.add(nz(d.getTotalAmount()));
+
+                List<FiscalDocumentLine> lines = fiscalDocumentLineRepository.findByTenantIdAndFiscalDocumentId(tenantId, d.getId());
+                String docHash = hashForDocument(d, lines);
+
+                TaxEvidenceCorrectionDocumentItemDTO it = new TaxEvidenceCorrectionDocumentItemDTO();
+                it.setCorrectionDocumentId(d.getId());
+                it.setOriginalFiscalDocumentId(d.getOriginalFiscalDocument() != null ? d.getOriginalFiscalDocument().getId() : null);
+                it.setAssessmentId(d.getFiscalAdjustmentAssessment() != null ? d.getFiscalAdjustmentAssessment().getId() : null);
+                it.setCaixaAdjustmentId(d.getCaixaOperadorAdjustment() != null ? d.getCaixaOperadorAdjustment().getId() : null);
+                it.setDocumentType(d.getDocumentType());
+                it.setStatus(d.getStatus());
+                it.setDocumentNumber(d.getDocumentNumber());
+                it.setSeries(d.getSeries());
+                it.setIssuedAt(d.getIssuedAt());
+                it.setCorrectionSource(d.getCorrectionSource());
+                it.setCorrectionReasonHash(hashText(d.getCorrectionReason()));
+                it.setNetAmount(d.getTaxableAmount());
+                it.setTaxAmount(d.getTaxAmount());
+                it.setTotalAmount(d.getTotalAmount());
+                it.setDocumentHash(docHash);
+                correctionItems.add(it);
+            }
+        } catch (Exception ignored) {
+            // tolerante
         }
 
         for (FiscalDocument d : docs) {
@@ -172,8 +260,13 @@ public class TaxEvidenceService {
         out.setExemptAmount(exempt);
         out.setTaxAmount(tax);
         out.setGrossAmount(gross);
+        out.setCorrectionNetAmount(correctionNet);
+        out.setCorrectionTaxAmount(correctionTax);
+        out.setCorrectionGrossAmount(correctionGross);
         out.setWarnings(warnings.stream().distinct().toList());
         out.setDocuments(items);
+        out.setCorrectionDocuments(correctionItems);
+        out.setAssessments(assessmentItems);
 
         List<TaxEvidenceByTaxRateDTO> byRateList = new ArrayList<>();
         for (var e : byRate.entrySet()) {
@@ -204,6 +297,40 @@ public class TaxEvidenceService {
         }
     }
 
+    private String hashForAssessment(com.restaurante.model.entity.FiscalAdjustmentAssessment a) {
+        String canonical = assessmentCanonicalString(a);
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(canonical.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String assessmentCanonicalString(com.restaurante.model.entity.FiscalAdjustmentAssessment a) {
+        return "assessmentId=" + v(a != null ? a.getId() : null)
+                + "|tenantId=" + v(a != null && a.getTenant() != null ? a.getTenant().getId() : null)
+                + "|adjustmentId=" + v(a != null && a.getAdjustment() != null ? a.getAdjustment().getId() : null)
+                + "|originalDocId=" + v(a != null && a.getOriginalFiscalDocument() != null ? a.getOriginalFiscalDocument().getId() : null)
+                + "|status=" + (a != null && a.getStatus() != null ? a.getStatus().name() : "null")
+                + "|impactType=" + (a != null && a.getImpactType() != null ? a.getImpactType().name() : "null")
+                + "|assessedAt=" + v(a != null ? a.getAssessedAt() : null)
+                + "|decisionReasonHash=" + hashText(a != null ? a.getDecisionReason() : null);
+    }
+
+    private String hashText(String text) {
+        String t = text != null ? text.replaceAll("[\\r\\n\\t]", " ").trim() : "";
+        if (t.length() > 500) t = t.substring(0, 500);
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(t.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private String canonicalString(FiscalDocument d, List<FiscalDocumentLine> lines) {
         StringBuilder sb = new StringBuilder();
         sb.append("documentId=").append(v(d != null ? d.getId() : null))
@@ -214,6 +341,11 @@ public class TaxEvidenceService {
                 .append("|series=").append(v(d != null ? d.getSeries() : null))
                 .append("|issuedAt=").append(v(d != null ? d.getIssuedAt() : null))
                 .append("|fiscalRegime=").append(d != null && d.getFiscalRegime() != null ? d.getFiscalRegime().name() : "null")
+                .append("|originalDocId=").append(v(d != null && d.getOriginalFiscalDocument() != null ? d.getOriginalFiscalDocument().getId() : null))
+                .append("|correctionSource=").append(d != null && d.getCorrectionSource() != null ? d.getCorrectionSource().name() : "null")
+                .append("|caixaAdjId=").append(v(d != null && d.getCaixaOperadorAdjustment() != null ? d.getCaixaOperadorAdjustment().getId() : null))
+                .append("|assessmentId=").append(v(d != null && d.getFiscalAdjustmentAssessment() != null ? d.getFiscalAdjustmentAssessment().getId() : null))
+                .append("|correctionReasonHash=").append(hashText(d != null ? d.getCorrectionReason() : null))
                 .append("|taxable=").append(money(d != null ? d.getTaxableAmount() : null))
                 .append("|exempt=").append(money(d != null ? d.getExemptAmount() : null))
                 .append("|tax=").append(money(d != null ? d.getTaxAmount() : null))

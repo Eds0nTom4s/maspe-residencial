@@ -28,6 +28,19 @@ public class TaxEvidenceSectionDTO {
     private Integer issuedByAutoIssueJobs;
     private Integer confirmedPaymentsWithoutFiscalDocument;
 
+    // Prompt 43.2: correções fiscais internas (assessments + notas de crédito/débito)
+    private Integer pendingFiscalAssessments;
+    private Integer noImpactAssessments;
+    private Integer assessmentsRequiringCreditNote;
+    private Integer assessmentsRequiringDebitNote;
+    private Integer correctionIssuedAssessments;
+    private Integer totalCorrectionDocuments;
+    private Integer creditNotesCount;
+    private Integer debitNotesCount;
+    private BigDecimal correctionNetAmount;
+    private BigDecimal correctionTaxAmount;
+    private BigDecimal correctionGrossAmount;
+
     private BigDecimal taxableAmount;
     private BigDecimal exemptAmount;
     private BigDecimal taxAmount;
@@ -36,4 +49,7 @@ public class TaxEvidenceSectionDTO {
     private List<TaxEvidenceByTaxRateDTO> byTaxRate;
     private List<String> warnings;
     private List<TaxEvidenceDocumentItemDTO> documents;
+
+    private List<TaxEvidenceCorrectionDocumentItemDTO> correctionDocuments;
+    private List<TaxEvidenceAssessmentItemDTO> assessments;
 }

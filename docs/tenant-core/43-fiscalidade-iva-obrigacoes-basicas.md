@@ -55,7 +55,9 @@ Bundles antigos continuam legíveis sem `taxEvidence`.
 ## 43.1 — Automatização fiscal controlada pós-pagamento
 Ver: `docs/tenant-core/43-1-automatizacao-fiscal-pos-pagamento.md`.
 
-## Dívidas futuras (registradas)
-- P43-DEBT-1: impacto fiscal de ajustes operacionais (notas de crédito/débito e correções fiscais formais).
-- P43-DEBT-2: emissão fiscal offline controlada (reserva de numeração e reconciliação).
+## 43.2 — Notas de crédito/débito internas e impacto fiscal de ajustes
+Ver: `docs/tenant-core/43-2-notas-credito-debito-ajustes-fiscais.md`.
 
+## Dívidas futuras (registradas)
+- P43-DEBT-2: emissão fiscal offline controlada (reserva de numeração e reconciliação).
+- P43-DEBT-3: correções fiscais oficiais/certificadas (AGT/SAF-T), fora do escopo interno/preparatório.

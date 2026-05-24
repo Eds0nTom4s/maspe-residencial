@@ -37,5 +37,12 @@ public class OperatorCashSessionEvidenceItemDTO {
     private Boolean hasDifference;
     private String differenceSeverity;
     private String sessionHash;
-}
 
+    // Prompt 42.2: divergências/ajustes formais associados ao caixa
+    private Integer divergencesCount;
+    private Integer unresolvedDivergencesCount;
+    private Integer approvedAdjustmentsCount;
+    private BigDecimal adjustmentsTotalAmount;
+    private Boolean hasUnresolvedDivergence;
+    private Boolean hasApprovedAdjustment;
+}

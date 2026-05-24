@@ -12,6 +12,7 @@ import com.restaurante.financeiro.snapshot.evidence.dto.EvidenceBundleUnidadeDTO
 import com.restaurante.financeiro.snapshot.evidence.dto.SnapshotFinanceiroEvidenceBundleResponse;
 import com.restaurante.financeiro.snapshot.evidence.EvidenceBundleProperties;
 import com.restaurante.financeiro.caixa.evidence.service.CaixaOperadorEvidenceService;
+import com.restaurante.financeiro.caixa.divergence.evidence.service.CaixaOperadorDivergenceEvidenceService;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.OperationalEventType;
@@ -44,6 +45,7 @@ public class SnapshotFinanceiroEvidenceBundleService {
     private final OperationalEventLogService operationalEventLogService;
     private final EvidenceBundleProperties evidenceBundleProperties;
     private final CaixaOperadorEvidenceService caixaOperadorEvidenceService;
+    private final CaixaOperadorDivergenceEvidenceService caixaOperadorDivergenceEvidenceService;
 
     private static final Set<OperationalEventType> EVENT_TYPES = Set.of(
             OperationalEventType.TURNO_ABERTO,
@@ -136,6 +138,11 @@ public class SnapshotFinanceiroEvidenceBundleService {
         );
         out.setOperatorCashEvidence(operatorEvidence);
 
+        // Prompt 42.2: seção de evidência de divergências/ajustes formais do caixa operador/device
+        var divergenceEvidence = caixaOperadorDivergenceEvidenceService.buildForTurno(ctx.tenantId(), turno.getId());
+        out.setOperatorCashDivergenceEvidence(divergenceEvidence);
+        caixaOperadorDivergenceEvidenceService.enrichOperatorCashEvidence(operatorEvidence, divergenceEvidence);
+
         operationalEventLogService.logTurnoEvent(
                 OperationalEventType.CAIXA_OPERADOR_EVIDENCE_SECTION_GENERATED,
                 turno,
@@ -194,6 +201,21 @@ public class SnapshotFinanceiroEvidenceBundleService {
                         "turnoId", turno.getId(),
                         "totalCashSessions", operatorEvidence != null ? operatorEvidence.getTotalCashSessions() : 0,
                         "warnings", operatorEvidence != null ? operatorEvidence.getWarnings() : null
+                ),
+                ip,
+                userAgent
+        );
+
+        operationalEventLogService.logTurnoEvent(
+                OperationalEventType.CAIXA_OPERADOR_DIVERGENCE_EVIDENCE_ATTACHED_TO_BUNDLE,
+                turno,
+                resolveOrigemFromRoles(ctx),
+                "Evidência de divergências/ajustes de caixa anexada ao bundle",
+                java.util.Map.of(
+                        "turnoId", turno.getId(),
+                        "totalDivergences", divergenceEvidence != null ? divergenceEvidence.getTotalDivergences() : 0,
+                        "unresolvedDivergences", divergenceEvidence != null ? divergenceEvidence.getUnresolvedDivergences() : 0,
+                        "approvedAdjustments", divergenceEvidence != null ? divergenceEvidence.getApprovedAdjustments() : 0
                 ),
                 ip,
                 userAgent

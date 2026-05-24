@@ -80,6 +80,8 @@ class SnapshotEvidenceBundleTest extends PostgresTestcontainersConfig {
         assertThat(json.at("/data/eventosOperacionais").isArray()).isTrue();
         // Prompt 42.1: seção existe (pode ser vazia se não houver caixas)
         assertThat(json.at("/data/operatorCashEvidence").isMissingNode()).isFalse();
+        // Prompt 42.2: seção de divergências/ajustes existe (pode ser vazia)
+        assertThat(json.at("/data/operatorCashDivergenceEvidence").isMissingNode()).isFalse();
 
         List<OperationalEventLog> events = operationalEventLogRepository.findByTenantIdAndEventType(
                 prov.getTenantId(),

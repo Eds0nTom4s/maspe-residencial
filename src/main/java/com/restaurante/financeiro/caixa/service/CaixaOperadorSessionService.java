@@ -3,6 +3,7 @@ package com.restaurante.financeiro.caixa.service;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.DeviceApiException;
 import com.restaurante.dto.response.DeviceErrorResponse;
+import com.restaurante.financeiro.caixa.divergence.service.CaixaOperadorDivergenceService;
 import com.restaurante.financeiro.caixa.repository.CaixaOperadorSessionItemRepository;
 import com.restaurante.financeiro.caixa.repository.CaixaOperadorSessionRepository;
 import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
@@ -63,6 +64,7 @@ public class CaixaOperadorSessionService {
     private final CaixaOperadorSessionItemRepository itemRepository;
     private final OrdemPagamentoRepository ordemPagamentoRepository;
     private final PagamentoGatewayRepository pagamentoGatewayRepository;
+    private final CaixaOperadorDivergenceService caixaOperadorDivergenceService;
 
     private final OperationalEventLogService operationalEventLogService;
     private final TenantGuard tenantGuard;
@@ -374,6 +376,10 @@ public class CaixaOperadorSessionService {
                 ip,
                 userAgent
         );
+
+        // Prompt 42.2: criar divergências formais automaticamente quando há diferença.
+        // Importante: não editar valores do caixa fechado; divergências/ajustes são registros paralelos.
+        caixaOperadorDivergenceService.autoCreateDraftsIfNeeded(caixa, ip, userAgent);
 
         return caixa;
     }

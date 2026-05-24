@@ -71,3 +71,16 @@ Esses eventos são registrados como eventos do turno no ato de gerar o bundle.
 
 ## Próximo passo recomendado
 **Prompt 42.2**: divergências e ajustes formais (justificativas, anexos/comprovativos, aprovação), mantendo trilha auditável.
+
+## Integração 42.2 — Divergências e ajustes formais
+O Prompt 42.2 estende o Evidence Bundle com:
+- `operatorCashDivergenceEvidence`: seção com divergências/ajustes, hashes determinísticos e contadores por turno.
+
+Além disso, os itens de `operatorCashEvidence.sessions` passam a ser enriquecidos (quando houver dados) com:
+- `divergencesCount`, `unresolvedDivergencesCount`;
+- `approvedAdjustmentsCount`, `adjustmentsTotalAmount`;
+- `hasUnresolvedDivergence`, `hasApprovedAdjustment`.
+
+Compatibilidade:
+- Bundles antigos continuam legíveis (campo adicional).
+- Não recalcula bundles persistidos.

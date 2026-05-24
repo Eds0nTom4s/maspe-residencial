@@ -94,7 +94,8 @@ public class FiscalAutoIssueWorker {
             job.setNextAttemptAt(now.plusSeconds(props.getDocument().getAutoIssue().getRetryBackoffSeconds()));
             jobRepository.save(job);
 
-            operationalEventLogService.logGeneric(
+            operationalEventLogService.logGenericForTenant(
+                    job.getTenant().getId(),
                     OperationalEventType.FISCAL_AUTO_ISSUE_STALE_LOCK_RECOVERED,
                     OperationalEntityType.FISCAL_AUTO_ISSUE_JOB,
                     job.getId(),
@@ -144,7 +145,8 @@ public class FiscalAutoIssueWorker {
         job.setAttemptCount(job.getAttemptCount() + 1);
         jobRepository.save(job);
 
-        operationalEventLogService.logGeneric(
+        operationalEventLogService.logGenericForTenant(
+                job.getTenant().getId(),
                 OperationalEventType.FISCAL_AUTO_ISSUE_JOB_PROCESSING_STARTED,
                 OperationalEntityType.FISCAL_AUTO_ISSUE_JOB,
                 job.getId(),
@@ -172,7 +174,8 @@ public class FiscalAutoIssueWorker {
             job.setErrorMessage(null);
             jobRepository.save(job);
 
-            operationalEventLogService.logGeneric(
+            operationalEventLogService.logGenericForTenant(
+                    job.getTenant().getId(),
                     OperationalEventType.FISCAL_AUTO_ISSUE_JOB_ISSUED,
                     OperationalEntityType.FISCAL_AUTO_ISSUE_JOB,
                     job.getId(),
@@ -198,7 +201,8 @@ public class FiscalAutoIssueWorker {
                 job.setNextAttemptAt(LocalDateTime.now().plusSeconds(backoffSeconds(job.getAttemptCount())));
                 jobRepository.save(job);
 
-                operationalEventLogService.logGeneric(
+                operationalEventLogService.logGenericForTenant(
+                        job.getTenant().getId(),
                         OperationalEventType.FISCAL_AUTO_ISSUE_JOB_FAILED_RETRYABLE,
                         OperationalEntityType.FISCAL_AUTO_ISSUE_JOB,
                         job.getId(),
@@ -218,7 +222,8 @@ public class FiscalAutoIssueWorker {
                 job.setProcessedAt(LocalDateTime.now());
                 jobRepository.save(job);
 
-                operationalEventLogService.logGeneric(
+                operationalEventLogService.logGenericForTenant(
+                        job.getTenant().getId(),
                         OperationalEventType.FISCAL_AUTO_ISSUE_JOB_FAILED_PERMANENT,
                         OperationalEntityType.FISCAL_AUTO_ISSUE_JOB,
                         job.getId(),

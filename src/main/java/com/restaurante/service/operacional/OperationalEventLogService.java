@@ -372,6 +372,44 @@ public class OperationalEventLogService {
         );
     }
 
+    /**
+     * Variante explícita para processos em background (jobs/workers) que não têm SecurityContext
+     * nem TenantContext resolvido por request.
+     */
+    @Transactional
+    public void logGenericForTenant(Long tenantId,
+                                    OperationalEventType eventType,
+                                    OperationalEntityType entityType,
+                                    Long entityId,
+                                    OperationalOrigem origem,
+                                    String motivo,
+                                    Map<String, Object> metadata,
+                                    String ip,
+                                    String userAgent) {
+        if (tenantId == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+
+        OperationalEventLog log = new OperationalEventLog();
+        log.setTenant(tenant);
+        log.setPedido(null);
+        log.setSubPedido(null);
+        log.setEventType(eventType);
+        log.setEntityType(entityType);
+        log.setEntityId(entityId != null ? entityId : 0L);
+        log.setStatusAnterior(null);
+        log.setStatusNovo(null);
+        log.setOrigem(origem != null ? origem : OperationalOrigem.SYSTEM);
+        log.setMotivo(motivo);
+        log.setMetadataJson(metadata != null ? toJson(metadata) : null);
+        log.setIp(ip);
+        log.setUserAgent(userAgent);
+
+        applyActor(log, origem, ip, userAgent);
+        operationalEventLogRepository.save(log);
+    }
+
     private void log(OperationalEventType eventType,
                      OperationalEntityType entityType,
                      Long entityId,

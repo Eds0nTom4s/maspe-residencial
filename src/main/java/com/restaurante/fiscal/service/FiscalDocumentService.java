@@ -44,6 +44,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -97,7 +98,7 @@ public class FiscalDocumentService {
      * - Não exige TenantUserRole (não há usuário).
      * - Roda com TenantContext temporário (platformAdmin=true) para reutilizar validações tenant-safe.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public FiscalDocument issueForPedidoPaymentAsSystem(Long tenantId, Long pedidoId, Long pagamentoId) {
         if (tenantId == null) throw new BusinessException("tenantId é obrigatório.");
         TenantContextHolder.set(new TenantContext(
@@ -211,7 +212,7 @@ public class FiscalDocumentService {
             throw new BusinessException("Documento fiscal interno está desativado para o tenant.");
         }
 
-        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItensESubPedidos(pedidoId, tenantId)
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, tenantId)
                 .orElseThrow(() -> new BusinessException("Pedido não encontrado."));
         tenantGuard.assertResourceBelongsToTenant(pedido.getTenant().getId());
 

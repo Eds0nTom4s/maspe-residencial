@@ -2,7 +2,9 @@ package com.restaurante.fiscal.autoissue;
 
 import com.restaurante.fiscal.autoissue.repository.FiscalAutoIssueJobRepository;
 import com.restaurante.fiscal.autoissue.worker.FiscalAutoIssueWorker;
+import com.restaurante.fiscal.repository.TaxRateRepository;
 import com.restaurante.fiscal.repository.TenantFiscalProfileRepository;
+import com.restaurante.fiscal.repository.TenantTaxPolicyRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.*;
@@ -12,7 +14,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -48,9 +49,10 @@ public class FiscalAutoIssueWorkerTest {
     @Autowired private ProdutoRepository produtoRepository;
     @Autowired private PagamentoGatewayRepository pagamentoGatewayRepository;
     @Autowired private TenantFiscalProfileRepository fiscalProfileRepository;
+    @Autowired private TaxRateRepository taxRateRepository;
+    @Autowired private TenantTaxPolicyRepository taxPolicyRepository;
 
     @Test
-    @Transactional
     void processaJobEPersisteDocumentoEmitido() {
         Tenant tenant = criarTenant();
         Instituicao inst = criarInstituicao(tenant);
@@ -71,6 +73,30 @@ public class FiscalAutoIssueWorkerTest {
         profile.setStatus(TenantFiscalProfileStatus.ACTIVE);
         profile.setFiscalRegime(FiscalRegime.GENERAL_VAT);
         profile.setFiscalDocumentEnabled(true);
+
+        TaxRate rate = new TaxRate();
+        rate.setCountryCode("AO");
+        rate.setTaxType(TaxType.VAT);
+        rate.setCode("AO_VAT_STANDARD_14");
+        rate.setName("IVA Geral 14%");
+        rate.setRate(new BigDecimal("14.00"));
+        rate.setStatus(TaxRateStatus.ACTIVE);
+        rate.setEffectiveFrom(LocalDateTime.now().minusDays(1));
+        rate = taxRateRepository.saveAndFlush(rate);
+
+        TenantTaxPolicy policy = new TenantTaxPolicy();
+        policy.setTenant(tenant);
+        policy.setName("Default VAT");
+        policy.setFiscalRegime(FiscalRegime.GENERAL_VAT);
+        policy.setDefaultTaxRate(rate);
+        policy.setPricesIncludeTax(false);
+        policy.setAllowTaxExemptItems(true);
+        policy.setRequireTaxDocumentOnPayment(false);
+        policy.setStatus(TenantTaxPolicyStatus.ACTIVE);
+        policy.setEffectiveFrom(LocalDateTime.now().minusDays(1));
+        policy = taxPolicyRepository.saveAndFlush(policy);
+
+        profile.setDefaultTaxPolicy(policy);
         fiscalProfileRepository.saveAndFlush(profile);
 
         FiscalAutoIssueJob job = new FiscalAutoIssueJob();
@@ -91,7 +117,9 @@ public class FiscalAutoIssueWorkerTest {
         worker.processOneClaiming(job.getId());
 
         FiscalAutoIssueJob updated = jobRepository.findById(job.getId()).orElseThrow();
-        assertThat(updated.getStatus()).isEqualTo(FiscalAutoIssueJobStatus.ISSUED);
+        assertThat(updated.getStatus())
+                .withFailMessage("status=%s errorCode=%s errorMessage=%s", updated.getStatus(), updated.getErrorCode(), updated.getErrorMessage())
+                .isEqualTo(FiscalAutoIssueJobStatus.ISSUED);
         assertThat(updated.getFiscalDocument()).isNotNull();
     }
 

@@ -49,7 +49,7 @@ public class TaxCalculationService {
         if (pedidoId == null) throw new BusinessException("pedidoId é obrigatório.");
         LocalDateTime at = operationDate != null ? operationDate : LocalDateTime.now();
 
-        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItensESubPedidos(pedidoId, tenantId)
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, tenantId)
                 .orElseThrow(() -> new BusinessException("Pedido não encontrado."));
         tenantGuard.assertResourceBelongsToTenant(pedido.getTenant().getId());
 

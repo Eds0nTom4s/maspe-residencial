@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "fiscal_document_sequences", indexes = {
-        @Index(name = "uq_fiscal_seq_key", columnList = "tenant_id, unidade_atendimento_id, document_type, series, year", unique = true)
+        @Index(name = "uq_fiscal_seq_key", columnList = "tenant_id, unidade_atendimento_id, document_type, series, seq_year", unique = true)
 })
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -39,7 +39,7 @@ public class FiscalDocumentSequence extends BaseEntity {
     @Column(name = "series", nullable = false, length = 20)
     private String series;
 
-    @Column(name = "year", nullable = false)
+    @Column(name = "seq_year", nullable = false)
     private Integer year;
 
     @Column(name = "current_number", nullable = false)
@@ -49,4 +49,3 @@ public class FiscalDocumentSequence extends BaseEntity {
     @Column(name = "status", nullable = false, length = 30)
     private FiscalDocumentSequenceStatus status = FiscalDocumentSequenceStatus.ACTIVE;
 }
-

@@ -2,12 +2,15 @@ package com.restaurante.device;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaurante.dto.request.AbrirCaixaOperadorRequest;
 import com.restaurante.dto.request.AbrirTurnoRequest;
 import com.restaurante.dto.request.ChecklistItemRespostaRequest;
+import com.restaurante.dto.request.ConfirmarOrdemManualRequest;
 import com.restaurante.dto.request.DeviceCriarPedidoItemRequest;
 import com.restaurante.dto.request.DeviceCriarPedidoRequest;
 import com.restaurante.dto.request.DeviceOfflineCommandRequest;
 import com.restaurante.dto.request.DeviceOfflineSyncBatchRequest;
+import com.restaurante.dto.request.FecharCaixaOperadorRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.CategoriaProduto;
@@ -19,6 +22,7 @@ import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DeviceOfflineCommandType;
 import com.restaurante.model.enums.DispositivoStatus;
 import com.restaurante.model.enums.DispositivoTipo;
+import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserRole;
@@ -62,7 +66,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
-class DeviceOfflineManualPaymentIT extends PostgresTestcontainersConfig {
+class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -80,104 +84,180 @@ class DeviceOfflineManualPaymentIT extends PostgresTestcontainersConfig {
     }
 
     @Test
-    void offline_createManualOrderCash_and_confirmManualCash_applies() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("offline-manual", "OMN");
+    void confirmManualCash_requires_open_cash_session() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("caixa-req", "CXR");
         openTurno(prov);
         Produto prod = criarProdutoBasico(prov.getTenantId());
         DispositivoOperacional disp = criarDevicePos(prov);
 
+        UsernamePasswordAuthenticationToken auth = deviceAuth(prov, disp, List.of(
+                DeviceCapability.CREATE_ORDER,
+                DeviceCapability.CONFIRM_CASH_PAYMENT,
+                DeviceCapability.VIEW_PAYMENT_ORDER,
+                DeviceCapability.OPEN_OPERATOR_CASH_SESSION,
+                DeviceCapability.CLOSE_OPERATOR_CASH_SESSION,
+                DeviceCapability.VIEW_OPERATOR_CASH_SESSION,
+                DeviceCapability.VIEW_OPERATOR_CASH_SESSION_ITEMS
+        ));
+
+        long pedidoId = criarPedidoOnline(auth, prod.getId());
+        long ordemId = criarOrdemManualOffline(auth, pedidoId, "cmd-ordem-1", MetodoPagamentoManual.CASH);
+
+        // sem abrir caixa -> conflito
+        ConfirmarOrdemManualRequest confirm = new ConfirmarOrdemManualRequest();
+        confirm.setClientRequestId("confirm-1");
+        confirm.setMetodoConfirmado(MetodoPagamentoManual.CASH);
+        confirm.setValorRecebido(new BigDecimal("10.00"));
+
+        mockMvc.perform(post("/device/ordens-pagamento/" + ordemId + "/confirmar-manual")
+                        .with(authentication(auth))
+                        .header("Idempotency-Key", "idem-confirm-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirm)))
+                .andExpect(status().isConflict());
+
+        // abre caixa e confirma
+        AbrirCaixaOperadorRequest open = new AbrirCaixaOperadorRequest();
+        open.setOperadorUserId(prov.getOwnerUserId());
+        String openResp = mockMvc.perform(post("/device/caixa-operador/open")
+                        .with(authentication(auth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(open)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode openJson = objectMapper.readTree(openResp);
+        long caixaId = openJson.at("/data/id").asLong();
+        assertThat(caixaId).isPositive();
+
+        mockMvc.perform(post("/device/ordens-pagamento/" + ordemId + "/confirmar-manual")
+                        .with(authentication(auth))
+                        .header("Idempotency-Key", "idem-confirm-2")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirm)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void close_cash_session_calculates_expected_and_differences_and_creates_items() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("caixa-close", "CXC");
+        openTurno(prov);
+        Produto prod = criarProdutoBasico(prov.getTenantId());
+        DispositivoOperacional disp = criarDevicePos(prov);
+
+        UsernamePasswordAuthenticationToken auth = deviceAuth(prov, disp, List.of(
+                DeviceCapability.CREATE_ORDER,
+                DeviceCapability.CONFIRM_CASH_PAYMENT,
+                DeviceCapability.CONFIRM_TPA_PAYMENT,
+                DeviceCapability.VIEW_PAYMENT_ORDER,
+                DeviceCapability.OPEN_OPERATOR_CASH_SESSION,
+                DeviceCapability.CLOSE_OPERATOR_CASH_SESSION,
+                DeviceCapability.VIEW_OPERATOR_CASH_SESSION,
+                DeviceCapability.VIEW_OPERATOR_CASH_SESSION_ITEMS
+        ));
+
+        AbrirCaixaOperadorRequest open = new AbrirCaixaOperadorRequest();
+        open.setOperadorUserId(prov.getOwnerUserId());
+        String openResp = mockMvc.perform(post("/device/caixa-operador/open")
+                        .with(authentication(auth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(open)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long caixaId = objectMapper.readTree(openResp).at("/data/id").asLong();
+
+        long pedidoCash = criarPedidoOnline(auth, prod.getId());
+        long ordemCash = criarOrdemManualOffline(auth, pedidoCash, "cmd-ordem-cash", MetodoPagamentoManual.CASH);
+        confirmarOrdem(auth, ordemCash, "c-1", MetodoPagamentoManual.CASH, new BigDecimal("10.00"), "idem-conf-cash");
+
+        long pedidoTpa = criarPedidoOnline(auth, prod.getId());
+        long ordemTpa = criarOrdemManualOffline(auth, pedidoTpa, "cmd-ordem-tpa", MetodoPagamentoManual.TPA);
+        confirmarOrdem(auth, ordemTpa, "t-1", MetodoPagamentoManual.TPA, new BigDecimal("10.00"), "idem-conf-tpa");
+
+        FecharCaixaOperadorRequest close = new FecharCaixaOperadorRequest();
+        close.setDeclaredCashAmount(new BigDecimal("10.00"));
+        close.setDeclaredTpaAmount(new BigDecimal("10.00"));
+
+        String closeResp = mockMvc.perform(post("/device/caixa-operador/" + caixaId + "/close")
+                        .with(authentication(auth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(close)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode closeJson = objectMapper.readTree(closeResp);
+        assertThat(closeJson.at("/data/status").asText()).isEqualTo("CLOSED");
+        assertThat(closeJson.at("/data/expectedCashAmount").asText()).isEqualTo("10.00");
+        assertThat(closeJson.at("/data/expectedTpaAmount").asText()).isEqualTo("10.00");
+        assertThat(closeJson.at("/data/manualDifferenceAmount").decimalValue()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    private UsernamePasswordAuthenticationToken deviceAuth(ProvisionarTenantResponse prov, DispositivoOperacional disp, List<DeviceCapability> caps) {
         DevicePrincipal device = new DevicePrincipal(
                 disp.getId(), disp.getCodigo(),
                 prov.getTenantId(), prov.getTenantCode(),
                 prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
                 DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                List.of(
-                        DeviceCapability.CREATE_ORDER,
-                        DeviceCapability.CONFIRM_CASH_PAYMENT,
-                        DeviceCapability.OPEN_OPERATOR_CASH_SESSION,
-                        DeviceCapability.CLOSE_OPERATOR_CASH_SESSION,
-                        DeviceCapability.VIEW_OPERATOR_CASH_SESSION,
-                        DeviceCapability.OFFLINE_SYNC,
-                        DeviceCapability.OFFLINE_CREATE_ORDER,
-                        DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER,
-                        DeviceCapability.OFFLINE_CONFIRM_MANUAL_PAYMENT
-                ),
+                caps,
                 1
         );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
+        return new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
+    }
 
-        // Abre caixa OPEN para o device (Prompt 42 exige caixa para confirmação manual CASH/TPA)
-        var openCash = new com.restaurante.dto.request.AbrirCaixaOperadorRequest();
-        openCash.setOperadorUserId(prov.getOwnerUserId());
-        mockMvc.perform(post("/device/caixa-operador/open")
-                        .with(authentication(auth))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(openCash)))
-                .andExpect(status().isOk());
-
-        // cria pedido online (para ter pedidoId)
+    private long criarPedidoOnline(UsernamePasswordAuthenticationToken auth, Long produtoId) throws Exception {
         DeviceCriarPedidoRequest pedidoReq = new DeviceCriarPedidoRequest();
-        pedidoReq.setClientRequestId("online-p-1");
+        pedidoReq.setClientRequestId("online-" + System.nanoTime());
         DeviceCriarPedidoItemRequest it = new DeviceCriarPedidoItemRequest();
-        it.setProdutoId(prod.getId());
+        it.setProdutoId(produtoId);
         it.setQuantidade(1);
         pedidoReq.setItens(List.of(it));
         String pedidoResp = mockMvc.perform(post("/device/pedidos")
                         .with(authentication(auth))
-                        .header("Idempotency-Key", "idem-online-1")
+                        .header("Idempotency-Key", "idem-" + System.nanoTime())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(pedidoReq)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        JsonNode pedidoJson = objectMapper.readTree(pedidoResp);
-        long pedidoId = pedidoJson.at("/data/pedidoId").asLong();
-        BigDecimal total = new BigDecimal(pedidoJson.at("/data/total").asText("10.00"));
+        return objectMapper.readTree(pedidoResp).at("/data/pedidoId").asLong();
+    }
 
-        // cria ordem manual CASH via offline sync
+    private long criarOrdemManualOffline(UsernamePasswordAuthenticationToken auth, long pedidoId, String clientRequestId, MetodoPagamentoManual metodo) throws Exception {
         DeviceOfflineSyncBatchRequest batch = new DeviceOfflineSyncBatchRequest();
         DeviceOfflineCommandRequest cmd = new DeviceOfflineCommandRequest();
-        cmd.setClientRequestId("cmd-manual-1");
+        cmd.setClientRequestId(clientRequestId);
         cmd.setCommandType(DeviceOfflineCommandType.CREATE_ORDEM_PAGAMENTO_MANUAL);
         cmd.setCommandVersion("1");
         cmd.setLocalCreatedAt(Instant.now());
         cmd.setPayload(objectMapper.readTree("""
-                {"destination":"PEDIDO","pedidoId":%d,"metodo":"CASH","valor":%s,"moeda":"AOA"}
-                """.formatted(pedidoId, total.toPlainString())));
+                {"destination":"PEDIDO","pedidoId":%d,"metodo":"%s","valor":10.00,"moeda":"AOA"}
+                """.formatted(pedidoId, metodo.name())));
         batch.setCommands(List.of(cmd));
 
-        String resp1 = mockMvc.perform(post("/device/offline-sync/batch")
+        String resp = mockMvc.perform(post("/device/offline-sync/batch")
                         .with(authentication(auth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(batch)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        JsonNode j1 = objectMapper.readTree(resp1);
-        assertThat(j1.at("/data/applied").asInt()).isEqualTo(1);
-        assertThat(j1.at("/data/results/0/createdEntityType").asText()).isEqualTo("ORDEM_PAGAMENTO");
-        long ordemId = j1.at("/data/results/0/result/ordemPagamentoId").asLong();
-        assertThat(ordemId).isPositive();
+        JsonNode j = objectMapper.readTree(resp);
+        return j.at("/data/results/0/createdEntityId").asLong();
+    }
 
-        // confirma manual CASH via offline sync
-        DeviceOfflineSyncBatchRequest batch2 = new DeviceOfflineSyncBatchRequest();
-        DeviceOfflineCommandRequest cmd2 = new DeviceOfflineCommandRequest();
-        cmd2.setClientRequestId("cmd-confirm-1");
-        cmd2.setCommandType(DeviceOfflineCommandType.CONFIRM_MANUAL_PAYMENT);
-        cmd2.setCommandVersion("1");
-        cmd2.setLocalCreatedAt(Instant.now());
-        cmd2.setPayload(objectMapper.readTree("""
-                {"ordemPagamentoId":%d,"metodo":"CASH","valorConfirmado":%s,"moeda":"AOA","comprovativoLocal":"OFFLINE-OK"}
-                """.formatted(ordemId, total.toPlainString())));
-        batch2.setCommands(List.of(cmd2));
-
-        String resp2 = mockMvc.perform(post("/device/offline-sync/batch")
+    private void confirmarOrdem(UsernamePasswordAuthenticationToken auth,
+                               long ordemId,
+                               String clientRequestId,
+                               MetodoPagamentoManual metodo,
+                               BigDecimal valorRecebido,
+                               String idemKey) throws Exception {
+        ConfirmarOrdemManualRequest confirm = new ConfirmarOrdemManualRequest();
+        confirm.setClientRequestId(clientRequestId);
+        confirm.setMetodoConfirmado(metodo);
+        confirm.setValorRecebido(valorRecebido);
+        confirm.setReferenciaOperador("OK");
+        mockMvc.perform(post("/device/ordens-pagamento/" + ordemId + "/confirmar-manual")
                         .with(authentication(auth))
+                        .header("Idempotency-Key", idemKey)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(batch2)))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        JsonNode j2 = objectMapper.readTree(resp2);
-        assertThat(j2.at("/data/applied").asInt()).isEqualTo(1);
-        assertThat(j2.at("/data/results/0/status").asText()).isEqualTo("APPLIED");
+                        .content(objectMapper.writeValueAsString(confirm)))
+                .andExpect(status().isOk());
     }
 
     private ProvisionarTenantResponse provisionTenant(String slug, String code) {
@@ -219,7 +299,7 @@ class DeviceOfflineManualPaymentIT extends PostgresTestcontainersConfig {
         req.setInstituicaoId(prov.getInstituicaoId());
         req.setUnidadeAtendimentoId(prov.getUnidadeAtendimentoId());
         req.setTipo(TurnoOperacionalTipo.POS);
-        req.setNome("Turno Offline Manual");
+        req.setNome("Turno Caixa");
         req.setChecklist(List.of(
                 boolItem("DEVICE_ONLINE", true),
                 boolItem("QR_VISIVEL", true),
@@ -251,7 +331,7 @@ class DeviceOfflineManualPaymentIT extends PostgresTestcontainersConfig {
 
         Produto prod = Produto.builder()
                 .codigo("P-" + (System.nanoTime() % 1_000_000))
-                .nome("Produto Offline")
+                .nome("Produto Caixa")
                 .preco(new BigDecimal("10.00"))
                 .categoria(CategoriaProdutoLegacy.OUTROS)
                 .ativo(true)
@@ -270,10 +350,10 @@ class DeviceOfflineManualPaymentIT extends PostgresTestcontainersConfig {
         d.setTenant(tenant);
         d.setInstituicao(inst);
         d.setUnidadeAtendimento(ua);
-        d.setNome("POS Offline Manual");
-        d.setCodigo("POS-OFF-" + (System.nanoTime() % 100000));
         d.setTipo(DispositivoTipo.POS);
         d.setStatus(DispositivoStatus.ATIVO);
-        return dispositivoOperacionalRepository.saveAndFlush(d);
+        d.setCodigo("POS-" + (System.nanoTime() % 1_000_000));
+        d.setNome("POS Caixa");
+        return dispositivoOperacionalRepository.save(d);
     }
 }

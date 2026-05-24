@@ -14,6 +14,10 @@ public final class DeviceCapabilityDefaults {
         if (type == null) type = OperationalDeviceType.GENERIC_DEVICE;
         return switch (type) {
             case POS_CAIXA -> EnumSet.of(
+                    DeviceCapability.OPEN_OPERATOR_CASH_SESSION,
+                    DeviceCapability.CLOSE_OPERATOR_CASH_SESSION,
+                    DeviceCapability.VIEW_OPERATOR_CASH_SESSION,
+                    DeviceCapability.VIEW_OPERATOR_CASH_SESSION_ITEMS,
                     DeviceCapability.LOOKUP_CONSUMPTION_BY_PHONE,
                     DeviceCapability.REQUEST_ASSISTED_IDENTIFICATION_OTP,
                     DeviceCapability.VERIFY_ASSISTED_IDENTIFICATION_OTP,
@@ -33,6 +37,7 @@ public final class DeviceCapabilityDefaults {
                     DeviceCapability.RESEND_SESSION_PARTICIPANT_INVITE
             );
             case POS_ATENDIMENTO -> EnumSet.of(
+                    DeviceCapability.VIEW_OPERATOR_CASH_SESSION,
                     DeviceCapability.LOOKUP_CONSUMPTION_BY_PHONE,
                     DeviceCapability.REQUEST_ASSISTED_IDENTIFICATION_OTP,
                     DeviceCapability.OFFLINE_SYNC,

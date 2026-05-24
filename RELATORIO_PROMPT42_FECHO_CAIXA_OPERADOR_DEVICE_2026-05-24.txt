@@ -1,0 +1,108 @@
+RELATÓRIO EXECUTIVO — PROMPT 42 — FECHO DE CAIXA POR OPERADOR/DEVICE (CASH/TPA)
+Data: 2026-05-24
+
+1) Objetivo
+- Introduzir “caixa operacional” por operador + device/POS para reconciliação física de CASH/TPA.
+- Permitir esperado vs declarado, divergências, revisão e snapshot de composição do caixa.
+- Preservar AppyPay e snapshot/evidence bundle existentes (sem redesign).
+
+2) Entregas principais
+- Nova entidade: CaixaOperadorSession (OPEN → CLOSED → REVIEWED/DISPUTED).
+- Snapshot no fecho: CaixaOperadorSessionItem (1 item por OrdemPagamento confirmada).
+- Enforcement: confirmação manual CASH/TPA por device exige caixa OPEN.
+- Endpoints device para abrir/consultar/fechar caixa.
+- Endpoints tenant/admin para listar/detalhar/revisar caixas e listar items.
+- Auditoria operacional sanitizada para abertura/fecho/revisão e ausência de caixa.
+
+3) Migrations
+- Criada: src/main/resources/db/migration/V46__caixa_operador_device.sql
+  - cria: caixa_operador_sessions
+  - cria: caixa_operador_session_items
+  - adiciona: ordens_pagamento.caixa_operador_session_id
+  - adiciona: pagamentos_gateway.ordem_pagamento_id
+  - unique parcial: 1 caixa OPEN por tenant+device
+
+4) Enums / Capabilities / Events
+- Novo enum:
+  - src/main/java/com/restaurante/model/enums/CaixaOperadorSessionStatus.java
+- Alterado:
+  - src/main/java/com/restaurante/model/enums/DeviceCapability.java
+    - OPEN_OPERATOR_CASH_SESSION
+    - CLOSE_OPERATOR_CASH_SESSION
+    - VIEW_OPERATOR_CASH_SESSION
+    - VIEW_OPERATOR_CASH_SESSION_ITEMS
+    - REVIEW_OPERATOR_CASH_SESSION (reservado)
+  - src/main/java/com/restaurante/model/enums/OperationalEventType.java
+    - eventos CAIXA_OPERADOR_SESSION_*
+  - src/main/java/com/restaurante/model/enums/OperationalEntityType.java
+    - CAIXA_OPERADOR_SESSION
+- Defaults:
+  - src/main/java/com/restaurante/device/capability/service/DeviceCapabilityDefaults.java
+    - POS_CAIXA: open/close/view (+ items)
+    - POS_ATENDIMENTO: view
+
+5) Entidades / Repositories / Services
+- Entidades:
+  - src/main/java/com/restaurante/model/entity/CaixaOperadorSession.java
+  - src/main/java/com/restaurante/model/entity/CaixaOperadorSessionItem.java
+  - src/main/java/com/restaurante/model/entity/OrdemPagamento.java (link p/ caixa)
+  - src/main/java/com/restaurante/model/entity/Pagamento.java (link p/ ordem)
+- Repositories:
+  - src/main/java/com/restaurante/financeiro/caixa/repository/CaixaOperadorSessionRepository.java
+  - src/main/java/com/restaurante/financeiro/caixa/repository/CaixaOperadorSessionItemRepository.java
+  - src/main/java/com/restaurante/financeiro/repository/OrdemPagamentoRepository.java (query por caixa)
+  - src/main/java/com/restaurante/financeiro/repository/PagamentoGatewayRepository.java (query por ordem)
+- Service:
+  - src/main/java/com/restaurante/financeiro/caixa/service/CaixaOperadorSessionService.java
+    - abrir/fechar/revisar
+    - requireOpenForDevice usado na confirmação manual
+
+6) Enforcement (CASH/TPA)
+- Alterado:
+  - src/main/java/com/restaurante/service/device/DeviceOrdemPagamentoService.java
+    - confirmação manual exige CaixaOperadorSession OPEN
+    - vincula OrdemPagamento ao caixa e define confirmadoPorUser com operador do caixa (quando ausente)
+- Alterado:
+  - src/main/java/com/restaurante/financeiro/service/OrdemPagamentoService.java
+    - Pagamento manual referencia a OrdemPagamento (pagamentos_gateway.ordem_pagamento_id)
+
+7) Endpoints
+- Device:
+  - src/main/java/com/restaurante/controller/DeviceCaixaOperadorController.java
+    - POST /device/caixa-operador/open
+    - GET  /device/caixa-operador/current
+    - GET  /device/caixa-operador/{caixaId}
+    - POST /device/caixa-operador/{caixaId}/close
+- Tenant/Admin:
+  - src/main/java/com/restaurante/controller/TenantCaixaOperadorController.java
+    - GET  /tenant/caixa-operador
+    - GET  /tenant/caixa-operador/{caixaId}
+    - GET  /tenant/caixa-operador/{caixaId}/items
+    - POST /tenant/caixa-operador/{caixaId}/review
+
+8) Testes
+- Atualizados:
+  - src/test/java/com/restaurante/device/DeviceOfflineManualPaymentIT.java
+  - src/test/java/com/restaurante/device/DeviceOfflineChainedPaymentIT.java
+  (agora abrem caixa antes de CONFIRM_MANUAL_PAYMENT)
+- Novo:
+  - src/test/java/com/restaurante/device/CaixaOperadorDeviceIT.java
+    - confirma que confirmação manual CASH exige caixa OPEN
+    - valida fecho com cálculo esperado/diferenças
+
+9) Documentação
+- Criada:
+  - docs/tenant-core/42-fecho-caixa-operador-device.md
+
+10) Itens não cobertos (intencional)
+- Não implementa UI.
+- Não implementa abrir/fechar caixa offline.
+- Não integra ainda o resumo de caixas ao Evidence Bundle consolidado (P42-DEBT-1).
+- Não altera AppyPay/callback/polling.
+- Não altera WORM/evidence bundle (apenas mantém compatível).
+
+11) Comandos obrigatórios
+- mvn -q -DskipTests compile
+- Resultado: OK
+- mvn test
+- Resultado: BUILD SUCCESS (Tests run: 493, Failures: 0, Errors: 0, Skipped: 223)

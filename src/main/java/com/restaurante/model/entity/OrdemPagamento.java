@@ -107,6 +107,10 @@ public class OrdemPagamento extends BaseEntity {
     @JoinColumn(name = "confirmado_por_user_id")
     private User confirmadoPorUser;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "caixa_operador_session_id")
+    private CaixaOperadorSession caixaOperadorSession;
+
     @Column(name = "confirmado_em")
     private LocalDateTime confirmadoEm;
 
@@ -121,4 +125,3 @@ public class OrdemPagamento extends BaseEntity {
         return now != null ? expiresAt.isBefore(now) : expiresAt.isBefore(LocalDateTime.now());
     }
 }
-

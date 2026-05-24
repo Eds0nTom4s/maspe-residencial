@@ -10,6 +10,7 @@ import com.restaurante.exception.DeviceUnauthorizedException;
 import com.restaurante.financeiro.repository.OrdemPagamentoManualIdempotencyRepository;
 import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
+import com.restaurante.financeiro.caixa.service.CaixaOperadorSessionService;
 import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodService;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
@@ -67,6 +68,7 @@ public class DeviceOrdemPagamentoService {
     private final OperationalEventLogService operationalEventLogService;
     private final TenantPaymentMethodService tenantPaymentMethodService;
     private final PaymentMethodPolicyResolutionService policyResolutionService;
+    private final CaixaOperadorSessionService caixaOperadorSessionService;
 
     @Transactional(readOnly = true)
     public DeviceOrdemPagamentoResponse escanearPorToken(String token) {
@@ -287,6 +289,12 @@ public class DeviceOrdemPagamentoService {
 
         // aplica confirmação e efeitos (pagamento/pedido ou crédito fundo)
         ordemLocked.setConfirmadoPorDispositivo(dispositivo);
+        // Caixa OPEN é obrigatório para confirmação manual (CASH/TPA) por device/POS (Prompt 42)
+        var caixa = caixaOperadorSessionService.requireOpenForDevice(device);
+        ordemLocked.setCaixaOperadorSession(caixa);
+        if (ordemLocked.getConfirmadoPorUser() == null) {
+            ordemLocked.setConfirmadoPorUser(caixa.getOperador());
+        }
         Pagamento pagamento = ordemPagamentoService.aplicarConfirmacaoManualOrdem(
                 ordemLocked,
                 request.getMetodoConfirmado(),

@@ -91,6 +91,9 @@ class DeviceOfflineChainedPaymentIT extends PostgresTestcontainersConfig {
                 List.of(
                         DeviceCapability.CREATE_ORDER,
                         DeviceCapability.CONFIRM_CASH_PAYMENT,
+                        DeviceCapability.OPEN_OPERATOR_CASH_SESSION,
+                        DeviceCapability.CLOSE_OPERATOR_CASH_SESSION,
+                        DeviceCapability.VIEW_OPERATOR_CASH_SESSION,
                         DeviceCapability.OFFLINE_SYNC,
                         DeviceCapability.OFFLINE_CREATE_ORDER,
                         DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER,
@@ -99,6 +102,14 @@ class DeviceOfflineChainedPaymentIT extends PostgresTestcontainersConfig {
                 1
         );
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
+
+        var openCash = new com.restaurante.dto.request.AbrirCaixaOperadorRequest();
+        openCash.setOperadorUserId(prov.getOwnerUserId());
+        mockMvc.perform(post("/device/caixa-operador/open")
+                        .with(authentication(auth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(openCash)))
+                .andExpect(status().isOk());
 
         DeviceOfflineCommandRequest cmd1 = new DeviceOfflineCommandRequest();
         cmd1.setClientRequestId("cmd-pedido-001");
@@ -253,4 +264,3 @@ class DeviceOfflineChainedPaymentIT extends PostgresTestcontainersConfig {
         return dispositivoOperacionalRepository.saveAndFlush(d);
     }
 }
-

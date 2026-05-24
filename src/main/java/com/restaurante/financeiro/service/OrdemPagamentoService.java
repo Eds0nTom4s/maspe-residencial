@@ -240,6 +240,7 @@ public class OrdemPagamentoService {
                     .tenant(ordem.getTenant())
                     .pedido(null)
                     .fundoConsumo(fundo)
+                    .ordemPagamento(ordem)
                     .cliente(null)
                     .tipoPagamento(TipoPagamentoFinanceiro.PRE_PAGO)
                     .metodo(null)
@@ -263,6 +264,7 @@ public class OrdemPagamentoService {
                     .tenant(ordem.getTenant())
                     .pedido(pedido)
                     .fundoConsumo(null)
+                    .ordemPagamento(ordem)
                     .cliente(null)
                     .tipoPagamento(TipoPagamentoFinanceiro.POS_PAGO)
                     .metodo(null)
@@ -285,4 +287,3 @@ public class OrdemPagamentoService {
         return null;
     }
 }
-

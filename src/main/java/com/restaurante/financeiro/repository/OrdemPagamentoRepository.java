@@ -73,4 +73,17 @@ public interface OrdemPagamentoRepository extends JpaRepository<OrdemPagamento, 
     List<OrdemPagamento> findAllByTenantIdAndTurnoOperacionalIdAndStatus(@Param("tenantId") Long tenantId,
                                                                          @Param("turnoId") Long turnoId,
                                                                          @Param("status") OrdemPagamentoStatus status);
+
+    @Query("""
+            select o
+            from OrdemPagamento o
+              left join fetch o.confirmadoPorDispositivo d
+            where o.tenant.id = :tenantId
+              and o.caixaOperadorSession.id = :caixaId
+              and o.status = :status
+            order by o.confirmadoEm asc
+            """)
+    List<OrdemPagamento> findAllByTenantIdAndCaixaOperadorSessionIdAndStatus(@Param("tenantId") Long tenantId,
+                                                                             @Param("caixaId") Long caixaId,
+                                                                             @Param("status") OrdemPagamentoStatus status);
 }

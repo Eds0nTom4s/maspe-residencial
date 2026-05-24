@@ -46,6 +46,15 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
 
     Optional<Pagamento> findByIdAndTenantId(Long id, Long tenantId);
 
+    @Query("""
+            select p
+            from Pagamento p
+            where p.tenant.id = :tenantId
+              and p.ordemPagamento.id = :ordemPagamentoId
+            """)
+    Optional<Pagamento> findByTenantIdAndOrdemPagamentoId(@Param("tenantId") Long tenantId,
+                                                          @Param("ordemPagamentoId") Long ordemPagamentoId);
+
     Page<Pagamento> findByTenantIdAndStatus(Long tenantId, StatusPagamentoGateway status, Pageable pageable);
 
     @Query("SELECT p FROM Pagamento p WHERE p.tenant.id = :tenantId " +

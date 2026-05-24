@@ -60,6 +60,14 @@ public class Pagamento extends BaseEntity {
     private FundoConsumo fundoConsumo;
 
     /**
+     * OrdemPagamento relacionada (opcional)
+     * Usado principalmente para pagamentos manuais (CASH/TPA) criados a partir de uma OrdemPagamento.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ordem_pagamento_id")
+    private OrdemPagamento ordemPagamento;
+
+    /**
      * Cliente relacionado (opcional)
      * Usado quando o cliente solicita recarga sem ter uma sessão ativa
      */
@@ -198,6 +206,7 @@ public class Pagamento extends BaseEntity {
     // ── Getters ───────────────────────────────────────────────────────────────
     public Pedido getPedido() { return pedido; }
     public FundoConsumo getFundoConsumo() { return fundoConsumo; }
+    public OrdemPagamento getOrdemPagamento() { return ordemPagamento; }
     public Cliente getCliente() { return cliente; }
     public Tenant getTenant() { return tenant; }
     public TipoPagamentoFinanceiro getTipoPagamento() { return tipoPagamento; }
@@ -215,6 +224,7 @@ public class Pagamento extends BaseEntity {
     // ── Setters ───────────────────────────────────────────────────────────────
     public void setPedido(Pedido pedido) { this.pedido = pedido; }
     public void setFundoConsumo(FundoConsumo fundoConsumo) { this.fundoConsumo = fundoConsumo; }
+    public void setOrdemPagamento(OrdemPagamento ordemPagamento) { this.ordemPagamento = ordemPagamento; }
     public void setCliente(Cliente cliente) { this.cliente = cliente; }
     public void setTenant(Tenant tenant) { this.tenant = tenant; }
     public void setTipoPagamento(TipoPagamentoFinanceiro tipoPagamento) { this.tipoPagamento = tipoPagamento; }
@@ -272,6 +282,7 @@ public class Pagamento extends BaseEntity {
         private Tenant tenant;
         private Pedido pedido;
         private FundoConsumo fundoConsumo;
+        private OrdemPagamento ordemPagamento;
         private Cliente cliente;
         private TipoPagamentoFinanceiro tipoPagamento;
         private MetodoPagamentoAppyPay metodo;
@@ -288,6 +299,7 @@ public class Pagamento extends BaseEntity {
         public Builder tenant(Tenant tenant) { this.tenant = tenant; return this; }
         public Builder pedido(Pedido pedido) { this.pedido = pedido; return this; }
         public Builder fundoConsumo(FundoConsumo fundoConsumo) { this.fundoConsumo = fundoConsumo; return this; }
+        public Builder ordemPagamento(OrdemPagamento ordemPagamento) { this.ordemPagamento = ordemPagamento; return this; }
         public Builder cliente(Cliente cliente) { this.cliente = cliente; return this; }
         public Builder tipoPagamento(TipoPagamentoFinanceiro tipoPagamento) { this.tipoPagamento = tipoPagamento; return this; }
         public Builder metodo(MetodoPagamentoAppyPay metodo) { this.metodo = metodo; return this; }
@@ -306,6 +318,7 @@ public class Pagamento extends BaseEntity {
                     externalReference, gatewayChargeId, entidade, referencia,
                     confirmedAt, gatewayResponse, observacoes);
             p.setTenant(tenant);
+            p.setOrdemPagamento(ordemPagamento);
             return p;
         }
     }

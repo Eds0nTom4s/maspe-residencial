@@ -220,6 +220,25 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
                                                                           @Param("status") StatusPagamentoGateway status);
 
     @Query("""
+            select count(p)
+            from Pagamento p
+            where p.tenant.id = :tenantId
+              and p.status = 'CONFIRMADO'
+              and p.pedido is not null
+              and p.pedido.turnoOperacional is not null
+              and p.pedido.turnoOperacional.id = :turnoId
+              and not exists (
+                  select 1 from FiscalDocument d
+                  where d.tenant.id = :tenantId
+                    and d.pagamento is not null
+                    and d.pagamento.id = p.id
+                    and d.status = 'ISSUED'
+              )
+            """)
+    long countConfirmedPaymentsWithoutIssuedFiscalDocument(@Param("tenantId") Long tenantId,
+                                                           @Param("turnoId") Long turnoId);
+
+    @Query("""
             select p
             from Pagamento p
               join fetch p.fundoConsumo f

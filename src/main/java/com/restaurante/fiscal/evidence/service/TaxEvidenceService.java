@@ -1,9 +1,11 @@
 package com.restaurante.fiscal.evidence.service;
 
 import com.restaurante.fiscal.config.TaxProperties;
+import com.restaurante.fiscal.autoissue.repository.FiscalAutoIssueJobRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentLineRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentRepository;
 import com.restaurante.fiscal.repository.TenantFiscalProfileRepository;
+import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceByTaxRateDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceDocumentItemDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceSectionDTO;
@@ -12,6 +14,7 @@ import com.restaurante.model.entity.FiscalDocumentLine;
 import com.restaurante.model.entity.TenantFiscalProfile;
 import com.restaurante.model.enums.FiscalDocumentStatus;
 import com.restaurante.model.enums.FiscalRegime;
+import com.restaurante.model.enums.FiscalAutoIssueJobStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -33,12 +36,16 @@ public class TaxEvidenceService {
     private final TenantFiscalProfileRepository fiscalProfileRepository;
     private final FiscalDocumentRepository fiscalDocumentRepository;
     private final FiscalDocumentLineRepository fiscalDocumentLineRepository;
+    private final FiscalAutoIssueJobRepository autoIssueJobRepository;
+    private final PagamentoGatewayRepository pagamentoGatewayRepository;
 
     public TaxEvidenceSectionDTO buildForTurno(Long tenantId, Long turnoId) {
         TaxEvidenceSectionDTO out = new TaxEvidenceSectionDTO();
         out.setGeneratedAt(LocalDateTime.now());
         out.setTenantId(tenantId);
         out.setTurnoId(turnoId);
+        out.setAutoIssueEnabled(props.getDocument().getAutoIssue().isEnabled());
+        out.setAutoIssueOnPayment(props.getDocument().isAutoIssueOnPayment());
 
         if (!props.isEnabled() || !props.getEvidence().isEnabled() || tenantId == null || turnoId == null) {
             out.setFiscalRegime(FiscalRegime.NOT_CONFIGURED.name());
@@ -78,6 +85,39 @@ public class TaxEvidenceService {
         }
         if (profile != null && !profile.isFiscalDocumentEnabled()) {
             warnings.add("FISCAL_DOCUMENT_DISABLED");
+        }
+
+        // Prompt 43.1: métricas de auto-emissão (jobs + pagamentos confirmados sem documento)
+        try {
+            Map<FiscalAutoIssueJobStatus, Integer> statusCounts = new HashMap<>();
+            for (Object[] row : autoIssueJobRepository.countByTenantAndTurnoGroupByStatus(tenantId, turnoId)) {
+                if (row == null || row.length < 2) continue;
+                FiscalAutoIssueJobStatus st = (FiscalAutoIssueJobStatus) row[0];
+                Long cnt = (Long) row[1];
+                statusCounts.put(st, cnt != null ? cnt.intValue() : 0);
+            }
+            int totalJobs = statusCounts.values().stream().mapToInt(Integer::intValue).sum();
+            out.setTotalAutoIssueJobs(totalJobs);
+            out.setPendingAutoIssueJobs(statusCounts.getOrDefault(FiscalAutoIssueJobStatus.PENDING, 0));
+            out.setFailedRetryableAutoIssueJobs(statusCounts.getOrDefault(FiscalAutoIssueJobStatus.FAILED_RETRYABLE, 0));
+            out.setFailedPermanentAutoIssueJobs(statusCounts.getOrDefault(FiscalAutoIssueJobStatus.FAILED_PERMANENT, 0));
+            out.setSkippedAutoIssueJobs(statusCounts.getOrDefault(FiscalAutoIssueJobStatus.SKIPPED, 0));
+            out.setIssuedByAutoIssueJobs(statusCounts.getOrDefault(FiscalAutoIssueJobStatus.ISSUED, 0));
+
+            long confirmedWithoutDoc = pagamentoGatewayRepository.countConfirmedPaymentsWithoutIssuedFiscalDocument(tenantId, turnoId);
+            out.setConfirmedPaymentsWithoutFiscalDocument((int) confirmedWithoutDoc);
+
+            if (confirmedWithoutDoc > 0) {
+                warnings.add("CONFIRMED_PAYMENT_WITHOUT_FISCAL_DOCUMENT");
+            }
+            if (out.getFailedPermanentAutoIssueJobs() != null && out.getFailedPermanentAutoIssueJobs() > 0) {
+                warnings.add("AUTO_ISSUE_JOB_FAILED_PERMANENT");
+            }
+            if (out.getFailedRetryableAutoIssueJobs() != null && out.getFailedRetryableAutoIssueJobs() > 0) {
+                warnings.add("AUTO_ISSUE_JOB_FAILED_RETRYABLE");
+            }
+        } catch (Exception ignored) {
+            // evidence deve ser tolerante: não falhar snapshot por falha de métricas
         }
 
         for (FiscalDocument d : docs) {
@@ -234,4 +274,3 @@ public class TaxEvidenceService {
         java.util.Set<Long> documents = new java.util.HashSet<>();
     }
 }
-

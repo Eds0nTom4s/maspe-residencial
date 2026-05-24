@@ -29,5 +29,7 @@ public enum OperationalEntityType {
     FISCAL_DOCUMENT,
     TENANT_FISCAL_PROFILE,
     TENANT_TAX_POLICY,
-    PRODUCT_TAX_CLASSIFICATION
+    PRODUCT_TAX_CLASSIFICATION,
+    // Prompt 43.1: auto-emissão fiscal pós-pagamento
+    FISCAL_AUTO_ISSUE_JOB
 }

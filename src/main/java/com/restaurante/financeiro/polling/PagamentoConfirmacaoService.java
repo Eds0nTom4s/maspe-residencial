@@ -7,9 +7,12 @@ import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.entity.PagamentoEventLog;
 import com.restaurante.model.entity.Pedido;
+import com.restaurante.fiscal.autoissue.event.PaymentConfirmedForFiscalIssueEvent;
+import com.restaurante.model.enums.FiscalAutoIssueSource;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.repository.PedidoRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +31,7 @@ public class PagamentoConfirmacaoService {
     private final PagamentoGatewayRepository pagamentoRepository;
     private final PedidoRepository pedidoRepository;
     private final PagamentoEventLogRepository pagamentoEventLogRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public boolean confirmarPosPagoPorGateway(Long pagamentoId,
@@ -80,7 +84,34 @@ public class PagamentoConfirmacaoService {
                 .build();
         pagamentoEventLogRepository.save(event);
 
+        publishFiscalAutoIssueEvent(pagamento, pedido, source);
         return true;
+    }
+
+    private void publishFiscalAutoIssueEvent(Pagamento pagamento, Pedido pedido, String source) {
+        if (pagamento == null || pedido == null) return;
+        if (pagamento.getTenant() == null || pagamento.getTenant().getId() == null) return;
+        if (pagamento.getId() == null || pedido.getId() == null) return;
+
+        FiscalAutoIssueSource autoSource = mapSource(source);
+        eventPublisher.publishEvent(new PaymentConfirmedForFiscalIssueEvent(
+                pagamento.getTenant().getId(),
+                pedido.getSessaoConsumo() != null && pedido.getSessaoConsumo().getUnidadeAtendimento() != null
+                        ? pedido.getSessaoConsumo().getUnidadeAtendimento().getId()
+                        : null,
+                pedido.getId(),
+                pagamento.getId(),
+                pedido.getSessaoConsumo() != null ? pedido.getSessaoConsumo().getId() : null,
+                null,
+                autoSource
+        ));
+    }
+
+    private static FiscalAutoIssueSource mapSource(String source) {
+        if (source == null) return FiscalAutoIssueSource.SYSTEM_BACKFILL;
+        if (source.contains("APPYPAY_CALLBACK")) return FiscalAutoIssueSource.APPYPAY_CALLBACK;
+        if (source.contains("APPYPAY_POLLING")) return FiscalAutoIssueSource.APPYPAY_POLLING;
+        return FiscalAutoIssueSource.SYSTEM_BACKFILL;
     }
 
     private static long toCentavos(BigDecimal amount) {
@@ -91,4 +122,3 @@ public class PagamentoConfirmacaoService {
                 .longValueExact();
     }
 }
-

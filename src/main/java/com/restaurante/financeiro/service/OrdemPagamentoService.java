@@ -23,11 +23,14 @@ import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.OrdemPagamentoTipo;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.fiscal.autoissue.event.PaymentConfirmedForFiscalIssueEvent;
+import com.restaurante.model.enums.FiscalAutoIssueSource;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
 import com.restaurante.service.FundoConsumoService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +51,7 @@ public class OrdemPagamentoService {
     private final FundoConsumoService fundoConsumoService;
     private final OrdemPagamentoTokenService tokenService;
     private final OperationalEventLogService operationalEventLogService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public OrdemPagamento criarOrdemCarregamentoFundo(Tenant tenant,
@@ -281,9 +285,32 @@ public class OrdemPagamentoService {
                 pedidoRepository.save(pedido);
             }
 
+            publishFiscalAutoIssueEventIfApplicable(ordem, pagamento, metodoConfirmado);
             return pagamento;
         }
 
         return null;
+    }
+
+    private void publishFiscalAutoIssueEventIfApplicable(OrdemPagamento ordem, Pagamento pagamento, MetodoPagamentoManual metodoConfirmado) {
+        if (ordem == null || pagamento == null) return;
+        if (pagamento.getPedido() == null) return;
+        if (pagamento.getTenant() == null || pagamento.getTenant().getId() == null) return;
+
+        FiscalAutoIssueSource source = switch (metodoConfirmado) {
+            case CASH -> FiscalAutoIssueSource.CASH_MANUAL_PAYMENT;
+            case TPA -> FiscalAutoIssueSource.TPA_MANUAL_PAYMENT;
+            default -> FiscalAutoIssueSource.SYSTEM_BACKFILL;
+        };
+
+        eventPublisher.publishEvent(new PaymentConfirmedForFiscalIssueEvent(
+                pagamento.getTenant().getId(),
+                ordem.getUnidadeAtendimento() != null ? ordem.getUnidadeAtendimento().getId() : null,
+                pagamento.getPedido().getId(),
+                pagamento.getId(),
+                ordem.getSessaoConsumo() != null ? ordem.getSessaoConsumo().getId() : null,
+                ordem.getCaixaOperadorSession() != null ? ordem.getCaixaOperadorSession().getId() : null,
+                source
+        ));
     }
 }

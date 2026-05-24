@@ -35,6 +35,8 @@ import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
+import com.restaurante.security.tenant.TenantContextHolder;
+import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -85,6 +88,32 @@ public class FiscalDocumentService {
                     null);
         }
         return issueInternal(device.tenantId(), pedidoId, pagamentoId, request, FiscalDocumentSource.POS, null, device.dispositivoId(), ip, userAgent);
+    }
+
+    /**
+     * Emissão automática (worker/server-side) pós-pagamento confirmado.
+     *
+     * Importante:
+     * - Não exige TenantUserRole (não há usuário).
+     * - Roda com TenantContext temporário (platformAdmin=true) para reutilizar validações tenant-safe.
+     */
+    @Transactional
+    public FiscalDocument issueForPedidoPaymentAsSystem(Long tenantId, Long pedidoId, Long pagamentoId) {
+        if (tenantId == null) throw new BusinessException("tenantId é obrigatório.");
+        TenantContextHolder.set(new TenantContext(
+                tenantId,
+                null,
+                null,
+                Set.of(),
+                TenantResolutionSource.LEGACY_NONE,
+                true,
+                false
+        ));
+        try {
+            return issueInternal(tenantId, pedidoId, pagamentoId, null, FiscalDocumentSource.SYSTEM, null, null, null, null);
+        } finally {
+            TenantContextHolder.clear();
+        }
     }
 
     @Transactional

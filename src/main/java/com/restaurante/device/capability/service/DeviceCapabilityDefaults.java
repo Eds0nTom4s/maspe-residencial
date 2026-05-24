@@ -28,7 +28,9 @@ public final class DeviceCapabilityDefaults {
                     DeviceCapability.VIEW_PENDING_SESSION_PARTICIPANTS,
                     DeviceCapability.APPROVE_SESSION_PARTICIPANT,
                     DeviceCapability.REJECT_SESSION_PARTICIPANT,
-                    DeviceCapability.INVITE_SESSION_PARTICIPANT
+                    DeviceCapability.INVITE_SESSION_PARTICIPANT,
+                    DeviceCapability.CANCEL_SESSION_PARTICIPANT_INVITE,
+                    DeviceCapability.RESEND_SESSION_PARTICIPANT_INVITE
             );
             case POS_ATENDIMENTO -> EnumSet.of(
                     DeviceCapability.LOOKUP_CONSUMPTION_BY_PHONE,
@@ -39,7 +41,8 @@ public final class DeviceCapabilityDefaults {
                     DeviceCapability.VIEW_SESSION_PARTICIPANTS,
                     DeviceCapability.ADD_SESSION_PARTICIPANT,
                     DeviceCapability.VIEW_PENDING_SESSION_PARTICIPANTS,
-                    DeviceCapability.INVITE_SESSION_PARTICIPANT
+                    DeviceCapability.INVITE_SESSION_PARTICIPANT,
+                    DeviceCapability.RESEND_SESSION_PARTICIPANT_INVITE
             );
             case POS_QUIOSQUE, KDS_COZINHA, KDS_BAR, DISPLAY_SENHA, ADMIN_TERMINAL, GENERIC_DEVICE -> EnumSet.noneOf(DeviceCapability.class);
         };

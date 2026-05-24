@@ -34,6 +34,10 @@ public class DeviceSessaoParticipantesResponse {
         private SessaoParticipanteStatus status;
         private Instant joinedAt;
         private Instant lastActivityAt;
+        private Instant expiresAt;
+        private Integer resendCount;
+        private Instant lastResendAt;
+        private Boolean canResend;
 
         public Long getParticipanteId() {
             return participanteId;
@@ -82,6 +86,37 @@ public class DeviceSessaoParticipantesResponse {
         public void setLastActivityAt(Instant lastActivityAt) {
             this.lastActivityAt = lastActivityAt;
         }
+
+        public Instant getExpiresAt() {
+            return expiresAt;
+        }
+
+        public void setExpiresAt(Instant expiresAt) {
+            this.expiresAt = expiresAt;
+        }
+
+        public Integer getResendCount() {
+            return resendCount;
+        }
+
+        public void setResendCount(Integer resendCount) {
+            this.resendCount = resendCount;
+        }
+
+        public Instant getLastResendAt() {
+            return lastResendAt;
+        }
+
+        public void setLastResendAt(Instant lastResendAt) {
+            this.lastResendAt = lastResendAt;
+        }
+
+        public Boolean getCanResend() {
+            return canResend;
+        }
+
+        public void setCanResend(Boolean canResend) {
+            this.canResend = canResend;
+        }
     }
 }
-

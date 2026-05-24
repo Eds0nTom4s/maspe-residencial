@@ -70,6 +70,10 @@ public class PublicSessaoParticipanteApprovalController {
             i.setStatus(p.getStatus());
             i.setJoinedAt(p.getJoinedAt());
             i.setTelefoneMascarado(telefoneNormalizerService.mask(p.getTelefoneNormalizado()));
+            i.setExpiresAt(p.getExpiresAt());
+            i.setResendCount(p.getResendCount());
+            i.setLastResendAt(p.getLastResendAt());
+            i.setCanResend(participanteService.canResendInviteNow(p));
             return i;
         }).toList());
         return ResponseEntity.ok(ApiResponse.success("Pendentes", resp));
@@ -133,6 +137,40 @@ public class PublicSessaoParticipanteApprovalController {
         return ResponseEntity.ok(ApiResponse.success("Convite enviado (OTP)", resp));
     }
 
+    @PostMapping("/participantes/{participanteId}/cancel")
+    @Operation(summary = "Cancelar convite/pendência (INVITED/PENDING_APPROVAL) pelo OWNER — exige auth OTP do OWNER")
+    public ResponseEntity<ApiResponse<Void>> cancel(
+            @PathVariable String token,
+            @PathVariable Long participanteId,
+            @Valid @RequestBody PublicOwnerAuthActionRequest request,
+            HttpServletRequest http
+    ) {
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        String ip = http != null ? http.getRemoteAddr() : null;
+        participanteService.cancelByOwner(token, participanteId, request.getOwnerChallengeId(), request.getOwnerTelefone(), request.getOtp(), request.getReason(), ip, ua);
+        return ResponseEntity.ok(ApiResponse.success("Cancelado", null));
+    }
+
+    @PostMapping("/participantes/{participanteId}/resend-invite")
+    @Operation(summary = "Reenviar convite (OTP) pelo OWNER — exige auth OTP do OWNER")
+    public ResponseEntity<ApiResponse<PublicOtpChallengeResponse>> resendInvite(
+            @PathVariable String token,
+            @PathVariable Long participanteId,
+            @Valid @RequestBody PublicOwnerAuthActionRequest request,
+            HttpServletRequest http
+    ) {
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        String ip = http != null ? http.getRemoteAddr() : null;
+        var result = participanteService.resendInviteByOwner(token, participanteId, request.getOwnerChallengeId(), request.getOwnerTelefone(), request.getOtp(), ip, ua);
+        PublicOtpChallengeResponse resp = new PublicOtpChallengeResponse();
+        resp.setChallengeId(result.getChallenge().getId());
+        resp.setExpiresAt(result.getChallenge().getExpiresAt());
+        resp.setResendAvailableAt(result.getResendAvailableAt());
+        resp.setMaskedPhone(result.getMaskedPhone());
+        resp.setDebugOtp(result.getDebugOtp());
+        return ResponseEntity.ok(ApiResponse.success("Convite reenviado", resp));
+    }
+
     @PostMapping("/participantes/invite/accept")
     @Operation(summary = "Aceitar convite por OTP")
     public ResponseEntity<ApiResponse<PublicSessaoParticipanteJoinVerifyResponse>> acceptInvite(
@@ -155,4 +193,3 @@ public class PublicSessaoParticipanteApprovalController {
         return ResponseEntity.ok(ApiResponse.success("Convite aceito", resp));
     }
 }
-

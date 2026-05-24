@@ -80,6 +80,10 @@ public class DeviceSessaoParticipanteController {
             i.setStatus(p.getStatus());
             i.setJoinedAt(p.getJoinedAt());
             i.setLastActivityAt(p.getLastActivityAt());
+            i.setExpiresAt(p.getExpiresAt());
+            i.setResendCount(p.getResendCount());
+            i.setLastResendAt(p.getLastResendAt());
+            i.setCanResend(participanteService.canResendInviteNow(p));
             return i;
         }).toList());
         return ResponseEntity.ok(ApiResponse.success("Pendentes", resp));
@@ -155,6 +159,58 @@ public class DeviceSessaoParticipanteController {
         resp.setResendAvailableAt(result.getResendAvailableAt());
         resp.setDebugOtp(result.getDebugOtp());
         return ResponseEntity.ok(ApiResponse.success("Convite enviado (OTP)", resp));
+    }
+
+    @PostMapping("/{participanteId}/cancel")
+    @Operation(summary = "Cancelar convite/pendência (POS)")
+    public ResponseEntity<ApiResponse<DeviceSessaoParticipanteManagementResponse>> cancel(
+            @PathVariable Long sessaoId,
+            @PathVariable Long participanteId,
+            @Valid @RequestBody DeviceSessaoParticipanteReasonRequest request,
+            HttpServletRequest http
+    ) {
+        DevicePrincipal device = requireDevicePrincipal();
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        String ip = http != null ? http.getRemoteAddr() : null;
+        var p = participanteService.cancelByDevice(device, sessaoId, participanteId, request.getReason(), ip, ua);
+        return ResponseEntity.ok(ApiResponse.success("Cancelado", toMgmtResponse(p)));
+    }
+
+    @PostMapping("/{participanteId}/resend-invite")
+    @Operation(summary = "Reenviar convite (OTP) (POS)")
+    public ResponseEntity<ApiResponse<DeviceSessaoParticipanteOtpChallengeResponse>> resendInvite(
+            @PathVariable Long sessaoId,
+            @PathVariable Long participanteId,
+            @Valid @RequestBody(required = false) DeviceSessaoParticipanteOptionalReasonRequest request,
+            HttpServletRequest http
+    ) {
+        DevicePrincipal device = requireDevicePrincipal();
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String reason = request != null ? request.getReason() : null;
+        var result = participanteService.resendInviteByDevice(device, sessaoId, participanteId, reason, ip, ua);
+        DeviceSessaoParticipanteOtpChallengeResponse resp = new DeviceSessaoParticipanteOtpChallengeResponse();
+        resp.setChallengeId(result.getChallenge().getId());
+        resp.setMaskedPhone(result.getMaskedPhone());
+        resp.setExpiresAt(result.getChallenge().getExpiresAt());
+        resp.setResendAvailableAt(result.getResendAvailableAt());
+        resp.setDebugOtp(result.getDebugOtp());
+        return ResponseEntity.ok(ApiResponse.success("Convite reenviado", resp));
+    }
+
+    @PostMapping("/{participanteId}/expire")
+    @Operation(summary = "Expirar participante pendente manualmente (POS)")
+    public ResponseEntity<ApiResponse<DeviceSessaoParticipanteManagementResponse>> expire(
+            @PathVariable Long sessaoId,
+            @PathVariable Long participanteId,
+            @Valid @RequestBody DeviceSessaoParticipanteReasonRequest request,
+            HttpServletRequest http
+    ) {
+        DevicePrincipal device = requireDevicePrincipal();
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        String ip = http != null ? http.getRemoteAddr() : null;
+        var p = participanteService.expireManuallyByDevice(device, sessaoId, participanteId, request.getReason(), ip, ua);
+        return ResponseEntity.ok(ApiResponse.success("Expirado", toMgmtResponse(p)));
     }
 
     @PostMapping("/otp/request")

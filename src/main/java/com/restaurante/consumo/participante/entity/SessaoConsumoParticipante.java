@@ -146,6 +146,39 @@ public class SessaoConsumoParticipante {
     @Column(name = "entry_policy_snapshot", length = 50)
     private String entryPolicySnapshot;
 
+    @Column(name = "expires_at")
+    private Instant expiresAt;
+
+    @Column(name = "expired_at")
+    private Instant expiredAt;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "cancelled_by_participante_id")
+    private Long cancelledByParticipanteId;
+
+    @Column(name = "cancelled_by_device_id")
+    private Long cancelledByDeviceId;
+
+    @Column(name = "cancellation_reason", length = 255)
+    private String cancellationReason;
+
+    @Column(name = "resend_count", nullable = false)
+    private int resendCount = 0;
+
+    @Column(name = "last_resend_at")
+    private Instant lastResendAt;
+
+    @Column(name = "last_reminder_at")
+    private Instant lastReminderAt;
+
+    @Column(name = "expiration_reason", length = 120)
+    private String expirationReason;
+
+    @Column(name = "cleanup_batch_id", length = 120)
+    private String cleanupBatchId;
+
     @Column(name = "role_changed_reason", length = 255)
     private String roleChangedReason;
 

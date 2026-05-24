@@ -6,6 +6,7 @@ import com.restaurante.model.enums.SessaoParticipanteStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
 
 import jakarta.persistence.LockModeType;
@@ -79,4 +80,64 @@ public interface SessaoConsumoParticipanteRepository extends JpaRepository<Sessa
                and p.status = com.restaurante.model.enums.SessaoParticipanteStatus.ACTIVE
             """)
     long countActiveOwners(@Param("tenantId") Long tenantId, @Param("sessaoId") Long sessaoId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p
+              from SessaoConsumoParticipante p
+             where p.status in (com.restaurante.model.enums.SessaoParticipanteStatus.INVITED,
+                                com.restaurante.model.enums.SessaoParticipanteStatus.PENDING_OTP,
+                                com.restaurante.model.enums.SessaoParticipanteStatus.PENDING_APPROVAL)
+               and p.expiresAt is not null
+               and p.expiresAt < :now
+               and p.expiredAt is null
+               and p.cancelledAt is null
+             order by p.expiresAt asc nulls last, p.id asc
+            """)
+    List<SessaoConsumoParticipante> findExpiredCandidatesForUpdate(@Param("now") java.time.Instant now, Pageable pageable);
+
+    // -------------------------------------------------------------------------
+    // Prompt 41.4 — Listagem paginada com filtros
+    // -------------------------------------------------------------------------
+
+    @Query("""
+            select p from SessaoConsumoParticipante p
+             where p.tenant.id = :tenantId
+               and p.sessaoConsumo.id = :sessaoId
+               and (:status is null or p.status = :status)
+               and (:role is null or p.role = :role)
+             order by p.joinedAt asc nulls last, p.id asc
+            """)
+    org.springframework.data.domain.Page<SessaoConsumoParticipante> listBySessaoPaged(
+            @Param("tenantId") Long tenantId,
+            @Param("sessaoId") Long sessaoId,
+            @Param("status") SessaoParticipanteStatus status,
+            @Param("role") SessaoParticipanteRole role,
+            Pageable pageable);
+
+    @Query("""
+            select p from SessaoConsumoParticipante p
+             where p.tenant.id = :tenantId
+               and p.sessaoConsumo.id = :sessaoId
+               and p.status in :statuses
+             order by p.createdAt desc nulls last, p.id asc
+            """)
+    org.springframework.data.domain.Page<SessaoConsumoParticipante> listBySessaoAndStatuses(
+            @Param("tenantId") Long tenantId,
+            @Param("sessaoId") Long sessaoId,
+            @Param("statuses") java.util.Collection<SessaoParticipanteStatus> statuses,
+            Pageable pageable);
+
+    @Query("""
+            select p from SessaoConsumoParticipante p
+             where p.tenant.id = :tenantId
+               and p.sessaoConsumo.id = :sessaoId
+               and p.invitedByParticipanteId = :ownerParticipanteId
+             order by p.invitedAt desc nulls last, p.id asc
+            """)
+    org.springframework.data.domain.Page<SessaoConsumoParticipante> listOwnerSentInvites(
+            @Param("tenantId") Long tenantId,
+            @Param("sessaoId") Long sessaoId,
+            @Param("ownerParticipanteId") Long ownerParticipanteId,
+            Pageable pageable);
 }

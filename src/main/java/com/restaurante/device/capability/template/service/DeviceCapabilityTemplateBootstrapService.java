@@ -51,6 +51,8 @@ public class DeviceCapabilityTemplateBootstrapService {
                         DeviceCapability.APPROVE_SESSION_PARTICIPANT,
                         DeviceCapability.REJECT_SESSION_PARTICIPANT,
                         DeviceCapability.INVITE_SESSION_PARTICIPANT,
+                        DeviceCapability.CANCEL_SESSION_PARTICIPANT_INVITE,
+                        DeviceCapability.RESEND_SESSION_PARTICIPANT_INVITE,
                         DeviceCapability.OFFLINE_SYNC,
                         DeviceCapability.OFFLINE_CREATE_ORDER,
                         DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER,
@@ -70,6 +72,7 @@ public class DeviceCapabilityTemplateBootstrapService {
                         DeviceCapability.ADD_SESSION_PARTICIPANT,
                         DeviceCapability.VIEW_PENDING_SESSION_PARTICIPANTS,
                         DeviceCapability.INVITE_SESSION_PARTICIPANT,
+                        DeviceCapability.RESEND_SESSION_PARTICIPANT_INVITE,
                         DeviceCapability.OFFLINE_SYNC,
                         DeviceCapability.OFFLINE_CREATE_ORDER,
                         DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER

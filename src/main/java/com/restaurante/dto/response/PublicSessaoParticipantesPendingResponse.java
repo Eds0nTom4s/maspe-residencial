@@ -23,6 +23,10 @@ public class PublicSessaoParticipantesPendingResponse {
         private SessaoParticipanteStatus status;
         private Instant joinedAt;
         private String telefoneMascarado;
+        private Instant expiresAt;
+        private Integer resendCount;
+        private Instant lastResendAt;
+        private Boolean canResend;
 
         public Long getParticipanteId() {
             return participanteId;
@@ -63,6 +67,37 @@ public class PublicSessaoParticipantesPendingResponse {
         public void setTelefoneMascarado(String telefoneMascarado) {
             this.telefoneMascarado = telefoneMascarado;
         }
+
+        public Instant getExpiresAt() {
+            return expiresAt;
+        }
+
+        public void setExpiresAt(Instant expiresAt) {
+            this.expiresAt = expiresAt;
+        }
+
+        public Integer getResendCount() {
+            return resendCount;
+        }
+
+        public void setResendCount(Integer resendCount) {
+            this.resendCount = resendCount;
+        }
+
+        public Instant getLastResendAt() {
+            return lastResendAt;
+        }
+
+        public void setLastResendAt(Instant lastResendAt) {
+            this.lastResendAt = lastResendAt;
+        }
+
+        public Boolean getCanResend() {
+            return canResend;
+        }
+
+        public void setCanResend(Boolean canResend) {
+            this.canResend = canResend;
+        }
     }
 }
-

@@ -8,6 +8,7 @@ import com.restaurante.consumo.identificacao.service.TelefoneOtpService;
 import com.restaurante.consumo.participante.entity.SessaoConsumoParticipante;
 import com.restaurante.consumo.participante.repository.SessaoConsumoParticipanteRepository;
 import com.restaurante.consumo.participante.service.SessaoConsumoParticipanteService;
+import com.restaurante.config.SessaoParticipanteLifecycleProperties;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.QrCodeOperacional;
@@ -112,6 +113,7 @@ class SessaoConsumoParticipanteServiceTest {
                 sessaoRepo,
                 partRepo,
                 dispRepo,
+                new SessaoParticipanteLifecycleProperties(),
                 normalizer,
                 otpService,
                 clienteService,
@@ -200,6 +202,7 @@ class SessaoConsumoParticipanteServiceTest {
                 sessaoRepo,
                 partRepo,
                 dispRepo,
+                new SessaoParticipanteLifecycleProperties(),
                 normalizer,
                 otpService,
                 clienteService,
@@ -282,6 +285,7 @@ class SessaoConsumoParticipanteServiceTest {
                 sessaoRepo,
                 partRepo,
                 dispRepo,
+                new SessaoParticipanteLifecycleProperties(),
                 normalizer,
                 otpService,
                 clienteService,
@@ -336,6 +340,7 @@ class SessaoConsumoParticipanteServiceTest {
                 sessaoRepo,
                 partRepo,
                 dispRepo,
+                new SessaoParticipanteLifecycleProperties(),
                 normalizer,
                 otpService,
                 clienteService,

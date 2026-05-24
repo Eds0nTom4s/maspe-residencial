@@ -9,5 +9,6 @@ public enum SessaoParticipanteStatus {
     REMOVED,
     LEFT,
     BLOCKED,
-    EXPIRED
+    EXPIRED,
+    CANCELLED
 }

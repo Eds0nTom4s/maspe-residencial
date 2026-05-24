@@ -7,6 +7,7 @@ import com.restaurante.consumo.identificacao.service.TelefoneNormalizerService;
 import com.restaurante.consumo.identificacao.service.TelefoneOtpService;
 import com.restaurante.consumo.participante.entity.SessaoConsumoParticipante;
 import com.restaurante.consumo.participante.repository.SessaoConsumoParticipanteRepository;
+import com.restaurante.config.SessaoParticipanteLifecycleProperties;
 import com.restaurante.dto.request.AbrirSessaoRequest;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
@@ -47,6 +48,7 @@ public class SessaoConsumoParticipanteService {
     private final SessaoConsumoRepository sessaoConsumoRepository;
     private final SessaoConsumoParticipanteRepository participanteRepository;
     private final DispositivoOperacionalRepository dispositivoOperacionalRepository;
+    private final SessaoParticipanteLifecycleProperties lifecycleProps;
     private final TelefoneNormalizerService phoneNormalizerService;
     private final TelefoneOtpService otpService;
     private final ClienteConsumoService clienteConsumoService;
@@ -346,12 +348,21 @@ public class SessaoConsumoParticipanteService {
                 .orElseThrow(() -> new ResourceNotFoundException("SESSAO_PARTICIPANTE_NOT_FOUND"));
         if (!p.getSessaoConsumo().getId().equals(sessao.getId())) throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
         if (p.getStatus() != SessaoParticipanteStatus.PENDING_APPROVAL) throw new BusinessException("PARTICIPANT_NOT_PENDING_APPROVAL");
+        Instant now = Instant.now();
+        if (p.getExpiresAt() != null && p.getExpiresAt().isBefore(now)) {
+            p.setStatus(SessaoParticipanteStatus.EXPIRED);
+            p.setExpiredAt(now);
+            p.setExpirationReason("PENDING_APPROVAL_TTL_EXPIRED");
+            participanteRepository.save(p);
+            throw new BusinessException("PARTICIPANT_REQUEST_EXPIRED");
+        }
 
         p.setStatus(SessaoParticipanteStatus.ACTIVE);
-        if (p.getJoinedAt() == null) p.setJoinedAt(Instant.now());
-        p.setLastActivityAt(Instant.now());
+        if (p.getJoinedAt() == null) p.setJoinedAt(now);
+        p.setLastActivityAt(now);
+        p.setExpiresAt(null);
         p.setApprovedByParticipanteId(owner.getId());
-        p.setApprovalDecidedAt(Instant.now());
+        p.setApprovalDecidedAt(now);
         p.setApprovalReason(sanitizeReason(reason));
         SessaoConsumoParticipante saved = participanteRepository.save(p);
 
@@ -392,10 +403,18 @@ public class SessaoConsumoParticipanteService {
                 .orElseThrow(() -> new ResourceNotFoundException("SESSAO_PARTICIPANTE_NOT_FOUND"));
         if (!p.getSessaoConsumo().getId().equals(sessao.getId())) throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
         if (p.getStatus() != SessaoParticipanteStatus.PENDING_APPROVAL) throw new BusinessException("PARTICIPANT_NOT_PENDING_APPROVAL");
+        Instant now = Instant.now();
+        if (p.getExpiresAt() != null && p.getExpiresAt().isBefore(now)) {
+            p.setStatus(SessaoParticipanteStatus.EXPIRED);
+            p.setExpiredAt(now);
+            p.setExpirationReason("PENDING_APPROVAL_TTL_EXPIRED");
+            participanteRepository.save(p);
+            throw new BusinessException("PARTICIPANT_REQUEST_EXPIRED");
+        }
 
         p.setStatus(SessaoParticipanteStatus.REJECTED);
         p.setRejectedByParticipanteId(owner.getId());
-        p.setApprovalDecidedAt(Instant.now());
+        p.setApprovalDecidedAt(now);
         p.setRejectionReason(sanitizeReason(reason));
         SessaoConsumoParticipante saved = participanteRepository.save(p);
 
@@ -450,6 +469,7 @@ public class SessaoConsumoParticipanteService {
 
         TelefoneOtpService.OtpRequestResult otpResult = otpService.requestOtp(owner.getTenant(), invitedRawPhone, OtpPurpose.ACEITAR_CONVITE_SESSAO, sessao, ip, userAgent);
         Instant now = Instant.now();
+        Instant expiresAt = now.plusSeconds((long) lifecycleProps.getInviteTtlMinutes() * 60L);
 
         SessaoConsumoParticipante p = existing != null ? existing : new SessaoConsumoParticipante();
         if (p.getId() == null) {
@@ -464,6 +484,16 @@ public class SessaoConsumoParticipanteService {
         p.setInvitedByParticipanteId(owner.getId());
         p.setInvitedAt(now);
         p.setInvitationExpiresAt(otpResult.getChallenge().getExpiresAt());
+        p.setExpiresAt(expiresAt);
+        p.setResendCount(0);
+        p.setLastResendAt(null);
+        p.setCancelledAt(null);
+        p.setCancelledByParticipanteId(null);
+        p.setCancelledByDeviceId(null);
+        p.setCancellationReason(null);
+        p.setExpiredAt(null);
+        p.setExpirationReason(null);
+        p.setCleanupBatchId(null);
         p.setEntryPolicySnapshot(effectivePolicy(sessao).name());
         participanteRepository.save(p);
 
@@ -515,18 +545,23 @@ public class SessaoConsumoParticipanteService {
 
         SessaoConsumoParticipante participante = participanteRepository.findForUpdateBySessaoAndCliente(qr.getTenant().getId(), sessao.getId(), cliente.getId())
                 .orElseThrow(() -> new BusinessException("PARTICIPANT_INVITE_NOT_FOUND"));
+        if (participante.getStatus() == SessaoParticipanteStatus.CANCELLED) throw new BusinessException("PARTICIPANT_INVITE_CANCELLED");
         if (participante.getStatus() != SessaoParticipanteStatus.INVITED) throw new BusinessException("PARTICIPANT_INVITE_NOT_FOUND");
-        if (participante.getInvitationExpiresAt() != null && participante.getInvitationExpiresAt().isBefore(Instant.now())) {
+        Instant now = Instant.now();
+        if (participante.getExpiresAt() != null && participante.getExpiresAt().isBefore(now)) {
             participante.setStatus(SessaoParticipanteStatus.EXPIRED);
+            participante.setExpiredAt(now);
+            participante.setExpirationReason("INVITE_TTL_EXPIRED");
             participanteRepository.save(participante);
             throw new BusinessException("PARTICIPANT_INVITE_EXPIRED");
         }
 
-        Instant now = Instant.now();
         participante.setStatus(SessaoParticipanteStatus.ACTIVE);
         participante.setNomeExibicao(nomeExibicao != null ? nomeExibicao : participante.getNomeExibicao());
         if (participante.getJoinedAt() == null) participante.setJoinedAt(now);
         participante.setLastActivityAt(now);
+        participante.setExpiresAt(null);
+        participante.setExpiredAt(null);
         participanteRepository.save(participante);
 
         otpService.consumeChallenge(qr.getTenant().getId(), challengeId);
@@ -579,12 +614,21 @@ public class SessaoConsumoParticipanteService {
                 .orElseThrow(() -> new ResourceNotFoundException("SESSAO_PARTICIPANTE_NOT_FOUND"));
         if (!p.getSessaoConsumo().getId().equals(sessaoId)) throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
         if (p.getStatus() != SessaoParticipanteStatus.PENDING_APPROVAL) throw new BusinessException("PARTICIPANT_NOT_PENDING_APPROVAL");
+        Instant now = Instant.now();
+        if (p.getExpiresAt() != null && p.getExpiresAt().isBefore(now)) {
+            p.setStatus(SessaoParticipanteStatus.EXPIRED);
+            p.setExpiredAt(now);
+            p.setExpirationReason("PENDING_APPROVAL_TTL_EXPIRED");
+            participanteRepository.save(p);
+            throw new BusinessException("PARTICIPANT_REQUEST_EXPIRED");
+        }
 
         p.setStatus(SessaoParticipanteStatus.ACTIVE);
-        if (p.getJoinedAt() == null) p.setJoinedAt(Instant.now());
-        p.setLastActivityAt(Instant.now());
+        if (p.getJoinedAt() == null) p.setJoinedAt(now);
+        p.setLastActivityAt(now);
+        p.setExpiresAt(null);
         p.setApprovedByDeviceId(device.dispositivoId());
-        p.setApprovalDecidedAt(Instant.now());
+        p.setApprovalDecidedAt(now);
         p.setApprovalReason(sanitizeReason(reason));
         SessaoConsumoParticipante saved = participanteRepository.save(p);
 
@@ -619,10 +663,18 @@ public class SessaoConsumoParticipanteService {
                 .orElseThrow(() -> new ResourceNotFoundException("SESSAO_PARTICIPANTE_NOT_FOUND"));
         if (!p.getSessaoConsumo().getId().equals(sessaoId)) throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
         if (p.getStatus() != SessaoParticipanteStatus.PENDING_APPROVAL) throw new BusinessException("PARTICIPANT_NOT_PENDING_APPROVAL");
+        Instant now = Instant.now();
+        if (p.getExpiresAt() != null && p.getExpiresAt().isBefore(now)) {
+            p.setStatus(SessaoParticipanteStatus.EXPIRED);
+            p.setExpiredAt(now);
+            p.setExpirationReason("PENDING_APPROVAL_TTL_EXPIRED");
+            participanteRepository.save(p);
+            throw new BusinessException("PARTICIPANT_REQUEST_EXPIRED");
+        }
 
         p.setStatus(SessaoParticipanteStatus.REJECTED);
         p.setRejectedByDeviceId(device.dispositivoId());
-        p.setApprovalDecidedAt(Instant.now());
+        p.setApprovalDecidedAt(now);
         p.setRejectionReason(sanitizeReason(reason));
         SessaoConsumoParticipante saved = participanteRepository.save(p);
 
@@ -727,6 +779,16 @@ public class SessaoConsumoParticipanteService {
         p.setInvitedByDeviceId(device.dispositivoId());
         p.setInvitedAt(now);
         p.setInvitationExpiresAt(otpResult.getChallenge().getExpiresAt());
+        p.setExpiresAt(now.plusSeconds((long) lifecycleProps.getInviteTtlMinutes() * 60L));
+        p.setResendCount(0);
+        p.setLastResendAt(null);
+        p.setCancelledAt(null);
+        p.setCancelledByParticipanteId(null);
+        p.setCancelledByDeviceId(null);
+        p.setCancellationReason(null);
+        p.setExpiredAt(null);
+        p.setExpirationReason(null);
+        p.setCleanupBatchId(null);
         p.setEntryPolicySnapshot(effectivePolicy(sessao).name());
         participanteRepository.save(p);
 
@@ -750,6 +812,160 @@ public class SessaoConsumoParticipanteService {
         );
 
         return otpResult;
+    }
+
+    @Transactional
+    public SessaoConsumoParticipante cancelByDevice(DevicePrincipal device, Long sessaoId, Long participanteId, String reason, String ip, String userAgent) {
+        requireDeviceCapability(device, DeviceCapability.CANCEL_SESSION_PARTICIPANT_INVITE, sessaoId, participanteId, "Cancel invite/pending", ip, userAgent);
+        requireReason(reason);
+        SessaoConsumo sessao = requireSessaoForDevice(device, sessaoId);
+        if (sessao.getStatus() != StatusSessaoConsumo.ABERTA) throw new BusinessException("SESSAO_CONSUMO_NOT_ACTIVE");
+
+        SessaoConsumoParticipante p = participanteRepository.findForUpdateById(device.tenantId(), participanteId)
+                .orElseThrow(() -> new ResourceNotFoundException("SESSAO_PARTICIPANTE_NOT_FOUND"));
+        if (!p.getSessaoConsumo().getId().equals(sessaoId)) throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
+        if (p.getStatus() == SessaoParticipanteStatus.ACTIVE) throw new BusinessException("PARTICIPANT_ALREADY_ACTIVE");
+        if (p.getStatus() == SessaoParticipanteStatus.CANCELLED) throw new BusinessException("PARTICIPANT_ALREADY_CANCELLED");
+        if (p.getStatus() != SessaoParticipanteStatus.INVITED && p.getStatus() != SessaoParticipanteStatus.PENDING_APPROVAL && p.getStatus() != SessaoParticipanteStatus.PENDING_OTP) {
+            throw new BusinessException("PARTICIPANT_NOT_PENDING");
+        }
+        SessaoParticipanteStatus old = p.getStatus();
+        Instant now = Instant.now();
+        p.setStatus(SessaoParticipanteStatus.CANCELLED);
+        p.setCancelledAt(now);
+        p.setCancelledByDeviceId(device.dispositivoId());
+        p.setCancellationReason(sanitizeReason(reason));
+        SessaoConsumoParticipante saved = participanteRepository.save(p);
+
+        operationalEventLogService.logGeneric(
+                OperationalEventType.SESSAO_PARTICIPANTE_CANCELLED_BY_POS,
+                OperationalEntityType.SESSAO_CONSUMO_PARTICIPANTE,
+                saved.getId(),
+                OperationalOrigem.DEVICE_POS,
+                "Participante cancelado por POS",
+                Map.of(
+                        "tenantId", device.tenantId(),
+                        "unidadeId", device.unidadeAtendimentoId(),
+                        "deviceId", device.dispositivoId(),
+                        "sessaoConsumoId", sessaoId,
+                        "participanteId", saved.getId(),
+                        "oldStatus", old.name(),
+                        "newStatus", saved.getStatus().name()
+                ),
+                ip,
+                userAgent
+        );
+        return saved;
+    }
+
+    @Transactional
+    public TelefoneOtpService.OtpRequestResult resendInviteByDevice(DevicePrincipal device, Long sessaoId, Long participanteId, String reason, String ip, String userAgent) {
+        requireDeviceCapability(device, DeviceCapability.RESEND_SESSION_PARTICIPANT_INVITE, sessaoId, participanteId, "Resend invite", ip, userAgent);
+        SessaoConsumo sessao = requireSessaoForDevice(device, sessaoId);
+        if (sessao.getStatus() != StatusSessaoConsumo.ABERTA) throw new BusinessException("SESSAO_CONSUMO_NOT_ACTIVE");
+
+        SessaoConsumoParticipante p = participanteRepository.findForUpdateById(device.tenantId(), participanteId)
+                .orElseThrow(() -> new ResourceNotFoundException("SESSAO_PARTICIPANTE_NOT_FOUND"));
+        if (!p.getSessaoConsumo().getId().equals(sessaoId)) throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
+
+        Instant now = Instant.now();
+        if (!canResendInvite(p, now)) {
+            operationalEventLogService.logGeneric(
+                    OperationalEventType.SESSAO_PARTICIPANTE_RESEND_BLOCKED,
+                    OperationalEntityType.SESSAO_CONSUMO_PARTICIPANTE,
+                    p.getId(),
+                    OperationalOrigem.DEVICE_POS,
+                    "Reenvio bloqueado (POS)",
+                    Map.of(
+                            "tenantId", device.tenantId(),
+                            "unidadeId", device.unidadeAtendimentoId(),
+                            "deviceId", device.dispositivoId(),
+                            "sessaoConsumoId", sessaoId,
+                            "participanteId", p.getId(),
+                            "resendCount", p.getResendCount(),
+                            "lastResendAt", p.getLastResendAt(),
+                            "expiresAt", p.getExpiresAt()
+                    ),
+                    ip,
+                    userAgent
+            );
+            if (p.getResendCount() >= lifecycleProps.getMaxResends()) throw new BusinessException("PARTICIPANT_MAX_RESENDS_EXCEEDED");
+            if (p.getLastResendAt() != null && p.getLastResendAt().plusSeconds(lifecycleProps.getResendCooldownSeconds()).isAfter(now)) throw new BusinessException("PARTICIPANT_RESEND_TOO_SOON");
+            if (p.getExpiresAt() != null && p.getExpiresAt().isBefore(now)) throw new BusinessException("PARTICIPANT_INVITE_EXPIRED");
+            throw new BusinessException("PARTICIPANT_NOT_INVITED");
+        }
+
+        TelefoneOtpService.OtpRequestResult otpResult = otpService.requestOtp(sessao.getTenant(), p.getTelefoneNormalizado(), OtpPurpose.ACEITAR_CONVITE_SESSAO, sessao, ip, userAgent);
+        p.setResendCount(p.getResendCount() + 1);
+        p.setLastResendAt(now);
+        p.setExpiresAt(now.plusSeconds((long) lifecycleProps.getInviteTtlMinutes() * 60L));
+        p.setInvitationExpiresAt(otpResult.getChallenge().getExpiresAt());
+        participanteRepository.save(p);
+
+        operationalEventLogService.logGeneric(
+                OperationalEventType.SESSAO_PARTICIPANTE_INVITE_RESENT_BY_POS,
+                OperationalEntityType.SESSAO_CONSUMO_PARTICIPANTE,
+                p.getId(),
+                OperationalOrigem.DEVICE_POS,
+                "Convite reenviado (POS)",
+                Map.of(
+                        "tenantId", device.tenantId(),
+                        "unidadeId", device.unidadeAtendimentoId(),
+                        "deviceId", device.dispositivoId(),
+                        "sessaoConsumoId", sessaoId,
+                        "participanteId", p.getId(),
+                        "resendCount", p.getResendCount(),
+                        "lastResendAt", p.getLastResendAt(),
+                        "reason", sanitizeReason(reason)
+                ),
+                ip,
+                userAgent
+        );
+        return otpResult;
+    }
+
+    @Transactional
+    public SessaoConsumoParticipante expireManuallyByDevice(DevicePrincipal device, Long sessaoId, Long participanteId, String reason, String ip, String userAgent) {
+        requireDeviceCapability(device, DeviceCapability.EXPIRE_SESSION_PARTICIPANT_MANUALLY, sessaoId, participanteId, "Expire participant", ip, userAgent);
+        requireReason(reason);
+        SessaoConsumo sessao = requireSessaoForDevice(device, sessaoId);
+        if (sessao.getStatus() != StatusSessaoConsumo.ABERTA) throw new BusinessException("SESSAO_CONSUMO_NOT_ACTIVE");
+
+        SessaoConsumoParticipante p = participanteRepository.findForUpdateById(device.tenantId(), participanteId)
+                .orElseThrow(() -> new ResourceNotFoundException("SESSAO_PARTICIPANTE_NOT_FOUND"));
+        if (!p.getSessaoConsumo().getId().equals(sessaoId)) throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
+        if (p.getStatus() == SessaoParticipanteStatus.ACTIVE) throw new BusinessException("PARTICIPANT_ALREADY_ACTIVE");
+        if (p.getStatus() == SessaoParticipanteStatus.EXPIRED) throw new BusinessException("PARTICIPANT_ALREADY_EXPIRED");
+        if (p.getStatus() == SessaoParticipanteStatus.CANCELLED) throw new BusinessException("PARTICIPANT_ALREADY_CANCELLED");
+
+        SessaoParticipanteStatus old = p.getStatus();
+        Instant now = Instant.now();
+        p.setStatus(SessaoParticipanteStatus.EXPIRED);
+        p.setExpiredAt(now);
+        p.setExpirationReason("MANUAL_DEVICE");
+        p.setCleanupBatchId(null);
+        SessaoConsumoParticipante saved = participanteRepository.save(p);
+
+        operationalEventLogService.logGeneric(
+                OperationalEventType.SESSAO_PARTICIPANTE_EXPIRED_MANUALLY_BY_POS,
+                OperationalEntityType.SESSAO_CONSUMO_PARTICIPANTE,
+                saved.getId(),
+                OperationalOrigem.DEVICE_POS,
+                "Participante expirado manualmente por POS",
+                Map.of(
+                        "tenantId", device.tenantId(),
+                        "unidadeId", device.unidadeAtendimentoId(),
+                        "deviceId", device.dispositivoId(),
+                        "sessaoConsumoId", sessaoId,
+                        "participanteId", saved.getId(),
+                        "oldStatus", old.name(),
+                        "newStatus", saved.getStatus().name(),
+                        "reason", sanitizeReason(reason)
+                ),
+                ip,
+                userAgent
+        );
+        return saved;
     }
 
     @Transactional
@@ -1172,6 +1388,137 @@ public class SessaoConsumoParticipanteService {
         return trimmed;
     }
 
+    private boolean canResendInvite(SessaoConsumoParticipante p, Instant now) {
+        if (p == null) return false;
+        if (p.getStatus() != SessaoParticipanteStatus.INVITED && p.getStatus() != SessaoParticipanteStatus.PENDING_OTP) return false;
+        if (p.getCancelledAt() != null || p.getStatus() == SessaoParticipanteStatus.CANCELLED) return false;
+        if (p.getExpiredAt() != null || p.getStatus() == SessaoParticipanteStatus.EXPIRED) return false;
+        if (p.getExpiresAt() != null && p.getExpiresAt().isBefore(now)) return false;
+        if (p.getResendCount() >= lifecycleProps.getMaxResends()) return false;
+        if (p.getLastResendAt() != null && p.getLastResendAt().plusSeconds(lifecycleProps.getResendCooldownSeconds()).isAfter(now)) return false;
+        return true;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canResendInviteNow(SessaoConsumoParticipante p) {
+        return canResendInvite(p, Instant.now());
+    }
+
+    @Transactional
+    public SessaoConsumoParticipante cancelByOwner(String qrToken,
+                                                   Long participanteId,
+                                                   Long ownerChallengeId,
+                                                   String ownerPhone,
+                                                   String ownerOtp,
+                                                   String reason,
+                                                   String ip,
+                                                   String userAgent) {
+        SessaoConsumoParticipante owner = assertOwnerByOtp(qrToken, ownerChallengeId, ownerPhone, ownerOtp, ip, userAgent);
+        SessaoConsumo sessao = owner.getSessaoConsumo();
+        SessaoConsumoParticipante p = participanteRepository.findForUpdateById(owner.getTenant().getId(), participanteId)
+                .orElseThrow(() -> new ResourceNotFoundException("SESSAO_PARTICIPANTE_NOT_FOUND"));
+        if (!p.getSessaoConsumo().getId().equals(sessao.getId())) throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
+        if (p.getStatus() == SessaoParticipanteStatus.ACTIVE) throw new BusinessException("PARTICIPANT_ALREADY_ACTIVE");
+        if (p.getStatus() == SessaoParticipanteStatus.CANCELLED) throw new BusinessException("PARTICIPANT_ALREADY_CANCELLED");
+        if (p.getStatus() != SessaoParticipanteStatus.INVITED && p.getStatus() != SessaoParticipanteStatus.PENDING_APPROVAL && p.getStatus() != SessaoParticipanteStatus.PENDING_OTP) {
+            throw new BusinessException("PARTICIPANT_NOT_PENDING");
+        }
+        SessaoParticipanteStatus old = p.getStatus();
+        Instant now = Instant.now();
+        p.setStatus(SessaoParticipanteStatus.CANCELLED);
+        p.setCancelledAt(now);
+        p.setCancelledByParticipanteId(owner.getId());
+        p.setCancellationReason(sanitizeReason(reason));
+        SessaoConsumoParticipante saved = participanteRepository.save(p);
+
+        operationalEventLogService.logPublicEvent(
+                owner.getTenant(), sessao.getInstituicao(), sessao.getUnidadeAtendimento(), sessao.getMesa(), null,
+                OperationalEventType.SESSAO_PARTICIPANTE_CANCELLED_BY_OWNER,
+                OperationalEntityType.SESSAO_CONSUMO_PARTICIPANTE,
+                saved.getId(),
+                OperationalOrigem.QR_PUBLICO,
+                "Participante cancelado pelo OWNER",
+                Map.of(
+                        "tenantId", owner.getTenant().getId(),
+                        "sessaoConsumoId", sessao.getId(),
+                        "participanteId", saved.getId(),
+                        "ownerParticipanteId", owner.getId(),
+                        "oldStatus", old.name(),
+                        "newStatus", saved.getStatus().name()
+                ),
+                ip,
+                userAgent
+        );
+        return saved;
+    }
+
+    @Transactional
+    public TelefoneOtpService.OtpRequestResult resendInviteByOwner(String qrToken,
+                                                                   Long participanteId,
+                                                                   Long ownerChallengeId,
+                                                                   String ownerPhone,
+                                                                   String ownerOtp,
+                                                                   String ip,
+                                                                   String userAgent) {
+        SessaoConsumoParticipante owner = assertOwnerByOtp(qrToken, ownerChallengeId, ownerPhone, ownerOtp, ip, userAgent);
+        SessaoConsumo sessao = owner.getSessaoConsumo();
+        SessaoConsumoParticipante p = participanteRepository.findForUpdateById(owner.getTenant().getId(), participanteId)
+                .orElseThrow(() -> new ResourceNotFoundException("SESSAO_PARTICIPANTE_NOT_FOUND"));
+        if (!p.getSessaoConsumo().getId().equals(sessao.getId())) throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
+
+        Instant now = Instant.now();
+        if (!canResendInvite(p, now)) {
+            operationalEventLogService.logPublicEvent(
+                    owner.getTenant(), sessao.getInstituicao(), sessao.getUnidadeAtendimento(), sessao.getMesa(), null,
+                    OperationalEventType.SESSAO_PARTICIPANTE_RESEND_BLOCKED,
+                    OperationalEntityType.SESSAO_CONSUMO_PARTICIPANTE,
+                    p.getId(),
+                    OperationalOrigem.QR_PUBLICO,
+                    "Reenvio bloqueado (OWNER)",
+                    Map.of(
+                            "tenantId", owner.getTenant().getId(),
+                            "sessaoConsumoId", sessao.getId(),
+                            "participanteId", p.getId(),
+                            "resendCount", p.getResendCount(),
+                            "lastResendAt", p.getLastResendAt(),
+                            "expiresAt", p.getExpiresAt()
+                    ),
+                    ip,
+                    userAgent
+            );
+            if (p.getResendCount() >= lifecycleProps.getMaxResends()) throw new BusinessException("PARTICIPANT_MAX_RESENDS_EXCEEDED");
+            if (p.getLastResendAt() != null && p.getLastResendAt().plusSeconds(lifecycleProps.getResendCooldownSeconds()).isAfter(now)) throw new BusinessException("PARTICIPANT_RESEND_TOO_SOON");
+            if (p.getExpiresAt() != null && p.getExpiresAt().isBefore(now)) throw new BusinessException("PARTICIPANT_INVITE_EXPIRED");
+            throw new BusinessException("PARTICIPANT_NOT_INVITED");
+        }
+
+        TelefoneOtpService.OtpRequestResult otpResult = otpService.requestOtp(owner.getTenant(), p.getTelefoneNormalizado(), OtpPurpose.ACEITAR_CONVITE_SESSAO, sessao, ip, userAgent);
+        p.setResendCount(p.getResendCount() + 1);
+        p.setLastResendAt(now);
+        p.setExpiresAt(now.plusSeconds((long) lifecycleProps.getInviteTtlMinutes() * 60L));
+        p.setInvitationExpiresAt(otpResult.getChallenge().getExpiresAt());
+        participanteRepository.save(p);
+
+        operationalEventLogService.logPublicEvent(
+                owner.getTenant(), sessao.getInstituicao(), sessao.getUnidadeAtendimento(), sessao.getMesa(), null,
+                OperationalEventType.SESSAO_PARTICIPANTE_INVITE_RESENT_BY_OWNER,
+                OperationalEntityType.SESSAO_CONSUMO_PARTICIPANTE,
+                p.getId(),
+                OperationalOrigem.QR_PUBLICO,
+                "Convite reenviado (OWNER)",
+                Map.of(
+                        "tenantId", owner.getTenant().getId(),
+                        "sessaoConsumoId", sessao.getId(),
+                        "participanteId", p.getId(),
+                        "resendCount", p.getResendCount(),
+                        "lastResendAt", p.getLastResendAt()
+                ),
+                ip,
+                userAgent
+        );
+        return otpResult;
+    }
+
     private SessaoParticipantEntryPolicy effectivePolicy(SessaoConsumo sessao) {
         SessaoParticipantEntryPolicy p = sessao != null ? sessao.getParticipantEntryPolicy() : null;
         return p != null ? p : SessaoParticipantEntryPolicy.OTP_AUTO_JOIN;
@@ -1182,6 +1529,7 @@ public class SessaoConsumoParticipanteService {
             participante.setStatus(SessaoParticipanteStatus.PENDING_APPROVAL);
             participante.setApprovalRequestedAt(now);
             participante.setEntryPolicySnapshot(policy.name());
+            participante.setExpiresAt(now.plusSeconds((long) lifecycleProps.getPendingApprovalTtlMinutes() * 60L));
             if (participante.getJoinedAt() == null) participante.setJoinedAt(now);
             participante.setLastActivityAt(now);
             return;
@@ -1189,6 +1537,8 @@ public class SessaoConsumoParticipanteService {
 
         participante.setStatus(SessaoParticipanteStatus.ACTIVE);
         participante.setEntryPolicySnapshot(policy != null ? policy.name() : SessaoParticipantEntryPolicy.OTP_AUTO_JOIN.name());
+        participante.setExpiresAt(null);
+        participante.setExpiredAt(null);
         if (participante.getJoinedAt() == null) participante.setJoinedAt(now);
         participante.setLastActivityAt(now);
     }
@@ -1262,4 +1612,47 @@ public class SessaoConsumoParticipanteService {
                                           SessaoParticipanteRole role,
                                           SessaoParticipanteStatus status,
                                           Instant joinedAt) {}
+
+    /** Prompt 41.4 — resolve tenant + sessão a partir do QR token sem criar sessão nova. */
+    @Transactional(readOnly = true)
+    public QrContext resolveQrContext(String qrToken) {
+        com.restaurante.model.entity.QrCodeOperacional qr =
+                qrCodeOperacionalService.resolverOperacionalAtivoParaOperacao(qrToken);
+        SessaoConsumo sessao = resolveOrCreateSessaoForQr(qr);
+        return new QrContext(qr.getTenant().getId(), sessao.getId());
+    }
+
+    public record QrContext(Long tenantId, Long sessaoId) {}
+
+    /**
+     * Prompt 41.5 — Reenvio interno de convite para uso pelo OwnerTokenActionService.
+     * Reutiliza a lógica de cooldown, maxResends e SMS do 41.3, mas sem exigir OTP do OWNER
+     * (a autenticação já foi feita via ownerActionToken antes de chegar aqui).
+     */
+    @Transactional
+    public TelefoneOtpService.OtpRequestResult resendInviteByOwnerTokenInternal(
+            SessaoConsumoParticipante owner,
+            SessaoConsumoParticipante p,
+            String ip,
+            String userAgent) {
+
+        SessaoConsumo sessao = owner.getSessaoConsumo();
+        Instant now = Instant.now();
+
+        if (!canResendInvite(p, now)) {
+            if (p.getResendCount() >= lifecycleProps.getMaxResends()) throw new BusinessException("PARTICIPANT_MAX_RESENDS_EXCEEDED");
+            if (p.getLastResendAt() != null && p.getLastResendAt().plusSeconds(lifecycleProps.getResendCooldownSeconds()).isAfter(now)) throw new BusinessException("PARTICIPANT_RESEND_TOO_SOON");
+            if (p.getExpiresAt() != null && p.getExpiresAt().isBefore(now)) throw new BusinessException("PARTICIPANT_INVITE_EXPIRED");
+            throw new BusinessException("PARTICIPANT_NOT_INVITED");
+        }
+
+        TelefoneOtpService.OtpRequestResult otpResult = otpService.requestOtp(
+                owner.getTenant(), p.getTelefoneNormalizado(), OtpPurpose.ACEITAR_CONVITE_SESSAO, sessao, ip, userAgent);
+        p.setResendCount(p.getResendCount() + 1);
+        p.setLastResendAt(now);
+        p.setExpiresAt(now.plusSeconds((long) lifecycleProps.getInviteTtlMinutes() * 60L));
+        p.setInvitationExpiresAt(otpResult.getChallenge().getExpiresAt());
+        participanteRepository.save(p);
+        return otpResult;
+    }
 }

@@ -7,5 +7,6 @@ import java.util.List;
 
 public interface CaixaOperadorSessionItemRepository extends JpaRepository<CaixaOperadorSessionItem, Long> {
     List<CaixaOperadorSessionItem> findByTenantIdAndCaixaOperadorSessionId(Long tenantId, Long caixaOperadorSessionId);
-}
 
+    long countByTenantIdAndCaixaOperadorSessionId(Long tenantId, Long caixaOperadorSessionId);
+}

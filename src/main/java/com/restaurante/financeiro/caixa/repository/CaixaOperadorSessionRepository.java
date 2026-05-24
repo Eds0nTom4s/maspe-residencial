@@ -11,6 +11,7 @@ import org.springframework.data.domain.Pageable;
 
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
+import java.util.List;
 
 public interface CaixaOperadorSessionRepository extends JpaRepository<CaixaOperadorSession, Long> {
 
@@ -38,4 +39,14 @@ public interface CaixaOperadorSessionRepository extends JpaRepository<CaixaOpera
                                                        @Param("deviceId") Long deviceId,
                                                        @Param("operadorUserId") Long operadorUserId,
                                                        Pageable pageable);
+
+    @Query("""
+            select c
+            from CaixaOperadorSession c
+            where c.tenant.id = :tenantId
+              and c.turnoOperacional.id = :turnoId
+            order by c.openedAt asc
+            """)
+    List<CaixaOperadorSession> findAllByTenantIdAndTurnoOperacionalId(@Param("tenantId") Long tenantId,
+                                                                      @Param("turnoId") Long turnoId);
 }

@@ -78,6 +78,8 @@ class SnapshotEvidenceBundleTest extends PostgresTestcontainersConfig {
         assertThat(json.at("/data/turno/turnoId").asLong()).isEqualTo(turnoId);
         assertThat(json.at("/data/snapshotExport/verificacao/valido").asBoolean()).isTrue();
         assertThat(json.at("/data/eventosOperacionais").isArray()).isTrue();
+        // Prompt 42.1: seção existe (pode ser vazia se não houver caixas)
+        assertThat(json.at("/data/operatorCashEvidence").isMissingNode()).isFalse();
 
         List<OperationalEventLog> events = operationalEventLogRepository.findByTenantIdAndEventType(
                 prov.getTenantId(),
@@ -158,4 +160,3 @@ class SnapshotEvidenceBundleTest extends PostgresTestcontainersConfig {
         );
     }
 }
-

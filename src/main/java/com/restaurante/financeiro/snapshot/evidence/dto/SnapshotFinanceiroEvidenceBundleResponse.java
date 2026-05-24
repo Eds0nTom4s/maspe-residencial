@@ -21,6 +21,6 @@ public class SnapshotFinanceiroEvidenceBundleResponse {
 
     private List<EvidenceBundleEventoDTO> eventosOperacionais;
     private EvidenceBundlePagamentosResumoDTO pagamentosResumo;
+    private OperatorCashEvidenceSectionDTO operatorCashEvidence;
     private EvidenceBundleExportMetadataDTO exportMetadata;
 }
-

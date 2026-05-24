@@ -115,3 +115,6 @@ Regras:
 ## Próximo passo recomendado
 **Prompt 42.1**: integrar um resumo de `CaixaOperadorSession`/diferenças no relatório/snapshot/Evidence Bundle do turno (sem quebrar WORM).
 
+## Integração 42.1 (Snapshot/Evidence Bundle)
+Após o Prompt 42.1, o Evidence Bundle do snapshot financeiro do turno passa a incluir a seção `operatorCashEvidence` (resumo de caixas por operador/device, warnings e hash determinístico por caixa).
+Ver: `docs/tenant-core/42-1-caixa-operador-evidence-bundle.md`

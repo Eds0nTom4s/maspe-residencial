@@ -4,9 +4,11 @@ import com.restaurante.dto.request.RevisarCaixaOperadorRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.CaixaOperadorSessionItemResponse;
 import com.restaurante.dto.response.CaixaOperadorSessionResponse;
+import com.restaurante.financeiro.caixa.evidence.service.CaixaOperadorEvidenceService;
 import com.restaurante.financeiro.caixa.repository.CaixaOperadorSessionItemRepository;
 import com.restaurante.financeiro.caixa.repository.CaixaOperadorSessionRepository;
 import com.restaurante.financeiro.caixa.service.CaixaOperadorSessionService;
+import com.restaurante.financeiro.snapshot.evidence.dto.OperatorCashEvidenceSectionDTO;
 import com.restaurante.model.entity.CaixaOperadorSession;
 import com.restaurante.model.entity.CaixaOperadorSessionItem;
 import com.restaurante.model.enums.CaixaOperadorSessionStatus;
@@ -41,6 +43,7 @@ public class TenantCaixaOperadorController {
     private final CaixaOperadorSessionRepository caixaRepository;
     private final CaixaOperadorSessionItemRepository itemRepository;
     private final CaixaOperadorSessionService caixaOperadorSessionService;
+    private final CaixaOperadorEvidenceService caixaOperadorEvidenceService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<Page<CaixaOperadorSessionResponse>>> list(
@@ -89,6 +92,26 @@ public class TenantCaixaOperadorController {
         return ResponseEntity.ok(ApiResponse.success("Revisão registrada", map(caixa)));
     }
 
+    @GetMapping("/evidence-preview")
+    public ResponseEntity<ApiResponse<OperatorCashEvidenceSectionDTO>> evidencePreview(
+            @RequestParam(name = "turnoId") Long turnoId
+    ) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        TenantContext ctx = tenantGuard.requireContext();
+
+        // O snapshot/evidence bundle atual é por turno; preview é apenas leitura.
+        // periodStart/periodEnd são informativos (aberto/fechado do turno) e podem ser null se o turno não estiver fechado.
+        OperatorCashEvidenceSectionDTO section = caixaOperadorEvidenceService.buildForTurno(
+                ctx.tenantId(),
+                null,
+                null,
+                turnoId,
+                null,
+                null
+        );
+        return ResponseEntity.ok(ApiResponse.success("Evidence preview", section));
+    }
+
     private CaixaOperadorSessionResponse map(CaixaOperadorSession caixa) {
         CaixaOperadorSessionResponse r = new CaixaOperadorSessionResponse();
         r.setId(caixa.getId());
@@ -129,4 +152,3 @@ public class TenantCaixaOperadorController {
         return r;
     }
 }
-

@@ -11,6 +11,7 @@ import com.restaurante.financeiro.snapshot.evidence.dto.EvidenceBundleTurnoDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.EvidenceBundleUnidadeDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.SnapshotFinanceiroEvidenceBundleResponse;
 import com.restaurante.financeiro.snapshot.evidence.EvidenceBundleProperties;
+import com.restaurante.financeiro.caixa.evidence.service.CaixaOperadorEvidenceService;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.OperationalEventType;
@@ -42,6 +43,7 @@ public class SnapshotFinanceiroEvidenceBundleService {
     private final OperationalEventLogRepository operationalEventLogRepository;
     private final OperationalEventLogService operationalEventLogService;
     private final EvidenceBundleProperties evidenceBundleProperties;
+    private final CaixaOperadorEvidenceService caixaOperadorEvidenceService;
 
     private static final Set<OperationalEventType> EVENT_TYPES = Set.of(
             OperationalEventType.TURNO_ABERTO,
@@ -123,6 +125,45 @@ public class SnapshotFinanceiroEvidenceBundleService {
         out.setEventosOperacionais(eventos.stream().map(this::toEventoDTO).toList());
         out.setPagamentosResumo(toPagamentosResumo(export));
 
+        // Prompt 42.1: seção de evidência operacional por operador/device (CASH/TPA)
+        var operatorEvidence = caixaOperadorEvidenceService.buildForTurno(
+                ctx.tenantId(),
+                turno.getInstituicao() != null ? turno.getInstituicao().getId() : null,
+                turno.getUnidadeAtendimento() != null ? turno.getUnidadeAtendimento().getId() : null,
+                turno.getId(),
+                turno.getAbertoEm(),
+                turno.getFechadoEm()
+        );
+        out.setOperatorCashEvidence(operatorEvidence);
+
+        operationalEventLogService.logTurnoEvent(
+                OperationalEventType.CAIXA_OPERADOR_EVIDENCE_SECTION_GENERATED,
+                turno,
+                resolveOrigemFromRoles(ctx),
+                "Seção de evidência de caixa operador/device gerada",
+                java.util.Map.of(
+                        "turnoId", turno.getId(),
+                        "totalCashSessions", operatorEvidence != null ? operatorEvidence.getTotalCashSessions() : 0
+                ),
+                ip,
+                userAgent
+        );
+        if (operatorEvidence != null && operatorEvidence.getWarnings() != null && !operatorEvidence.getWarnings().isEmpty()) {
+            operationalEventLogService.logTurnoEvent(
+                    OperationalEventType.CAIXA_OPERADOR_EVIDENCE_WARNING_DETECTED,
+                    turno,
+                    resolveOrigemFromRoles(ctx),
+                    "Warnings detectados na evidência de caixa operador/device",
+                    java.util.Map.of(
+                            "turnoId", turno.getId(),
+                            "warningsCount", operatorEvidence.getWarnings().size(),
+                            "warnings", operatorEvidence.getWarnings()
+                    ),
+                    ip,
+                    userAgent
+            );
+        }
+
         EvidenceBundleExportMetadataDTO meta = new EvidenceBundleExportMetadataDTO();
         meta.setFormato("JSON_LOGICO");
         meta.setExportadoEm(out.getGeneratedAt());
@@ -136,7 +177,23 @@ public class SnapshotFinanceiroEvidenceBundleService {
                 java.util.Map.of(
                         "bundleVersion", out.getBundleVersion(),
                         "valido", export.getVerificacao() != null && export.getVerificacao().isValido(),
-                        "signatureKeyId", export.getIntegridade() != null ? export.getIntegridade().getSignatureKeyId() : null
+                        "signatureKeyId", export.getIntegridade() != null ? export.getIntegridade().getSignatureKeyId() : null,
+                        "operatorCashSessions", operatorEvidence != null ? operatorEvidence.getTotalCashSessions() : 0,
+                        "operatorCashWarnings", operatorEvidence != null && operatorEvidence.getWarnings() != null ? operatorEvidence.getWarnings().size() : 0
+                ),
+                ip,
+                userAgent
+        );
+
+        operationalEventLogService.logTurnoEvent(
+                OperationalEventType.CAIXA_OPERADOR_EVIDENCE_ATTACHED_TO_BUNDLE,
+                turno,
+                resolveOrigemFromRoles(ctx),
+                "Evidência de caixa operador/device anexada ao bundle",
+                java.util.Map.of(
+                        "turnoId", turno.getId(),
+                        "totalCashSessions", operatorEvidence != null ? operatorEvidence.getTotalCashSessions() : 0,
+                        "warnings", operatorEvidence != null ? operatorEvidence.getWarnings() : null
                 ),
                 ip,
                 userAgent

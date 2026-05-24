@@ -37,6 +37,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.restaurante.notificacao.service.NotificacaoService;
+import com.restaurante.consumo.participante.service.SessaoOwnerActionTokenService;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -85,6 +86,7 @@ public class SessaoConsumoService {
     private final EventoSessaoRepository eventoSessaoRepository;
     private final FundoConsumoRepository fundoConsumoRepository;
     private final PagamentoGatewayRepository pagamentoGatewayRepository;
+    private final SessaoOwnerActionTokenService ownerTokenService;
     private static final Pattern CODIGO_NUMERICO_MESA = Pattern.compile(".*(?:MESA[-\\s]?)(\\d+)$");
 
     public SessaoConsumoService(SessaoConsumoRepository sessaoConsumoRepository,
@@ -100,7 +102,8 @@ public class SessaoConsumoService {
                                 InstituicaoRepository instituicaoRepository,
                                 EventoSessaoRepository eventoSessaoRepository,
                                 FundoConsumoRepository fundoConsumoRepository,
-                                PagamentoGatewayRepository pagamentoGatewayRepository) {
+                                PagamentoGatewayRepository pagamentoGatewayRepository,
+                                SessaoOwnerActionTokenService ownerTokenService) {
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.mesaRepository = mesaRepository;
         this.clienteService = clienteService;
@@ -115,6 +118,7 @@ public class SessaoConsumoService {
         this.eventoSessaoRepository = eventoSessaoRepository;
         this.fundoConsumoRepository = fundoConsumoRepository;
         this.pagamentoGatewayRepository = pagamentoGatewayRepository;
+        this.ownerTokenService = ownerTokenService;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -295,6 +299,22 @@ public class SessaoConsumoService {
         }
 
         sessao.encerrar();  // encerra sessão e fundo (ver método na entidade)
+
+        // P41.5-PENDING-1: Revoga todos os tokens ativos ao fechar a sessão
+        try {
+            if (sessao.getTenant() != null) {
+                ownerTokenService.revokeActiveTokensBySessao(
+                    sessao.getTenant().getId(),
+                    sessao.getId(),
+                    "SESSION_CLOSE",
+                    null,
+                    null
+                );
+            }
+        } catch (Exception e) {
+            log.warn("Erro ao revogar tokens ativos da sessão ID={} ao fechar: {}", id, e.getMessage());
+        }
+
         SessaoConsumo sessaoSalva = sessaoConsumoRepository.save(sessao);
 
         String local = sessao.getMesa() != null ? "mesa '" + sessao.getMesa().getReferencia() + "'" : "sessão #" + id;

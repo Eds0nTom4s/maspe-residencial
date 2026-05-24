@@ -10,6 +10,7 @@ import com.restaurante.fiscal.repository.FiscalDocumentLineRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentRepository;
 import com.restaurante.fiscal.repository.TenantFiscalProfileRepository;
 import com.restaurante.fiscal.repository.TaxRateRepository;
+import com.restaurante.fiscal.official.event.FiscalDocumentIssuedForOfficialSubmissionEvent;
 import com.restaurante.model.entity.CaixaOperadorSession;
 import com.restaurante.model.entity.FiscalDocument;
 import com.restaurante.model.entity.FiscalDocumentLine;
@@ -40,6 +41,7 @@ import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -69,6 +71,7 @@ public class FiscalDocumentService {
     private final TaxRateRepository taxRateRepository;
     private final UserRepository userRepository;
     private final OperationalEventLogService operationalEventLogService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public FiscalDocument issueForPedidoPaymentAsTenant(Long pedidoId, Long pagamentoId, IssueFiscalDocumentRequest request, String ip, String userAgent) {
@@ -328,6 +331,14 @@ public class FiscalDocumentService {
                 ip,
                 userAgent
         );
+
+        // Prompt 45: integração oficial futura (camada desativada por padrão; listener decide se cria submissão)
+        eventPublisher.publishEvent(new FiscalDocumentIssuedForOfficialSubmissionEvent(
+                tenantId,
+                doc.getId(),
+                doc.getDocumentType(),
+                doc.getIssuedAt()
+        ));
 
         return doc;
     }

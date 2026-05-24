@@ -12,6 +12,8 @@ O Prompt 43.2 introduz:
 
 Importante: estes documentos são **internos/preparatórios**. Não são “fatura fiscal oficial/certificada”, nem integram com AGT/SAF-T.
 
+Nota: notas internas de crédito/débito **não equivalem** a documentos corretivos oficiais certificados. A preparação para camada oficial fica no Prompt 45.
+
 ## Escopo implementado
 - Entidade `FiscalAdjustmentAssessment` para governar a decisão fiscal do ajuste operacional.
 - Política por tenant (MVP) para decidir comportamento default:
@@ -157,4 +159,3 @@ Sem payload sensível de pagamento/cartão/AppyPay/telefone.
   - `PROPORTIONAL_BY_ORIGINAL_LINES` e/ou `MANUAL_LINES`.
 - Adicionar endpoints de gestão de `TenantFiscalCorrectionPolicy` (se necessário).
 - Evoluir para correções fiscais oficiais/certificadas em prompt próprio (AGT/SAF‑T).
-

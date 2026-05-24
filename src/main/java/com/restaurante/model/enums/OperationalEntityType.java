@@ -34,5 +34,10 @@ public enum OperationalEntityType {
     FISCAL_AUTO_ISSUE_JOB,
     // Prompt 43.2: correções fiscais internas (assessment + notas)
     FISCAL_ADJUSTMENT_ASSESSMENT,
-    TENANT_FISCAL_CORRECTION_POLICY
+    TENANT_FISCAL_CORRECTION_POLICY,
+    // Prompt 45: preparação para faturação eletrónica (camada oficial futura)
+    OFFICIAL_FISCAL_PROFILE,
+    FISCAL_SIGNING_PROFILE,
+    OFFICIAL_FISCAL_SUBMISSION,
+    OFFICIAL_FISCAL_SUBMISSION_ATTEMPT
 }

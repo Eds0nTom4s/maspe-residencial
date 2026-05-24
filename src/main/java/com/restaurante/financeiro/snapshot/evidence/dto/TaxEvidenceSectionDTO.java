@@ -28,6 +28,17 @@ public class TaxEvidenceSectionDTO {
     private Integer issuedByAutoIssueJobs;
     private Integer confirmedPaymentsWithoutFiscalDocument;
 
+    // Prompt 45: camada oficial futura (AGT-ready). Não implica certificação.
+    private Boolean officialFiscalEnabled;
+    private String officialEnvironment;
+    private Integer totalOfficialSubmissions;
+    private Integer pendingOfficialSubmissions;
+    private Integer submittedOfficialSubmissions;
+    private Integer acceptedOfficialSubmissions;
+    private Integer rejectedOfficialSubmissions;
+    private Integer failedOfficialSubmissions;
+    private Integer documentsIssuedNotSubmittedOfficially;
+
     // Prompt 43.2: correções fiscais internas (assessments + notas de crédito/débito)
     private Integer pendingFiscalAssessments;
     private Integer noImpactAssessments;

@@ -6,6 +6,9 @@ import com.restaurante.fiscal.repository.FiscalAdjustmentAssessmentRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentLineRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentRepository;
 import com.restaurante.fiscal.repository.TenantFiscalProfileRepository;
+import com.restaurante.fiscal.official.config.OfficialFiscalProperties;
+import com.restaurante.fiscal.official.repository.OfficialFiscalSubmissionRepository;
+import com.restaurante.fiscal.official.repository.TenantOfficialFiscalProfileRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceAssessmentItemDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceByTaxRateDTO;
@@ -14,12 +17,15 @@ import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceDocumentItemD
 import com.restaurante.financeiro.snapshot.evidence.dto.TaxEvidenceSectionDTO;
 import com.restaurante.model.entity.FiscalDocument;
 import com.restaurante.model.entity.FiscalDocumentLine;
+import com.restaurante.model.entity.OfficialFiscalSubmission;
 import com.restaurante.model.entity.TenantFiscalProfile;
+import com.restaurante.model.entity.TenantOfficialFiscalProfile;
 import com.restaurante.model.enums.FiscalAdjustmentAssessmentStatus;
 import com.restaurante.model.enums.FiscalDocumentStatus;
 import com.restaurante.model.enums.FiscalDocumentType;
 import com.restaurante.model.enums.FiscalRegime;
 import com.restaurante.model.enums.FiscalAutoIssueJobStatus;
+import com.restaurante.model.enums.OfficialFiscalSubmissionStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -38,12 +44,15 @@ import java.util.Map;
 public class TaxEvidenceService {
 
     private final TaxProperties props;
+    private final OfficialFiscalProperties officialProps;
     private final TenantFiscalProfileRepository fiscalProfileRepository;
+    private final TenantOfficialFiscalProfileRepository officialProfileRepository;
     private final FiscalDocumentRepository fiscalDocumentRepository;
     private final FiscalDocumentLineRepository fiscalDocumentLineRepository;
     private final FiscalAutoIssueJobRepository autoIssueJobRepository;
     private final PagamentoGatewayRepository pagamentoGatewayRepository;
     private final FiscalAdjustmentAssessmentRepository assessmentRepository;
+    private final OfficialFiscalSubmissionRepository officialSubmissionRepository;
 
     public TaxEvidenceSectionDTO buildForTurno(Long tenantId, Long turnoId) {
         TaxEvidenceSectionDTO out = new TaxEvidenceSectionDTO();
@@ -78,6 +87,16 @@ public class TaxEvidenceService {
         List<FiscalDocument> docs = allDocs.stream()
                 .filter(d -> d != null && d.getDocumentType() != FiscalDocumentType.INTERNAL_CREDIT_NOTE && d.getDocumentType() != FiscalDocumentType.INTERNAL_DEBIT_NOTE)
                 .toList();
+
+        List<OfficialFiscalSubmission> officialSubmissions = officialProps.isEnabled()
+                ? officialSubmissionRepository.listByTurno(tenantId, turnoId)
+                : List.of();
+        Map<Long, OfficialFiscalSubmission> submissionByDocumentId = new HashMap<>();
+        for (OfficialFiscalSubmission s : officialSubmissions) {
+            if (s != null && s.getFiscalDocument() != null && s.getFiscalDocument().getId() != null) {
+                submissionByDocumentId.put(s.getFiscalDocument().getId(), s);
+            }
+        }
 
         int total = docs.size();
         int issued = (int) docs.stream().filter(d -> d.getStatus() == FiscalDocumentStatus.ISSUED).count();
@@ -202,6 +221,7 @@ public class TaxEvidenceService {
                 it.setTaxAmount(d.getTaxAmount());
                 it.setTotalAmount(d.getTotalAmount());
                 it.setDocumentHash(docHash);
+                applyOfficialFields(it, submissionByDocumentId.get(d.getId()));
                 correctionItems.add(it);
             }
         } catch (Exception ignored) {
@@ -234,6 +254,7 @@ public class TaxEvidenceService {
             it.setTaxAmount(d.getTaxAmount());
             it.setTotalAmount(d.getTotalAmount());
             it.setDocumentHash(docHash);
+            applyOfficialFields(it, submissionByDocumentId.get(d.getId()));
             items.add(it);
 
             if (lines.isEmpty()) warnings.add("DOCUMENT_WITHOUT_LINES");
@@ -263,6 +284,23 @@ public class TaxEvidenceService {
         out.setCorrectionNetAmount(correctionNet);
         out.setCorrectionTaxAmount(correctionTax);
         out.setCorrectionGrossAmount(correctionGross);
+
+        // Prompt 45: métricas de submissão oficial (placeholder)
+        TenantOfficialFiscalProfile officialProfile = officialProps.isEnabled() ? officialProfileRepository.findByTenantId(tenantId).orElse(null) : null;
+        out.setOfficialFiscalEnabled(officialProfile != null && officialProfile.isOfficialEnabled());
+        out.setOfficialEnvironment(officialProfile != null && officialProfile.getEnvironment() != null ? officialProfile.getEnvironment().name() : null);
+        out.setTotalOfficialSubmissions(officialSubmissions.size());
+        out.setPendingOfficialSubmissions((int) officialSubmissions.stream().filter(s -> s != null && s.getStatus() == OfficialFiscalSubmissionStatus.PENDING_RESULT).count());
+        out.setSubmittedOfficialSubmissions((int) officialSubmissions.stream().filter(s -> s != null && s.getStatus() == OfficialFiscalSubmissionStatus.SUBMITTED).count());
+        out.setAcceptedOfficialSubmissions((int) officialSubmissions.stream().filter(s -> s != null && s.getStatus() == OfficialFiscalSubmissionStatus.ACCEPTED).count());
+        out.setRejectedOfficialSubmissions((int) officialSubmissions.stream().filter(s -> s != null && s.getStatus() == OfficialFiscalSubmissionStatus.REJECTED).count());
+        out.setFailedOfficialSubmissions((int) officialSubmissions.stream().filter(s -> s != null && (s.getStatus() == OfficialFiscalSubmissionStatus.FAILED_PERMANENT || s.getStatus() == OfficialFiscalSubmissionStatus.FAILED_RETRYABLE)).count());
+        int issuedDocs = (int) allDocs.stream().filter(d -> d != null && d.getStatus() == FiscalDocumentStatus.ISSUED).count();
+        out.setDocumentsIssuedNotSubmittedOfficially(Math.max(0, issuedDocs - submissionByDocumentId.size()));
+        if (out.getOfficialFiscalEnabled() != null && out.getOfficialFiscalEnabled() && out.getDocumentsIssuedNotSubmittedOfficially() != null && out.getDocumentsIssuedNotSubmittedOfficially() > 0) {
+            warnings.add("FISCAL_DOCUMENT_NOT_SUBMITTED_OFFICIALLY");
+        }
+
         out.setWarnings(warnings.stream().distinct().toList());
         out.setDocuments(items);
         out.setCorrectionDocuments(correctionItems);
@@ -284,6 +322,32 @@ public class TaxEvidenceService {
         out.setByTaxRate(byRateList);
 
         return out;
+    }
+
+    private static void applyOfficialFields(TaxEvidenceDocumentItemDTO item, OfficialFiscalSubmission s) {
+        if (item == null || s == null) return;
+        item.setOfficialSubmissionId(s.getId());
+        item.setOfficialSubmissionStatus(s.getStatus() != null ? s.getStatus().name() : null);
+        item.setOfficialRequestId(s.getRequestId());
+        item.setOfficialStatusCode(s.getOfficialStatusCode());
+        item.setOfficialStatusMessage(s.getOfficialStatusMessage());
+        item.setOfficialAcceptedAt(s.getAcceptedAt());
+        item.setOfficialRejectedAt(s.getRejectedAt());
+        item.setOfficialPayloadHash(s.getPayloadHash());
+        item.setOfficialSignedPayloadHash(s.getSignedPayloadHash());
+    }
+
+    private static void applyOfficialFields(TaxEvidenceCorrectionDocumentItemDTO item, OfficialFiscalSubmission s) {
+        if (item == null || s == null) return;
+        item.setOfficialSubmissionId(s.getId());
+        item.setOfficialSubmissionStatus(s.getStatus() != null ? s.getStatus().name() : null);
+        item.setOfficialRequestId(s.getRequestId());
+        item.setOfficialStatusCode(s.getOfficialStatusCode());
+        item.setOfficialStatusMessage(s.getOfficialStatusMessage());
+        item.setOfficialAcceptedAt(s.getAcceptedAt());
+        item.setOfficialRejectedAt(s.getRejectedAt());
+        item.setOfficialPayloadHash(s.getPayloadHash());
+        item.setOfficialSignedPayloadHash(s.getSignedPayloadHash());
     }
 
     private String hashForDocument(FiscalDocument d, List<FiscalDocumentLine> lines) {

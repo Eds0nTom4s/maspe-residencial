@@ -7,5 +7,6 @@ import java.util.List;
 
 public interface FiscalDocumentLineRepository extends JpaRepository<FiscalDocumentLine, Long> {
     List<FiscalDocumentLine> findByTenantIdAndFiscalDocumentId(Long tenantId, Long fiscalDocumentId);
-}
 
+    List<FiscalDocumentLine> findByFiscalDocumentIdOrderByIdAsc(Long fiscalDocumentId);
+}

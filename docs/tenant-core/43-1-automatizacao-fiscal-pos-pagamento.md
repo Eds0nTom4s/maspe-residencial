@@ -9,6 +9,8 @@ Regras centrais:
 - **não altera AppyPay callback/polling** estruturalmente (apenas reage a “pagamento confirmado”);
 - Evidence Bundle continua preservando WORM/hash/HMAC/chainHash e compatibilidade com bundles antigos.
 
+Nota: emissão interna automática **não equivale** a submissão fiscal oficial. A camada “oficial/AGT-ready” é tratada separadamente no Prompt 45.
+
 ## Escopo implementado
 - Fila persistida: `FiscalAutoIssueJob`.
 - Criação de job pós-confirmação via evento `PaymentConfirmedForFiscalIssueEvent` (AFTER_COMMIT).
@@ -101,4 +103,3 @@ Sanitização: não incluir token de device, payload bruto de gateway, dados sen
 - Evoluir classificador de falhas (diferenciar melhor transient vs. permanent).
 - Backfill controlado para pagamentos confirmados antigos sem documento.
 - Painel/relatórios de pendências fiscais (UI) em prompt futuro.
-

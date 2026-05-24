@@ -22,5 +22,15 @@ public class TaxEvidenceDocumentItemDTO {
     private BigDecimal taxAmount;
     private BigDecimal totalAmount;
     private String documentHash;
-}
 
+    // Prompt 45: estado oficial futuro (placeholder)
+    private Long officialSubmissionId;
+    private String officialSubmissionStatus;
+    private String officialRequestId;
+    private String officialStatusCode;
+    private String officialStatusMessage;
+    private LocalDateTime officialAcceptedAt;
+    private LocalDateTime officialRejectedAt;
+    private String officialPayloadHash;
+    private String officialSignedPayloadHash;
+}

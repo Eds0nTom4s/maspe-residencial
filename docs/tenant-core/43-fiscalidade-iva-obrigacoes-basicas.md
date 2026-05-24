@@ -58,6 +58,9 @@ Ver: `docs/tenant-core/43-1-automatizacao-fiscal-pos-pagamento.md`.
 ## 43.2 — Notas de crédito/débito internas e impacto fiscal de ajustes
 Ver: `docs/tenant-core/43-2-notas-credito-debito-ajustes-fiscais.md`.
 
+## 45 — Preparação para Faturação Eletrónica Angolana (AGT-ready)
+Ver: `docs/tenant-core/45-preparacao-faturacao-eletronica-angolana.md`.
+
 ## Dívidas futuras (registradas)
 - P43-DEBT-2: emissão fiscal offline controlada (reserva de numeração e reconciliação).
 - P43-DEBT-3: correções fiscais oficiais/certificadas (AGT/SAF-T), fora do escopo interno/preparatório.

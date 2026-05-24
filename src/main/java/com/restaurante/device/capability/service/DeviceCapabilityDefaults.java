@@ -21,6 +21,8 @@ public final class DeviceCapabilityDefaults {
                     DeviceCapability.VIEW_OPERATOR_CASH_DIVERGENCE,
                     DeviceCapability.JUSTIFY_OPERATOR_CASH_DIVERGENCE,
                     DeviceCapability.SUBMIT_OPERATOR_CASH_DIVERGENCE,
+                    DeviceCapability.ISSUE_FISCAL_DOCUMENT,
+                    DeviceCapability.VIEW_FISCAL_DOCUMENT,
                     DeviceCapability.LOOKUP_CONSUMPTION_BY_PHONE,
                     DeviceCapability.REQUEST_ASSISTED_IDENTIFICATION_OTP,
                     DeviceCapability.VERIFY_ASSISTED_IDENTIFICATION_OTP,
@@ -42,6 +44,7 @@ public final class DeviceCapabilityDefaults {
             case POS_ATENDIMENTO -> EnumSet.of(
                     DeviceCapability.VIEW_OPERATOR_CASH_SESSION,
                     DeviceCapability.VIEW_OPERATOR_CASH_DIVERGENCE,
+                    DeviceCapability.VIEW_FISCAL_DOCUMENT,
                     DeviceCapability.LOOKUP_CONSUMPTION_BY_PHONE,
                     DeviceCapability.REQUEST_ASSISTED_IDENTIFICATION_OTP,
                     DeviceCapability.OFFLINE_SYNC,

@@ -1,0 +1,176 @@
+CONSUMA — Prompt 43 (Fiscalidade, IVA e Obrigações Fiscais Básicas por Tenant)
+Resumo executivo (base fiscal interna / preparatória)
+
+Data: 2026-05-24
+
+1) Objetivo do Prompt 43
+Implementar uma base fiscal mínima, configurável e tenant-aware para:
+- configurar perfil fiscal por tenant;
+- versionar taxas de IVA (TaxRate) e políticas fiscais do tenant (TenantTaxPolicy);
+- classificar produtos/serviços com enquadramento fiscal básico;
+- calcular IVA por item/pedido (BigDecimal + rounding explícito);
+- emitir “Documento fiscal interno” (não certificado) com numeração sequencial controlada;
+- integrar um resumo fiscal (taxEvidence) no Evidence Bundle, preservando WORM, hash/HMAC/chainHash e compatibilidade com bundles antigos;
+- auditar operações fiscais de forma sanitizada.
+
+IMPORTANTE: O “Documento fiscal interno” deste prompt NÃO é “fatura fiscal oficial” nem “fatura certificada”.
+Esta entrega não inclui integração oficial com AGT, SAF-T, faturação eletrónica certificada ou submissão automática.
+
+2) Escopo implementado (o que foi entregue)
+2.1 Configuração fiscal tenant-aware
+- TenantFiscalProfile (perfil fiscal do tenant):
+  - regime fiscal (FiscalRegime);
+  - status e flags (ex.: fiscalDocumentEnabled, invoiceRequired);
+  - dados legais básicos (ex.: taxpayerNumber, legalName, address).
+- TenantTaxPolicy (política fiscal do tenant):
+  - defaultTaxRate;
+  - pricesIncludeTax (preço inclui IVA vs. IVA por cima);
+  - vigência (effectiveFrom/effectiveTo) e status.
+- ProductTaxClassification:
+  - classificação por produto (TaxCategory) e taxRate aplicável;
+  - vigência e status.
+- TaxRate (taxas versionadas por país/tipo):
+  - AO seed idempotente (exemplos de IVA 14%, 7%, 0%).
+
+2.2 Cálculo de IVA (TaxCalculationService)
+- Cálculo por item/pedido com BigDecimal, scale e rounding explícitos via properties (consuma.tax.*).
+- Suporte a preços com IVA incluído (pricesIncludeTax=true):
+  - gross = preço informado
+  - net = gross / (1 + rate)
+  - tax = gross - net
+- Suporte a preços sem IVA incluído (pricesIncludeTax=false):
+  - net = preço informado
+  - tax = net * rate
+  - gross = net + tax
+- Resultado consolidado por pedido (subtotal/taxable/exempt/tax/total) + linhas com rate aplicada.
+
+2.3 Documento fiscal interno (FiscalDocumentService)
+- Emissão de documento fiscal interno para pedido + pagamento confirmado (online), com:
+  - cabeçalho (tipo, status, regime, série, número, totals);
+  - linhas fiscais (FiscalDocumentLine) congelando os valores e a taxa aplicada.
+- Cancelamento lógico (status CANCELLED/VOIDED mantendo número; sem DELETE).
+- Regra de não duplicidade (se já existir documento emitido para o pagamento/pedido, retorna o existente).
+
+2.4 Numeração interna (FiscalDocumentSequenceService)
+- Sequência interna por tenant (+ unidade opcional) + tipo + série + ano.
+- Alocação transacional com lock pessimista para evitar números duplicados.
+- Formato interno do número: PREFIX-YYYY-000001 (prefix configurável).
+
+2.5 Endpoints (tenant/admin e device/POS)
+Tenant/admin (roles financeiras/admin):
+- GET/POST/PUT /tenant/fiscal/profile
+- GET /tenant/fiscal/tax-rates
+- GET/POST/PUT /tenant/fiscal/tax-policies
+- GET/POST/PUT /tenant/fiscal/product-classifications
+- GET /tenant/fiscal/documents
+- GET /tenant/fiscal/documents/{documentId}
+- POST /tenant/fiscal/documents/issue-for-pedido/{pedidoId}?pagamentoId=...
+- POST /tenant/fiscal/documents/{documentId}/cancel
+
+Device/POS (capabilities):
+- GET /device/fiscal/documents/{documentId}   (VIEW_FISCAL_DOCUMENT)
+- POST /device/fiscal/documents/issue-for-pedido/{pedidoId}?pagamentoId=...
+  (ISSUE_FISCAL_DOCUMENT)
+
+2.6 Capabilities (device)
+Adicionadas/ativadas via defaults de tipo de device:
+- ISSUE_FISCAL_DOCUMENT
+- VIEW_FISCAL_DOCUMENT
+- CANCEL_FISCAL_DOCUMENT (presente no enum; cancelamento efetivo permanece tenant/admin no MVP)
+
+2.7 Integração com Evidence Bundle (taxEvidence)
+- Nova seção taxEvidence adicionada ao bundle novo (sem recalcular bundles antigos).
+- TaxEvidenceService:
+  - agrega documentos emitidos/cancelados no período/turno;
+  - soma bases (taxable/exempt), imposto (taxAmount) e total;
+  - agrupa por taxa (byTaxRate) e adiciona warnings operacionais;
+  - gera documentHash determinístico por documento (inclui linhas canónicas).
+- Compatibilidade preservada:
+  - bundles antigos continuam legíveis mesmo sem taxEvidence;
+  - WORM e cadeia de custódia não foram alterados; hash/HMAC/chainHash continuam válidos.
+
+2.8 Auditoria sanitizada
+Foram adicionados tipos de evento (OperationalEventType) e entidades (OperationalEntityType) para:
+- criação/alteração de TenantFiscalProfile;
+- criação/alteração de TenantTaxPolicy;
+- criação/alteração de ProductTaxClassification;
+- emissão/cancelamento de FiscalDocument;
+- anexação da seção taxEvidence ao Evidence Bundle.
+Sanitização: não logar token de device, payloads de gateway, dados sensíveis de cartão, telefone completo, segredos HMAC.
+
+3) O que NÃO foi implementado (fora de escopo por desenho)
+- Integração oficial com AGT.
+- SAF-T, faturação eletrónica certificada, QR fiscal oficial, assinatura fiscal oficial.
+- Submissão fiscal automática (auto-issue-on-payment mantém-se desativado por padrão).
+- UI frontend para gestão fiscal.
+- Emissão fiscal offline (reserva de numeração offline, séries offline, reconciliação offline).
+- Notas de crédito/débito formais e impacto fiscal automático de ajustes de caixa.
+- Contabilidade geral/livro razão, multi-moeda, fiscalidade avançada.
+- Alterações no AppyPay callback/polling.
+- Reescrita/reprocessamento de Evidence Bundles antigos.
+- Alteração de WORM/trigger anti-UPDATE/DELETE e cadeia de custódia.
+
+4) Entidades criadas (domínio fiscal)
+- TenantFiscalProfile
+- TaxRate
+- TenantTaxPolicy
+- ProductTaxClassification
+- FiscalDocumentSequence
+- FiscalDocument
+- FiscalDocumentLine
+
+5) Migrations (Flyway)
+- V48__tax_core_minimo.sql
+  - cria tabelas fiscais e índices/uniques para evitar duplicidade de documento por pedido/pagamento.
+- V49__tax_rates_seed_ao.sql
+  - seed idempotente de taxas de IVA (AO), incluindo exemplos de 14%, 7% e 0%.
+
+6) Services principais
+- TaxCalculationService (cálculo de IVA por pedido/itens)
+- FiscalDocumentSequenceService (numeração interna com lock)
+- FiscalDocumentService (emitir/cancelar documento interno)
+- TenantFiscalProfileService (gestão de perfil fiscal tenant/admin)
+- TenantTaxPolicyService (gestão de políticas fiscais tenant/admin)
+- ProductTaxClassificationService (gestão de classificação fiscal por produto tenant/admin)
+- TaxEvidenceService (seção taxEvidence no bundle)
+
+7) Integração com Pedido/Pagamento
+- Emissão depende de pagamento confirmado (server-side), sem alterar a lógica de confirmação:
+  - AppyPay não foi modificado; o módulo fiscal apenas consulta estado confirmado quando solicitado a emitir.
+- Não foi implementado hook automático pós-pagamento (auto-issue-on-payment=false no MVP).
+- Não foi implementada alteração estrutural obrigatória em Pedido/Pagamento para TaxStatus (enum existe, mas uso é opcional/gradual).
+
+8) Integração com Caixa operador/device
+- O módulo fiscal NÃO depende do caixa para calcular IVA.
+- FiscalDocument pode referenciar caixaOperadorSessionId quando existir associação no pagamento manual (CASH/TPA).
+- AppyPay/QR público podem permanecer com caixaOperadorSessionId nulo.
+
+9) Integração com Evidence Bundle / taxEvidence
+- Bundles novos: incluem taxEvidence (documentos + totais + hashes + warnings).
+- Bundles antigos: continuam legíveis sem a seção.
+- Não há recalculo de bundles antigos.
+- Hash/HMAC/chainHash continuam válidos por design (novo payload apenas passa a incluir a nova seção nos bundles novos).
+
+10) Testes e comandos executados
+Comandos:
+- mvn -q -DskipTests compile  -> OK (exit code 0)
+- mvn test                   -> BUILD SUCCESS (exit code 0)
+  - Tests run: 497, Failures: 0, Errors: 0, Skipped: 223
+
+Observação: parte dos ITs é marcada como Skipped por ambiente (ex.: ausência de Docker/Testcontainers).
+
+11) Status final
+Prompt 43 entregue como base fiscal interna/preparatória:
+- configurável, tenant-aware, auditável;
+- cálculo de IVA por item/pedido com rounding explícito;
+- emissão de documento fiscal interno com numeração sequencial controlada;
+- taxEvidence no Evidence Bundle com hashes determinísticos;
+- sem integração fiscal oficial e sem emissão offline (por decisão de escopo).
+
+12) Pendências futuras recomendadas (próximos passos)
+- P43-DEBT-1: modelar impacto fiscal de ajustes operacionais (notas de crédito/débito, correções fiscais formais).
+- P43-DEBT-2: emissão fiscal offline controlada (reserva de numeração, reconciliação e anti-duplicidade).
+- Automatização controlada pós-pagamento (retries, fila de pendências, idempotência fiscal por pagamento).
+- Regras fiscais por setor/categoria mais detalhadas (sem hardcode de legislação; via configuração/versionamento).
+- Hardening de warnings em taxEvidence (ex.: pagamentos confirmados sem documento quando política exigir).
+

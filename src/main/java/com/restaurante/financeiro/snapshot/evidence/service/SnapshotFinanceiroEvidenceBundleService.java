@@ -13,6 +13,7 @@ import com.restaurante.financeiro.snapshot.evidence.dto.SnapshotFinanceiroEviden
 import com.restaurante.financeiro.snapshot.evidence.EvidenceBundleProperties;
 import com.restaurante.financeiro.caixa.evidence.service.CaixaOperadorEvidenceService;
 import com.restaurante.financeiro.caixa.divergence.evidence.service.CaixaOperadorDivergenceEvidenceService;
+import com.restaurante.fiscal.evidence.service.TaxEvidenceService;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.OperationalEventType;
@@ -46,6 +47,7 @@ public class SnapshotFinanceiroEvidenceBundleService {
     private final EvidenceBundleProperties evidenceBundleProperties;
     private final CaixaOperadorEvidenceService caixaOperadorEvidenceService;
     private final CaixaOperadorDivergenceEvidenceService caixaOperadorDivergenceEvidenceService;
+    private final TaxEvidenceService taxEvidenceService;
 
     private static final Set<OperationalEventType> EVENT_TYPES = Set.of(
             OperationalEventType.TURNO_ABERTO,
@@ -143,6 +145,10 @@ public class SnapshotFinanceiroEvidenceBundleService {
         out.setOperatorCashDivergenceEvidence(divergenceEvidence);
         caixaOperadorDivergenceEvidenceService.enrichOperatorCashEvidence(operatorEvidence, divergenceEvidence);
 
+        // Prompt 43: seção fiscal (taxEvidence)
+        var taxEvidence = taxEvidenceService.buildForTurno(ctx.tenantId(), turno.getId());
+        out.setTaxEvidence(taxEvidence);
+
         operationalEventLogService.logTurnoEvent(
                 OperationalEventType.CAIXA_OPERADOR_EVIDENCE_SECTION_GENERATED,
                 turno,
@@ -216,6 +222,21 @@ public class SnapshotFinanceiroEvidenceBundleService {
                         "totalDivergences", divergenceEvidence != null ? divergenceEvidence.getTotalDivergences() : 0,
                         "unresolvedDivergences", divergenceEvidence != null ? divergenceEvidence.getUnresolvedDivergences() : 0,
                         "approvedAdjustments", divergenceEvidence != null ? divergenceEvidence.getApprovedAdjustments() : 0
+                ),
+                ip,
+                userAgent
+        );
+
+        operationalEventLogService.logTurnoEvent(
+                OperationalEventType.TAX_EVIDENCE_ATTACHED_TO_BUNDLE,
+                turno,
+                resolveOrigemFromRoles(ctx),
+                "Evidência fiscal (taxEvidence) anexada ao bundle",
+                java.util.Map.of(
+                        "turnoId", turno.getId(),
+                        "totalDocuments", taxEvidence != null ? taxEvidence.getTotalDocuments() : 0,
+                        "taxAmount", taxEvidence != null ? taxEvidence.getTaxAmount() : null,
+                        "warningsCount", taxEvidence != null && taxEvidence.getWarnings() != null ? taxEvidence.getWarnings().size() : 0
                 ),
                 ip,
                 userAgent

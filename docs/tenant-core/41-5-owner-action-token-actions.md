@@ -117,6 +117,7 @@ Reutiliza lógica de cooldown e maxResends do Prompt 41.3.
 | `OWNER_ACTION_TOKEN_SESSION_MISMATCH` | Token não pertence à sessão |
 | `OWNER_ACTION_TOKEN_OWNER_NOT_ACTIVE` | OWNER mudou de status |
 | `OWNER_ACTION_TOKEN_OWNER_NOT_OWNER` | OWNER foi rebaixado de role |
+| `OWNER_ACTION_TOKEN_SESSION_CLOSED` | Sessão associada ao token não está operacionalmente aberta (retorna HTTP 409 Conflict) |
 | `PARTICIPANT_ALREADY_ACTIVE` | Participante já está ACTIVE (aprovar) |
 | `PARTICIPANTE_NOT_PENDING_APPROVAL` | Estado incorreto para aprovar |
 | `PARTICIPANTE_NOT_REJECTABLE` | Estado incorreto para rejeitar |
@@ -137,6 +138,7 @@ ownerTokenService.revokeActiveTokensBySessao(tenantId, sessaoId, "SESSION_CLOSE"
 - Operação idempotente
 - PESSIMISTIC_WRITE para evitar race conditions
 - Auditoria agregada (`SESSAO_OWNER_ACTION_TOKENS_REVOKED_BY_SESSION_CLOSE`) sem expor tokenHash
+- **Defesa Transacional Ativa (Patch 41.5.1-A):** Se a chamada de revogação física falhar (ex: falhas de persistência ou rede), a validação semântica intercepta e bloqueia quaisquer ações subsequentes com o token se a sessão já estiver com status terminal (`ENCERRADA`, `EXPIRADA`, etc.), lançando a `ConflictException` com código `OWNER_ACTION_TOKEN_SESSION_CLOSED`.
 
 ---
 
@@ -208,13 +210,14 @@ Todos os eventos são registados em `OperationalEventLog` com metadados sanitiza
 | `SessaoOwnerActionTokenPepperValidator` | Component | Validação de startup do pepper |
 | `SessaoOwnerActionTokenProperties.Cleanup` | Config | Sub-properties do cleanup job |
 
-## Testes (42 passam)
+## Testes (46 passam)
 
-| Suíte | Testes |
-|-------|--------|
-| `SessaoParticipanteOwnerTokenActionServiceTest` | 16 |
-| `OwnerActionTokenExtractorTest` | 8 |
-| `SessaoOwnerActionTokenRevocationTest` | 5 |
-| `SessaoOwnerActionTokenCleanupJobTest` | 6 |
-| `SessaoOwnerActionTokenPepperValidationTest` | 7 |
-| **Total** | **42** |
+| Suíte | Testes | Descrição |
+|-------|--------|-----------|
+| `SessaoParticipanteOwnerTokenActionServiceTest` | 20 | Testes unitários com mock das ações e defesa de sessão fechada |
+| `OwnerActionTokenExtractorTest` | 8 | Extração e priorização de tokens da request |
+| `SessaoOwnerActionTokenRevocationTest` | 5 | Revogação física e lógica no encerramento de sessão |
+| `SessaoOwnerActionTokenCleanupJobTest` | 6 | Job de limpeza diária de tokens |
+| `SessaoOwnerActionTokenPepperValidationTest` | 7 | Hardening de startup e validação do pepper |
+| **Total** | **46** | **Suíte unitária 100% de sucesso** |
+

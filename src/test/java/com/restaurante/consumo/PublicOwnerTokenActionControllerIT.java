@@ -30,32 +30,40 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(
-        webEnvironment = SpringBootTest.WebEnvironment.MOCK,
-        properties = {
-                "spring.main.web-application-type=servlet",
-                "consuma.sessao.owner-action-token.ttl-minutes=10",
-                "consuma.sessao.owner-action-token.max-uses=5",
-                "consuma.sessao.owner-action-token.hash-pepper=testpepper"
-        }
-)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK, properties = {
+        "spring.main.web-application-type=servlet",
+        "consuma.sessao.owner-action-token.ttl-minutes=10",
+        "consuma.sessao.owner-action-token.max-uses=5",
+        "consuma.sessao.owner-action-token.hash-pepper=testpepper"
+})
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
 @DisplayName("PublicOwnerTokenActionController — Integração de Ações via Token")
 class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
 
-    @Autowired MockMvc mockMvc;
-    @Autowired ObjectMapper objectMapper;
+    @Autowired
+    MockMvc mockMvc;
+    @Autowired
+    ObjectMapper objectMapper;
 
-    @Autowired TenantRepository tenantRepository;
-    @Autowired InstituicaoRepository instituicaoRepository;
-    @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
-    @Autowired MesaRepository mesaRepository;
-    @Autowired QrCodeOperacionalRepository qrCodeOperacionalRepository;
-    @Autowired SessaoConsumoRepository sessaoConsumoRepository;
-    @Autowired ClienteConsumoRepository clienteConsumoRepository;
-    @Autowired SessaoConsumoParticipanteRepository participanteRepository;
-    @Autowired SessaoOwnerActionTokenService ownerTokenService;
+    @Autowired
+    TenantRepository tenantRepository;
+    @Autowired
+    InstituicaoRepository instituicaoRepository;
+    @Autowired
+    UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    @Autowired
+    MesaRepository mesaRepository;
+    @Autowired
+    QrCodeOperacionalRepository qrCodeOperacionalRepository;
+    @Autowired
+    SessaoConsumoRepository sessaoConsumoRepository;
+    @Autowired
+    ClienteConsumoRepository clienteConsumoRepository;
+    @Autowired
+    SessaoConsumoParticipanteRepository participanteRepository;
+    @Autowired
+    SessaoOwnerActionTokenService ownerTokenService;
 
     private Tenant tenant;
     private Instituicao instituicao;
@@ -129,7 +137,6 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
         sessao.setQrCodeSessao(qr.getToken());
         sessao = sessaoConsumoRepository.saveAndFlush(sessao);
 
-
         // 2. Setup Owner
         ClienteConsumo ownerCliente = new ClienteConsumo();
         ownerCliente.setTenant(tenant);
@@ -184,10 +191,10 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @DisplayName("Aprovar participante usando o token via Header")
     void approve_using_token_in_header() throws Exception {
         mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
-                        qr.getToken(), pendingMember.getId())
-                        .header("X-Owner-Action-Token", rawToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"Aprovado no header\"}"))
+                qr.getToken(), pendingMember.getId())
+                .header("X-Owner-Action-Token", rawToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Aprovado no header\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("ACTIVE"))
@@ -201,9 +208,9 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @DisplayName("Aprovar participante usando o token via Body")
     void approve_using_token_in_body() throws Exception {
         mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
-                        qr.getToken(), pendingMember.getId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ownerActionToken\":\"" + rawToken + "\", \"reason\":\"Aprovado no body\"}"))
+                qr.getToken(), pendingMember.getId())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ownerActionToken\":\"" + rawToken + "\", \"reason\":\"Aprovado no body\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("ACTIVE"));
@@ -213,10 +220,10 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @DisplayName("Prioriza Header quando ambos Header e Body são informados")
     void header_takes_precedence_over_body() throws Exception {
         mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
-                        qr.getToken(), pendingMember.getId())
-                        .header("X-Owner-Action-Token", rawToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ownerActionToken\":\"TOKEN-INVALIDO\", \"reason\":\"Prioridade\"}"))
+                qr.getToken(), pendingMember.getId())
+                .header("X-Owner-Action-Token", rawToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ownerActionToken\":\"TOKEN-INVALIDO\", \"reason\":\"Prioridade\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
     }
@@ -225,9 +232,9 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @DisplayName("Erro se token não for enviado no header nem no body")
     void error_when_token_is_missing() throws Exception {
         mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
-                        qr.getToken(), pendingMember.getId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"Sem token\"}"))
+                qr.getToken(), pendingMember.getId())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Sem token\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("OWNER_ACTION_TOKEN_REQUIRED"));
@@ -240,10 +247,11 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @Test
     @DisplayName("Rejeita requisição se o token for enviado via Query Param")
     void error_when_token_is_sent_in_query_param() throws Exception {
-        mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token?ownerActionToken=" + rawToken,
-                        qr.getToken(), pendingMember.getId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+        mockMvc.perform(post(
+                "/api/public/q/{token}/participantes/{participanteId}/approve-by-token?ownerActionToken=" + rawToken,
+                qr.getToken(), pendingMember.getId())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("OWNER_ACTION_TOKEN_QUERY_PARAM_NOT_ALLOWED"));
@@ -257,10 +265,10 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @DisplayName("Rejeitar participante com sucesso")
     void reject_participant_success() throws Exception {
         mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/reject-by-token",
-                        qr.getToken(), pendingMember.getId())
-                        .header("X-Owner-Action-Token", rawToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"Muito barulhento\"}"))
+                qr.getToken(), pendingMember.getId())
+                .header("X-Owner-Action-Token", rawToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Muito barulhento\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("REJECTED"))
@@ -274,10 +282,10 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @DisplayName("Cancelar participante com sucesso")
     void cancel_participant_success() throws Exception {
         mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/cancel-by-token",
-                        qr.getToken(), pendingMember.getId())
-                        .header("X-Owner-Action-Token", rawToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"Desistiu\"}"))
+                qr.getToken(), pendingMember.getId())
+                .header("X-Owner-Action-Token", rawToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Desistiu\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("CANCELLED"))
@@ -298,10 +306,10 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
         participanteRepository.saveAndFlush(pendingMember);
 
         mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
-                        qr.getToken(), pendingMember.getId())
-                        .header("X-Owner-Action-Token", rawToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+                qr.getToken(), pendingMember.getId())
+                .header("X-Owner-Action-Token", rawToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("PARTICIPANTE_ESTADO_INVALIDO"));
@@ -315,10 +323,10 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @DisplayName("Token inválido não resulta em 500")
     void invalid_token_returns_bad_request_not_500() throws Exception {
         mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
-                        qr.getToken(), pendingMember.getId())
-                        .header("X-Owner-Action-Token", "TOKEN-COMPLETAMENTE-INVALIDO-E-FALSO")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+                qr.getToken(), pendingMember.getId())
+                .header("X-Owner-Action-Token", "TOKEN-COMPLETAMENTE-INVALIDO-E-FALSO")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("OWNER_ACTION_TOKEN_INVALID"));
@@ -327,7 +335,8 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @Test
     @DisplayName("Resposta da API não expõe dados sensíveis (telefone completo ou tokenHash)")
     void response_does_not_leak_sensitive_data() throws Exception {
-        MvcResult mvcResult = mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
+        MvcResult mvcResult = mockMvc
+                .perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
                         qr.getToken(), pendingMember.getId())
                         .header("X-Owner-Action-Token", rawToken)
                         .contentType(MediaType.APPLICATION_JSON)

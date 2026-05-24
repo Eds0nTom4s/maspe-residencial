@@ -8,6 +8,7 @@ import com.restaurante.consumo.participante.service.SessaoConsumoParticipanteSer
 import com.restaurante.consumo.participante.service.SessaoOwnerActionTokenService;
 import com.restaurante.consumo.participante.service.SessaoParticipanteOwnerTokenActionService;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ConflictException;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.SessaoParticipanteRole;
@@ -390,5 +391,81 @@ class SessaoParticipanteOwnerTokenActionServiceTest {
 
     private Tenant buildTenant(Long id) {
         var t = new Tenant(); t.setId(id); return t;
+    }
+
+    // =========================================================================
+    // Defesa contra Sessão Fechada
+    // =========================================================================
+    @Nested
+    @DisplayName("Sessão Fechada")
+    class SessaoFechada {
+
+        @Test
+        @DisplayName("approveByToken falha quando sessao fechada")
+        void approveByToken_falha_quando_sessao_fechada_mesmo_token_active() {
+            var ctx = buildTokenContext();
+            ctx.sessaoConsumo().setStatus(com.restaurante.model.enums.StatusSessaoConsumo.ENCERRADA);
+            var target = buildParticipante(200L, SessaoParticipanteStatus.PENDING_APPROVAL, SessaoParticipanteRole.GUEST);
+
+            when(participanteService.resolveQrContext("qr")).thenReturn(new SessaoConsumoParticipanteService.QrContext(1L, 100L));
+            when(ownerTokenService.validateAndUse(1L, 100L, "raw", null, null)).thenReturn(ctx);
+
+            assertThatThrownBy(() -> service.approveByOwnerToken("qr", 200L, "raw", null, null, null))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("OWNER_ACTION_TOKEN_SESSION_CLOSED");
+
+            verify(participanteRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("rejectByToken falha quando sessao fechada")
+        void rejectByToken_falha_quando_sessao_fechada_mesmo_token_active() {
+            var ctx = buildTokenContext();
+            ctx.sessaoConsumo().setStatus(com.restaurante.model.enums.StatusSessaoConsumo.ENCERRADA);
+            var target = buildParticipante(200L, SessaoParticipanteStatus.PENDING_APPROVAL, SessaoParticipanteRole.GUEST);
+
+            when(participanteService.resolveQrContext("qr")).thenReturn(new SessaoConsumoParticipanteService.QrContext(1L, 100L));
+            when(ownerTokenService.validateAndUse(1L, 100L, "raw", null, null)).thenReturn(ctx);
+
+            assertThatThrownBy(() -> service.rejectByOwnerToken("qr", 200L, "raw", null, null, null))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("OWNER_ACTION_TOKEN_SESSION_CLOSED");
+
+            verify(participanteRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("cancelByToken falha quando sessao fechada")
+        void cancelByToken_falha_quando_sessao_fechada_mesmo_token_active() {
+            var ctx = buildTokenContext();
+            ctx.sessaoConsumo().setStatus(com.restaurante.model.enums.StatusSessaoConsumo.ENCERRADA);
+            var target = buildParticipante(200L, SessaoParticipanteStatus.PENDING_APPROVAL, SessaoParticipanteRole.GUEST);
+
+            when(participanteService.resolveQrContext("qr")).thenReturn(new SessaoConsumoParticipanteService.QrContext(1L, 100L));
+            when(ownerTokenService.validateAndUse(1L, 100L, "raw", null, null)).thenReturn(ctx);
+
+            assertThatThrownBy(() -> service.cancelByOwnerToken("qr", 200L, "raw", null, null, null))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("OWNER_ACTION_TOKEN_SESSION_CLOSED");
+
+            verify(participanteRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("resendInviteByToken falha quando sessao fechada")
+        void resendInviteByToken_falha_quando_sessao_fechada_mesmo_token_active() {
+            var ctx = buildTokenContext();
+            ctx.sessaoConsumo().setStatus(com.restaurante.model.enums.StatusSessaoConsumo.ENCERRADA);
+            var target = buildParticipante(200L, SessaoParticipanteStatus.PENDING_APPROVAL, SessaoParticipanteRole.GUEST);
+
+            when(participanteService.resolveQrContext("qr")).thenReturn(new SessaoConsumoParticipanteService.QrContext(1L, 100L));
+            when(ownerTokenService.validateAndUse(1L, 100L, "raw", null, null)).thenReturn(ctx);
+
+            assertThatThrownBy(() -> service.resendInviteByOwnerToken("qr", 200L, "raw", null, null))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("OWNER_ACTION_TOKEN_SESSION_CLOSED");
+
+            verify(participanteService, never()).resendInviteByOwnerTokenInternal(any(), any(), any(), any());
+        }
     }
 }

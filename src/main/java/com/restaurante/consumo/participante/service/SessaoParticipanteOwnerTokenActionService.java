@@ -3,6 +3,7 @@ package com.restaurante.consumo.participante.service;
 import com.restaurante.consumo.participante.entity.SessaoConsumoParticipante;
 import com.restaurante.consumo.participante.repository.SessaoConsumoParticipanteRepository;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
@@ -327,7 +328,13 @@ public class SessaoParticipanteOwnerTokenActionService {
             throw new BusinessException("OWNER_ACTION_TOKEN_OWNER_NOT_OWNER");
         }
 
-        return new TokenActionContext(owner, tokenResult.sessaoConsumo(), tokenResult.tenant());
+        // 5. Verificar que a SessaoConsumo ainda está aberta/ativa
+        SessaoConsumo sessao = tokenResult.sessaoConsumo();
+        if (!sessao.isAberta()) {
+            throw new ConflictException("OWNER_ACTION_TOKEN_SESSION_CLOSED");
+        }
+
+        return new TokenActionContext(owner, sessao, tokenResult.tenant());
     }
 
     private SessaoConsumoParticipante loadWithLock(Long tenantId, Long participanteId, Long sessaoId) {

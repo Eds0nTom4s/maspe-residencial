@@ -176,22 +176,24 @@ public class InventoryReturnEvidenceTest {
     }
 
     private Tenant criarTenant() {
+        String suffix = String.valueOf(System.nanoTime() % 1_000_000);
         Tenant t = new Tenant();
         t.setNome("Tenant Return Evidence");
-        t.setSlug("tenant-return-evidence");
-        t.setTenantCode("INVE2");
+        t.setSlug("tenant-return-evidence-" + suffix);
+        t.setTenantCode("IE" + (System.nanoTime() % 1_000_000));
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
     }
 
     private Instituicao criarInstituicao(Tenant tenant) {
+        String suffix = String.valueOf(System.nanoTime() % 1_000_000);
         Instituicao i = new Instituicao();
         i.setTenant(tenant);
         i.setNome("Inst");
         i.setSigla("IE" + (System.nanoTime() % 1_000_000));
-        i.setNif("5000000005");
-        i.setTelefoneAutorizacao("+244900000005");
+        i.setNif("51" + suffix);
+        i.setTelefoneAutorizacao("+2448" + suffix);
         i.setAtiva(true);
         return instituicaoRepository.saveAndFlush(i);
     }

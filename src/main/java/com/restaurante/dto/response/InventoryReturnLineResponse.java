@@ -19,10 +19,14 @@ public class InventoryReturnLineResponse {
     private BigDecimal quantityBaseUnit;
     private BigDecimal unitCost;
     private BigDecimal totalCostReversed;
+    private BigDecimal totalRevenueReversed;
+    private BigDecimal totalTaxReversed;
+    private BigDecimal totalMarginReversed;
     private BigDecimal stockBefore;
     private BigDecimal stockAfter;
     private InventoryRestockPolicy restockPolicy;
     private Long movementId;
+    private Long wasteMovementId;
+    private Long cogsReversalMovementId;
     private String warningCode;
 }
-

@@ -58,6 +58,16 @@ public class InventoryReturnRecord extends BaseEntity {
     @JoinColumn(name = "fiscal_correction_document_id")
     private FiscalDocument fiscalCorrectionDocument;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "fiscal_credit_note_id")
+    private FiscalDocument fiscalCreditNote;
+
+    @Column(name = "refund_reference_id", length = 120)
+    private String refundReferenceId;
+
+    @Column(name = "refund_event_id", length = 120)
+    private String refundEventId;
+
     @NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "inventory_consumption_record_id", nullable = false)
@@ -118,4 +128,3 @@ public class InventoryReturnRecord extends BaseEntity {
     @Column(name = "warning_count", nullable = false)
     private Integer warningCount = 0;
 }
-

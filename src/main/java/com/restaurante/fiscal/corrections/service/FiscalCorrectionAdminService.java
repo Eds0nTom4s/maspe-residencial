@@ -309,6 +309,9 @@ public class FiscalCorrectionAdminService {
                     correction.getPedido() != null ? correction.getPedido().getId() : null,
                     correction.getPagamento() != null ? correction.getPagamento().getId() : null,
                     correction.getTotalAmount(),
+                    correction.getTaxableAmount(),
+                    correction.getExemptAmount(),
+                    correction.getTaxAmount(),
                     correction.getIssuedAt(),
                     correction.getCorrectionSource()
             ));

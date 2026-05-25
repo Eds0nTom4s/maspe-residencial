@@ -64,6 +64,7 @@ public class InventoryReturnService {
     private final InventoryMovementRepository movementRepository;
     private final TenantInventoryPolicyService tenantInventoryPolicyService;
     private final InventoryProperties properties;
+    private final InventoryReturnFinancialCalculator financialCalculator;
     private final OperationalEventLogService operationalEventLogService;
 
     @Transactional
@@ -307,11 +308,38 @@ public class InventoryReturnService {
             throw new BusinessException("INVENTORY_RETURN_PROCESSING_FAILED");
         }
 
+        TenantInventoryPolicy policy = tenantInventoryPolicyService.getOrCreateDefault(record.getTenant());
+        if (policy != null && Boolean.TRUE.equals(policy.getBlockProcessWhenManualReviewLineExists())) {
+            for (InventoryReturnLine rl : lines) {
+                if (rl != null && rl.getRestockPolicy() == InventoryRestockPolicy.MANUAL_REVIEW) {
+                    operationalEventLogService.logGenericForTenant(
+                            tenantId,
+                            OperationalEventType.INVENTORY_RETURN_PROCESSING_BLOCKED_MANUAL_REVIEW,
+                            OperationalEntityType.INVENTORY_RETURN_RECORD,
+                            record.getId(),
+                            OperationalOrigem.SYSTEM,
+                            "Processamento bloqueado por linha MANUAL_REVIEW",
+                            Map.of("tenantId", tenantId, "returnId", record.getId()),
+                            null,
+                            null
+                    );
+                    throw new BusinessException("INVENTORY_RETURN_PROCESSING_BLOCKED_MANUAL_REVIEW");
+                }
+            }
+        }
+
         BigDecimal totalCost = BigDecimal.ZERO;
         int warnings = 0;
+        boolean hasWaste = false;
+        boolean hasNoRestock = false;
+
+        var totals = financialCalculator.calculate(record, lines);
+        if (totals.estimated()) {
+            warnings++;
+        }
 
         for (InventoryReturnLine rl : lines) {
-            if (rl.getMovement() != null) continue;
+            if (rl.getMovement() != null || rl.getWasteMovement() != null || rl.getCogsReversalMovement() != null) continue;
 
             if (rl.getRestockPolicy() == InventoryRestockPolicy.RESTOCK) {
                 InventoryItem item = itemRepository.findByIdForUpdate(rl.getInventoryItem().getId())
@@ -349,23 +377,144 @@ public class InventoryReturnService {
                 rl.setStockBefore(stockBefore);
                 rl.setStockAfter(stockAfter);
                 returnLineRepository.save(rl);
+            } else if (rl.getRestockPolicy() == InventoryRestockPolicy.WASTE) {
+                hasWaste = true;
+                InventoryItem item = itemRepository.findByIdForUpdate(rl.getInventoryItem().getId())
+                        .orElseThrow(() -> new BusinessException("INVENTORY_ITEM_NOT_FOUND"));
+                BigDecimal stockBefore = nz(item.getCurrentQuantity());
+                BigDecimal stockAfter = stockBefore;
+
+                InventoryMovement wasteMv = new InventoryMovement();
+                wasteMv.setTenant(record.getTenant());
+                wasteMv.setUnidadeAtendimento(record.getUnidadeAtendimento());
+                wasteMv.setInventoryItem(item);
+                wasteMv.setMovementType(InventoryMovementType.RETURN_WASTE);
+                wasteMv.setDirection(InventoryMovementDirection.OUT);
+                wasteMv.setQuantity(nz(rl.getQuantityReturned()));
+                wasteMv.setUnit(rl.getUnit() != null ? rl.getUnit() : requireUnit(item));
+                wasteMv.setQuantityBaseUnit(nz(rl.getQuantityBaseUnit()));
+                wasteMv.setUnitCost(nz(rl.getUnitCost()));
+                wasteMv.setTotalCost(scale(nz(rl.getTotalCostReversed()), properties.getMath().getQuantityScale(), properties.getMath().getRoundingMode()));
+                wasteMv.setStockBefore(stockBefore);
+                wasteMv.setStockAfter(stockAfter);
+                wasteMv.setAverageCostBefore(item.getAverageCost());
+                wasteMv.setAverageCostAfter(item.getAverageCost());
+                wasteMv.setReferenceType(InventoryMovementReferenceType.INVENTORY_RETURN);
+                wasteMv.setReferenceId(record.getId());
+                wasteMv.setSource(mapMovementSource(record.getSource()));
+                wasteMv.setReason(safeText(record.getReasonDescription(), 500));
+                wasteMv.setCreatedByUser(processedByUserId != null ? userRepository.findById(processedByUserId).orElse(null) : null);
+                wasteMv = movementRepository.save(wasteMv);
+
+                rl.setWasteMovement(wasteMv);
+                rl.setStockBefore(stockBefore);
+                rl.setStockAfter(stockAfter);
+                rl.setWarningCode("RETURN_WASTE_NOT_RESTOCKED");
+                warnings++;
+                returnLineRepository.save(rl);
+                operationalEventLogService.logGenericForTenant(
+                        tenantId,
+                        OperationalEventType.INVENTORY_RETURN_WASTE_RECORDED,
+                        OperationalEntityType.INVENTORY_RETURN_LINE,
+                        rl.getId(),
+                        OperationalOrigem.SYSTEM,
+                        "Return line marcada como WASTE (sem restock)",
+                        Map.of("tenantId", tenantId, "returnId", record.getId(), "lineId", rl.getId(), "movementId", wasteMv.getId()),
+                        null,
+                        null
+                );
+            } else if (rl.getRestockPolicy() == InventoryRestockPolicy.DO_NOT_RESTOCK) {
+                hasNoRestock = true;
+                InventoryItem item = itemRepository.findByIdForUpdate(rl.getInventoryItem().getId())
+                        .orElseThrow(() -> new BusinessException("INVENTORY_ITEM_NOT_FOUND"));
+                BigDecimal stockBefore = nz(item.getCurrentQuantity());
+                BigDecimal stockAfter = stockBefore;
+
+                InventoryMovement cogsOnly = new InventoryMovement();
+                cogsOnly.setTenant(record.getTenant());
+                cogsOnly.setUnidadeAtendimento(record.getUnidadeAtendimento());
+                cogsOnly.setInventoryItem(item);
+                cogsOnly.setMovementType(InventoryMovementType.COGS_REVERSAL_ONLY);
+                cogsOnly.setDirection(InventoryMovementDirection.OUT);
+                cogsOnly.setQuantity(nz(rl.getQuantityReturned()));
+                cogsOnly.setUnit(rl.getUnit() != null ? rl.getUnit() : requireUnit(item));
+                cogsOnly.setQuantityBaseUnit(nz(rl.getQuantityBaseUnit()));
+                cogsOnly.setUnitCost(nz(rl.getUnitCost()));
+                cogsOnly.setTotalCost(scale(nz(rl.getTotalCostReversed()), properties.getMath().getQuantityScale(), properties.getMath().getRoundingMode()));
+                cogsOnly.setStockBefore(stockBefore);
+                cogsOnly.setStockAfter(stockAfter);
+                cogsOnly.setAverageCostBefore(item.getAverageCost());
+                cogsOnly.setAverageCostAfter(item.getAverageCost());
+                cogsOnly.setReferenceType(InventoryMovementReferenceType.INVENTORY_RETURN);
+                cogsOnly.setReferenceId(record.getId());
+                cogsOnly.setSource(mapMovementSource(record.getSource()));
+                cogsOnly.setReason(safeText(record.getReasonDescription(), 500));
+                cogsOnly.setCreatedByUser(processedByUserId != null ? userRepository.findById(processedByUserId).orElse(null) : null);
+                cogsOnly = movementRepository.save(cogsOnly);
+
+                rl.setCogsReversalMovement(cogsOnly);
+                rl.setStockBefore(stockBefore);
+                rl.setStockAfter(stockAfter);
+                rl.setWarningCode("RETURN_DOES_NOT_RESTOCK");
+                warnings++;
+                returnLineRepository.save(rl);
+                operationalEventLogService.logGenericForTenant(
+                        tenantId,
+                        OperationalEventType.INVENTORY_RETURN_NO_RESTOCK_RECORDED,
+                        OperationalEntityType.INVENTORY_RETURN_LINE,
+                        rl.getId(),
+                        OperationalOrigem.SYSTEM,
+                        "Return line DO_NOT_RESTOCK (sem restock)",
+                        Map.of("tenantId", tenantId, "returnId", record.getId(), "lineId", rl.getId(), "movementId", cogsOnly.getId()),
+                        null,
+                        null
+                );
             } else {
                 warnings++;
-                rl.setWarningCode("RETURN_DOES_NOT_RESTOCK");
+                rl.setWarningCode("RETURN_MANUAL_REVIEW_REQUIRED");
                 returnLineRepository.save(rl);
             }
 
             totalCost = totalCost.add(scale(nz(rl.getTotalCostReversed()), properties.getMath().getMonetaryScale(), properties.getMath().getRoundingMode()));
         }
 
+        BigDecimal revenueReversed = totals.revenueReversed();
+        BigDecimal taxReversed = totals.taxReversed();
+        financialCalculator.applyToLines(record, lines, revenueReversed, taxReversed);
+        for (InventoryReturnLine rl : lines) {
+            returnLineRepository.save(rl);
+        }
+
+        BigDecimal marginReversed = nz(revenueReversed).subtract(scale(totalCost, properties.getMath().getMonetaryScale(), properties.getMath().getRoundingMode()));
+
         record.setTotalReturnCost(scale(totalCost, properties.getMath().getMonetaryScale(), properties.getMath().getRoundingMode()));
-        record.setTotalRevenueReversed(null);
-        record.setTotalTaxReversed(null);
-        record.setTotalMarginReversed(null);
+        record.setTotalRevenueReversed(scale(revenueReversed, properties.getMath().getMonetaryScale(), properties.getMath().getRoundingMode()));
+        record.setTotalTaxReversed(scale(taxReversed, properties.getMath().getMonetaryScale(), properties.getMath().getRoundingMode()));
+        record.setTotalMarginReversed(scale(marginReversed, properties.getMath().getMonetaryScale(), properties.getMath().getRoundingMode()));
         record.setWarningCount(warnings);
         record.setProcessedAt(LocalDateTime.now());
         record.setStatus(InventoryReturnStatus.PROCESSED);
         record = returnRecordRepository.save(record);
+
+        operationalEventLogService.logGenericForTenant(
+                tenantId,
+                OperationalEventType.INVENTORY_RETURN_FINANCIALS_CALCULATED,
+                OperationalEntityType.INVENTORY_RETURN_RECORD,
+                record.getId(),
+                OperationalOrigem.SYSTEM,
+                "Financial reversal calculado para return",
+                Map.of(
+                        "tenantId", tenantId,
+                        "returnId", record.getId(),
+                        "pedidoId", record.getPedido().getId(),
+                        "totalRevenueReversed", record.getTotalRevenueReversed(),
+                        "totalTaxReversed", record.getTotalTaxReversed(),
+                        "totalMarginReversed", record.getTotalMarginReversed(),
+                        "estimated", totals.estimated()
+                ),
+                null,
+                null
+        );
 
         operationalEventLogService.logGenericForTenant(
                 tenantId,
@@ -392,6 +541,14 @@ public class InventoryReturnService {
     public InventoryReturnRecord getByTenant(Long tenantId, Long returnId) {
         return returnRecordRepository.findByTenantIdAndId(tenantId, returnId)
                 .orElseThrow(() -> new BusinessException("INVENTORY_RETURN_NOT_FOUND"));
+    }
+
+    @Transactional
+    public InventoryReturnRecord attachRefund(Long tenantId, Long returnId, String refundReferenceId, String refundEventId) {
+        InventoryReturnRecord record = locked(tenantId, returnId);
+        record.setRefundReferenceId(safeText(refundReferenceId, 120));
+        record.setRefundEventId(safeText(refundEventId, 120));
+        return returnRecordRepository.save(record);
     }
 
     @Transactional(readOnly = true)

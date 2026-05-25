@@ -151,6 +151,9 @@ Sem payload sensível de pagamento/cartão/AppyPay/telefone.
 ## Nota — relação com inventário (Prompt 44.1)
 Nem toda `INTERNAL_CREDIT_NOTE` implica retorno físico de stock. A decisão e o processamento de devolução/reversão de stock/COGS são governados no Prompt 44.1.
 
+## Nota — relação com inventário (Prompt 44.2)
+O Prompt 44.2 reforça a diferenciação por `correctionSource` (ex.: `PRODUCT_RETURN`, `DISCOUNT_AFTER_ISSUE`, `PAYMENT_DUPLICATION`, `PARTIAL_REFUND`) e reforça que refund/nota interna não implicam automaticamente retorno físico de stock.
+
 ## Comandos executados
 - `mvn -q -DskipTests compile`
 - `mvn -q -Dtest=FiscalAdjustmentAssessmentServiceTest test`

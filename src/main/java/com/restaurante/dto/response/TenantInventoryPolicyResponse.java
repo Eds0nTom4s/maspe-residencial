@@ -27,4 +27,12 @@ public class TenantInventoryPolicyResponse {
     private Integer maxReturnDays;
     private Boolean requireFiscalCreditNoteForReturn;
     private Boolean autoProcessReturnOnCreditNote;
+
+    // Prompt 44.2
+    private Boolean autoCreateReturnOnCreditNote;
+    private Boolean autoCreateReturnOnRefund;
+    private Boolean autoProcessReturnOnRefund;
+    private InventoryRestockPolicy defaultRefundRestockPolicy;
+    private Boolean requireCreditNoteForFinancialReturn;
+    private Boolean blockProcessWhenManualReviewLineExists;
 }

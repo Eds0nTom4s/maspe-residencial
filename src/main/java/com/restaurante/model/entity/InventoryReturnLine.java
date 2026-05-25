@@ -95,7 +95,23 @@ public class InventoryReturnLine extends BaseEntity {
     @JoinColumn(name = "movement_id")
     private InventoryMovement movement;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "waste_movement_id")
+    private InventoryMovement wasteMovement;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cogs_reversal_movement_id")
+    private InventoryMovement cogsReversalMovement;
+
+    @Column(name = "total_revenue_reversed", precision = 19, scale = 2)
+    private BigDecimal totalRevenueReversed;
+
+    @Column(name = "total_tax_reversed", precision = 19, scale = 2)
+    private BigDecimal totalTaxReversed;
+
+    @Column(name = "total_margin_reversed", precision = 19, scale = 2)
+    private BigDecimal totalMarginReversed;
+
     @Column(name = "warning_code", length = 120)
     private String warningCode;
 }
-

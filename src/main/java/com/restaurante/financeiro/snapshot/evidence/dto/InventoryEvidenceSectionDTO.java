@@ -40,10 +40,17 @@ public class InventoryEvidenceSectionDTO {
     private Integer totalReturns;
     private Integer processedReturns;
     private Integer pendingReturns;
+    private Integer restockedReturns;
+    private Integer wasteReturns;
+    private Integer noRestockReturns;
     private BigDecimal totalReturnCost;
     private BigDecimal totalRevenueReversed;
     private BigDecimal totalTaxReversed;
     private BigDecimal totalMarginReversed;
+    private BigDecimal totalWasteReturnCost;
+    private BigDecimal totalNoRestockReturnCost;
+    private Integer returnsLinkedToCreditNote;
+    private Integer returnsLinkedToRefund;
     private List<String> returnWarnings;
     private List<InventoryEvidenceReturnItemDTO> returnItems;
 }

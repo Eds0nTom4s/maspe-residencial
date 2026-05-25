@@ -96,4 +96,30 @@ public class TenantInventoryPolicy extends BaseEntity {
     @NotNull
     @Column(name = "auto_process_return_on_credit_note", nullable = false)
     private Boolean autoProcessReturnOnCreditNote = Boolean.FALSE;
+
+    // Prompt 44.2: hardening refund/nota de crédito
+    @NotNull
+    @Column(name = "auto_create_return_on_credit_note", nullable = false)
+    private Boolean autoCreateReturnOnCreditNote = Boolean.TRUE;
+
+    @NotNull
+    @Column(name = "auto_create_return_on_refund", nullable = false)
+    private Boolean autoCreateReturnOnRefund = Boolean.TRUE;
+
+    @NotNull
+    @Column(name = "auto_process_return_on_refund", nullable = false)
+    private Boolean autoProcessReturnOnRefund = Boolean.FALSE;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "default_refund_restock_policy", nullable = false, length = 40)
+    private com.restaurante.model.enums.InventoryRestockPolicy defaultRefundRestockPolicy = com.restaurante.model.enums.InventoryRestockPolicy.MANUAL_REVIEW;
+
+    @NotNull
+    @Column(name = "require_credit_note_for_financial_return", nullable = false)
+    private Boolean requireCreditNoteForFinancialReturn = Boolean.FALSE;
+
+    @NotNull
+    @Column(name = "block_process_when_manual_review_line_exists", nullable = false)
+    private Boolean blockProcessWhenManualReviewLineExists = Boolean.TRUE;
 }

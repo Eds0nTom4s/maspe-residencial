@@ -1,0 +1,198 @@
+RELATÓRIO EXECUTIVO FINAL — PROMPT 44.2
+HARDENING DE DEVOLUÇÕES, REFUND E MARGEM REVERSA (INVENTORY CORE)
+
+Data: 2026-05-25 (Africa/Luanda)
+Projeto: CONSUMA — Sistema de Restauração (SaaS multi-tenant)
+
+================================================================================
+1) OBJETIVO
+================================================================================
+Fortalecer o módulo de devoluções/estornos (Prompt 44.1) para fechar lacunas
+operacionais previsíveis, adicionando:
+
+- tratamento explícito para WASTE e DO_NOT_RESTOCK;
+- bloqueio de processamento automático em linhas MANUAL_REVIEW;
+- cálculo automático de receita/imposto/margem reversos;
+- integração formal (placeholder) para eventos de refund/estorno;
+- evidência expandida no Evidence Bundle (inventoryEvidence) com métricas, warnings
+  e hash determinístico atualizado.
+
+================================================================================
+2) ESCOPO IMPLEMENTADO
+================================================================================
+- Processamento de devolução com diferenciação clara por `restockPolicy`:
+  - RESTOCK: gera movimento RETURN_IN e aumenta stock;
+  - WASTE: registra retorno como perda (RETURN_WASTE) sem aumentar stock;
+  - DO_NOT_RESTOCK: registra COGS_REVERSAL_ONLY (sem stock) e evidencia decisão;
+  - MANUAL_REVIEW: bloqueia processamento quando política exige decisão manual.
+
+- Cálculo financeiro reverso no return:
+  - totalReturnCost (custo histórico, sem recalcular por averageCost atual);
+  - totalRevenueReversed (preferindo INTERNAL_CREDIT_NOTE quando vinculada);
+  - totalTaxReversed (preferindo INTERNAL_CREDIT_NOTE quando vinculada);
+  - totalMarginReversed = totalRevenueReversed - totalReturnCost;
+  - distribuição por linha (revenue/tax/margin) por proporção do “gross” estimado.
+
+- Ponto formal para refund/estorno:
+  - evento de domínio `PaymentRefundedForInventoryReturnEvent` (placeholder);
+  - listener `InventoryReturnOnPaymentRefundedListener` (sem alterar AppyPay);
+  - endpoint tenant/admin para registrar return a partir de refundReferenceId
+    (placeholder administrativo).
+
+- Evidence Bundle:
+  - `inventoryEvidence` passa a incluir somatórios de reversão financeira e
+    métricas/alertas de devoluções com WASTE/DO_NOT_RESTOCK/MANUAL_REVIEW;
+  - `returnHash` atualizado para incluir campos financeiros e referências
+    (creditNote/refund) sem recalcular bundles antigos.
+
+================================================================================
+3) NÃO ESCOPO (MANTIDO)
+================================================================================
+- Não foi implementado refund financeiro real (apenas ponto de extensão/evento).
+- Não houve alteração estrutural em AppyPay callback/polling.
+- Não houve alteração em confirmação de pagamento.
+- Não houve alteração em FiscalDocument original (continua imutável).
+- Não houve recálculo de Evidence Bundles antigos.
+- Não houve contabilidade geral/livro razão/integração AGT/SAF-T.
+
+================================================================================
+4) MIGRATIONS (FLYWAY)
+================================================================================
+- `src/main/resources/db/migration/V56__inventory_returns_hardening.sql`
+  - endurecimento do modelo de returns (campos financeiros, vínculos e movimentos).
+- `src/main/resources/db/migration/V57__inventory_returns_policy_hardening.sql`
+  - endurecimento de políticas de devolução/refund em `tenant_inventory_policies`.
+
+Obs.: O Prompt 44.2 depende da base do Prompt 44.1 (`V55__inventory_returns.sql`).
+
+================================================================================
+5) ENTIDADES / ENUMS (DOMÍNIO)
+================================================================================
+Entidades (ajustes/uso ampliado):
+- `InventoryReturnRecord`:
+  - totals de reversão (revenue/tax/margin), links com credit note/refund e warnings.
+- `InventoryReturnLine`:
+  - totals por linha (revenue/tax/margin), movementId, wasteMovementId,
+    cogsReversalMovementId e warningCode.
+- `TenantInventoryPolicy`:
+  - flags adicionais para auto-criação/processamento a partir de credit note/refund
+    e bloqueio com MANUAL_REVIEW.
+
+Enums:
+- `InventoryMovementType`: adicionados `RETURN_WASTE`, `COGS_REVERSAL_ONLY`.
+- `OperationalEventType`: eventos adicionais de hardening (waste/no-restock,
+  financials calculated, refund received, processamento bloqueado etc.).
+
+================================================================================
+6) SERVICES / LISTENERS
+================================================================================
+Services:
+- `InventoryReturnFinancialCalculator`:
+  - calcula e aplica reversões financeiras (preferindo INTERNAL_CREDIT_NOTE).
+- `InventoryReturnService` (hardened):
+  - cria movimentos RETURN_WASTE e COGS_REVERSAL_ONLY;
+  - bloqueia processamento se existir linha MANUAL_REVIEW conforme policy;
+  - calcula e persiste totais financeiros reversos no record e nas linhas;
+  - audita eventos sanitizados.
+
+Eventos/listeners (refund placeholder):
+- `PaymentRefundedForInventoryReturnEvent` (domínio inventário; não altera AppyPay).
+- `InventoryReturnOnPaymentRefundedListener` (reage ao evento para criar/sugerir return).
+
+================================================================================
+7) ENDPOINTS (TENANT/ADMIN)
+================================================================================
+Mantidos/endereçados (Prompt 44.1):
+- `POST /tenant/inventory/returns`
+- `POST /tenant/inventory/returns/{returnId}/submit`
+- `POST /tenant/inventory/returns/{returnId}/approve`
+- `POST /tenant/inventory/returns/{returnId}/reject`
+- `POST /tenant/inventory/returns/{returnId}/process`
+- `GET  /tenant/inventory/returns`
+- `GET  /tenant/inventory/returns/{returnId}`
+- `GET  /tenant/inventory/returns/{returnId}/lines`
+
+Novo (Prompt 44.2 — placeholder administrativo):
+- `POST /tenant/inventory/returns/create-from-refund`
+  - registra return com `refundReferenceId` (sem depender de refund real).
+
+================================================================================
+8) INTEGRAÇÃO (SEM CONTAMINAR PAGAMENTO / APPYPAY)
+================================================================================
+- O inventário continua reagindo a eventos/estados confirmados sem acoplar
+  confirmação de pagamento à devolução.
+- Refund real (quando existir) deverá publicar evento de domínio; o listener
+  de inventário reage sem alterar fluxo AppyPay.
+- Nenhum pagamento é revertido por falha de processamento de devolução/stock.
+
+================================================================================
+9) EVIDENCE BUNDLE / INVENTORYEVIDENCE
+================================================================================
+`inventoryEvidence` inclui:
+- contagens de returns por tipo (restocked/waste/no-restock/pending/processed);
+- somatórios `totalReturnCost`, `totalRevenueReversed`, `totalTaxReversed`,
+  `totalMarginReversed`, além de `totalWasteReturnCost` e `totalNoRestockReturnCost`;
+- `returnWarnings` incluindo:
+  - RETURN_PENDING
+  - RETURN_WASTE_NOT_RESTOCKED
+  - RETURN_DOES_NOT_RESTOCK
+  - RETURN_MANUAL_REVIEW_REQUIRED
+  - RETURN_MARGIN_ESTIMATED_WITHOUT_FISCAL_DOCUMENT
+  - RETURN_FINANCIAL_REVERSAL_ESTIMATED
+- `returnHash` determinístico inclui campos financeiros, ids de movimentos e
+  referências (credit note/refund), sem recalcular bundles antigos.
+
+================================================================================
+10) AUDITORIA (SANITIZADA)
+================================================================================
+Eventos reforçados (exemplos):
+- INVENTORY_RETURN_FINANCIALS_CALCULATED
+- INVENTORY_RETURN_WASTE_RECORDED
+- INVENTORY_RETURN_NO_RESTOCK_RECORDED
+- INVENTORY_RETURN_PROCESSING_BLOCKED_MANUAL_REVIEW
+- INVENTORY_RETURN_REFUND_EVENT_RECEIVED (placeholder)
+
+Regras mantidas:
+- nunca auditar AppyPay raw, dados de cartão, tokens, headers completos, PII livre.
+
+================================================================================
+11) TESTES (NOVOS/ALTERADOS)
+================================================================================
+Novos/validados neste hardening:
+- `src/test/java/com/restaurante/inventory/InventoryReturnFinancialCalculatorTest.java`
+- `src/test/java/com/restaurante/inventory/InventoryReturnEvidenceTest.java`
+
+Alterado:
+- `src/test/java/com/restaurante/inventory/InventoryReturnFlowIT.java`
+  - ajustes para evitar “double return” e validar WASTE + MANUAL_REVIEW em pedidos distintos.
+
+================================================================================
+12) COMANDOS EXECUTADOS E RESULTADOS
+================================================================================
+Executados:
+- `mvn -q -DskipTests compile`
+  - Resultado: SUCESSO (exit code 0)
+- `mvn test`
+  - Resultado: SUCESSO (BUILD SUCCESS)
+  - Execução observada: Tests run: 518, Failures: 0, Errors: 0, Skipped: 223
+
+================================================================================
+13) LIMITAÇÕES / DÍVIDAS RECOMENDADAS
+================================================================================
+- Refund financeiro real ainda não está implementado aqui; o módulo contém apenas
+  evento/listener/endpoint placeholder para integração futura.
+- Distribuição de revenue/tax por returnLine é proporcional e pode exigir
+  refinamento quando houver maior granularidade fiscal/itens (ex.: crédito por linha).
+- Política econômica de averageCost em devoluções (restock) permanece conservadora:
+  retorno não recalcula averageCost no MVP.
+- Integrações avançadas (devolução física vs desconto pós-emissão vs duplicação)
+  devem continuar guiadas por `correctionSource` e políticas tenant.
+
+================================================================================
+14) STATUS FINAL
+================================================================================
+CONCLUÍDO — Prompt 44.2 (hardening de devoluções/refund/margem reversa) com
+compilação e suíte de testes passando, mantendo as restrições:
+sem alteração estrutural em AppyPay, sem recalcular bundles antigos, e sem apagar
+histórico (append-only).
+

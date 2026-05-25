@@ -18,6 +18,9 @@ public class InventoryReturnRecordResponse {
     private Long pagamentoId;
     private Long fiscalDocumentId;
     private Long fiscalCorrectionDocumentId;
+    private Long fiscalCreditNoteId;
+    private String refundReferenceId;
+    private String refundEventId;
     private Long inventoryConsumptionRecordId;
     private InventoryReturnType returnType;
     private InventoryReturnStatus status;
@@ -36,4 +39,3 @@ public class InventoryReturnRecordResponse {
     private Integer warningCount;
     private LocalDateTime createdAt;
 }
-

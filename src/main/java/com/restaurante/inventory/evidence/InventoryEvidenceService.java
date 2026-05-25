@@ -13,6 +13,7 @@ import com.restaurante.model.entity.InventoryMovement;
 import com.restaurante.model.entity.InventoryReturnLine;
 import com.restaurante.model.entity.InventoryReturnRecord;
 import com.restaurante.model.enums.InventoryMovementType;
+import com.restaurante.model.enums.InventoryRestockPolicy;
 import com.restaurante.model.enums.InventoryReturnStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -73,6 +74,13 @@ public class InventoryEvidenceService {
             out.setTotalMarginReversed(BigDecimal.ZERO);
             out.setReturnWarnings(List.of());
             out.setReturnItems(List.of());
+            out.setRestockedReturns(0);
+            out.setWasteReturns(0);
+            out.setNoRestockReturns(0);
+            out.setTotalWasteReturnCost(BigDecimal.ZERO);
+            out.setTotalNoRestockReturnCost(BigDecimal.ZERO);
+            out.setReturnsLinkedToCreditNote(0);
+            out.setReturnsLinkedToRefund(0);
             return out;
         }
 
@@ -143,10 +151,17 @@ public class InventoryEvidenceService {
         int totalReturns = returns.size();
         int processedReturns = 0;
         int pendingReturns = 0;
+        int restockedReturns = 0;
+        int wasteReturns = 0;
+        int noRestockReturns = 0;
+        int linkedToCreditNote = 0;
+        int linkedToRefund = 0;
         BigDecimal totalReturnCost = BigDecimal.ZERO;
         BigDecimal totalRevenueReversed = BigDecimal.ZERO;
         BigDecimal totalTaxReversed = BigDecimal.ZERO;
         BigDecimal totalMarginReversed = BigDecimal.ZERO;
+        BigDecimal totalWasteReturnCost = BigDecimal.ZERO;
+        BigDecimal totalNoRestockReturnCost = BigDecimal.ZERO;
         List<String> returnWarnings = new ArrayList<>();
         List<InventoryEvidenceReturnItemDTO> returnItems = new ArrayList<>();
 
@@ -164,10 +179,34 @@ public class InventoryEvidenceService {
             totalMarginReversed = totalMarginReversed.add(nz(rr.getTotalMarginReversed()));
 
             List<InventoryReturnLine> lines = returnLineRepository.findAllByReturnRecordIdOrderByIdAsc(rr.getId());
+            boolean hasRestock = false;
+            boolean hasWaste = false;
+            boolean hasNoRestock = false;
             for (InventoryReturnLine rl : lines) {
                 if (rl != null && rl.getWarningCode() != null) {
                     returnWarnings.add(rl.getWarningCode());
                 }
+                if (rl != null && rl.getRestockPolicy() == InventoryRestockPolicy.RESTOCK) hasRestock = true;
+                if (rl != null && rl.getRestockPolicy() == InventoryRestockPolicy.WASTE) {
+                    hasWaste = true;
+                    totalWasteReturnCost = totalWasteReturnCost.add(nz(rl.getTotalCostReversed()));
+                }
+                if (rl != null && rl.getRestockPolicy() == InventoryRestockPolicy.DO_NOT_RESTOCK) {
+                    hasNoRestock = true;
+                    totalNoRestockReturnCost = totalNoRestockReturnCost.add(nz(rl.getTotalCostReversed()));
+                }
+            }
+            if (rr.getFiscalCreditNote() != null) linkedToCreditNote++;
+            if (rr.getRefundReferenceId() != null && !rr.getRefundReferenceId().isBlank()) linkedToRefund++;
+
+            if (hasRestock) restockedReturns++;
+            if (hasWaste) wasteReturns++;
+            if (hasNoRestock) noRestockReturns++;
+
+            if (rr.getFiscalCreditNote() == null && rr.getFiscalDocument() == null && nz(rr.getTotalRevenueReversed()).compareTo(BigDecimal.ZERO) > 0) {
+                returnWarnings.add("RETURN_MARGIN_ESTIMATED_WITHOUT_FISCAL_DOCUMENT");
+            } else if (rr.getFiscalCreditNote() == null && rr.getFiscalDocument() != null && nz(rr.getTotalRevenueReversed()).compareTo(BigDecimal.ZERO) > 0) {
+                returnWarnings.add("RETURN_FINANCIAL_REVERSAL_ESTIMATED");
             }
 
             InventoryEvidenceReturnItemDTO it = new InventoryEvidenceReturnItemDTO();
@@ -220,10 +259,17 @@ public class InventoryEvidenceService {
         out.setTotalReturns(totalReturns);
         out.setProcessedReturns(processedReturns);
         out.setPendingReturns(pendingReturns);
+        out.setRestockedReturns(restockedReturns);
+        out.setWasteReturns(wasteReturns);
+        out.setNoRestockReturns(noRestockReturns);
         out.setTotalReturnCost(scale(totalReturnCost, props.getMath().getMonetaryScale(), props.getMath().getRoundingMode()));
         out.setTotalRevenueReversed(scale(totalRevenueReversed, props.getMath().getMonetaryScale(), props.getMath().getRoundingMode()));
         out.setTotalTaxReversed(scale(totalTaxReversed, props.getMath().getMonetaryScale(), props.getMath().getRoundingMode()));
         out.setTotalMarginReversed(scale(totalMarginReversed, props.getMath().getMonetaryScale(), props.getMath().getRoundingMode()));
+        out.setTotalWasteReturnCost(scale(totalWasteReturnCost, props.getMath().getMonetaryScale(), props.getMath().getRoundingMode()));
+        out.setTotalNoRestockReturnCost(scale(totalNoRestockReturnCost, props.getMath().getMonetaryScale(), props.getMath().getRoundingMode()));
+        out.setReturnsLinkedToCreditNote(linkedToCreditNote);
+        out.setReturnsLinkedToRefund(linkedToRefund);
         out.setReturnWarnings(returnWarnings.stream().distinct().toList());
         out.setReturnItems(returnItems);
         return out;
@@ -274,6 +320,9 @@ public class InventoryEvidenceService {
         sb.append("|totalTaxReversed=").append(totalTaxReversed);
         sb.append("|totalMarginReversed=").append(totalMarginReversed);
         sb.append("|processedAt=").append(r.getProcessedAt());
+        sb.append("|fiscalCreditNoteId=").append(r.getFiscalCreditNote() != null ? r.getFiscalCreditNote().getId() : null);
+        sb.append("|refundReferenceId=").append(r.getRefundReferenceId());
+        sb.append("|refundEventId=").append(r.getRefundEventId());
 
         if (lines != null) {
             for (InventoryReturnLine l : lines) {
@@ -287,6 +336,11 @@ public class InventoryEvidenceService {
                 sb.append(",totalCostReversed=").append(scale(nz(l.getTotalCostReversed()), props.getMath().getCalculationScale(), props.getMath().getRoundingMode()));
                 sb.append(",restockPolicy=").append(l.getRestockPolicy() != null ? l.getRestockPolicy().name() : null);
                 sb.append(",movementId=").append(l.getMovement() != null ? l.getMovement().getId() : null);
+                sb.append(",wasteMovementId=").append(l.getWasteMovement() != null ? l.getWasteMovement().getId() : null);
+                sb.append(",cogsReversalMovementId=").append(l.getCogsReversalMovement() != null ? l.getCogsReversalMovement().getId() : null);
+                sb.append(",revReversed=").append(scale(nz(l.getTotalRevenueReversed()), props.getMath().getMonetaryScale(), props.getMath().getRoundingMode()));
+                sb.append(",taxReversed=").append(scale(nz(l.getTotalTaxReversed()), props.getMath().getMonetaryScale(), props.getMath().getRoundingMode()));
+                sb.append(",marginReversed=").append(scale(nz(l.getTotalMarginReversed()), props.getMath().getMonetaryScale(), props.getMath().getRoundingMode()));
                 sb.append("}");
             }
         }

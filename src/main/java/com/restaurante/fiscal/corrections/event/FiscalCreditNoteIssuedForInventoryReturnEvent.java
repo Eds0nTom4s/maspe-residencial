@@ -11,9 +11,11 @@ public record FiscalCreditNoteIssuedForInventoryReturnEvent(
         Long originalFiscalDocumentId,
         Long pedidoId,
         Long pagamentoId,
-        BigDecimal amount,
+        BigDecimal totalAmount,
+        BigDecimal taxableAmount,
+        BigDecimal exemptAmount,
+        BigDecimal taxAmount,
         LocalDateTime issuedAt,
         FiscalCorrectionSource correctionSource
 ) {
 }
-

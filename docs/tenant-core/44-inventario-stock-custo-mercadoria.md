@@ -87,6 +87,9 @@ Eventos (sanitizados) incluídos no `OperationalEventType`:
 ## Integração 44.1 — Devoluções/estornos
 O Prompt 44.1 adiciona `InventoryReturnRecord`/`InventoryReturnLine` e processamento de devoluções com `RETURN_IN` (quando aplicável), expandindo também `inventoryEvidence` com returns e `returnHash` determinístico.
 
+## Nota (44.2)
+O Prompt 44.2 endurece devoluções/refund adicionando tratamento explícito para `WASTE` e `DO_NOT_RESTOCK`, cálculo de reversão de receita/imposto/margem e métricas adicionais no `inventoryEvidence`, mantendo o consumo original e movimentos append-only.
+
 ## Dívidas futuras
 - P44-DEBT-1 — Impacto de devoluções/estornos/notas internas sobre stock e COGS.
 - P44-DEBT-2 — Inventário offline controlado com reconciliação.

@@ -90,6 +90,12 @@ public class TenantInventoryController {
         if (request.getMaxReturnDays() != null) p.setMaxReturnDays(request.getMaxReturnDays());
         if (request.getRequireFiscalCreditNoteForReturn() != null) p.setRequireFiscalCreditNoteForReturn(request.getRequireFiscalCreditNoteForReturn());
         if (request.getAutoProcessReturnOnCreditNote() != null) p.setAutoProcessReturnOnCreditNote(request.getAutoProcessReturnOnCreditNote());
+        if (request.getAutoCreateReturnOnCreditNote() != null) p.setAutoCreateReturnOnCreditNote(request.getAutoCreateReturnOnCreditNote());
+        if (request.getAutoCreateReturnOnRefund() != null) p.setAutoCreateReturnOnRefund(request.getAutoCreateReturnOnRefund());
+        if (request.getAutoProcessReturnOnRefund() != null) p.setAutoProcessReturnOnRefund(request.getAutoProcessReturnOnRefund());
+        if (request.getDefaultRefundRestockPolicy() != null) p.setDefaultRefundRestockPolicy(request.getDefaultRefundRestockPolicy());
+        if (request.getRequireCreditNoteForFinancialReturn() != null) p.setRequireCreditNoteForFinancialReturn(request.getRequireCreditNoteForFinancialReturn());
+        if (request.getBlockProcessWhenManualReviewLineExists() != null) p.setBlockProcessWhenManualReviewLineExists(request.getBlockProcessWhenManualReviewLineExists());
         p = policyRepository.save(p);
         return ResponseEntity.ok(ApiResponse.success("Policy", map(p)));
     }
@@ -379,6 +385,36 @@ public class TenantInventoryController {
         return ResponseEntity.ok(ApiResponse.success("Return processado", map(record)));
     }
 
+    @PostMapping("/returns/create-from-refund")
+    public ResponseEntity<ApiResponse<InventoryReturnRecordResponse>> createFromRefund(@Valid @RequestBody CreateInventoryReturnFromRefundRequest request) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+
+        if (request.getRefundType() == com.restaurante.inventory.event.PaymentRefundedForInventoryReturnEvent.RefundType.PARTIAL_REFUND
+                && (request.getLines() == null || request.getLines().isEmpty())) {
+            throw new BusinessException("INVENTORY_RETURN_QUANTITY_INVALID");
+        }
+
+        List<InventoryReturnService.RequestedReturnLine> lines = request.getLines() != null
+                ? request.getLines().stream().map(l -> new InventoryReturnService.RequestedReturnLine(l.getPedidoItemId(), l.getQuantityReturned(), l.getRestockPolicy())).toList()
+                : List.of();
+
+        InventoryReturnRecord record = returnService.createReturn(
+                ctx.tenantId(),
+                request.getPedidoId(),
+                com.restaurante.model.enums.InventoryReturnType.PAYMENT_REFUND,
+                request.getReasonCategory(),
+                "Criado manualmente a partir de referência de refund (placeholder)",
+                lines,
+                com.restaurante.model.enums.InventoryReturnSource.TENANT_ADMIN,
+                ctx.userId()
+        );
+        if (request.getRefundReferenceId() != null) {
+            record = returnService.attachRefund(ctx.tenantId(), record.getId(), request.getRefundReferenceId(), null);
+        }
+        return ResponseEntity.ok(ApiResponse.success("Return criado", map(record)));
+    }
+
     private InventoryItemResponse map(InventoryItem item) {
         InventoryItemResponse r = new InventoryItemResponse();
         r.setId(item.getId());
@@ -528,6 +564,12 @@ public class TenantInventoryController {
         r.setMaxReturnDays(p.getMaxReturnDays());
         r.setRequireFiscalCreditNoteForReturn(p.getRequireFiscalCreditNoteForReturn());
         r.setAutoProcessReturnOnCreditNote(p.getAutoProcessReturnOnCreditNote());
+        r.setAutoCreateReturnOnCreditNote(p.getAutoCreateReturnOnCreditNote());
+        r.setAutoCreateReturnOnRefund(p.getAutoCreateReturnOnRefund());
+        r.setAutoProcessReturnOnRefund(p.getAutoProcessReturnOnRefund());
+        r.setDefaultRefundRestockPolicy(p.getDefaultRefundRestockPolicy());
+        r.setRequireCreditNoteForFinancialReturn(p.getRequireCreditNoteForFinancialReturn());
+        r.setBlockProcessWhenManualReviewLineExists(p.getBlockProcessWhenManualReviewLineExists());
         return r;
     }
 
@@ -540,6 +582,9 @@ public class TenantInventoryController {
         r.setPagamentoId(record.getPagamento() != null ? record.getPagamento().getId() : null);
         r.setFiscalDocumentId(record.getFiscalDocument() != null ? record.getFiscalDocument().getId() : null);
         r.setFiscalCorrectionDocumentId(record.getFiscalCorrectionDocument() != null ? record.getFiscalCorrectionDocument().getId() : null);
+        r.setFiscalCreditNoteId(record.getFiscalCreditNote() != null ? record.getFiscalCreditNote().getId() : null);
+        r.setRefundReferenceId(record.getRefundReferenceId());
+        r.setRefundEventId(record.getRefundEventId());
         r.setInventoryConsumptionRecordId(record.getConsumptionRecord() != null ? record.getConsumptionRecord().getId() : null);
         r.setReturnType(record.getReturnType());
         r.setStatus(record.getStatus());
@@ -574,10 +619,15 @@ public class TenantInventoryController {
         r.setQuantityBaseUnit(line.getQuantityBaseUnit());
         r.setUnitCost(line.getUnitCost());
         r.setTotalCostReversed(line.getTotalCostReversed());
+        r.setTotalRevenueReversed(line.getTotalRevenueReversed());
+        r.setTotalTaxReversed(line.getTotalTaxReversed());
+        r.setTotalMarginReversed(line.getTotalMarginReversed());
         r.setStockBefore(line.getStockBefore());
         r.setStockAfter(line.getStockAfter());
         r.setRestockPolicy(line.getRestockPolicy());
         r.setMovementId(line.getMovement() != null ? line.getMovement().getId() : null);
+        r.setWasteMovementId(line.getWasteMovement() != null ? line.getWasteMovement().getId() : null);
+        r.setCogsReversalMovementId(line.getCogsReversalMovement() != null ? line.getCogsReversalMovement().getId() : null);
         r.setWarningCode(line.getWarningCode());
         return r;
     }

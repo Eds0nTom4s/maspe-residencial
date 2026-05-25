@@ -140,6 +140,18 @@ Eventos adicionados:
 - integração com crédito fiscal é limitada a `correctionSource=PRODUCT_RETURN`
 - não calcula automaticamente `totalRevenueReversed/totalTaxReversed/totalMarginReversed`
 
+## 44.2 — Hardening de devoluções/refund/margem reversa
+- Diferenciação explícita no processamento:
+  - `RESTOCK` → `RETURN_IN` (aumenta stock)
+  - `WASTE` → `RETURN_WASTE` (não aumenta stock)
+  - `DO_NOT_RESTOCK` → `COGS_REVERSAL_ONLY` (não aumenta stock)
+  - `MANUAL_REVIEW` → bloqueia processamento quando política exigir
+- Cálculo automático de `totalRevenueReversed`, `totalTaxReversed`, `totalMarginReversed`:
+  - prioridade para `INTERNAL_CREDIT_NOTE` vinculada
+  - fallback estimado quando não existir documento fiscal
+- Ponto formal (placeholder) para evento de refund: `PaymentRefundedForInventoryReturnEvent`
+- `inventoryEvidence` passa a incluir métricas adicionais de returns e warnings mais precisos
+
 ## Comandos executados
 Ver `docs/tenant-core/44-1-relatorio-executivo-devolucoes-estornos-stock-cogs.txt`.
 
@@ -149,4 +161,3 @@ Ver `docs/tenant-core/44-1-relatorio-executivo-devolucoes-estornos-stock-cogs.tx
 - restock funciona (`RETURN_IN`)
 - dupla reversão é bloqueada
 - `inventoryEvidence` inclui returns e `returnHash` determinístico
-

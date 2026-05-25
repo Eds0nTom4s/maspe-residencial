@@ -92,6 +92,9 @@ public class DeviceInventoryReturnController {
         r.setPagamentoId(record.getPagamento() != null ? record.getPagamento().getId() : null);
         r.setFiscalDocumentId(record.getFiscalDocument() != null ? record.getFiscalDocument().getId() : null);
         r.setFiscalCorrectionDocumentId(record.getFiscalCorrectionDocument() != null ? record.getFiscalCorrectionDocument().getId() : null);
+        r.setFiscalCreditNoteId(record.getFiscalCreditNote() != null ? record.getFiscalCreditNote().getId() : null);
+        r.setRefundReferenceId(record.getRefundReferenceId());
+        r.setRefundEventId(record.getRefundEventId());
         r.setInventoryConsumptionRecordId(record.getConsumptionRecord() != null ? record.getConsumptionRecord().getId() : null);
         r.setReturnType(record.getReturnType());
         r.setStatus(record.getStatus());
@@ -112,4 +115,3 @@ public class DeviceInventoryReturnController {
         return r;
     }
 }
-

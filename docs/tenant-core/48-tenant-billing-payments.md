@@ -91,6 +91,9 @@ Eventos adicionados (exemplos):
 
 Sem log de comprovativos brutos/payload sensível.
 
+## Prompt 47 — Transaction Evidence Ledger
+Pagamentos confirmados de billing SaaS (`TenantBillingPayment CONFIRMED`) podem ser evidenciados individualmente no Transaction Evidence Ledger (Prompt 47), mantendo o Evidence Bundle como prova consolidada e o ledger como prova por evento.
+
 ## Limitações / Dívidas futuras
 - Refund/estorno de billing SaaS (pagamento revertido) não foi implementado no MVP.
 - Integração com gateway B2B (ex.: AppyPay business) permanece placeholder.
@@ -99,4 +102,3 @@ Sem log de comprovativos brutos/payload sensível.
 ## Comandos executados
 - `mvn -q -DskipTests compile`
 - `mvn test`
-

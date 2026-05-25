@@ -114,6 +114,9 @@ O Prompt 46 gera a invoice interna SaaS. O Prompt 48 complementa o ciclo com:
 - base de suspensão controlada (guard) sem bloquear operações críticas no MVP;
 - expansão do `billingEvidence` para incluir pagamentos e collectionStatus.
 
+## Prompt 47 — Transaction Evidence Ledger
+O Usage Metering do Prompt 46 pode ser evidenciado individualmente no ledger do Prompt 47, via eventos sanitizados derivados do `OperationalEventLog` (AFTER_COMMIT), sem acoplamento forte com o core de billing.
+
 ## Comandos executados
 - `mvn -q -DskipTests compile`
 - `mvn test`

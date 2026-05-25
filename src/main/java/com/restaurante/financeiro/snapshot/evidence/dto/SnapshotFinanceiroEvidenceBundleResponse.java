@@ -26,5 +26,6 @@ public class SnapshotFinanceiroEvidenceBundleResponse {
     private TaxEvidenceSectionDTO taxEvidence;
     private InventoryEvidenceSectionDTO inventoryEvidence;
     private BillingEvidenceSectionDTO billingEvidence;
+    private TransactionLedgerEvidenceSectionDTO transactionLedgerEvidence;
     private EvidenceBundleExportMetadataDTO exportMetadata;
 }

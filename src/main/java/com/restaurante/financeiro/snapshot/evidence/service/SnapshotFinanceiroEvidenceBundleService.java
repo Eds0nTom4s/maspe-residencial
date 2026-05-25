@@ -16,6 +16,7 @@ import com.restaurante.financeiro.caixa.divergence.evidence.service.CaixaOperado
 import com.restaurante.fiscal.evidence.service.TaxEvidenceService;
 import com.restaurante.inventory.evidence.InventoryEvidenceService;
 import com.restaurante.billing.evidence.BillingEvidenceService;
+import com.restaurante.txevidence.evidence.TransactionLedgerEvidenceService;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.OperationalEventType;
@@ -52,6 +53,7 @@ public class SnapshotFinanceiroEvidenceBundleService {
     private final TaxEvidenceService taxEvidenceService;
     private final InventoryEvidenceService inventoryEvidenceService;
     private final BillingEvidenceService billingEvidenceService;
+    private final TransactionLedgerEvidenceService transactionLedgerEvidenceService;
 
     private static final Set<OperationalEventType> EVENT_TYPES = Set.of(
             OperationalEventType.TURNO_ABERTO,
@@ -166,6 +168,15 @@ public class SnapshotFinanceiroEvidenceBundleService {
         var billingEvidence = billingEvidenceService.buildForTurno(ctx.tenantId(), out.getGeneratedAt());
         out.setBillingEvidence(billingEvidence);
 
+        // Prompt 47: resumo do Transaction Evidence Ledger (transactionLedgerEvidence)
+        var txLedgerEvidence = transactionLedgerEvidenceService.buildForTurno(
+                ctx.tenantId(),
+                turno.getAbertoEm(),
+                turno.getFechadoEm() != null ? turno.getFechadoEm() : out.getGeneratedAt(),
+                out.getGeneratedAt()
+        );
+        out.setTransactionLedgerEvidence(txLedgerEvidence);
+
         operationalEventLogService.logTurnoEvent(
                 OperationalEventType.CAIXA_OPERADOR_EVIDENCE_SECTION_GENERATED,
                 turno,
@@ -193,6 +204,20 @@ public class SnapshotFinanceiroEvidenceBundleService {
                     userAgent
             );
         }
+
+        operationalEventLogService.logTurnoEvent(
+                OperationalEventType.TRANSACTION_LEDGER_EVIDENCE_ATTACHED_TO_BUNDLE,
+                turno,
+                resolveOrigemFromRoles(ctx),
+                "Seção de evidência do transaction ledger anexada ao bundle",
+                java.util.Map.of(
+                        "turnoId", turno.getId(),
+                        "totalLedgerEvents", txLedgerEvidence != null ? txLedgerEvidence.getTotalLedgerEvents() : 0,
+                        "verificationStatus", txLedgerEvidence != null ? txLedgerEvidence.getVerificationStatus() : null
+                ),
+                ip,
+                userAgent
+        );
 
         EvidenceBundleExportMetadataDTO meta = new EvidenceBundleExportMetadataDTO();
         meta.setFormato("JSON_LOGICO");

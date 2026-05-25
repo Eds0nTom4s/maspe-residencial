@@ -28,11 +28,13 @@ import com.restaurante.repository.UserRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.operacional.event.OperationalEventLoggedEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.Map;
 
@@ -46,6 +48,7 @@ public class OperationalEventLogService {
     private final DispositivoOperacionalRepository dispositivoOperacionalRepository;
     private final OperationalEventLogRepository operationalEventLogRepository;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher publisher;
 
     @Transactional
     public void logPedidoStatusChanged(Pedido pedido,
@@ -276,7 +279,8 @@ public class OperationalEventLogService {
         log.setUserAgent(userAgent);
 
         applyActor(log, origem, ip, userAgent);
-        operationalEventLogRepository.save(log);
+        OperationalEventLog saved = operationalEventLogRepository.save(log);
+        publishLoggedEvent(saved);
     }
 
     @Transactional
@@ -309,7 +313,8 @@ public class OperationalEventLogService {
         log.setUserAgent(userAgent);
 
         applyActor(log, origem, ip, userAgent);
-        operationalEventLogRepository.save(log);
+        OperationalEventLog saved = operationalEventLogRepository.save(log);
+        publishLoggedEvent(saved);
     }
 
     @Transactional
@@ -340,7 +345,8 @@ public class OperationalEventLogService {
         log.setUserAgent(userAgent);
 
         applyActor(log, origem, ip, userAgent);
-        operationalEventLogRepository.save(log);
+        OperationalEventLog saved = operationalEventLogRepository.save(log);
+        publishLoggedEvent(saved);
     }
 
     /**
@@ -407,7 +413,8 @@ public class OperationalEventLogService {
         log.setUserAgent(userAgent);
 
         applyActor(log, origem, ip, userAgent);
-        operationalEventLogRepository.save(log);
+        OperationalEventLog saved = operationalEventLogRepository.save(log);
+        publishLoggedEvent(saved);
     }
 
     private void log(OperationalEventType eventType,
@@ -458,7 +465,8 @@ public class OperationalEventLogService {
 
         applyActor(log, origem, ip, userAgent);
 
-        operationalEventLogRepository.save(log);
+        OperationalEventLog saved = operationalEventLogRepository.save(log);
+        publishLoggedEvent(saved);
     }
 
     private void logForTurno(OperationalEventType eventType,
@@ -493,7 +501,25 @@ public class OperationalEventLogService {
 
         applyActor(log, origem, ip, userAgent);
 
-        operationalEventLogRepository.save(log);
+        OperationalEventLog saved = operationalEventLogRepository.save(log);
+        publishLoggedEvent(saved);
+    }
+
+    private void publishLoggedEvent(OperationalEventLog saved) {
+        if (saved == null || saved.getTenant() == null) return;
+        publisher.publishEvent(new OperationalEventLoggedEvent(
+                saved.getId(),
+                saved.getTenant().getId(),
+                saved.getEventType(),
+                saved.getEntityType(),
+                saved.getEntityId(),
+                saved.getCreatedAt() != null ? saved.getCreatedAt() : java.time.LocalDateTime.now(),
+                saved.getOrigem(),
+                saved.getStatusAnterior(),
+                saved.getStatusNovo(),
+                saved.getMotivo(),
+                saved.getMetadataJson()
+        ));
     }
 
     /**

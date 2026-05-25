@@ -4,6 +4,7 @@ import com.restaurante.dto.request.FiscalAssessmentDecisionRequest;
 import com.restaurante.dto.request.FiscalCorrectionIssueRequest;
 import com.restaurante.dto.response.FiscalAdjustmentAssessmentResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.fiscal.corrections.event.FiscalCreditNoteIssuedForInventoryReturnEvent;
 import com.restaurante.fiscal.repository.FiscalAdjustmentAssessmentRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentLineRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentRepository;
@@ -18,6 +19,7 @@ import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -41,6 +43,7 @@ public class FiscalCorrectionAdminService {
     private final FiscalDocumentSequenceService sequenceService;
     private final FiscalCorrectionCalculationService calcService;
     private final OperationalEventLogService operationalEventLogService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional(readOnly = true)
     public Page<FiscalAdjustmentAssessmentResponse> listAssessments(FiscalAdjustmentAssessmentStatus status,
@@ -296,6 +299,21 @@ public class FiscalCorrectionAdminService {
                 null
         );
 
+        if (docType == FiscalDocumentType.INTERNAL_CREDIT_NOTE
+                && (correction.getCorrectionSource() == FiscalCorrectionSource.PRODUCT_RETURN
+                || correction.getCorrectionSource() == FiscalCorrectionSource.PARTIAL_REFUND)) {
+            eventPublisher.publishEvent(new FiscalCreditNoteIssuedForInventoryReturnEvent(
+                    ctx.tenantId(),
+                    correction.getId(),
+                    original.getId(),
+                    correction.getPedido() != null ? correction.getPedido().getId() : null,
+                    correction.getPagamento() != null ? correction.getPagamento().getId() : null,
+                    correction.getTotalAmount(),
+                    correction.getIssuedAt(),
+                    correction.getCorrectionSource()
+            ));
+        }
+
         return toResponse(a, correction);
     }
 
@@ -325,4 +343,3 @@ public class FiscalCorrectionAdminService {
         return r;
     }
 }
-

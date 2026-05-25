@@ -4,9 +4,9 @@ public enum InventoryMovementReferenceType {
     PEDIDO,
     PEDIDO_ITEM,
     CAIXA_OPERADOR_SESSION,
+    INVENTORY_RETURN,
     INVENTORY_ADJUSTMENT,
     PURCHASE_PLACEHOLDER,
     SYSTEM,
     ADMIN
 }
-

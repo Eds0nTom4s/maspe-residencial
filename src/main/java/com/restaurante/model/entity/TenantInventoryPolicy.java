@@ -62,5 +62,38 @@ public class TenantInventoryPolicy extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 40)
     private TenantInventoryPolicyStatus status = TenantInventoryPolicyStatus.ACTIVE;
-}
 
+    // Prompt 44.1: devoluções/estornos
+    @NotNull
+    @Column(name = "allow_returns", nullable = false)
+    private Boolean allowReturns = Boolean.TRUE;
+
+    @NotNull
+    @Column(name = "require_return_approval", nullable = false)
+    private Boolean requireReturnApproval = Boolean.TRUE;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "default_restock_policy", nullable = false, length = 40)
+    private com.restaurante.model.enums.InventoryRestockPolicy defaultRestockPolicy = com.restaurante.model.enums.InventoryRestockPolicy.MANUAL_REVIEW;
+
+    @NotNull
+    @Column(name = "allow_partial_returns", nullable = false)
+    private Boolean allowPartialReturns = Boolean.TRUE;
+
+    @NotNull
+    @Column(name = "allow_return_after_turno_closed", nullable = false)
+    private Boolean allowReturnAfterTurnoClosed = Boolean.TRUE;
+
+    @NotNull
+    @Column(name = "max_return_days", nullable = false)
+    private Integer maxReturnDays = 30;
+
+    @NotNull
+    @Column(name = "require_fiscal_credit_note_for_return", nullable = false)
+    private Boolean requireFiscalCreditNoteForReturn = Boolean.FALSE;
+
+    @NotNull
+    @Column(name = "auto_process_return_on_credit_note", nullable = false)
+    private Boolean autoProcessReturnOnCreditNote = Boolean.FALSE;
+}

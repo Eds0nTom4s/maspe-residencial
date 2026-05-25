@@ -148,6 +148,9 @@ Sem payload sensível de pagamento/cartão/AppyPay/telefone.
 - Não há UI; apenas endpoints.
 - Policy de correções é resolvida no backend; endpoints de gestão de policy podem ser adicionados em etapa futura.
 
+## Nota — relação com inventário (Prompt 44.1)
+Nem toda `INTERNAL_CREDIT_NOTE` implica retorno físico de stock. A decisão e o processamento de devolução/reversão de stock/COGS são governados no Prompt 44.1.
+
 ## Comandos executados
 - `mvn -q -DskipTests compile`
 - `mvn -q -Dtest=FiscalAdjustmentAssessmentServiceTest test`

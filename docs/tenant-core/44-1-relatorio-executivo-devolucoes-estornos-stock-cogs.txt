@@ -1,0 +1,139 @@
+PROMPT 44.1 — RELATÓRIO EXECUTIVO FINAL
+CONSUMA / INVENTORY CORE / DEVOLUÇÕES-ESTORNOS / REVERSAL MOVEMENTS / STOCK + COGS
+Data: 2026-05-25 (Africa/Luanda)
+
+1) Objetivo
+- Implementar devoluções/estornos com impacto controlado no stock e COGS, preservando histórico:
+  - não apagar InventoryMovement (append-only)
+  - não editar InventoryConsumptionRecord original
+  - reversão por movimentos reversos e registo formal de return
+  - evidenciar no Evidence Bundle (inventoryEvidence) sem recalcular bundles antigos
+
+2) Migrations
+- src/main/resources/db/migration/V55__inventory_returns.sql
+  - ALTER tenant_inventory_policies: campos de devolução/política
+  - CREATE inventory_return_records
+  - CREATE inventory_return_lines
+
+3) Entidades / Enums
+Entidades (JPA)
+- src/main/java/com/restaurante/model/entity/InventoryReturnRecord.java
+- src/main/java/com/restaurante/model/entity/InventoryReturnLine.java
+
+Enums
+- src/main/java/com/restaurante/model/enums/InventoryReturnType.java
+- src/main/java/com/restaurante/model/enums/InventoryReturnStatus.java
+- src/main/java/com/restaurante/model/enums/InventoryReturnSource.java
+- src/main/java/com/restaurante/model/enums/InventoryReturnReasonCategory.java
+- src/main/java/com/restaurante/model/enums/InventoryRestockPolicy.java
+- src/main/java/com/restaurante/model/enums/InventoryMovementType.java (corrigido duplicado de RETURN_IN)
+- src/main/java/com/restaurante/model/enums/InventoryMovementReferenceType.java (adicionado INVENTORY_RETURN)
+- src/main/java/com/restaurante/model/enums/DeviceCapability.java (adicionados REQUEST_INVENTORY_RETURN, VIEW_INVENTORY_RETURN)
+- src/main/java/com/restaurante/model/enums/OperationalEventType.java (eventos INVENTORY_RETURN_*)
+- src/main/java/com/restaurante/model/enums/OperationalEntityType.java (INVENTORY_RETURN_RECORD, INVENTORY_RETURN_LINE)
+
+4) Repositórios
+- src/main/java/com/restaurante/inventory/repository/InventoryReturnRecordRepository.java
+  - lock pessimista via findByIdForUpdate(...)
+- src/main/java/com/restaurante/inventory/repository/InventoryReturnLineRepository.java
+  - sumProcessedReturnedBaseQtyByConsumptionLine(...) para bloquear dupla reversão
+- src/main/java/com/restaurante/inventory/repository/InventoryConsumptionLineRepository.java
+  - findAllByConsumptionRecordIdAndPedidoItemIdOrderByIdAsc(...) para mapear retorno por item do pedido
+
+5) Services
+- src/main/java/com/restaurante/inventory/service/InventoryReturnService.java
+  - createReturn(...): cria return + linhas (proporcional ao consumo original por ItemPedido)
+  - submit(...), approve(...), reject(...)
+  - processReturn(...): aplica RESTOCK criando InventoryMovement RETURN_IN e atualizando currentQuantity
+  - DO_NOT_RESTOCK/WASTE/MANUAL_REVIEW (MVP): não altera stock, gera warningCode
+
+Integração fiscal (ponto de extensão)
+- src/main/java/com/restaurante/fiscal/corrections/event/FiscalCreditNoteIssuedForInventoryReturnEvent.java
+- src/main/java/com/restaurante/inventory/listener/InventoryReturnOnFiscalCreditNoteIssuedListener.java
+  - listener AFTER_COMMIT (MVP: cria return apenas quando correctionSource=PRODUCT_RETURN)
+
+6) Endpoints implementados
+Tenant/Admin
+- src/main/java/com/restaurante/controller/TenantInventoryController.java
+  - GET  /tenant/inventory/returns
+  - GET  /tenant/inventory/returns/{returnId}
+  - GET  /tenant/inventory/returns/{returnId}/lines
+  - POST /tenant/inventory/returns
+  - POST /tenant/inventory/returns/{returnId}/submit
+  - POST /tenant/inventory/returns/{returnId}/approve
+  - POST /tenant/inventory/returns/{returnId}/reject
+  - POST /tenant/inventory/returns/{returnId}/process
+  - policy upsert/get atualizado para campos de devolução
+
+Device/POS
+- src/main/java/com/restaurante/controller/DeviceInventoryReturnController.java
+  - POST /device/inventory/returns (REQUEST_INVENTORY_RETURN)
+  - GET  /device/inventory/returns/{returnId} (VIEW_INVENTORY_RETURN)
+
+DTOs
+- src/main/java/com/restaurante/dto/request/CreateInventoryReturnRequest.java
+- src/main/java/com/restaurante/dto/request/InventoryReturnDecisionRequest.java
+- src/main/java/com/restaurante/dto/response/InventoryReturnRecordResponse.java
+- src/main/java/com/restaurante/dto/response/InventoryReturnLineResponse.java
+- src/main/java/com/restaurante/dto/request/UpsertTenantInventoryPolicyRequest.java (campos 44.1 adicionados)
+- src/main/java/com/restaurante/dto/response/TenantInventoryPolicyResponse.java (campos 44.1 adicionados)
+
+7) Regras de reversão / idempotência
+- Não apagar nem editar movimentos/consumos anteriores.
+- Bloqueio de dupla reversão:
+  - para cada InventoryConsumptionLine, soma-se o já retornado (status PROCESSED)
+  - rejeita retorno que exceda (consumido - já retornado)
+- COGS reverso:
+  - unitCost/totalCostReversed herdados do consumo original (histórico)
+
+8) Integração com Evidence Bundle (inventoryEvidence)
+DTOs
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/InventoryEvidenceSectionDTO.java (campos de returns)
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/InventoryEvidenceReturnItemDTO.java
+
+Service
+- src/main/java/com/restaurante/inventory/evidence/InventoryEvidenceService.java
+  - inclui contadores/totais de returns
+  - inclui returnWarnings + returnItems
+  - returnHash determinístico baseado em:
+    - status/type/source/totais/processedAt
+    - hashes/valores das linhas (qtyBase, unitCost, totalCostReversed, restockPolicy, movementId)
+  - bundles antigos continuam legíveis (sem recalcular)
+
+9) Auditoria (sanitizada)
+- OperationalEventType: novos eventos INVENTORY_RETURN_*
+- InventoryReturnService registra:
+  - INVENTORY_RETURN_CREATED
+  - INVENTORY_RETURN_SUBMITTED
+  - INVENTORY_RETURN_APPROVED
+  - INVENTORY_RETURN_REJECTED
+  - INVENTORY_RETURN_PROCESSED
+
+10) Limitações do MVP (intencionais)
+- WASTE/MANUAL_REVIEW não criam movimentos específicos no MVP (ficam como warning, sem alterar stock).
+- totalRevenueReversed/totalTaxReversed/totalMarginReversed ainda não são calculados automaticamente.
+- Integração fiscal automática limitada: apenas correctionSource=PRODUCT_RETURN dispara criação via listener.
+- Não há refund financeiro automático; devolução de stock é governança operacional.
+
+11) Testes (novos)
+- src/test/java/com/restaurante/inventory/InventoryReturnFlowIT.java
+- src/test/java/com/restaurante/inventory/InventoryReturnEvidenceTest.java
+
+12) Comandos executados
+- mvn -q -DskipTests compile
+  - RESULTADO: OK
+- mvn test
+  - RESULTADO: BUILD SUCCESS
+  - Nota: alguns testes usam Testcontainers e ficaram SKIPPED por ausência de Docker no ambiente.
+  - Resumo do surefire: Tests run: 515, Failures: 0, Errors: 0, Skipped: 223
+
+13) Status final
+- Prompt 44.1: CONCLUÍDO (MVP).
+- Retornos são governados formalmente (record/lines), reversão é append-only, stock pode ser restocked via RETURN_IN, evidência inclui returnHash determinístico.
+
+14) Pendências futuras recomendadas
+- Diferenciar WASTE vs DO_NOT_RESTOCK com movimentos próprios (sem distorcer currentQuantity).
+- Permitir gestão/edição controlada de linhas em DRAFT (ou “nova devolução substituta”).
+- Calcular totalRevenueReversed/totalTaxReversed/totalMarginReversed com base em FiscalDocument/credit note (quando existir).
+- Integrar com eventos reais de refund/estorno, mantendo desacoplamento do pagamento.
+

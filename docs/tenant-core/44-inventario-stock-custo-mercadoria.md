@@ -80,9 +80,12 @@ Eventos (sanitizados) incluídos no `OperationalEventType`:
 - `INVENTORY_EVIDENCE_ATTACHED_TO_BUNDLE` (MVP: evidência gerada no bundle; auditoria pode ser evoluída)
 
 ## Limitações (MVP)
-- Sem reversão automática de consumo em caso de devolução/estorno.
+- Reversão de consumo em devoluções/estornos é tratada no Prompt 44.1 (movimentos reversos append-only).
 - Sem bloqueio rígido de venda por stock insuficiente (respeita `allowNegativeStock` e warnings).
 - Receitas com múltiplas unidades exigem conversões configuradas.
+
+## Integração 44.1 — Devoluções/estornos
+O Prompt 44.1 adiciona `InventoryReturnRecord`/`InventoryReturnLine` e processamento de devoluções com `RETURN_IN` (quando aplicável), expandindo também `inventoryEvidence` com returns e `returnHash` determinístico.
 
 ## Dívidas futuras
 - P44-DEBT-1 — Impacto de devoluções/estornos/notas internas sobre stock e COGS.
@@ -97,4 +100,3 @@ Eventos (sanitizados) incluídos no `OperationalEventType`:
 - Stock-in / ajuste / waste registram movimentos append-only.
 - Consumo automático no pagamento confirmado é idempotente.
 - COGS e margem são calculados e evidenciados no Evidence Bundle.
-

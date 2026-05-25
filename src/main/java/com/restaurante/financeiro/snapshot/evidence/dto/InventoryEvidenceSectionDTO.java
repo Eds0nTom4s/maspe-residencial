@@ -35,5 +35,15 @@ public class InventoryEvidenceSectionDTO {
     private Integer warningCount;
     private List<String> warnings;
     private List<InventoryEvidenceConsumptionItemDTO> consumptionRecords;
-}
 
+    // Prompt 44.1: devoluções/estornos
+    private Integer totalReturns;
+    private Integer processedReturns;
+    private Integer pendingReturns;
+    private BigDecimal totalReturnCost;
+    private BigDecimal totalRevenueReversed;
+    private BigDecimal totalTaxReversed;
+    private BigDecimal totalMarginReversed;
+    private List<String> returnWarnings;
+    private List<InventoryEvidenceReturnItemDTO> returnItems;
+}

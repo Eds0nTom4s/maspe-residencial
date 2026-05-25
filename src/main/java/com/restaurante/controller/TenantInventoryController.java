@@ -7,15 +7,19 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.inventory.repository.InventoryConsumptionLineRepository;
 import com.restaurante.inventory.repository.InventoryConsumptionRecordRepository;
 import com.restaurante.inventory.repository.InventoryMovementRepository;
+import com.restaurante.inventory.repository.InventoryReturnRecordRepository;
 import com.restaurante.inventory.repository.TenantInventoryPolicyRepository;
 import com.restaurante.inventory.service.InventoryConsumptionService;
 import com.restaurante.inventory.service.InventoryItemService;
 import com.restaurante.inventory.service.InventoryRecipeService;
+import com.restaurante.inventory.service.InventoryReturnService;
 import com.restaurante.inventory.service.InventoryStockService;
 import com.restaurante.inventory.service.InventoryUnitService;
 import com.restaurante.inventory.service.ProductInventoryMappingService;
 import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.InventoryItemStatus;
+import com.restaurante.model.enums.InventoryReturnStatus;
+import com.restaurante.model.enums.InventoryReturnType;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.repository.TenantRepository;
@@ -49,6 +53,8 @@ public class TenantInventoryController {
     private final InventoryConsumptionService consumptionService;
     private final InventoryConsumptionRecordRepository consumptionRecordRepository;
     private final InventoryConsumptionLineRepository consumptionLineRepository;
+    private final InventoryReturnRecordRepository returnRecordRepository;
+    private final InventoryReturnService returnService;
 
     @GetMapping("/policy")
     public ResponseEntity<ApiResponse<TenantInventoryPolicyResponse>> getPolicy() {
@@ -76,6 +82,14 @@ public class TenantInventoryController {
         if (request.getUseAverageCost() != null) p.setUseAverageCost(request.getUseAverageCost());
         if (request.getMarginCalculationBasis() != null) p.setMarginCalculationBasis(request.getMarginCalculationBasis());
         if (request.getStatus() != null) p.setStatus(request.getStatus());
+        if (request.getAllowReturns() != null) p.setAllowReturns(request.getAllowReturns());
+        if (request.getRequireReturnApproval() != null) p.setRequireReturnApproval(request.getRequireReturnApproval());
+        if (request.getDefaultRestockPolicy() != null) p.setDefaultRestockPolicy(request.getDefaultRestockPolicy());
+        if (request.getAllowPartialReturns() != null) p.setAllowPartialReturns(request.getAllowPartialReturns());
+        if (request.getAllowReturnAfterTurnoClosed() != null) p.setAllowReturnAfterTurnoClosed(request.getAllowReturnAfterTurnoClosed());
+        if (request.getMaxReturnDays() != null) p.setMaxReturnDays(request.getMaxReturnDays());
+        if (request.getRequireFiscalCreditNoteForReturn() != null) p.setRequireFiscalCreditNoteForReturn(request.getRequireFiscalCreditNoteForReturn());
+        if (request.getAutoProcessReturnOnCreditNote() != null) p.setAutoProcessReturnOnCreditNote(request.getAutoProcessReturnOnCreditNote());
         p = policyRepository.save(p);
         return ResponseEntity.ok(ApiResponse.success("Policy", map(p)));
     }
@@ -285,6 +299,86 @@ public class TenantInventoryController {
         return ResponseEntity.ok(ApiResponse.success("Reprocessado", map(r)));
     }
 
+    @GetMapping("/returns")
+    public ResponseEntity<ApiResponse<Page<InventoryReturnRecordResponse>>> listReturns(@RequestParam(name = "status", required = false) InventoryReturnStatus status,
+                                                                                        @RequestParam(name = "returnType", required = false) InventoryReturnType returnType,
+                                                                                        @RequestParam(name = "pedidoId", required = false) Long pedidoId,
+                                                                                        Pageable pageable) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        return ResponseEntity.ok(ApiResponse.success("Returns", returnRecordRepository.list(ctx.tenantId(), status, returnType, pedidoId, pageable).map(this::map)));
+    }
+
+    @GetMapping("/returns/{returnId}")
+    public ResponseEntity<ApiResponse<InventoryReturnRecordResponse>> getReturn(@PathVariable Long returnId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        InventoryReturnRecord record = returnService.getByTenant(ctx.tenantId(), returnId);
+        return ResponseEntity.ok(ApiResponse.success("Return", map(record)));
+    }
+
+    @GetMapping("/returns/{returnId}/lines")
+    public ResponseEntity<ApiResponse<List<InventoryReturnLineResponse>>> listReturnLines(@PathVariable Long returnId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        List<InventoryReturnLine> lines = returnService.listLines(ctx.tenantId(), returnId);
+        return ResponseEntity.ok(ApiResponse.success("Lines", lines.stream().map(this::map).toList()));
+    }
+
+    @PostMapping("/returns")
+    public ResponseEntity<ApiResponse<InventoryReturnRecordResponse>> createReturn(@Valid @RequestBody CreateInventoryReturnRequest request) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        List<InventoryReturnService.RequestedReturnLine> lines = request.getLines().stream()
+                .map(l -> new InventoryReturnService.RequestedReturnLine(l.getPedidoItemId(), l.getQuantityReturned(), l.getRestockPolicy()))
+                .toList();
+
+        InventoryReturnRecord record = returnService.createReturn(
+                ctx.tenantId(),
+                request.getPedidoId(),
+                request.getReturnType(),
+                request.getReasonCategory(),
+                request.getReasonDescription(),
+                lines,
+                com.restaurante.model.enums.InventoryReturnSource.TENANT_ADMIN,
+                ctx.userId()
+        );
+        return ResponseEntity.ok(ApiResponse.success("Return criado", map(record)));
+    }
+
+    @PostMapping("/returns/{returnId}/submit")
+    public ResponseEntity<ApiResponse<InventoryReturnRecordResponse>> submitReturn(@PathVariable Long returnId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        InventoryReturnRecord record = returnService.submit(ctx.tenantId(), returnId, ctx.userId());
+        return ResponseEntity.ok(ApiResponse.success("Return submetido", map(record)));
+    }
+
+    @PostMapping("/returns/{returnId}/approve")
+    public ResponseEntity<ApiResponse<InventoryReturnRecordResponse>> approveReturn(@PathVariable Long returnId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        InventoryReturnRecord record = returnService.approve(ctx.tenantId(), returnId, ctx.userId());
+        return ResponseEntity.ok(ApiResponse.success("Return aprovado", map(record)));
+    }
+
+    @PostMapping("/returns/{returnId}/reject")
+    public ResponseEntity<ApiResponse<InventoryReturnRecordResponse>> rejectReturn(@PathVariable Long returnId,
+                                                                                   @RequestBody(required = false) InventoryReturnDecisionRequest request) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        InventoryReturnRecord record = returnService.reject(ctx.tenantId(), returnId, request != null ? request.getReason() : null, ctx.userId());
+        return ResponseEntity.ok(ApiResponse.success("Return rejeitado", map(record)));
+    }
+
+    @PostMapping("/returns/{returnId}/process")
+    public ResponseEntity<ApiResponse<InventoryReturnRecordResponse>> processReturn(@PathVariable Long returnId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        InventoryReturnRecord record = returnService.processReturn(ctx.tenantId(), returnId, ctx.userId());
+        return ResponseEntity.ok(ApiResponse.success("Return processado", map(record)));
+    }
+
     private InventoryItemResponse map(InventoryItem item) {
         InventoryItemResponse r = new InventoryItemResponse();
         r.setId(item.getId());
@@ -426,6 +520,65 @@ public class TenantInventoryController {
         r.setUseAverageCost(p.getUseAverageCost());
         r.setMarginCalculationBasis(p.getMarginCalculationBasis());
         r.setStatus(p.getStatus());
+        r.setAllowReturns(p.getAllowReturns());
+        r.setRequireReturnApproval(p.getRequireReturnApproval());
+        r.setDefaultRestockPolicy(p.getDefaultRestockPolicy());
+        r.setAllowPartialReturns(p.getAllowPartialReturns());
+        r.setAllowReturnAfterTurnoClosed(p.getAllowReturnAfterTurnoClosed());
+        r.setMaxReturnDays(p.getMaxReturnDays());
+        r.setRequireFiscalCreditNoteForReturn(p.getRequireFiscalCreditNoteForReturn());
+        r.setAutoProcessReturnOnCreditNote(p.getAutoProcessReturnOnCreditNote());
+        return r;
+    }
+
+    private InventoryReturnRecordResponse map(InventoryReturnRecord record) {
+        InventoryReturnRecordResponse r = new InventoryReturnRecordResponse();
+        r.setId(record.getId());
+        r.setTenantId(record.getTenant() != null ? record.getTenant().getId() : null);
+        r.setUnidadeAtendimentoId(record.getUnidadeAtendimento() != null ? record.getUnidadeAtendimento().getId() : null);
+        r.setPedidoId(record.getPedido() != null ? record.getPedido().getId() : null);
+        r.setPagamentoId(record.getPagamento() != null ? record.getPagamento().getId() : null);
+        r.setFiscalDocumentId(record.getFiscalDocument() != null ? record.getFiscalDocument().getId() : null);
+        r.setFiscalCorrectionDocumentId(record.getFiscalCorrectionDocument() != null ? record.getFiscalCorrectionDocument().getId() : null);
+        r.setInventoryConsumptionRecordId(record.getConsumptionRecord() != null ? record.getConsumptionRecord().getId() : null);
+        r.setReturnType(record.getReturnType());
+        r.setStatus(record.getStatus());
+        r.setSource(record.getSource());
+        r.setReasonCategory(record.getReasonCategory());
+        r.setReasonDescription(record.getReasonDescription());
+        r.setRequestedByUserId(record.getRequestedBy() != null ? record.getRequestedBy().getId() : null);
+        r.setApprovedByUserId(record.getApprovedBy() != null ? record.getApprovedBy().getId() : null);
+        r.setRequestedAt(record.getRequestedAt());
+        r.setApprovedAt(record.getApprovedAt());
+        r.setProcessedAt(record.getProcessedAt());
+        r.setTotalReturnCost(record.getTotalReturnCost());
+        r.setTotalRevenueReversed(record.getTotalRevenueReversed());
+        r.setTotalTaxReversed(record.getTotalTaxReversed());
+        r.setTotalMarginReversed(record.getTotalMarginReversed());
+        r.setWarningCount(record.getWarningCount());
+        r.setCreatedAt(record.getCreatedAt());
+        return r;
+    }
+
+    private InventoryReturnLineResponse map(InventoryReturnLine line) {
+        InventoryReturnLineResponse r = new InventoryReturnLineResponse();
+        r.setId(line.getId());
+        r.setTenantId(line.getTenant() != null ? line.getTenant().getId() : null);
+        r.setPedidoItemId(line.getPedidoItem() != null ? line.getPedidoItem().getId() : null);
+        r.setProductId(line.getProduct() != null ? line.getProduct().getId() : null);
+        r.setInventoryConsumptionLineId(line.getConsumptionLine() != null ? line.getConsumptionLine().getId() : null);
+        r.setInventoryItemId(line.getInventoryItem() != null ? line.getInventoryItem().getId() : null);
+        r.setRecipeId(line.getRecipe() != null ? line.getRecipe().getId() : null);
+        r.setQuantityReturned(line.getQuantityReturned());
+        r.setUnitId(line.getUnit() != null ? line.getUnit().getId() : null);
+        r.setQuantityBaseUnit(line.getQuantityBaseUnit());
+        r.setUnitCost(line.getUnitCost());
+        r.setTotalCostReversed(line.getTotalCostReversed());
+        r.setStockBefore(line.getStockBefore());
+        r.setStockAfter(line.getStockAfter());
+        r.setRestockPolicy(line.getRestockPolicy());
+        r.setMovementId(line.getMovement() != null ? line.getMovement().getId() : null);
+        r.setWarningCode(line.getWarningCode());
         return r;
     }
 }

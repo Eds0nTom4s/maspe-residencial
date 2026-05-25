@@ -62,5 +62,8 @@ public enum DeviceCapability {
     VIEW_FISCAL_DOCUMENT,
     CANCEL_FISCAL_DOCUMENT,
     // Prompt 44: inventário (device read-only)
-    VIEW_PRODUCT_AVAILABILITY
+    VIEW_PRODUCT_AVAILABILITY,
+    // Prompt 44.1: devoluções (device request-only)
+    REQUEST_INVENTORY_RETURN,
+    VIEW_INVENTORY_RETURN
 }

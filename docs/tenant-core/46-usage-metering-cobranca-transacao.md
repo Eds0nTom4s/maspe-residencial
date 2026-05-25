@@ -127,3 +127,11 @@ O Usage Metering do Prompt 46 pode ser evidenciado individualmente no ledger do 
 - [x] PAYMENT_CONFIRMED gera usage event idempotente
 - [x] BillingEvidence no Evidence Bundle
 - [x] Auditoria sanitizada
+
+## Mapeamento Logístico e Cobrança por Entrega (Prompt 49)
+
+Com a consolidação do **Delivery Core & Courier Network**, novas métricas de rastreamento de uso operacional foram agregadas à infraestrutura de Metering:
+
+### Uso Monitorado
+- O evento `DELIVERY_JOB_CREATED` é registrado como métrica secundária de uso do tenant (`UsageMetric` de logística), permitindo a auditoria de volume de despacho urbano operado pelo estabelecimento físico.
+- No MVP, as taxas de entrega (`estimatedDeliveryFee`) cobradas dos clientes finais e pagas aos entregadores parceiros são registradas para fins informativos e telemetria logística, **não** incidindo sobre a fatura de subscrição mensal do tenant nem gerando split de taxas automático nesta fase.

@@ -154,3 +154,23 @@ Payload é sanitizado; não registrar segredos/chaves ou payloads sensíveis.
 - [x] `mvn -q -DskipTests compile` passa
 - [x] `mvn test` passa
 
+## Integração Logística e Delivery (Prompt 49)
+
+Com a introdução do sistema de **Delivery Core & Courier Network**, os eventos de entrega agora fluem diretamente para o Transaction Evidence Ledger como eventos de alta criticidade operacional:
+
+### Eventos de Entrega Mapeados no Ledger
+- `DELIVERY_JOB_CREATED`: Criado após confirmação de pagamento.
+- `DELIVERY_COURIER_SEARCH_STARTED`: Início de busca na rede.
+- `DELIVERY_COURIER_INVITED`: Convite gerado para entregador parceiro.
+- `DELIVERY_COURIER_INVITE_ACCEPTED` / `DELIVERY_COURIER_INVITE_REJECTED`: Resposta de entregador.
+- `DELIVERY_JOB_ASSIGNED`: Entregador atribuído de forma exclusiva.
+- `DELIVERY_PICKUP_READY`: Pedido pronto para coleta no estabelecimento.
+- `DELIVERY_PICKED_UP`: Coleta efetuada pelo entregador.
+- `DELIVERY_IN_TRANSIT`: Rota de entrega iniciada.
+- `DELIVERY_DELIVERED`: Confirmação de recebimento final.
+- `DELIVERY_CANCELLED_BY_CUSTOMER`: Cancelamento preventivo solicitado pelo cliente.
+- `DELIVERY_ISSUE_REPORTED`: Registro de incidentes durante transporte.
+
+### Validação de Integridade Logística
+Esses eventos são incluídos na canonicalização e na cadeia linear HMAC, garantindo auditoria à prova de adulteração do ciclo de vida de logística urbana de ponta a ponta.
+

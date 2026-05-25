@@ -107,3 +107,11 @@ São camadas separadas: inventário não altera billing e billing não altera in
 - Stock-in / ajuste / waste registram movimentos append-only.
 - Consumo automático no pagamento confirmado é idempotente.
 - COGS e margem são calculados e evidenciados no Evidence Bundle.
+
+## Integração do Custo Logístico e Margem Bruta (Prompt 49)
+
+Com a consolidação do **Delivery Core & Courier Network**, estabelecemos uma clara fronteira de custos no cálculo do Custo de Mercadoria Vendida (COGS):
+
+### Desacoplamento de Custo Logístico vs. Receita Física
+- O custo da taxa de entrega (`estimatedDeliveryFee`) é classificado como despesa operacional logística e **não** altera o custo médio ponderado (`averageCost`) dos insumos nem o COGS físico calculado pela receita técnica (`InventoryRecipe`).
+- O faturamento líquido de mercadoria física e o abatimento físico de estoque continuam desacoplados da entrega, permitindo apurar a margem bruta dos produtos de forma limpa, tratando a logística urbana como uma linha de custo logístico operacional independente no P&L.

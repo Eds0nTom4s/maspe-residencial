@@ -61,6 +61,11 @@ Ver: `docs/tenant-core/43-2-notas-credito-debito-ajustes-fiscais.md`.
 ## 45 — Preparação para Faturação Eletrónica Angolana (AGT-ready)
 Ver: `docs/tenant-core/45-preparacao-faturacao-eletronica-angolana.md`.
 
+## Integração com Inventário (Prompt 44)
+- Inventário e fiscalidade são módulos separados.
+- Fiscalidade calcula imposto e governa documento fiscal interno; inventário calcula consumo físico, COGS e margem.
+- A margem (Prompt 44) pode usar `FiscalDocument` como fonte de `netRevenueAmount`, mas inventário não recalcula imposto.
+
 ## Dívidas futuras (registradas)
 - P43-DEBT-2: emissão fiscal offline controlada (reserva de numeração e reconciliação).
 - P43-DEBT-3: correções fiscais oficiais/certificadas (AGT/SAF-T), fora do escopo interno/preparatório.

@@ -14,6 +14,7 @@ import com.restaurante.financeiro.snapshot.evidence.EvidenceBundleProperties;
 import com.restaurante.financeiro.caixa.evidence.service.CaixaOperadorEvidenceService;
 import com.restaurante.financeiro.caixa.divergence.evidence.service.CaixaOperadorDivergenceEvidenceService;
 import com.restaurante.fiscal.evidence.service.TaxEvidenceService;
+import com.restaurante.inventory.evidence.InventoryEvidenceService;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.OperationalEventType;
@@ -48,6 +49,7 @@ public class SnapshotFinanceiroEvidenceBundleService {
     private final CaixaOperadorEvidenceService caixaOperadorEvidenceService;
     private final CaixaOperadorDivergenceEvidenceService caixaOperadorDivergenceEvidenceService;
     private final TaxEvidenceService taxEvidenceService;
+    private final InventoryEvidenceService inventoryEvidenceService;
 
     private static final Set<OperationalEventType> EVENT_TYPES = Set.of(
             OperationalEventType.TURNO_ABERTO,
@@ -148,6 +150,15 @@ public class SnapshotFinanceiroEvidenceBundleService {
         // Prompt 43: seção fiscal (taxEvidence)
         var taxEvidence = taxEvidenceService.buildForTurno(ctx.tenantId(), turno.getId());
         out.setTaxEvidence(taxEvidence);
+
+        // Prompt 44: seção de evidência de inventário (stock/COGS/margem)
+        var inventoryEvidence = inventoryEvidenceService.buildForTurno(
+                ctx.tenantId(),
+                turno.getId(),
+                turno.getAbertoEm(),
+                turno.getFechadoEm()
+        );
+        out.setInventoryEvidence(inventoryEvidence);
 
         operationalEventLogService.logTurnoEvent(
                 OperationalEventType.CAIXA_OPERADOR_EVIDENCE_SECTION_GENERATED,

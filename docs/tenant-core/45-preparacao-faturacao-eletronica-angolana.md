@@ -136,3 +136,7 @@ Sem payload bruto sensível / sem chaves.
 - Implementar polling/callback real com requestId.
 - Implementar políticas/fluxos de re-submissão após rejeição.
 
+## Nota sobre Inventário (Prompt 44)
+- A camada “AGT-ready” não depende do inventário.
+- Inventário alimenta custo/margem (gerencial) e entra no Evidence Bundle como `inventoryEvidence`.
+- Submissão oficial futura trata documento fiscal, não consumo físico.

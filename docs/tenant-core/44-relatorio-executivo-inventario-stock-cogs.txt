@@ -1,0 +1,189 @@
+PROMPT 44 — RELATÓRIO EXECUTIVO FINAL
+CONSUMA / INVENTORY CORE / STOCK / COGS / MARGEM / EVIDENCE
+
+Data: 2026-05-25
+
+1) Objetivo do Prompt 44
+- Implementar a base operacional de inventário/stock e custo de mercadoria vendida (COGS), com:
+  - movimentos append-only;
+  - receitas técnicas (composição);
+  - baixa automática por pedido pago (PAYMENT_CONFIRMED);
+  - cálculo estimado de COGS e margem;
+  - evidência consolidada em Evidence Bundle (inventoryEvidence);
+  - auditoria sanitizada.
+
+2) Escopo implementado
+- Itens de inventário (InventoryItem) com quantidade atual materializada e custo médio.
+- Unidades de medida (UnitOfMeasure) e conversões (UnitConversion) para normalização em base unit.
+- Receitas técnicas (InventoryRecipe + InventoryRecipeLine) com yieldQuantity e status.
+- Mapeamento produto → política de stock (ProductInventoryMapping).
+- Movimentos de stock append-only (InventoryMovement).
+- Consumo automático pós-pagamento confirmado:
+  - listener AFTER_COMMIT em PaymentConfirmedForFiscalIssueEvent (reuso do evento do Prompt 43.1);
+  - criação idempotente por tenantId+pedidoId via InventoryConsumptionRecord;
+  - criação de InventoryMovement SALE_CONSUMPTION por ingrediente.
+- COGS e margem estimada por pedido:
+  - totalCost = soma das linhas consumidas;
+  - netRevenueAmount preferencialmente via FiscalDocument (taxable+exempt) quando existir;
+  - fallback para Pedido.total se não houver FiscalDocument.
+- Evidence Bundle:
+  - nova seção inventoryEvidence para bundles novos;
+  - bundles antigos continuam legíveis (campo ausente/null).
+
+3) O que NÃO foi implementado (por design / fora do Prompt 44)
+- Contabilidade geral, livro razão, lançamentos contabilísticos.
+- Inventário fiscal oficial/SAF-T/integração AGT.
+- Gestão avançada de compras/fornecedores.
+- Emissão/baixa offline definitiva no POS (consumo roda server-side após confirmação/replay).
+- Devoluções/estornos com reversão automática de consumo/COGS.
+- Múltiplos armazéns complexos; lotes/validade; rastreio sanitário.
+- UI frontend.
+
+4) Migrations criadas
+- src/main/resources/db/migration/V54__inventory_core.sql
+  - unit_of_measure
+  - unit_conversions
+  - tenant_inventory_policies
+  - inventory_items
+  - inventory_recipes
+  - inventory_recipe_lines
+  - product_inventory_mappings
+  - inventory_consumption_records
+  - inventory_consumption_lines
+  - inventory_movements
+
+5) Entidades / Enums criados
+Entidades (JPA):
+- src/main/java/com/restaurante/model/entity/UnitOfMeasure.java
+- src/main/java/com/restaurante/model/entity/UnitConversion.java
+- src/main/java/com/restaurante/model/entity/TenantInventoryPolicy.java
+- src/main/java/com/restaurante/model/entity/InventoryItem.java
+- src/main/java/com/restaurante/model/entity/InventoryRecipe.java
+- src/main/java/com/restaurante/model/entity/InventoryRecipeLine.java
+- src/main/java/com/restaurante/model/entity/ProductInventoryMapping.java
+- src/main/java/com/restaurante/model/entity/InventoryMovement.java
+- src/main/java/com/restaurante/model/entity/InventoryConsumptionRecord.java
+- src/main/java/com/restaurante/model/entity/InventoryConsumptionLine.java
+
+Enums:
+- src/main/java/com/restaurante/model/enums/InventoryItemType.java
+- src/main/java/com/restaurante/model/enums/InventoryItemStatus.java
+- src/main/java/com/restaurante/model/enums/UnitOfMeasureType.java
+- src/main/java/com/restaurante/model/enums/UnitOfMeasureStatus.java
+- src/main/java/com/restaurante/model/enums/UnitConversionStatus.java
+- src/main/java/com/restaurante/model/enums/ProductStockPolicy.java
+- src/main/java/com/restaurante/model/enums/InventoryRecipeStatus.java
+- src/main/java/com/restaurante/model/enums/InventoryMovementType.java
+- src/main/java/com/restaurante/model/enums/InventoryMovementDirection.java
+- src/main/java/com/restaurante/model/enums/InventoryMovementReferenceType.java
+- src/main/java/com/restaurante/model/enums/InventoryMovementSource.java
+- src/main/java/com/restaurante/model/enums/InventoryConsumptionStatus.java
+- src/main/java/com/restaurante/model/enums/InventoryConsumptionTriggerType.java
+- src/main/java/com/restaurante/model/enums/MarginCalculationBasis.java
+- src/main/java/com/restaurante/model/enums/TenantInventoryPolicyStatus.java
+
+Atualizações de enums existentes (auditoria/capabilities):
+- src/main/java/com/restaurante/model/enums/OperationalEventType.java (eventos Prompt 44)
+- src/main/java/com/restaurante/model/enums/OperationalEntityType.java (entities Prompt 44)
+- src/main/java/com/restaurante/model/enums/DeviceCapability.java (VIEW_PRODUCT_AVAILABILITY)
+
+6) Services criados/atualizados
+Config/props:
+- src/main/java/com/restaurante/inventory/config/InventoryProperties.java
+
+Conversões/itens/stock/receitas:
+- src/main/java/com/restaurante/inventory/service/UnitConversionService.java
+- src/main/java/com/restaurante/inventory/service/InventoryUnitService.java
+- src/main/java/com/restaurante/inventory/service/InventoryItemService.java
+- src/main/java/com/restaurante/inventory/service/InventoryStockService.java
+- src/main/java/com/restaurante/inventory/service/InventoryRecipeService.java
+- src/main/java/com/restaurante/inventory/service/ProductInventoryMappingService.java
+- src/main/java/com/restaurante/inventory/service/TenantInventoryPolicyService.java
+- src/main/java/com/restaurante/inventory/service/ProductAvailabilityService.java
+
+Consumo automático:
+- src/main/java/com/restaurante/inventory/service/InventoryConsumptionService.java
+- src/main/java/com/restaurante/inventory/listener/InventoryConsumptionOnPaymentConfirmedListener.java
+
+Evidence:
+- src/main/java/com/restaurante/inventory/evidence/InventoryEvidenceService.java
+
+Auditoria (pequena extensão para uso já existente):
+- src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java (uso de logGenericForTenant nos fluxos de inventário)
+
+7) Endpoints implementados
+Tenant/Admin:
+- src/main/java/com/restaurante/controller/TenantInventoryController.java
+  - GET/PUT /tenant/inventory/policy
+  - GET/POST/PUT /tenant/inventory/items
+  - POST /tenant/inventory/items/{itemId}/stock-in
+  - POST /tenant/inventory/items/{itemId}/adjust
+  - POST /tenant/inventory/items/{itemId}/waste
+  - GET/POST /tenant/inventory/units
+  - POST /tenant/inventory/unit-conversions
+  - POST /tenant/inventory/recipes
+  - POST/GET /tenant/inventory/recipes/{recipeId}/lines
+  - POST /tenant/inventory/recipes/{recipeId}/activate
+  - POST /tenant/inventory/recipes/{recipeId}/archive
+  - GET/POST /tenant/inventory/product-mappings
+  - GET /tenant/inventory/movements
+  - GET /tenant/inventory/consumptions
+  - GET /tenant/inventory/consumptions/{consumptionId}
+  - POST /tenant/inventory/consumptions/reprocess/{pedidoId}
+
+Device/POS (somente leitura):
+- src/main/java/com/restaurante/controller/DeviceInventoryController.java
+  - GET /device/inventory/product-availability/{productId} (capability VIEW_PRODUCT_AVAILABILITY)
+
+8) Integração com “pagamento confirmado” (sem alterar AppyPay)
+- Reutiliza o evento existente do Prompt 43.1:
+  - PaymentConfirmedForFiscalIssueEvent
+- Listener AFTER_COMMIT:
+  - InventoryConsumptionOnPaymentConfirmedListener
+- Não houve alteração estrutural no callback/polling AppyPay: o inventário apenas reage ao estado confirmado do pagamento (evento).
+
+9) Integração com CASH/TPA
+- CASH/TPA manual confirmados (fluxos existentes) já publicam PaymentConfirmedForFiscalIssueEvent; o inventário consome via o mesmo gatilho.
+- Consumo é server-side e idempotente por pedido.
+
+10) Integração com Evidence Bundle (inventoryEvidence)
+- DTOs adicionados:
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/InventoryEvidenceSectionDTO.java
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/InventoryEvidenceConsumptionItemDTO.java
+- Evidence bundle agregado:
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/SnapshotFinanceiroEvidenceBundleResponse.java
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/service/SnapshotFinanceiroEvidenceBundleService.java
+- Hash determinístico por consumo (consumptionHash) gerado por InventoryEvidenceService.
+- Bundles antigos continuam legíveis: não há recálculo nem quebra de WORM/chainHash.
+
+11) Auditoria (sanitizada)
+- Eventos Prompt 44 adicionados em OperationalEventType:
+  - INVENTORY_ITEM_CREATED / INVENTORY_ITEM_UPDATED
+  - INVENTORY_STOCK_IN_CREATED / INVENTORY_ADJUSTMENT_CREATED / INVENTORY_WASTE_CREATED
+  - INVENTORY_CONSUMPTION_REQUESTED / COMPLETED / FAILED / SKIPPED
+  - INVENTORY_EVIDENCE_ATTACHED_TO_BUNDLE (reservado para evolução)
+- Logging em inventário usa logGenericForTenant (não depende de TenantContext/SecurityContext).
+
+12) Limitações e observações
+- Sem reversão automática de consumo/COGS em devoluções/estornos (dívida P44-DEBT-1).
+- Sem inventário offline definitivo (consumo roda no servidor após replay/confirm).
+- InventoryFlowIT possui fallback (sem depender do sincronismo AFTER_COMMIT) para garantir validação do contrato evento → consumo em ambiente de testes.
+
+13) Testes (novos)
+- src/test/java/com/restaurante/inventory/InventoryStockServiceTest.java
+- src/test/java/com/restaurante/inventory/InventoryRecipeServiceTest.java
+- src/test/java/com/restaurante/inventory/InventoryConsumptionServiceTest.java
+- src/test/java/com/restaurante/inventory/InventoryEvidenceServiceTest.java
+- src/test/java/com/restaurante/inventory/InventoryFlowIT.java
+
+14) Comandos executados e resultados
+- mvn -q -DskipTests compile
+  - Resultado: OK (exit code 0)
+- mvn test
+  - Resultado: OK (BUILD SUCCESS)
+  - Observação: testes com Testcontainers foram SKIPPED por ausência de Docker no ambiente (sem falhas).
+  - Resumo: Tests run: 513, Failures: 0, Errors: 0, Skipped: 223
+
+15) Status final
+- Prompt 44 concluído: inventário core operacional implementado, integrado ao ciclo pós-pagamento e evidenciado no Evidence Bundle, sem alterar AppyPay, caixa, fiscalidade existente ou WORM.
+

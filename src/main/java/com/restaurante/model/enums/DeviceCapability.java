@@ -60,5 +60,7 @@ public enum DeviceCapability {
     // Prompt 43: fiscalidade / documento fiscal interno (device)
     ISSUE_FISCAL_DOCUMENT,
     VIEW_FISCAL_DOCUMENT,
-    CANCEL_FISCAL_DOCUMENT
+    CANCEL_FISCAL_DOCUMENT,
+    // Prompt 44: inventário (device read-only)
+    VIEW_PRODUCT_AVAILABILITY
 }

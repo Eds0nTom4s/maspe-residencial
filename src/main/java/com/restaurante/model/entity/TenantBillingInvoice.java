@@ -65,6 +65,25 @@ public class TenantBillingInvoice extends BaseEntity {
     @Column(name = "total_amount", nullable = false, precision = 19, scale = 4)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
+    @Column(name = "total_paid_amount", nullable = false, precision = 19, scale = 4)
+    private BigDecimal totalPaidAmount = BigDecimal.ZERO;
+
+    @Column(name = "outstanding_amount", nullable = false, precision = 19, scale = 4)
+    private BigDecimal outstandingAmount = BigDecimal.ZERO;
+
+    @Column(name = "last_payment_at")
+    private LocalDateTime lastPaymentAt;
+
+    @Column(name = "overdue_at")
+    private LocalDateTime overdueAt;
+
+    @Column(name = "grace_period_ends_at")
+    private LocalDateTime gracePeriodEndsAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "collection_status", nullable = false, length = 40)
+    private com.restaurante.model.enums.TenantBillingCollectionStatus collectionStatus = com.restaurante.model.enums.TenantBillingCollectionStatus.CURRENT;
+
     @Column(name = "issued_at")
     private LocalDateTime issuedAt;
 
@@ -83,4 +102,3 @@ public class TenantBillingInvoice extends BaseEntity {
     @OneToMany(mappedBy = "invoice")
     private List<TenantBillingInvoiceLine> lines = new ArrayList<>();
 }
-

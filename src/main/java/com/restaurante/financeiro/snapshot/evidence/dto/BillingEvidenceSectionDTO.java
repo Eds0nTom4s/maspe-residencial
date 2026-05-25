@@ -29,8 +29,25 @@ public class BillingEvidenceSectionDTO {
     private Long invoiceId;
     private String invoiceStatus;
 
+    // Prompt 48: payments/collection
+    private Integer totalInvoices;
+    private Integer issuedInvoices;
+    private Integer paidInvoices;
+    private Integer partiallyPaidInvoices;
+    private Integer overdueInvoices;
+    private Integer cancelledInvoices;
+
+    private BigDecimal totalInvoicedAmount;
+    private BigDecimal totalPaidAmount;
+    private BigDecimal totalOutstandingAmount;
+    private BigDecimal totalOverdueAmount;
+
+    private String collectionStatus;
+    private LocalDateTime gracePeriodEndsAt;
+
+    private List<BillingEvidencePaymentItemDTO> billingPayments;
+
     private List<String> warnings;
     private List<BillingEvidenceUsageItemDTO> usageAggregations;
     private List<BillingEvidenceInvoiceItemDTO> invoiceLines;
 }
-

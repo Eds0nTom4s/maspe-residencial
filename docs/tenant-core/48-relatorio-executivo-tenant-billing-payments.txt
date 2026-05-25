@@ -1,0 +1,184 @@
+RELATÓRIO EXECUTIVO FINAL — PROMPT 48
+TENANT BILLING PAYMENTS / OVERDUE / GRACE PERIOD / SUSPENSÃO CONTROLADA (MVP)
+
+Data: 2026-05-25 (Africa/Luanda)
+Projeto: CONSUMA — Sistema de Restauração (SaaS multi-tenant)
+
+================================================================================
+1) OBJETIVO
+================================================================================
+Implementar a base de pagamento de invoices SaaS do tenant, mantendo separação total
+entre pagamentos operacionais do cliente final e cobrança SaaS da CONSUMA ao tenant.
+
+Inclui:
+- registro/confirm/reject/cancel de pagamentos de invoice interna SaaS;
+- pagamento parcial/total com atualização do status da invoice;
+- detecção de overdue + grace period via policy;
+- suspensão comercial controlada como decisão (guard), sem bloqueio perigoso no MVP;
+- expansão do billingEvidence e auditoria.
+
+================================================================================
+2) ESCOPO IMPLEMENTADO
+================================================================================
+- Pagamentos SaaS:
+  - Tenant registra pagamento (status RECORDED).
+  - Platform/admin confirma/rejeita/cancela (CONFIRMED/REJECTED/CANCELLED).
+  - Apenas CONFIRMED soma para liquidar invoice.
+  - Overpayment bloqueado no MVP.
+- Invoice:
+  - campos: totalPaidAmount/outstandingAmount/lastPaymentAt/overdueAt/gracePeriodEndsAt/collectionStatus.
+  - status: ISSUED → PARTIALLY_PAID → PAID; overdue quando dueAt < now e outstanding > 0.
+- Collection policy por tenant:
+  - gracePeriodDays, autoMarkOverdue, suspensionMode, restrições (devices/orders/admin).
+- Guard (decisão):
+  - `TenantAccessBillingGuardService` avalia acesso por operação.
+  - Regra MVP: não bloqueia `CONFIRM_PAYMENT`.
+- Evidence Bundle:
+  - billingEvidence expandido com métricas de cobrança (invoices/overdue/outstanding) e payments (hash).
+
+================================================================================
+3) NÃO ESCOPO (MANTIDO)
+================================================================================
+- Sem gateway real de cobrança automática do tenant.
+- Sem débito automático.
+- Sem alteração de AppyPay/callback/polling ou confirmação de pagamento do cliente final.
+- Sem bloqueio global automático de operação do tenant no MVP.
+- Sem faturação fiscal oficial da CONSUMA ao tenant.
+- Sem recálculo de bundles antigos; WORM/chainHash preservados.
+
+================================================================================
+4) MIGRATIONS (FLYWAY)
+================================================================================
+- `src/main/resources/db/migration/V59__tenant_billing_payments.sql`
+  - ALTER `tenant_billing_invoices`: total_paid_amount, outstanding_amount, last_payment_at,
+    overdue_at, grace_period_ends_at, collection_status
+  - `tenant_billing_payment_sequences`
+  - `tenant_billing_payments`
+  - `tenant_billing_payment_attempts` (placeholder)
+  - `tenant_billing_collection_policies`
+
+================================================================================
+5) ENTIDADES / ENUMS CRIADOS/ALTERADOS
+================================================================================
+Alterado:
+- TenantBillingInvoice (campos de pagamentos + collection)
+
+Criados (entities):
+- TenantBillingPaymentSequence
+- TenantBillingPayment
+- TenantBillingPaymentAttempt
+- TenantBillingCollectionPolicy
+
+Criados (enums):
+- TenantBillingCollectionStatus
+- TenantBillingPaymentStatus
+- TenantBillingPaymentMethod
+- TenantBillingPaymentAttemptStatus
+- TenantBillingCollectionPolicyStatus
+- TenantBillingSuspensionMode
+
+================================================================================
+6) SERVICES / COMPONENTES
+================================================================================
+- TenantBillingPaymentSequenceService (CONS-BPAY-YYYY-NNNNNN)
+- TenantBillingPaymentService (record/confirm/reject/cancel + recalc invoice)
+- TenantBillingCollectionService (overdue/grace/collectionStatus)
+- TenantBillingCollectionPolicyService (upsert policy por tenant)
+- TenantAccessBillingGuardService (decisão de acesso; MVP não bloqueia confirm_payment)
+
+Hashes determinísticos:
+- TenantBillingPaymentHashService
+- TenantBillingCollectionHashService
+- TenantBillingInvoiceHashService (expandido para incluir paid/outstanding/collection)
+
+================================================================================
+7) ENDPOINTS IMPLEMENTADOS
+================================================================================
+Tenant:
+- GET  /tenant/billing/invoices/{invoiceId}/payments
+- POST /tenant/billing/invoices/{invoiceId}/payments
+- GET  /tenant/billing/payments/{paymentId}
+- GET  /tenant/billing/collection-status
+
+Admin/Platform:
+- GET  /admin/billing/payments
+- GET  /admin/billing/payments/{paymentId}
+- POST /admin/billing/payments/{paymentId}/confirm
+- POST /admin/billing/payments/{paymentId}/reject
+- POST /admin/billing/payments/{paymentId}/cancel
+- POST /admin/billing/invoices/{invoiceId}/mark-overdue
+- POST /admin/billing/tenants/{tenantId}/evaluate-collection
+- GET  /admin/billing/tenants/{tenantId}/collection-status
+- GET  /admin/billing/tenants/{tenantId}/collection-policy
+- PUT  /admin/billing/tenants/{tenantId}/collection-policy
+
+================================================================================
+8) INTEGRAÇÃO COM BILLINGEVIDENCE (EVIDENCE BUNDLE)
+================================================================================
+- `billingEvidence` agora inclui:
+  - rollups: totalInvoices, paid/partial/overdue/cancelled, totalPaid/outstanding/overdue.
+  - collectionStatus + gracePeriodEndsAt.
+  - billingPayments (limitado) com paymentHash.
+- Auditoria adicional ao anexar payments:
+  - `TENANT_BILLING_PAYMENT_EVIDENCE_ATTACHED_TO_BUNDLE` quando há pagamentos na evidência.
+
+================================================================================
+9) AUDITORIA (SANITIZADA)
+================================================================================
+Eventos adicionados (exemplos):
+- TENANT_BILLING_PAYMENT_RECORDED / CONFIRMED / REJECTED / CANCELLED
+- TENANT_BILLING_INVOICE_PARTIALLY_PAID / PAID / OVERDUE
+- TENANT_BILLING_COLLECTION_STATUS_CHANGED
+- TENANT_BILLING_PAYMENT_EVIDENCE_ATTACHED_TO_BUNDLE
+
+Sem auditoria de comprovativo bruto, dados bancários sensíveis, AppyPay raw, etc.
+
+================================================================================
+10) TESTES (NOVOS)
+================================================================================
+- `src/test/java/com/restaurante/billing/TenantBillingPaymentServiceTest.java`
+- `src/test/java/com/restaurante/billing/TenantBillingCollectionServiceTest.java`
+- `src/test/java/com/restaurante/billing/TenantAccessBillingGuardServiceTest.java`
+- `src/test/java/com/restaurante/billing/BillingEvidencePaymentTest.java`
+- `src/test/java/com/restaurante/billing/TenantBillingPaymentFlowIT.java`
+
+================================================================================
+11) COMANDOS EXECUTADOS E RESULTADOS
+================================================================================
+- `mvn -q -DskipTests compile`
+  Resultado: SUCESSO (exit code 0)
+
+- `mvn -q -Dtest=TenantBillingPaymentServiceTest test`
+  Resultado: SUCESSO (exit code 0)
+
+- `mvn -q -Dtest=TenantBillingCollectionServiceTest test`
+  Resultado: SUCESSO (exit code 0)
+
+- `mvn -q -Dtest=TenantAccessBillingGuardServiceTest test`
+  Resultado: SUCESSO (exit code 0)
+
+- `mvn -q -Dtest=BillingEvidencePaymentTest test`
+  Resultado: SUCESSO (exit code 0)
+
+- `mvn -q -Dtest=TenantBillingPaymentFlowIT test`
+  Resultado: SUCESSO (exit code 0)
+
+- `mvn test`
+  Resultado: BUILD SUCCESS
+  Summary: Tests run: 534, Failures: 0, Errors: 0, Skipped: 223
+
+================================================================================
+12) LIMITAÇÕES / PRÓXIMAS ETAPAS RECOMENDADAS
+================================================================================
+- Implementar refund/estorno de pagamento SaaS do tenant (REFUNDED) e reabertura formal da invoice, se necessário.
+- Implementar integração real com gateway B2B (Prompt 49) usando `TenantBillingPaymentAttempt` + idempotência.
+- Aplicar guard de forma gradual (feature flags), evitando bloquear fluxos críticos (pedido/pagamento) no MVP.
+
+================================================================================
+13) STATUS FINAL
+================================================================================
+CONCLUÍDO — Prompt 48 implementado, com:
+- pagamentos SaaS do tenant separados dos pagamentos operacionais;
+- overdue/grace/policy e base de suspensão controlada;
+- evidência e auditoria consistentes.
+

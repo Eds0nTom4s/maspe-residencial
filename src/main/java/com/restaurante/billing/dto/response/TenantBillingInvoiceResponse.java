@@ -1,6 +1,7 @@
 package com.restaurante.billing.dto.response;
 
 import com.restaurante.model.enums.TenantBillingInvoiceStatus;
+import com.restaurante.model.enums.TenantBillingCollectionStatus;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -20,6 +21,12 @@ public class TenantBillingInvoiceResponse {
     private BigDecimal discountAmount;
     private BigDecimal taxAmount;
     private BigDecimal totalAmount;
+    private BigDecimal totalPaidAmount;
+    private BigDecimal outstandingAmount;
+    private LocalDateTime lastPaymentAt;
+    private LocalDateTime overdueAt;
+    private LocalDateTime gracePeriodEndsAt;
+    private TenantBillingCollectionStatus collectionStatus;
     private LocalDateTime issuedAt;
     private LocalDateTime dueAt;
     private LocalDateTime paidAt;
@@ -27,4 +34,3 @@ public class TenantBillingInvoiceResponse {
     private String notes;
     private List<TenantBillingInvoiceLineResponse> lines;
 }
-

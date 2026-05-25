@@ -119,6 +119,9 @@ public class TenantBillingInvoiceService {
         inv.setDiscountAmount(scaleMoney(BigDecimal.ZERO));
         inv.setTaxAmount(scaleMoney(BigDecimal.ZERO));
         inv.setTotalAmount(scaleMoney(total));
+        inv.setTotalPaidAmount(scaleMoney(BigDecimal.ZERO));
+        inv.setOutstandingAmount(scaleMoney(total));
+        inv.setCollectionStatus(com.restaurante.model.enums.TenantBillingCollectionStatus.CURRENT);
         inv = invoiceRepository.save(inv);
 
         String invoiceHash = hashService.hash(inv, lines);
@@ -150,6 +153,10 @@ public class TenantBillingInvoiceService {
         if (inv.getStatus() != TenantBillingInvoiceStatus.DRAFT) throw new BusinessException("TENANT_BILLING_INVOICE_INVALID_STATE");
         inv.setStatus(TenantBillingInvoiceStatus.ISSUED);
         inv.setIssuedAt(LocalDateTime.now());
+        if (inv.getDueAt() == null) inv.setDueAt(inv.getIssuedAt().plusDays(7));
+        if (inv.getOutstandingAmount() == null || inv.getOutstandingAmount().compareTo(BigDecimal.ZERO) == 0) {
+            inv.setOutstandingAmount(scaleMoney(nz(inv.getTotalAmount())));
+        }
         inv = invoiceRepository.save(inv);
         operationalEventLogService.logGenericForTenant(
                 tenantId,
@@ -173,6 +180,12 @@ public class TenantBillingInvoiceService {
         }
         inv.setStatus(TenantBillingInvoiceStatus.PAID);
         inv.setPaidAt(LocalDateTime.now());
+        inv.setTotalPaidAmount(scaleMoney(nz(inv.getTotalAmount())));
+        inv.setOutstandingAmount(scaleMoney(BigDecimal.ZERO));
+        inv.setLastPaymentAt(inv.getPaidAt());
+        inv.setCollectionStatus(com.restaurante.model.enums.TenantBillingCollectionStatus.CLEARED);
+        inv.setOverdueAt(null);
+        inv.setGracePeriodEndsAt(null);
         inv = invoiceRepository.save(inv);
         operationalEventLogService.logGenericForTenant(
                 tenantId,

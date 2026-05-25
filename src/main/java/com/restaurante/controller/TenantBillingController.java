@@ -1,19 +1,26 @@
 package com.restaurante.controller;
 
 import com.restaurante.billing.dto.request.CreateUsageAdjustmentRequest;
+import com.restaurante.billing.dto.request.RecordTenantBillingPaymentRequest;
 import com.restaurante.billing.dto.response.BillingCycleResponse;
+import com.restaurante.billing.dto.response.TenantBillingCollectionStatusResponse;
 import com.restaurante.billing.dto.response.TenantBillingInvoiceLineResponse;
 import com.restaurante.billing.dto.response.TenantBillingInvoiceResponse;
+import com.restaurante.billing.dto.response.TenantBillingPaymentResponse;
 import com.restaurante.billing.dto.response.TenantSubscriptionResponse;
 import com.restaurante.billing.dto.response.UsageAggregationResponse;
 import com.restaurante.billing.dto.response.UsageEventResponse;
 import com.restaurante.billing.repository.BillingCycleRepository;
 import com.restaurante.billing.repository.TenantBillingInvoiceLineRepository;
 import com.restaurante.billing.repository.TenantBillingInvoiceRepository;
+import com.restaurante.billing.repository.TenantBillingPaymentRepository;
 import com.restaurante.billing.repository.UsageAggregationRepository;
 import com.restaurante.billing.repository.UsageEventRepository;
 import com.restaurante.billing.service.BillingCycleService;
+import com.restaurante.billing.service.TenantAccessBillingGuardService;
+import com.restaurante.billing.service.TenantBillingCollectionService;
 import com.restaurante.billing.service.TenantBillingInvoiceService;
+import com.restaurante.billing.service.TenantBillingPaymentService;
 import com.restaurante.billing.service.TenantSubscriptionService;
 import com.restaurante.billing.service.UsageAdjustmentService;
 import com.restaurante.billing.service.UsageAggregationService;
@@ -22,6 +29,7 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.BillingCycle;
 import com.restaurante.model.entity.TenantBillingInvoice;
 import com.restaurante.model.entity.TenantBillingInvoiceLine;
+import com.restaurante.model.entity.TenantBillingPayment;
 import com.restaurante.model.entity.TenantSubscription;
 import com.restaurante.model.entity.UsageAggregation;
 import com.restaurante.model.entity.UsageEvent;
@@ -63,6 +71,10 @@ public class TenantBillingController {
     private final TenantBillingInvoiceRepository invoiceRepository;
     private final TenantBillingInvoiceLineRepository invoiceLineRepository;
     private final UsageAdjustmentService adjustmentService;
+    private final TenantBillingPaymentService paymentService;
+    private final TenantBillingPaymentRepository paymentRepository;
+    private final TenantBillingCollectionService collectionService;
+    private final TenantAccessBillingGuardService accessGuardService;
 
     @GetMapping("/subscription")
     public ResponseEntity<ApiResponse<TenantSubscriptionResponse>> subscription() {
@@ -156,6 +168,62 @@ public class TenantBillingController {
         var ctx = tenantGuard.requireContext();
         TenantBillingInvoice inv = invoiceService.markPaid(ctx.tenantId(), invoiceId);
         return ResponseEntity.ok(ApiResponse.success("Invoice paid", map(inv)));
+    }
+
+    @GetMapping("/invoices/{invoiceId}/payments")
+    public ResponseEntity<ApiResponse<List<TenantBillingPaymentResponse>>> listPaymentsForInvoice(@PathVariable Long invoiceId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        List<TenantBillingPaymentResponse> out = paymentRepository.findByTenantIdAndInvoice_IdOrderByIdAsc(ctx.tenantId(), invoiceId)
+                .stream().map(this::mapPayment).toList();
+        return ResponseEntity.ok(ApiResponse.success("Payments", out));
+    }
+
+    @GetMapping("/payments/{paymentId}")
+    public ResponseEntity<ApiResponse<TenantBillingPaymentResponse>> getPayment(@PathVariable Long paymentId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        TenantBillingPayment p = paymentRepository.findByTenantIdAndId(ctx.tenantId(), paymentId)
+                .orElseThrow(() -> new BusinessException("TENANT_BILLING_PAYMENT_NOT_FOUND"));
+        return ResponseEntity.ok(ApiResponse.success("Payment", mapPayment(p)));
+    }
+
+    @PostMapping("/invoices/{invoiceId}/payments")
+    public ResponseEntity<ApiResponse<TenantBillingPaymentResponse>> recordPayment(@PathVariable Long invoiceId, @Valid @RequestBody RecordTenantBillingPaymentRequest req) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        TenantBillingPayment p = paymentService.recordPayment(
+                ctx.tenantId(),
+                invoiceId,
+                req.getAmount(),
+                req.getCurrency(),
+                req.getPaymentMethod(),
+                req.getPaidAt(),
+                req.getReference(),
+                req.getProofReference(),
+                req.getNotes(),
+                null,
+                false
+        );
+        return ResponseEntity.ok(ApiResponse.success("Payment recorded", mapPayment(p)));
+    }
+
+    @GetMapping("/collection-status")
+    public ResponseEntity<ApiResponse<TenantBillingCollectionStatusResponse>> collectionStatus() {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        var ctx = tenantGuard.requireContext();
+        var status = collectionService.evaluateTenantBillingStatus(ctx.tenantId(), java.time.LocalDateTime.now());
+        var pol = collectionService.getEffectivePolicy(ctx.tenantId());
+        TenantBillingCollectionStatusResponse r = new TenantBillingCollectionStatusResponse();
+        r.setTenantId(ctx.tenantId());
+        r.setCollectionStatus(status);
+        r.setSuspensionMode(pol.getSuspensionMode());
+        r.setRestrictNewOrders(pol.isRestrictNewOrders());
+        r.setRestrictNewDevices(pol.isRestrictNewDevices());
+        r.setRestrictAdminAccess(pol.isRestrictAdminAccess());
+        r.setMessageCode(accessGuardService.evaluateAccess(ctx.tenantId(), com.restaurante.billing.enums.TenantBillingOperationType.ACCESS_ADMIN).getMessageCode());
+        // Overdue counts/outstanding computed lazily in evidence; keep endpoint light in MVP.
+        return ResponseEntity.ok(ApiResponse.success("Collection status", r));
     }
 
     @PostMapping("/invoices/{invoiceId}/cancel")
@@ -260,6 +328,12 @@ public class TenantBillingController {
         r.setDiscountAmount(inv.getDiscountAmount());
         r.setTaxAmount(inv.getTaxAmount());
         r.setTotalAmount(inv.getTotalAmount());
+        r.setTotalPaidAmount(inv.getTotalPaidAmount());
+        r.setOutstandingAmount(inv.getOutstandingAmount());
+        r.setLastPaymentAt(inv.getLastPaymentAt());
+        r.setOverdueAt(inv.getOverdueAt());
+        r.setGracePeriodEndsAt(inv.getGracePeriodEndsAt());
+        r.setCollectionStatus(inv.getCollectionStatus());
         r.setIssuedAt(inv.getIssuedAt());
         r.setDueAt(inv.getDueAt());
         r.setPaidAt(inv.getPaidAt());
@@ -268,6 +342,27 @@ public class TenantBillingController {
 
         List<TenantBillingInvoiceLine> lines = invoiceLineRepository.findByTenantIdAndInvoice_IdOrderByIdAsc(r.getTenantId(), inv.getId());
         r.setLines(lines.stream().map(this::mapLine).toList());
+        return r;
+    }
+
+    private TenantBillingPaymentResponse mapPayment(TenantBillingPayment p) {
+        TenantBillingPaymentResponse r = new TenantBillingPaymentResponse();
+        r.setId(p.getId());
+        r.setTenantId(p.getTenant() != null ? p.getTenant().getId() : null);
+        r.setInvoiceId(p.getInvoice() != null ? p.getInvoice().getId() : null);
+        r.setBillingCycleId(p.getBillingCycle() != null ? p.getBillingCycle().getId() : null);
+        r.setSubscriptionId(p.getSubscription() != null ? p.getSubscription().getId() : null);
+        r.setPaymentNumber(p.getPaymentNumber());
+        r.setStatus(p.getStatus());
+        r.setPaymentMethod(p.getPaymentMethod());
+        r.setAmount(p.getAmount());
+        r.setCurrency(p.getCurrency());
+        r.setPaidAt(p.getPaidAt());
+        r.setReceivedAt(p.getReceivedAt());
+        r.setConfirmedAt(p.getConfirmedAt());
+        r.setReference(p.getReference());
+        r.setProofReference(p.getProofReference());
+        r.setNotes(p.getNotes());
         return r;
     }
 

@@ -2,23 +2,31 @@ package com.restaurante.billing.evidence;
 
 import com.restaurante.billing.config.BillingProperties;
 import com.restaurante.billing.hash.TenantBillingInvoiceHashService;
+import com.restaurante.billing.hash.TenantBillingPaymentHashService;
 import com.restaurante.billing.hash.UsageAggregationHashService;
 import com.restaurante.billing.repository.TenantBillingInvoiceLineRepository;
 import com.restaurante.billing.repository.TenantBillingInvoiceRepository;
+import com.restaurante.billing.repository.TenantBillingPaymentRepository;
 import com.restaurante.billing.repository.TenantSubscriptionRepository;
 import com.restaurante.billing.repository.UsageEventRepository;
+import com.restaurante.billing.service.TenantBillingCollectionService;
 import com.restaurante.billing.service.BillingCycleService;
 import com.restaurante.billing.service.UsageAggregationService;
 import com.restaurante.financeiro.snapshot.evidence.dto.BillingEvidenceInvoiceItemDTO;
+import com.restaurante.financeiro.snapshot.evidence.dto.BillingEvidencePaymentItemDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.BillingEvidenceSectionDTO;
 import com.restaurante.financeiro.snapshot.evidence.dto.BillingEvidenceUsageItemDTO;
 import com.restaurante.model.entity.BillingCycle;
 import com.restaurante.model.entity.BillingPlan;
 import com.restaurante.model.entity.TenantBillingInvoice;
 import com.restaurante.model.entity.TenantBillingInvoiceLine;
+import com.restaurante.model.entity.TenantBillingPayment;
 import com.restaurante.model.entity.TenantSubscription;
 import com.restaurante.model.entity.UsageAggregation;
 import com.restaurante.model.enums.BillingCycleStatus;
+import com.restaurante.model.enums.TenantBillingCollectionStatus;
+import com.restaurante.model.enums.TenantBillingInvoiceStatus;
+import com.restaurante.model.enums.TenantBillingPaymentStatus;
 import com.restaurante.model.enums.UsageEventStatus;
 import com.restaurante.model.enums.UsageMetricCode;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +54,9 @@ public class BillingEvidenceService {
     private final TenantBillingInvoiceRepository invoiceRepository;
     private final TenantBillingInvoiceLineRepository invoiceLineRepository;
     private final TenantBillingInvoiceHashService invoiceHashService;
+    private final TenantBillingPaymentRepository paymentRepository;
+    private final TenantBillingPaymentHashService paymentHashService;
+    private final TenantBillingCollectionService collectionService;
 
     @Transactional
     public BillingEvidenceSectionDTO buildForTurno(Long tenantId, LocalDateTime generatedAt) {
@@ -123,6 +134,72 @@ public class BillingEvidenceService {
             out.setInvoiceStatus(invoice.getStatus() != null ? invoice.getStatus().name() : null);
         }
 
+        // Prompt 48: invoice/payment rollups (tenant-wide)
+        List<TenantBillingInvoice> recentInvoices = invoiceRepository.findByTenantIdOrderByIdDesc(tenantId);
+        int totalInvoices = 0, issuedInvoices = 0, paidInvoices = 0, partialInvoices = 0, overdueInvoices = 0, cancelledInvoices = 0;
+        BigDecimal totalInvoicedAmount = BigDecimal.ZERO;
+        BigDecimal totalPaidAmount = BigDecimal.ZERO;
+        BigDecimal totalOutstandingAmount = BigDecimal.ZERO;
+        BigDecimal totalOverdueAmount = BigDecimal.ZERO;
+        LocalDateTime graceEnds = null;
+        for (TenantBillingInvoice inv : recentInvoices.stream().limit(200).toList()) {
+            if (inv == null) continue;
+            totalInvoices++;
+            totalInvoicedAmount = totalInvoicedAmount.add(nz(inv.getTotalAmount()));
+            totalPaidAmount = totalPaidAmount.add(nz(inv.getTotalPaidAmount()));
+            totalOutstandingAmount = totalOutstandingAmount.add(nz(inv.getOutstandingAmount()));
+            if (inv.getStatus() == TenantBillingInvoiceStatus.ISSUED) issuedInvoices++;
+            if (inv.getStatus() == TenantBillingInvoiceStatus.PAID) paidInvoices++;
+            if (inv.getStatus() == TenantBillingInvoiceStatus.PARTIALLY_PAID) partialInvoices++;
+            if (inv.getStatus() == TenantBillingInvoiceStatus.OVERDUE) {
+                overdueInvoices++;
+                totalOverdueAmount = totalOverdueAmount.add(nz(inv.getOutstandingAmount()));
+                if (inv.getGracePeriodEndsAt() != null && (graceEnds == null || inv.getGracePeriodEndsAt().isBefore(graceEnds))) {
+                    graceEnds = inv.getGracePeriodEndsAt();
+                }
+            }
+            if (inv.getStatus() == TenantBillingInvoiceStatus.CANCELLED || inv.getStatus() == TenantBillingInvoiceStatus.VOIDED) cancelledInvoices++;
+        }
+        out.setTotalInvoices(totalInvoices);
+        out.setIssuedInvoices(issuedInvoices);
+        out.setPaidInvoices(paidInvoices);
+        out.setPartiallyPaidInvoices(partialInvoices);
+        out.setOverdueInvoices(overdueInvoices);
+        out.setCancelledInvoices(cancelledInvoices);
+        out.setTotalInvoicedAmount(scaleMoney(totalInvoicedAmount));
+        out.setTotalPaidAmount(scaleMoney(totalPaidAmount));
+        out.setTotalOutstandingAmount(scaleMoney(totalOutstandingAmount));
+        out.setTotalOverdueAmount(scaleMoney(totalOverdueAmount));
+
+        TenantBillingCollectionStatus collStatus = collectionService.evaluateTenantBillingStatus(tenantId, out.getGeneratedAt());
+        out.setCollectionStatus(collStatus != null ? collStatus.name() : null);
+        out.setGracePeriodEndsAt(graceEnds);
+
+        if (overdueInvoices > 0) warnings.add("BILLING_INVOICE_OVERDUE");
+        if (invoice != null && invoice.getStatus() == TenantBillingInvoiceStatus.PARTIALLY_PAID) warnings.add("BILLING_PARTIAL_PAYMENT");
+
+        // Payments for current cycle invoice (if any)
+        List<BillingEvidencePaymentItemDTO> payItems = new ArrayList<>();
+        if (invoice != null) {
+            List<TenantBillingPayment> pays = paymentRepository.findByTenantIdAndInvoice_IdOrderByIdAsc(tenantId, invoice.getId());
+            for (TenantBillingPayment p : pays.stream().limit(50).toList()) {
+                BillingEvidencePaymentItemDTO pi = new BillingEvidencePaymentItemDTO();
+                pi.setPaymentId(p.getId());
+                pi.setInvoiceId(invoice.getId());
+                pi.setStatus(p.getStatus() != null ? p.getStatus().name() : null);
+                pi.setPaymentMethod(p.getPaymentMethod() != null ? p.getPaymentMethod().name() : null);
+                pi.setAmount(p.getAmount());
+                pi.setCurrency(p.getCurrency());
+                pi.setPaidAt(p.getPaidAt());
+                pi.setConfirmedAt(p.getConfirmedAt());
+                pi.setPaymentHash(paymentHashService.hash(p));
+                payItems.add(pi);
+                if (p.getStatus() == TenantBillingPaymentStatus.RECORDED) warnings.add("BILLING_PAYMENT_PENDING_CONFIRMATION");
+                if (p.getStatus() == TenantBillingPaymentStatus.REJECTED) warnings.add("BILLING_PAYMENT_REJECTED");
+            }
+        }
+        out.setBillingPayments(payItems.isEmpty() ? null : payItems);
+
         List<BillingEvidenceInvoiceItemDTO> invoiceItems = new ArrayList<>();
         if (invoice != null) {
             List<TenantBillingInvoiceLine> lines = invoiceLineRepository.findByTenantIdAndInvoice_IdOrderByIdAsc(tenantId, invoice.getId());
@@ -142,4 +219,3 @@ public class BillingEvidenceService {
         return out;
     }
 }
-

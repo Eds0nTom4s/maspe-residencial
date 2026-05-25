@@ -106,6 +106,14 @@ Tenant:
 - Métricas secundárias podem virar cobradas em planos futuros.
 - A cobrança real do tenant (pagamento da invoice SaaS) fica para etapa posterior.
 
+## Prompt 48 — Pagamento de invoice SaaS, overdue e grace period
+O Prompt 46 gera a invoice interna SaaS. O Prompt 48 complementa o ciclo com:
+- registro e confirmação de pagamentos do tenant (`TenantBillingPayment`);
+- atualização de status `PARTIALLY_PAID/PAID/OVERDUE`;
+- grace period e policy de cobrança por tenant;
+- base de suspensão controlada (guard) sem bloquear operações críticas no MVP;
+- expansão do `billingEvidence` para incluir pagamentos e collectionStatus.
+
 ## Comandos executados
 - `mvn -q -DskipTests compile`
 - `mvn test`
@@ -116,4 +124,3 @@ Tenant:
 - [x] PAYMENT_CONFIRMED gera usage event idempotente
 - [x] BillingEvidence no Evidence Bundle
 - [x] Auditoria sanitizada
-

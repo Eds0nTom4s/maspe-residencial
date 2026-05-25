@@ -27,6 +27,12 @@ public class TenantBillingInvoiceHashService {
         sb.append("|discount=").append(inv.getDiscountAmount());
         sb.append("|tax=").append(inv.getTaxAmount());
         sb.append("|total=").append(inv.getTotalAmount());
+        sb.append("|totalPaid=").append(inv.getTotalPaidAmount());
+        sb.append("|outstanding=").append(inv.getOutstandingAmount());
+        sb.append("|lastPaymentAt=").append(inv.getLastPaymentAt());
+        sb.append("|overdueAt=").append(inv.getOverdueAt());
+        sb.append("|gracePeriodEndsAt=").append(inv.getGracePeriodEndsAt());
+        sb.append("|collectionStatus=").append(inv.getCollectionStatus() != null ? inv.getCollectionStatus().name() : null);
         sb.append("|issuedAt=").append(inv.getIssuedAt());
 
         if (lines != null) {
@@ -57,4 +63,3 @@ public class TenantBillingInvoiceHashService {
         }
     }
 }
-

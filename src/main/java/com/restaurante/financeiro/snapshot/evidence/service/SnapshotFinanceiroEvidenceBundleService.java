@@ -275,6 +275,22 @@ public class SnapshotFinanceiroEvidenceBundleService {
 	                userAgent
 	        );
 
+	        if (billingEvidence != null && billingEvidence.getBillingPayments() != null && !billingEvidence.getBillingPayments().isEmpty()) {
+	            operationalEventLogService.logTurnoEvent(
+	                    OperationalEventType.TENANT_BILLING_PAYMENT_EVIDENCE_ATTACHED_TO_BUNDLE,
+	                    turno,
+	                    resolveOrigemFromRoles(ctx),
+	                    "Evidência de pagamentos de invoice SaaS anexada ao bundle",
+	                    buildNullableMetaMap(
+	                            "turnoId", turno.getId(),
+	                            "paymentsCount", billingEvidence.getBillingPayments().size(),
+	                            "invoiceId", billingEvidence.getInvoiceId()
+	                    ),
+	                    ip,
+	                    userAgent
+	            );
+	        }
+
 	        return out;
 	    }
 

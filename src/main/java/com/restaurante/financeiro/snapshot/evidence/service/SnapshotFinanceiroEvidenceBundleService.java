@@ -15,6 +15,7 @@ import com.restaurante.financeiro.caixa.evidence.service.CaixaOperadorEvidenceSe
 import com.restaurante.financeiro.caixa.divergence.evidence.service.CaixaOperadorDivergenceEvidenceService;
 import com.restaurante.fiscal.evidence.service.TaxEvidenceService;
 import com.restaurante.inventory.evidence.InventoryEvidenceService;
+import com.restaurante.billing.evidence.BillingEvidenceService;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.OperationalEventType;
@@ -50,6 +51,7 @@ public class SnapshotFinanceiroEvidenceBundleService {
     private final CaixaOperadorDivergenceEvidenceService caixaOperadorDivergenceEvidenceService;
     private final TaxEvidenceService taxEvidenceService;
     private final InventoryEvidenceService inventoryEvidenceService;
+    private final BillingEvidenceService billingEvidenceService;
 
     private static final Set<OperationalEventType> EVENT_TYPES = Set.of(
             OperationalEventType.TURNO_ABERTO,
@@ -160,6 +162,10 @@ public class SnapshotFinanceiroEvidenceBundleService {
         );
         out.setInventoryEvidence(inventoryEvidence);
 
+        // Prompt 46: seção de evidência de billing/metering (billingEvidence)
+        var billingEvidence = billingEvidenceService.buildForTurno(ctx.tenantId(), out.getGeneratedAt());
+        out.setBillingEvidence(billingEvidence);
+
         operationalEventLogService.logTurnoEvent(
                 OperationalEventType.CAIXA_OPERADOR_EVIDENCE_SECTION_GENERATED,
                 turno,
@@ -238,23 +244,49 @@ public class SnapshotFinanceiroEvidenceBundleService {
                 userAgent
         );
 
-        operationalEventLogService.logTurnoEvent(
-                OperationalEventType.TAX_EVIDENCE_ATTACHED_TO_BUNDLE,
-                turno,
-                resolveOrigemFromRoles(ctx),
-                "Evidência fiscal (taxEvidence) anexada ao bundle",
-                java.util.Map.of(
-                        "turnoId", turno.getId(),
-                        "totalDocuments", taxEvidence != null ? taxEvidence.getTotalDocuments() : 0,
-                        "taxAmount", taxEvidence != null ? taxEvidence.getTaxAmount() : null,
-                        "warningsCount", taxEvidence != null && taxEvidence.getWarnings() != null ? taxEvidence.getWarnings().size() : 0
-                ),
-                ip,
-                userAgent
-        );
+	        operationalEventLogService.logTurnoEvent(
+	                OperationalEventType.TAX_EVIDENCE_ATTACHED_TO_BUNDLE,
+	                turno,
+	                resolveOrigemFromRoles(ctx),
+	                "Evidência fiscal (taxEvidence) anexada ao bundle",
+	                buildNullableMetaMap(
+	                        "turnoId", turno.getId(),
+	                        "totalDocuments", taxEvidence != null ? taxEvidence.getTotalDocuments() : 0,
+	                        "taxAmount", taxEvidence != null ? taxEvidence.getTaxAmount() : null,
+	                        "warningsCount", taxEvidence != null && taxEvidence.getWarnings() != null ? taxEvidence.getWarnings().size() : 0
+	                ),
+	                ip,
+	                userAgent
+	        );
 
-        return out;
-    }
+	        operationalEventLogService.logTurnoEvent(
+	                OperationalEventType.BILLING_EVIDENCE_ATTACHED_TO_BUNDLE,
+	                turno,
+	                resolveOrigemFromRoles(ctx),
+	                "Evidência de billing/metering anexada ao bundle",
+	                buildNullableMetaMap(
+	                        "turnoId", turno.getId(),
+	                        "subscriptionId", billingEvidence != null ? billingEvidence.getSubscriptionId() : null,
+	                        "billingCycleId", billingEvidence != null ? billingEvidence.getBillingCycleId() : null,
+	                        "billableTransactions", billingEvidence != null ? billingEvidence.getBillableTransactions() : null,
+	                        "warningsCount", billingEvidence != null && billingEvidence.getWarnings() != null ? billingEvidence.getWarnings().size() : 0
+	                ),
+	                ip,
+	                userAgent
+	        );
+
+	        return out;
+	    }
+
+	    private static java.util.Map<String, Object> buildNullableMetaMap(Object... keysAndValues) {
+	        java.util.HashMap<String, Object> m = new java.util.HashMap<>();
+	        for (int i = 0; i < keysAndValues.length; i += 2) {
+	            String key = (String) keysAndValues[i];
+	            Object value = keysAndValues[i + 1];
+	            m.put(key, value);
+	        }
+	        return m;
+	    }
 
     private EvidenceBundleEventoDTO toEventoDTO(OperationalEventLog e) {
         EvidenceBundleEventoDTO dto = new EvidenceBundleEventoDTO();

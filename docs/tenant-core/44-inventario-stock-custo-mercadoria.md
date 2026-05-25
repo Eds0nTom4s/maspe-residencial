@@ -90,6 +90,10 @@ O Prompt 44.1 adiciona `InventoryReturnRecord`/`InventoryReturnLine` e processam
 ## Nota (44.2)
 O Prompt 44.2 endurece devoluções/refund adicionando tratamento explícito para `WASTE` e `DO_NOT_RESTOCK`, cálculo de reversão de receita/imposto/margem e métricas adicionais no `inventoryEvidence`, mantendo o consumo original e movimentos append-only.
 
+## Nota (46)
+Inventário calcula **consumo/custo/margem**; billing (Prompt 46) calcula **uso SaaS do tenant** (metering/planos/ciclos/invoice interna).
+São camadas separadas: inventário não altera billing e billing não altera inventário.
+
 ## Dívidas futuras
 - P44-DEBT-1 — Impacto de devoluções/estornos/notas internas sobre stock e COGS.
 - P44-DEBT-2 — Inventário offline controlado com reconciliação.

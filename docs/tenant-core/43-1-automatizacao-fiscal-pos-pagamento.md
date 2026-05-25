@@ -11,6 +11,10 @@ Regras centrais:
 
 Nota: emissão interna automática **não equivale** a submissão fiscal oficial. A camada “oficial/AGT-ready” é tratada separadamente no Prompt 45.
 
+## Nota — integração com Usage Metering (Prompt 46)
+O evento de pagamento confirmado pode alimentar **múltiplos módulos** (fiscal auto-issue, inventário e billing/metering),
+mas cada módulo deve reagir de forma **desacoplada** e preferencialmente em **AFTER_COMMIT**, com idempotência própria.
+
 ## Escopo implementado
 - Fila persistida: `FiscalAutoIssueJob`.
 - Criação de job pós-confirmação via evento `PaymentConfirmedForFiscalIssueEvent` (AFTER_COMMIT).

@@ -53,5 +53,15 @@ public enum OperationalEntityType {
     INVENTORY_CONSUMPTION_LINE,
     // Prompt 44.1: devoluções/estornos
     INVENTORY_RETURN_RECORD,
-    INVENTORY_RETURN_LINE
+    INVENTORY_RETURN_LINE,
+
+    // Prompt 46: billing / metering / invoice interna SaaS
+    BILLING_PLAN,
+    TENANT_SUBSCRIPTION,
+    BILLING_CYCLE,
+    USAGE_EVENT,
+    USAGE_AGGREGATION,
+    USAGE_ADJUSTMENT,
+    TENANT_BILLING_INVOICE,
+    TENANT_BILLING_INVOICE_LINE
 }

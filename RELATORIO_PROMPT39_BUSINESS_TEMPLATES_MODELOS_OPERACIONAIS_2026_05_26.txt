@@ -1,0 +1,21 @@
+RELATÓRIO TÉCNICO — PROMPT 39
+Business Templates / Modelos Operacionais CONSUMA (Ponto/Rest V1)
+Data: 2026-05-26 (Africa/Luanda)
+
+1) Resumo executivo
+- Implementada a camada de Business Templates (modelo operacional versionado) com suporte a preview/dry-run e provisionamento transacional com rollback obrigatório.
+- Templates entregues nesta fase:
+  - CONSUMA_PONTO_V1: operação simples (QR/link), sem mesas/produção/POS/KDS por padrão, categorias iniciais (geral/destaques/promocoes), QR principal e owner.
+  - CONSUMA_REST_V1: operação física com produção, categorias (comidas/bebidas/sobremesas/promocoes), mesas + QR por mesa (quando informado), unidades de produção (cozinha/geral e bar opcional), rotas padrão, POS+KDS pendentes e checklists de abertura/fecho.
+- Endpoints PLATFORM_ADMIN criados:
+  - POST /platform/templates/{templateCode}/preview (alias /platform/business-templates/...)
+  - POST /platform/templates/{templateCode}/provision (alias /platform/business-templates/...)
+- Versionamento persistido no Tenant: templateCode/templateVersion/provisionedAt/provisionedBy/provisioningSource (base para upgrades futuros).
+- Políticas padrão por template persistidas em tenant_operacao_policies (visão agregada inicial), incluindo requireOpenTurnoForOrders, logisticsMode, enable flags (production/pos/kds), e snapshot/pre-fecho.
+- Auditoria: provisionamento registra evento operacional BUSINESS_TEMPLATE_PROVISIONED (metadata sanitizada).
+- Testes automatizados adicionados garantindo: preview não persiste, provisionamento cria recursos esperados por template, slug duplicado retorna erro, limites de plano bloqueiam, falha no meio faz rollback e RBAC restringe a PLATFORM_ADMIN.
+- Documentação adicionada: docs/templates/39-business-templates-consuma.md
+- Comandos executados:
+  - mvn -q -Dmaven.repo.local=/tmp/m2 -DskipTests compile (OK)
+  - mvn -Dmaven.repo.local=/tmp/m2 test (BUILD SUCCESS; 0 failures; parte dos ITs skipped por Docker indisponível, conforme padrão do projeto)
+

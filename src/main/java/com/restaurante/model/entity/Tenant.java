@@ -9,6 +9,8 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "tenants", indexes = {
         @Index(name = "idx_tenant_slug", columnList = "slug", unique = true),
@@ -42,6 +44,22 @@ public class Tenant extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "estado", nullable = false, length = 20)
     private TenantEstado estado;
+
+    // Business template provenance (Prompt 39)
+    @Column(name = "template_code", length = 60)
+    private String templateCode;
+
+    @Column(name = "template_version")
+    private Integer templateVersion;
+
+    @Column(name = "provisioned_at")
+    private LocalDateTime provisionedAt;
+
+    @Column(name = "provisioned_by", length = 120)
+    private String provisionedBy;
+
+    @Column(name = "provisioning_source", length = 80)
+    private String provisioningSource;
 
     public Tenant() {
     }
@@ -109,5 +127,44 @@ public class Tenant extends BaseEntity {
     public void setEstado(TenantEstado estado) {
         this.estado = estado;
     }
-}
 
+    public String getTemplateCode() {
+        return templateCode;
+    }
+
+    public void setTemplateCode(String templateCode) {
+        this.templateCode = templateCode;
+    }
+
+    public Integer getTemplateVersion() {
+        return templateVersion;
+    }
+
+    public void setTemplateVersion(Integer templateVersion) {
+        this.templateVersion = templateVersion;
+    }
+
+    public LocalDateTime getProvisionedAt() {
+        return provisionedAt;
+    }
+
+    public void setProvisionedAt(LocalDateTime provisionedAt) {
+        this.provisionedAt = provisionedAt;
+    }
+
+    public String getProvisionedBy() {
+        return provisionedBy;
+    }
+
+    public void setProvisionedBy(String provisionedBy) {
+        this.provisionedBy = provisionedBy;
+    }
+
+    public String getProvisioningSource() {
+        return provisioningSource;
+    }
+
+    public void setProvisioningSource(String provisioningSource) {
+        this.provisioningSource = provisioningSource;
+    }
+}

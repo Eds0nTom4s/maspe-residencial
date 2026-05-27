@@ -1,6 +1,6 @@
 -- Prompt 20: OperationalEventLog (event log operacional tenant-aware) + status transitions auditáveis
 
-create table operational_event_logs (
+create table if not exists operational_event_logs (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -47,11 +47,10 @@ create table operational_event_logs (
     constraint fk_operational_event_actor_user foreign key (actor_user_id) references users (id)
 );
 
-create index idx_operational_event_tenant on operational_event_logs (tenant_id);
-create index idx_operational_event_tenant_created_at on operational_event_logs (tenant_id, created_at);
-create index idx_operational_event_tenant_pedido on operational_event_logs (tenant_id, pedido_id);
-create index idx_operational_event_tenant_sub_pedido on operational_event_logs (tenant_id, sub_pedido_id);
-create index idx_operational_event_tenant_event_type on operational_event_logs (tenant_id, event_type);
-create index idx_operational_event_tenant_actor_user on operational_event_logs (tenant_id, actor_user_id);
-create index idx_operational_event_tenant_device on operational_event_logs (tenant_id, device_id);
-
+create index if not exists idx_operational_event_tenant on operational_event_logs (tenant_id);
+create index if not exists idx_operational_event_tenant_created_at on operational_event_logs (tenant_id, created_at);
+create index if not exists idx_operational_event_tenant_pedido on operational_event_logs (tenant_id, pedido_id);
+create index if not exists idx_operational_event_tenant_sub_pedido on operational_event_logs (tenant_id, sub_pedido_id);
+create index if not exists idx_operational_event_tenant_event_type on operational_event_logs (tenant_id, event_type);
+create index if not exists idx_operational_event_tenant_actor_user on operational_event_logs (tenant_id, actor_user_id);
+create index if not exists idx_operational_event_tenant_device on operational_event_logs (tenant_id, device_id);

@@ -57,10 +57,17 @@ ALTER TABLE device_offline_commands
     ADD COLUMN IF NOT EXISTS sync_session_db_id BIGINT NULL,
     ADD COLUMN IF NOT EXISTS server_sync_id VARCHAR(120) NULL;
 
-ALTER TABLE device_offline_commands
-    ADD CONSTRAINT IF NOT EXISTS fk_device_offline_cmd_session
-        FOREIGN KEY (sync_session_db_id) REFERENCES device_offline_sync_sessions(id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_offline_cmd_session'
+    ) THEN
+        ALTER TABLE device_offline_commands
+            ADD CONSTRAINT fk_device_offline_cmd_session
+                FOREIGN KEY (sync_session_db_id) REFERENCES device_offline_sync_sessions(id);
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_device_offline_cmd_sync_session ON device_offline_commands (tenant_id, sync_session_db_id);
 CREATE INDEX IF NOT EXISTS idx_device_offline_cmd_server_sync ON device_offline_commands (tenant_id, server_sync_id);
-

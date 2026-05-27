@@ -10,7 +10,7 @@ alter table pedidos
     check (status_financeiro in ('NAO_PAGO','PENDENTE_PAGAMENTO','PAGO','ESTORNADO'));
 
 -- 2) Raw callback logs
-create table pagamento_callback_logs (
+create table if not exists pagamento_callback_logs (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -41,8 +41,7 @@ create table pagamento_callback_logs (
     constraint fk_callback_log_pagamento foreign key (pagamento_id) references pagamentos_gateway
 );
 
-create index idx_callback_log_received_at on pagamento_callback_logs (received_at);
-create index idx_callback_log_external_ref on pagamento_callback_logs (external_reference);
-create index idx_callback_log_pagamento on pagamento_callback_logs (pagamento_id);
-create index idx_callback_log_tenant on pagamento_callback_logs (tenant_id);
-
+create index if not exists idx_callback_log_received_at on pagamento_callback_logs (received_at);
+create index if not exists idx_callback_log_external_ref on pagamento_callback_logs (external_reference);
+create index if not exists idx_callback_log_pagamento on pagamento_callback_logs (pagamento_id);
+create index if not exists idx_callback_log_tenant on pagamento_callback_logs (tenant_id);

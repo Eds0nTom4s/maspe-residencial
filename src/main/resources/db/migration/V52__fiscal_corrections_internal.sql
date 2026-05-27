@@ -85,15 +85,41 @@ alter table if exists fiscal_documents add column if not exists correction_sourc
 alter table if exists fiscal_documents add column if not exists caixa_operador_adjustment_id bigint;
 alter table if exists fiscal_documents add column if not exists fiscal_adjustment_assessment_id bigint;
 
-alter table if exists fiscal_documents
-    add constraint if not exists fk_fiscal_doc_original_doc
-        foreign key (original_fiscal_document_id) references fiscal_documents;
-alter table if exists fiscal_documents
-    add constraint if not exists fk_fiscal_doc_caixa_adj
-        foreign key (caixa_operador_adjustment_id) references caixa_operador_adjustments;
-alter table if exists fiscal_documents
-    add constraint if not exists fk_fiscal_doc_assessment
-        foreign key (fiscal_adjustment_assessment_id) references fiscal_adjustment_assessments;
+do $$
+begin
+    if to_regclass('public.fiscal_documents') is not null
+       and not exists (select 1 from pg_constraint where conname = 'fk_fiscal_doc_original_doc')
+    then
+        alter table fiscal_documents
+            add constraint fk_fiscal_doc_original_doc
+                foreign key (original_fiscal_document_id) references fiscal_documents;
+    end if;
+end
+$$;
+
+do $$
+begin
+    if to_regclass('public.fiscal_documents') is not null
+       and not exists (select 1 from pg_constraint where conname = 'fk_fiscal_doc_caixa_adj')
+    then
+        alter table fiscal_documents
+            add constraint fk_fiscal_doc_caixa_adj
+                foreign key (caixa_operador_adjustment_id) references caixa_operador_adjustments;
+    end if;
+end
+$$;
+
+do $$
+begin
+    if to_regclass('public.fiscal_documents') is not null
+       and not exists (select 1 from pg_constraint where conname = 'fk_fiscal_doc_assessment')
+    then
+        alter table fiscal_documents
+            add constraint fk_fiscal_doc_assessment
+                foreign key (fiscal_adjustment_assessment_id) references fiscal_adjustment_assessments;
+    end if;
+end
+$$;
 
 create index if not exists idx_fiscal_doc_original_doc
     on fiscal_documents (tenant_id, original_fiscal_document_id);
@@ -103,4 +129,3 @@ create index if not exists idx_fiscal_doc_caixa_adj
 
 create index if not exists idx_fiscal_doc_assessment
     on fiscal_documents (tenant_id, fiscal_adjustment_assessment_id);
-

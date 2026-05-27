@@ -6,7 +6,7 @@
 -- 1) Tenant access version (invalidate stale tenant-scoped JWT after changes)
 -- ---------------------------------------------------------------------------
 
-create table tenant_user_access_versions (
+create table if not exists tenant_user_access_versions (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -25,9 +25,9 @@ create table tenant_user_access_versions (
     constraint uk_tuav_tenant_user unique (tenant_id, user_id)
 );
 
-create index idx_tuav_tenant_user on tenant_user_access_versions (tenant_id, user_id);
-create index idx_tuav_user on tenant_user_access_versions (user_id);
-create index idx_tuav_permissions_updated_at on tenant_user_access_versions (permissions_updated_at);
+create index if not exists idx_tuav_tenant_user on tenant_user_access_versions (tenant_id, user_id);
+create index if not exists idx_tuav_user on tenant_user_access_versions (user_id);
+create index if not exists idx_tuav_permissions_updated_at on tenant_user_access_versions (permissions_updated_at);
 
 -- Backfill: qualquer par (tenant_id, user_id) existente em tenant_users recebe version=1
 insert into tenant_user_access_versions (
@@ -64,7 +64,7 @@ alter table dispositivos_operacionais
 alter table dispositivos_operacionais
     add column if not exists last_auth_failure_at timestamp(6);
 
-create table device_event_logs (
+create table if not exists device_event_logs (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -85,8 +85,7 @@ create table device_event_logs (
     constraint fk_device_event_device foreign key (dispositivo_id) references dispositivos_operacionais (id)
 );
 
-create index idx_device_event_tenant on device_event_logs (tenant_id);
-create index idx_device_event_tenant_created_at on device_event_logs (tenant_id, created_at);
-create index idx_device_event_device on device_event_logs (dispositivo_id);
+create index if not exists idx_device_event_tenant on device_event_logs (tenant_id);
+create index if not exists idx_device_event_tenant_created_at on device_event_logs (tenant_id, created_at);
+create index if not exists idx_device_event_device on device_event_logs (dispositivo_id);
 create index idx_device_event_event_type on device_event_logs (event_type);
-

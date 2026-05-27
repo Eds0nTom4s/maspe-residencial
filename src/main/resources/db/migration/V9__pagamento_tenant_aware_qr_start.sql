@@ -48,12 +48,20 @@ where tenant_id is null;
 -- 3) Enforce NOT NULL and FK
 alter table pagamentos_gateway alter column tenant_id set not null;
 
-alter table pagamentos_gateway
-    add constraint if not exists fk_pagamento_tenant
-    foreign key (tenant_id) references tenants;
+do $$
+begin
+    if not exists (
+        select 1 from pg_constraint where conname = 'fk_pagamento_tenant'
+    ) then
+        alter table pagamentos_gateway
+            add constraint fk_pagamento_tenant
+            foreign key (tenant_id) references tenants;
+    end if;
+end
+$$;
 
 -- 4) Idempotency table for public QR payment start
-create table public_qr_payment_requests (
+create table if not exists public_qr_payment_requests (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -75,7 +83,6 @@ create table public_qr_payment_requests (
     constraint fk_public_qr_payment_pagamento foreign key (pagamento_id) references pagamentos_gateway
 );
 
-create index idx_public_qr_payment_tenant_created_at on public_qr_payment_requests (tenant_id, created_at);
-create index idx_public_qr_payment_pedido on public_qr_payment_requests (pedido_id);
-create index idx_public_qr_payment_pagamento on public_qr_payment_requests (pagamento_id);
-
+create index if not exists idx_public_qr_payment_tenant_created_at on public_qr_payment_requests (tenant_id, created_at);
+create index if not exists idx_public_qr_payment_pedido on public_qr_payment_requests (pedido_id);
+create index if not exists idx_public_qr_payment_pagamento on public_qr_payment_requests (pagamento_id);

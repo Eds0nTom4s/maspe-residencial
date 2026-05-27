@@ -3,7 +3,7 @@
 -- Date: 2026-05-14
 -- IMPORTANT: This migration intentionally does NOT link Instituicao to Tenant yet.
 
-create table tenants (
+create table if not exists tenants (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -25,9 +25,9 @@ create table tenants (
     constraint uk_tenants_tenant_code unique (tenant_code)
 );
 
-create index idx_tenants_estado on tenants (estado);
+create index if not exists idx_tenants_estado on tenants (estado);
 
-create table planos (
+create table if not exists planos (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -58,9 +58,9 @@ create table planos (
     constraint ck_planos_preco_nao_negativo check (preco_mensal >= 0)
 );
 
-create index idx_planos_ativo on planos (ativo);
+create index if not exists idx_planos_ativo on planos (ativo);
 
-create table subscricoes (
+create table if not exists subscricoes (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -80,14 +80,14 @@ create table subscricoes (
     constraint fk_subscricao_plano foreign key (plano_id) references planos
 );
 
-create index idx_subscricoes_tenant on subscricoes (tenant_id);
-create index idx_subscricoes_plano on subscricoes (plano_id);
-create index idx_subscricoes_estado on subscricoes (estado);
+create index if not exists idx_subscricoes_tenant on subscricoes (tenant_id);
+create index if not exists idx_subscricoes_plano on subscricoes (plano_id);
+create index if not exists idx_subscricoes_estado on subscricoes (estado);
 
 -- Garantia: no máximo 1 subscrição ATIVA por tenant
-create unique index uk_subscricoes_tenant_ativa on subscricoes (tenant_id) where (estado = 'ATIVA');
+create unique index if not exists uk_subscricoes_tenant_ativa on subscricoes (tenant_id) where (estado = 'ATIVA');
 
-create table tenant_users (
+create table if not exists tenant_users (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -108,10 +108,10 @@ create table tenant_users (
     constraint uk_tenant_user_unique unique (tenant_id, user_id, role)
 );
 
-create index idx_tenant_users_tenant on tenant_users (tenant_id);
-create index idx_tenant_users_user on tenant_users (user_id);
+create index if not exists idx_tenant_users_tenant on tenant_users (tenant_id);
+create index if not exists idx_tenant_users_user on tenant_users (user_id);
 
-create table tenant_limite_overrides (
+create table if not exists tenant_limite_overrides (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -135,10 +135,10 @@ create table tenant_limite_overrides (
     constraint fk_tenant_limite_override_tenant foreign key (tenant_id) references tenants
 );
 
-create index idx_tenant_limite_overrides_tenant on tenant_limite_overrides (tenant_id);
+create index if not exists idx_tenant_limite_overrides_tenant on tenant_limite_overrides (tenant_id);
 
 -- Garantia: no máximo 1 override ATIVO por tenant
-create unique index uk_tenant_limite_override_ativo on tenant_limite_overrides (tenant_id) where (ativo = true);
+create unique index if not exists uk_tenant_limite_override_ativo on tenant_limite_overrides (tenant_id) where (ativo = true);
 
 -- Seed obrigatório: Plano PILOTO (fonte de verdade = banco)
 insert into planos (
@@ -154,4 +154,3 @@ insert into planos (
     false, true, true, false,
     true
 );
-

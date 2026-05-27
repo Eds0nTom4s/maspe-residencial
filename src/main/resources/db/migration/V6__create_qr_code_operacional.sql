@@ -3,7 +3,7 @@
 -- Date: 2026-05-15
 -- IMPORTANT: Does NOT replace legacy qr_code_tokens yet.
 
-create table qr_codes_operacionais (
+create table if not exists qr_codes_operacionais (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -31,9 +31,8 @@ create table qr_codes_operacionais (
     constraint fk_qr_operacional_mesa foreign key (mesa_id) references mesas
 );
 
-create index idx_qr_operacional_tenant on qr_codes_operacionais (tenant_id);
-create index idx_qr_operacional_instituicao on qr_codes_operacionais (instituicao_id);
-create index idx_qr_operacional_unidade on qr_codes_operacionais (unidade_atendimento_id);
-create index idx_qr_operacional_tenant_ativo on qr_codes_operacionais (tenant_id, ativo);
-create index idx_qr_operacional_token on qr_codes_operacionais (token);
-
+create index if not exists idx_qr_operacional_tenant on qr_codes_operacionais (tenant_id);
+create index if not exists idx_qr_operacional_instituicao on qr_codes_operacionais (instituicao_id);
+create index if not exists idx_qr_operacional_unidade on qr_codes_operacionais (unidade_atendimento_id);
+create index if not exists idx_qr_operacional_tenant_ativo on qr_codes_operacionais (tenant_id, ativo);
+create index if not exists idx_qr_operacional_token on qr_codes_operacionais (token);

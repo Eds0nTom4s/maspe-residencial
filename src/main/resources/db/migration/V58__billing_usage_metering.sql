@@ -90,13 +90,45 @@ CREATE TABLE IF NOT EXISTS tenant_subscriptions (
     version BIGINT NOT NULL DEFAULT 0
 );
 
-ALTER TABLE IF EXISTS tenant_subscriptions
-    ADD CONSTRAINT IF NOT EXISTS fk_tenant_subscriptions_tenant
-    FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+DO $$
+BEGIN
+    IF to_regclass('public.tenant_subscriptions') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_tenant_subscriptions_tenant'
+             AND n.nspname = 'public'
+             AND t.relname = 'tenant_subscriptions'
+       )
+    THEN
+        ALTER TABLE tenant_subscriptions
+            ADD CONSTRAINT fk_tenant_subscriptions_tenant
+                FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+    END IF;
+END
+$$;
 
-ALTER TABLE IF EXISTS tenant_subscriptions
-    ADD CONSTRAINT IF NOT EXISTS fk_tenant_subscriptions_plan
-    FOREIGN KEY (billing_plan_id) REFERENCES billing_plans (id);
+DO $$
+BEGIN
+    IF to_regclass('public.tenant_subscriptions') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_tenant_subscriptions_plan'
+             AND n.nspname = 'public'
+             AND t.relname = 'tenant_subscriptions'
+       )
+    THEN
+        ALTER TABLE tenant_subscriptions
+            ADD CONSTRAINT fk_tenant_subscriptions_plan
+                FOREIGN KEY (billing_plan_id) REFERENCES billing_plans (id);
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_tenant_subscriptions_tenant_status ON tenant_subscriptions (tenant_id, status);
 
@@ -119,13 +151,45 @@ CREATE TABLE IF NOT EXISTS billing_cycles (
     version BIGINT NOT NULL DEFAULT 0
 );
 
-ALTER TABLE IF EXISTS billing_cycles
-    ADD CONSTRAINT IF NOT EXISTS fk_billing_cycles_tenant
-    FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+DO $$
+BEGIN
+    IF to_regclass('public.billing_cycles') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_billing_cycles_tenant'
+             AND n.nspname = 'public'
+             AND t.relname = 'billing_cycles'
+       )
+    THEN
+        ALTER TABLE billing_cycles
+            ADD CONSTRAINT fk_billing_cycles_tenant
+                FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+    END IF;
+END
+$$;
 
-ALTER TABLE IF EXISTS billing_cycles
-    ADD CONSTRAINT IF NOT EXISTS fk_billing_cycles_subscription
-    FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions (id);
+DO $$
+BEGIN
+    IF to_regclass('public.billing_cycles') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_billing_cycles_subscription'
+             AND n.nspname = 'public'
+             AND t.relname = 'billing_cycles'
+       )
+    THEN
+        ALTER TABLE billing_cycles
+            ADD CONSTRAINT fk_billing_cycles_subscription
+                FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions (id);
+    END IF;
+END
+$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_billing_cycles_unique_period ON billing_cycles (tenant_id, subscription_id, period_start, period_end);
 CREATE INDEX IF NOT EXISTS idx_billing_cycles_tenant_status ON billing_cycles (tenant_id, status);
@@ -156,9 +220,25 @@ CREATE TABLE IF NOT EXISTS usage_events (
     version BIGINT NOT NULL DEFAULT 0
 );
 
-ALTER TABLE IF EXISTS usage_events
-    ADD CONSTRAINT IF NOT EXISTS fk_usage_events_tenant
-    FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+DO $$
+BEGIN
+    IF to_regclass('public.usage_events') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_usage_events_tenant'
+             AND n.nspname = 'public'
+             AND t.relname = 'usage_events'
+       )
+    THEN
+        ALTER TABLE usage_events
+            ADD CONSTRAINT fk_usage_events_tenant
+                FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+    END IF;
+END
+$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_usage_events_idempotency ON usage_events (tenant_id, idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_usage_events_tenant_metric_time ON usage_events (tenant_id, metric_code, occurred_at);
@@ -186,13 +266,45 @@ CREATE TABLE IF NOT EXISTS usage_adjustments (
     version BIGINT NOT NULL DEFAULT 0
 );
 
-ALTER TABLE IF EXISTS usage_adjustments
-    ADD CONSTRAINT IF NOT EXISTS fk_usage_adjustments_tenant
-    FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+DO $$
+BEGIN
+    IF to_regclass('public.usage_adjustments') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_usage_adjustments_tenant'
+             AND n.nspname = 'public'
+             AND t.relname = 'usage_adjustments'
+       )
+    THEN
+        ALTER TABLE usage_adjustments
+            ADD CONSTRAINT fk_usage_adjustments_tenant
+                FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+    END IF;
+END
+$$;
 
-ALTER TABLE IF EXISTS usage_adjustments
-    ADD CONSTRAINT IF NOT EXISTS fk_usage_adjustments_original_event
-    FOREIGN KEY (original_usage_event_id) REFERENCES usage_events (id);
+DO $$
+BEGIN
+    IF to_regclass('public.usage_adjustments') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_usage_adjustments_original_event'
+             AND n.nspname = 'public'
+             AND t.relname = 'usage_adjustments'
+       )
+    THEN
+        ALTER TABLE usage_adjustments
+            ADD CONSTRAINT fk_usage_adjustments_original_event
+                FOREIGN KEY (original_usage_event_id) REFERENCES usage_events (id);
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_usage_adjustments_tenant_created_at ON usage_adjustments (tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_adjustments_tenant_metric ON usage_adjustments (tenant_id, metric_code);
@@ -223,17 +335,65 @@ CREATE TABLE IF NOT EXISTS usage_aggregations (
     version BIGINT NOT NULL DEFAULT 0
 );
 
-ALTER TABLE IF EXISTS usage_aggregations
-    ADD CONSTRAINT IF NOT EXISTS fk_usage_aggregations_tenant
-    FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+DO $$
+BEGIN
+    IF to_regclass('public.usage_aggregations') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_usage_aggregations_tenant'
+             AND n.nspname = 'public'
+             AND t.relname = 'usage_aggregations'
+       )
+    THEN
+        ALTER TABLE usage_aggregations
+            ADD CONSTRAINT fk_usage_aggregations_tenant
+                FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+    END IF;
+END
+$$;
 
-ALTER TABLE IF EXISTS usage_aggregations
-    ADD CONSTRAINT IF NOT EXISTS fk_usage_aggregations_subscription
-    FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions (id);
+DO $$
+BEGIN
+    IF to_regclass('public.usage_aggregations') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_usage_aggregations_subscription'
+             AND n.nspname = 'public'
+             AND t.relname = 'usage_aggregations'
+       )
+    THEN
+        ALTER TABLE usage_aggregations
+            ADD CONSTRAINT fk_usage_aggregations_subscription
+                FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions (id);
+    END IF;
+END
+$$;
 
-ALTER TABLE IF EXISTS usage_aggregations
-    ADD CONSTRAINT IF NOT EXISTS fk_usage_aggregations_cycle
-    FOREIGN KEY (billing_cycle_id) REFERENCES billing_cycles (id);
+DO $$
+BEGIN
+    IF to_regclass('public.usage_aggregations') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_usage_aggregations_cycle'
+             AND n.nspname = 'public'
+             AND t.relname = 'usage_aggregations'
+       )
+    THEN
+        ALTER TABLE usage_aggregations
+            ADD CONSTRAINT fk_usage_aggregations_cycle
+                FOREIGN KEY (billing_cycle_id) REFERENCES billing_cycles (id);
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_usage_aggregations_tenant_metric_period ON usage_aggregations (tenant_id, metric_code, period_start, period_end);
 CREATE INDEX IF NOT EXISTS idx_usage_aggregations_tenant_cycle ON usage_aggregations (tenant_id, billing_cycle_id);
@@ -254,9 +414,25 @@ CREATE TABLE IF NOT EXISTS tenant_billing_invoice_sequences (
     version BIGINT NOT NULL DEFAULT 0
 );
 
-ALTER TABLE IF EXISTS tenant_billing_invoice_sequences
-    ADD CONSTRAINT IF NOT EXISTS fk_tenant_billing_invoice_sequences_tenant
-    FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+DO $$
+BEGIN
+    IF to_regclass('public.tenant_billing_invoice_sequences') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_tenant_billing_invoice_sequences_tenant'
+             AND n.nspname = 'public'
+             AND t.relname = 'tenant_billing_invoice_sequences'
+       )
+    THEN
+        ALTER TABLE tenant_billing_invoice_sequences
+            ADD CONSTRAINT fk_tenant_billing_invoice_sequences_tenant
+                FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+    END IF;
+END
+$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_billing_invoice_sequences_key ON tenant_billing_invoice_sequences (tenant_id, seq_year);
 
@@ -287,17 +463,65 @@ CREATE TABLE IF NOT EXISTS tenant_billing_invoices (
     version BIGINT NOT NULL DEFAULT 0
 );
 
-ALTER TABLE IF EXISTS tenant_billing_invoices
-    ADD CONSTRAINT IF NOT EXISTS fk_tenant_billing_invoices_tenant
-    FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+DO $$
+BEGIN
+    IF to_regclass('public.tenant_billing_invoices') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_tenant_billing_invoices_tenant'
+             AND n.nspname = 'public'
+             AND t.relname = 'tenant_billing_invoices'
+       )
+    THEN
+        ALTER TABLE tenant_billing_invoices
+            ADD CONSTRAINT fk_tenant_billing_invoices_tenant
+                FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+    END IF;
+END
+$$;
 
-ALTER TABLE IF EXISTS tenant_billing_invoices
-    ADD CONSTRAINT IF NOT EXISTS fk_tenant_billing_invoices_subscription
-    FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions (id);
+DO $$
+BEGIN
+    IF to_regclass('public.tenant_billing_invoices') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_tenant_billing_invoices_subscription'
+             AND n.nspname = 'public'
+             AND t.relname = 'tenant_billing_invoices'
+       )
+    THEN
+        ALTER TABLE tenant_billing_invoices
+            ADD CONSTRAINT fk_tenant_billing_invoices_subscription
+                FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions (id);
+    END IF;
+END
+$$;
 
-ALTER TABLE IF EXISTS tenant_billing_invoices
-    ADD CONSTRAINT IF NOT EXISTS fk_tenant_billing_invoices_cycle
-    FOREIGN KEY (billing_cycle_id) REFERENCES billing_cycles (id);
+DO $$
+BEGIN
+    IF to_regclass('public.tenant_billing_invoices') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_tenant_billing_invoices_cycle'
+             AND n.nspname = 'public'
+             AND t.relname = 'tenant_billing_invoices'
+       )
+    THEN
+        ALTER TABLE tenant_billing_invoices
+            ADD CONSTRAINT fk_tenant_billing_invoices_cycle
+                FOREIGN KEY (billing_cycle_id) REFERENCES billing_cycles (id);
+    END IF;
+END
+$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_billing_invoices_cycle ON tenant_billing_invoices (tenant_id, billing_cycle_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_billing_invoices_number ON tenant_billing_invoices (tenant_id, invoice_number);
@@ -323,12 +547,44 @@ CREATE TABLE IF NOT EXISTS tenant_billing_invoice_lines (
     version BIGINT NOT NULL DEFAULT 0
 );
 
-ALTER TABLE IF EXISTS tenant_billing_invoice_lines
-    ADD CONSTRAINT IF NOT EXISTS fk_tenant_billing_invoice_lines_invoice
-    FOREIGN KEY (tenant_billing_invoice_id) REFERENCES tenant_billing_invoices (id);
+DO $$
+BEGIN
+    IF to_regclass('public.tenant_billing_invoice_lines') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_tenant_billing_invoice_lines_invoice'
+             AND n.nspname = 'public'
+             AND t.relname = 'tenant_billing_invoice_lines'
+       )
+    THEN
+        ALTER TABLE tenant_billing_invoice_lines
+            ADD CONSTRAINT fk_tenant_billing_invoice_lines_invoice
+                FOREIGN KEY (tenant_billing_invoice_id) REFERENCES tenant_billing_invoices (id);
+    END IF;
+END
+$$;
 
-ALTER TABLE IF EXISTS tenant_billing_invoice_lines
-    ADD CONSTRAINT IF NOT EXISTS fk_tenant_billing_invoice_lines_tenant
-    FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+DO $$
+BEGIN
+    IF to_regclass('public.tenant_billing_invoice_lines') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'fk_tenant_billing_invoice_lines_tenant'
+             AND n.nspname = 'public'
+             AND t.relname = 'tenant_billing_invoice_lines'
+       )
+    THEN
+        ALTER TABLE tenant_billing_invoice_lines
+            ADD CONSTRAINT fk_tenant_billing_invoice_lines_tenant
+                FOREIGN KEY (tenant_id) REFERENCES tenants (id);
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_tenant_billing_invoice_lines_invoice ON tenant_billing_invoice_lines (tenant_billing_invoice_id);

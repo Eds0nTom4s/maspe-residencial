@@ -88,4 +88,7 @@ create table if not exists device_event_logs (
 create index if not exists idx_device_event_tenant on device_event_logs (tenant_id);
 create index if not exists idx_device_event_tenant_created_at on device_event_logs (tenant_id, created_at);
 create index if not exists idx_device_event_device on device_event_logs (dispositivo_id);
-create index idx_device_event_event_type on device_event_logs (event_type);
+create index if not exists idx_device_event_event_type on device_event_logs (event_type);
+
+alter table device_event_logs add column if not exists created_by varchar(100);
+alter table device_event_logs add column if not exists modified_by varchar(100);

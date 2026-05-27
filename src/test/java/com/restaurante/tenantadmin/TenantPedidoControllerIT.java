@@ -59,18 +59,19 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
     void tenant_canListAndGetPedido_andCannotAccessOtherTenantPedido() throws Exception {
         // provisiona tenant A com QR principal
         TenantContextHolder.set(new TenantContext(null, null, 1L, Set.of("ROLE_ADMIN"), TenantResolutionSource.JWT, true, false));
+        String suffixA = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
         ProvisionarTenantResponse a = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("A")
-                                .slug("tenant-a")
-                                .tenantCode("TA")
+                                .slug("tenant-a-" + suffixA)
+                                .tenantCode("TA" + suffixA)
                                 .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("RESTAURANTE_SIMPLES")
-                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("A").sigla("TA").build())
-                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("a@a.com").criarUsuario(true).build())
+                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("A").sigla(uniqueSigla("TA")).build())
+                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("a-" + suffixA + "@a.com").telefone("+24490" + String.format("%06d", Integer.parseInt(suffixA))).criarUsuario(true).build())
                         .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder().criarMesas(false).criarQrPorMesa(false).criarQrPrincipal(true).build())
                         .build()
         );
@@ -121,18 +122,19 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
 
         // provisiona tenant B e cria pedido, tenant A não acessa
         TenantContextHolder.set(new TenantContext(null, null, 1L, Set.of("ROLE_ADMIN"), TenantResolutionSource.JWT, true, false));
+        String suffixB = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
         ProvisionarTenantResponse b = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("B")
-                                .slug("tenant-b")
-                                .tenantCode("TB")
+                                .slug("tenant-b-" + suffixB)
+                                .tenantCode("TB" + suffixB)
                                 .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("RESTAURANTE_SIMPLES")
-                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("B").sigla("TB").build())
-                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("b@b.com").criarUsuario(true).build())
+                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("B").sigla(uniqueSigla("TB")).build())
+                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("b-" + suffixB + "@b.com").telefone("+24490" + String.format("%06d", Integer.parseInt(suffixB))).criarUsuario(true).build())
                         .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder().criarMesas(false).criarQrPorMesa(false).criarQrPrincipal(true).build())
                         .build()
         );
@@ -164,5 +166,18 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
         TenantContextHolder.set(new TenantContext(a.getTenantId(), a.getTenantCode(), a.getOwnerUserId(), Set.of("ROLE_GERENTE"), TenantResolutionSource.JWT, false, false));
         mockMvc.perform(get("/tenant/pedidos/" + pedidoIdB))
                 .andExpect(status().isNotFound());
+    }
+
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
     }
 }

@@ -19,7 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * até que exista uma estratégia de testes mais completa (ex.: @Import(TestSecurityConfig) em E2E).
  */
 @Configuration
-@Profile({"test", "it-postgres"})
+@Profile("test")
 public class TestBeansConfig {
 
     @Bean

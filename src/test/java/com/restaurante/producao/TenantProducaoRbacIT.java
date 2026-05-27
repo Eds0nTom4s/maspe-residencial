@@ -95,15 +95,27 @@ class TenantProducaoRbacIT extends PostgresTestcontainersConfig {
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst Producao")
-                                .sigla("TP")
+                                .sigla(uniqueSigla("TP"))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
                                 .email("owner-prod-" + System.nanoTime() + "@a.com")
                                 .telefone("+244900" + (System.nanoTime() % 1_000_000))
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
         );
     }
-}
 
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
+    }
+}

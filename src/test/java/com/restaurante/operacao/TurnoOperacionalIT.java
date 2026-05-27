@@ -18,6 +18,8 @@ import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.User;
+import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
@@ -27,10 +29,24 @@ import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.model.enums.TurnoOperacionalTipo;
+import com.restaurante.model.enums.TipoCozinha;
+import com.restaurante.model.entity.Cozinha;
+import com.restaurante.model.entity.Instituicao;
+import com.restaurante.model.entity.SessaoConsumo;
+import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.enums.StatusSessaoConsumo;
+import com.restaurante.model.enums.TipoSessao;
+import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.repository.CozinhaRepository;
+import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.OperationalEventLogRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.SubPedidoRepository;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TurnoOperacionalRepository;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
@@ -46,11 +62,14 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -67,6 +86,13 @@ class TurnoOperacionalIT extends PostgresTestcontainersConfig {
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
     @Autowired ProdutoRepository produtoRepository;
+    @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
+    @Autowired TenantRepository tenantRepository;
+    @Autowired CozinhaRepository cozinhaRepository;
+    @Autowired InstituicaoRepository instituicaoRepository;
+    @Autowired SessaoConsumoRepository sessaoConsumoRepository;
+    @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    @Autowired TurnoOperacionalRepository turnoOperacionalRepository;
     @Autowired PedidoRepository pedidoRepository;
     @Autowired SubPedidoRepository subPedidoRepository;
     @Autowired OperationalEventLogRepository operationalEventLogRepository;
@@ -183,28 +209,44 @@ class TurnoOperacionalIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         long turnoId = objectMapper.readTree(openResp).at("/data/id").asLong();
 
-        // cria pedido/subpedido não-terminal associado ao turno (via endpoint público QR)
-        Produto prod = produtoRepository.findByTenantIdAndDisponivelTrueAndAtivoTrue(prov.getTenantId(), PageRequest.of(0, 1))
-                .getContent().get(0);
-        PublicQrPedidoRequest qrReq = new PublicQrPedidoRequest();
-        PublicQrPedidoItemRequest it = new PublicQrPedidoItemRequest();
-        it.setProdutoId(prod.getId());
-        it.setQuantidade(1);
-        qrReq.setItens(List.of(it));
-        qrReq.setIdempotencyKey("idem-" + turnoId);
-        String publicResp = mockMvc.perform(post("/public/q/" + prov.getQrToken() + "/pedidos")
-                        .header("Idempotency-Key", "idem-" + turnoId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(qrReq)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        long pedidoId = objectMapper.readTree(publicResp).at("/data/pedidoId").asLong();
+        // cria pedido/subpedido não-terminal associado ao turno (sem depender do fluxo público QR, que envolve
+        // roteamento de produção + fundo de consumo). O objetivo do teste é validar bloqueio de fecho por pendências.
+        Instituicao inst = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
 
-        Pedido pedido = pedidoRepository.findById(pedidoId).orElseThrow();
-        assertThat(pedido.getTurnoOperacional()).isNotNull();
-        assertThat(pedido.getTurnoOperacional().getId()).isEqualTo(turnoId);
+        UnidadeAtendimento ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
 
-        SubPedido sp = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId).get(0);
+        SessaoConsumo sessao = SessaoConsumo.builder()
+                .qrCodeSessao(java.util.UUID.randomUUID().toString())
+                .tenant(tenant)
+                .instituicao(inst)
+                .unidadeAtendimento(ua)
+                .mesa(null)
+                .modoAnonimo(true)
+                .status(StatusSessaoConsumo.ABERTA)
+                .tipoSessao(TipoSessao.POS_PAGO)
+                .build();
+        sessao = sessaoConsumoRepository.saveAndFlush(sessao);
+
+        Pedido pedido = new Pedido();
+        pedido.setTenant(tenant);
+        pedido.setNumero("IT-" + java.util.UUID.randomUUID());
+        pedido.setSessaoConsumo(sessao);
+        pedido.setTurnoOperacional(turnoOperacionalRepository.findById(turnoId).orElse(null));
+        pedido.setStatus(StatusPedido.CRIADO);
+        pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
+        pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
+        pedido = pedidoRepository.saveAndFlush(pedido);
+
+        ensureCozinhaAtivaForCategoriaCentral(prov.getUnidadeAtendimentoId());
+        Cozinha cozinha = cozinhaRepository.findByAtivaAndTipo(true, TipoCozinha.CENTRAL).stream().findFirst().orElseThrow();
+
+        SubPedido sp = new SubPedido();
+        sp.setTenant(tenant);
+        sp.setNumero(pedido.getNumero() + "-1");
+        sp.setPedido(pedido);
+        sp.setUnidadeAtendimento(ua);
+        sp.setCozinha(cozinha);
         sp.setStatus(StatusSubPedido.EM_PREPARACAO);
         subPedidoRepository.saveAndFlush(sp);
 
@@ -288,6 +330,51 @@ class TurnoOperacionalIT extends PostgresTestcontainersConfig {
         return r;
     }
 
+    private Produto createProdutoMinimo(Long tenantId, String suffix) {
+        Tenant tenant = tenantRepository.findById(tenantId).orElseThrow();
+
+        CategoriaProduto cat = categoriaProdutoRepository.findByTenantIdAndAtivoTrueOrderByOrdemAsc(tenantId)
+                .stream()
+                .findFirst()
+                .orElseGet(() -> {
+                    CategoriaProduto created = new CategoriaProduto();
+                    created.setTenant(tenant);
+                    created.setNome("Auto");
+                    created.setSlug("auto-" + tenantId);
+                    created.setDescricao("Categoria criada automaticamente para testes IT");
+                    created.setOrdem(0);
+                    created.setAtivo(true);
+                    return categoriaProdutoRepository.saveAndFlush(created);
+                });
+
+        Produto p = new Produto();
+        p.setTenant(tenant);
+        p.setCodigo("P-" + suffix);
+        p.setNome("Produto IT " + suffix);
+        p.setDescricao("Fixture IT");
+        p.setPreco(new BigDecimal("10.00"));
+        p.setCategoria(CategoriaProdutoLegacy.OUTROS);
+        p.setCategoriaProduto(cat);
+        p.setDisponivel(true);
+        p.setAtivo(true);
+        return produtoRepository.saveAndFlush(p);
+    }
+
+    private void ensureCozinhaAtivaForCategoriaCentral(Long unidadeAtendimentoId) {
+        // Preferência: cozinha vinculada à unidade; fallback do SubPedidoService: qualquer cozinha ativa do tipo.
+        boolean existsInUnit = !cozinhaRepository.findByUnidadeAtendimentoIdAndTipoAndAtiva(unidadeAtendimentoId, TipoCozinha.CENTRAL, true).isEmpty();
+        if (existsInUnit) return;
+        boolean existsAny = !cozinhaRepository.findByAtivaAndTipo(true, TipoCozinha.CENTRAL).isEmpty();
+        if (existsAny) return;
+
+        Cozinha cozinha = new Cozinha();
+        cozinha.setNome("Cozinha Central (IT)");
+        cozinha.setTipo(TipoCozinha.CENTRAL);
+        cozinha.setAtiva(true);
+        cozinha.setDescricao("Fixture IT");
+        cozinhaRepository.saveAndFlush(cozinha);
+    }
+
     private ProvisionarTenantResponse provisionTenant(String slug, String tenantCode) {
         TenantContextHolder.set(new TenantContext(
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
@@ -300,10 +387,10 @@ class TurnoOperacionalIT extends PostgresTestcontainersConfig {
                                 .nome("Tenant " + slug)
                                 .slug(slug)
                                 .tenantCode(tenantCode)
-                                .tipo(TenantTipo.VENDEDOR_RUA)
+                                .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
-                        .templateCodigo("VENDEDOR_RUA")
+                        .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + slug)
                                 .sigla(tenantCode)

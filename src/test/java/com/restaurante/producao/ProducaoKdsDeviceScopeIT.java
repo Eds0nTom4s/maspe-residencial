@@ -48,7 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class ProducaoKdsDeviceScopeIT extends PostgresTestcontainersConfig {
 
@@ -157,15 +157,28 @@ class ProducaoKdsDeviceScopeIT extends PostgresTestcontainersConfig {
                         .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst KDS Device")
-                                .sigla("IKD")
+                                .sigla(uniqueSigla("IKD"))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
                                 .email("owner-kds-dev-" + System.nanoTime() + "@a.com")
                                 .telefone("+244900" + (System.nanoTime() % 1_000_000))
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
         );
+    }
+
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
     }
 
     private Produto criarProdutoBasico(Long tenantId) {

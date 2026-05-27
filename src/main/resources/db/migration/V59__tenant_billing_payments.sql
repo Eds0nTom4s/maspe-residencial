@@ -116,3 +116,16 @@ create table if not exists tenant_billing_collection_policies (
     constraint uq_tenant_billing_collection_policies unique (tenant_id)
 );
 
+alter table tenant_billing_payment_attempts add column if not exists updated_at timestamp with time zone null;
+alter table tenant_billing_payment_attempts add column if not exists version bigint not null default 0;
+alter table tenant_billing_payment_attempts add column if not exists created_by varchar(100);
+alter table tenant_billing_payment_attempts add column if not exists modified_by varchar(100);
+
+alter table tenant_billing_collection_policies add column if not exists created_by varchar(100);
+alter table tenant_billing_collection_policies add column if not exists modified_by varchar(100);
+
+alter table tenant_billing_payment_sequences add column if not exists created_by varchar(100);
+alter table tenant_billing_payment_sequences add column if not exists modified_by varchar(100);
+
+alter table tenant_billing_payments add column if not exists created_by varchar(100);
+alter table tenant_billing_payments add column if not exists modified_by varchar(100);

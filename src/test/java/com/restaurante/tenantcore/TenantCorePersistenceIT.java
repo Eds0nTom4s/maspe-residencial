@@ -63,11 +63,12 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
     @Transactional
     void canCreateTenantAndSubscriptionAndMembership() {
         Plano piloto = planoRepository.findByCodigo("PILOTO").orElseThrow();
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
 
         Tenant tenant = new Tenant();
         tenant.setNome("Banca da Tia Rosa");
-        tenant.setSlug("banca-tia-rosa");
-        tenant.setTenantCode("BTR");
+        tenant.setSlug("banca-tia-rosa-" + suffix);
+        tenant.setTenantCode("BTR" + suffix);
         tenant.setTipo(TenantTipo.VENDEDOR_RUA);
         tenant.setEstado(TenantEstado.ATIVO);
         tenant = tenantRepository.saveAndFlush(tenant);
@@ -90,10 +91,10 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         assertThrows(DataIntegrityViolationException.class, () -> subscricaoRepository.saveAndFlush(s2));
 
         User user = User.builder()
-                .username("owner_btr")
+                .username("owner_btr_" + suffix)
                 .password("x")
-                .email("owner_btr@consuma.local")
-                .telefone("+244900000001")
+                .email("owner_btr_" + suffix + "@consuma.local")
+                .telefone("+24490" + String.format("%06d", Integer.parseInt(suffix)))
                 .roles(Set.of(Role.ROLE_ADMIN))
                 .ativo(true)
                 .build();
@@ -174,7 +175,7 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         Instituicao i1 = Instituicao.builder()
                 .tenant(tenant)
                 .nome("Instituição A")
-                .sigla("T1NA")
+                .sigla(uniqueSigla("T1N"))
                 .nif("T1N-A-001")
                 .telefoneAutorizacao("+244900000010")
                 .ativa(true)
@@ -184,7 +185,7 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         Instituicao i2 = Instituicao.builder()
                 .tenant(tenant)
                 .nome("Instituição B")
-                .sigla("T1NB")
+                .sigla(uniqueSigla("T1N"))
                 .nif("T1N-B-001")
                 .telefoneAutorizacao("+244900000011")
                 .ativa(true)
@@ -196,12 +197,25 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
 
         Instituicao semTenant = Instituicao.builder()
                 .nome("Sem Tenant")
-                .sigla("NOTEN")
+                .sigla(uniqueSigla("NO"))
                 .nif("NO-TENANT-001")
                 .telefoneAutorizacao("+244900000012")
                 .ativa(true)
                 .build();
         assertThrows(DataIntegrityViolationException.class, () -> instituicaoRepository.saveAndFlush(semTenant));
+    }
+
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
     }
 
     @Test

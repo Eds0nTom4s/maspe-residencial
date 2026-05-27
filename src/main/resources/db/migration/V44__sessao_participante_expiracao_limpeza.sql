@@ -13,17 +13,58 @@ ALTER TABLE sessao_consumo_participantes
     ADD COLUMN IF NOT EXISTS expiration_reason VARCHAR(120) NULL,
     ADD COLUMN IF NOT EXISTS cleanup_batch_id VARCHAR(120) NULL;
 
-ALTER TABLE sessao_consumo_participantes
-    ADD CONSTRAINT IF NOT EXISTS ck_sessao_participante_resend_count_nonneg CHECK (resend_count >= 0);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'ck_sessao_participante_resend_count_nonneg'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
+        ALTER TABLE sessao_consumo_participantes
+            ADD CONSTRAINT ck_sessao_participante_resend_count_nonneg CHECK (resend_count >= 0);
+    END IF;
+END
+$$;
 
-ALTER TABLE sessao_consumo_participantes
-    ADD CONSTRAINT IF NOT EXISTS fk_sessao_participante_cancelled_by_participante
-        FOREIGN KEY (cancelled_by_participante_id) REFERENCES sessao_consumo_participantes(id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_cancelled_by_participante'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
+        ALTER TABLE sessao_consumo_participantes
+            ADD CONSTRAINT fk_sessao_participante_cancelled_by_participante
+                FOREIGN KEY (cancelled_by_participante_id) REFERENCES sessao_consumo_participantes(id);
+    END IF;
+END
+$$;
 
-ALTER TABLE sessao_consumo_participantes
-    ADD CONSTRAINT IF NOT EXISTS fk_sessao_participante_cancelled_by_device
-        FOREIGN KEY (cancelled_by_device_id) REFERENCES dispositivos_operacionais(id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_cancelled_by_device'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
+        ALTER TABLE sessao_consumo_participantes
+            ADD CONSTRAINT fk_sessao_participante_cancelled_by_device
+                FOREIGN KEY (cancelled_by_device_id) REFERENCES dispositivos_operacionais(id);
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_sessao_participantes_expiration
     ON sessao_consumo_participantes (tenant_id, status, expires_at);
-

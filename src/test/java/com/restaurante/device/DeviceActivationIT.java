@@ -25,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -37,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DeviceActivationIT extends PostgresTestcontainersConfig {
 
@@ -88,13 +89,17 @@ class DeviceActivationIT extends PostgresTestcontainersConfig {
         actReq.setAppVersion("1.0.0");
         actReq.setPlatform("ANDROID");
 
-        String actResp = mockMvc.perform(post("/device/activate")
+        MvcResult actResult = mockMvc.perform(post("/device/activate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(actReq)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn();
+        int actStatus = actResult.getResponse().getStatus();
+        String actBody = actResult.getResponse().getContentAsString();
+        assertThat(actStatus)
+                .as("Status /device/activate != 201. Body: %s", actBody)
+                .isEqualTo(201);
 
-        JsonNode actJson = objectMapper.readTree(actResp);
+        JsonNode actJson = objectMapper.readTree(actBody);
         String deviceToken = actJson.at("/data/deviceToken").asText();
         assertThat(deviceToken).isNotBlank();
 
@@ -179,4 +184,3 @@ class DeviceActivationIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

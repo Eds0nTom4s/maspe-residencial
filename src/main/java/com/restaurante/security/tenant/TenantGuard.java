@@ -1,5 +1,6 @@
 package com.restaurante.security.tenant;
 
+import com.restaurante.exception.TenantAccessDeniedException;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.TenantEstado;
@@ -101,7 +102,7 @@ public class TenantGuard {
             return;
         }
         if (ctx.tenantId() == null || ctx.userId() == null) {
-            throw new AccessDeniedException("TenantContext obrigatório para validação de role.");
+            throw new TenantAccessDeniedException("TenantContext obrigatório para validação de role.");
         }
 
         // Fast path: roles já carregadas no TenantContext (TenantResolver)
@@ -124,7 +125,7 @@ public class TenantGuard {
             if (ok) return;
         }
 
-        throw new AccessDeniedException("Usuário não possui permissão para executar esta ação.");
+        throw new TenantAccessDeniedException("Usuário não possui permissão para executar esta ação.");
     }
 
     public void assertAnyTenantRole(TenantUserRole... roles) {

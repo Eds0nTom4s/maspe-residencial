@@ -134,7 +134,7 @@ public class DeviceSyncExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<SyncErrorResponse> handleOther(Exception ex, HttpServletRequest req) {
-        if (!isDeviceSyncPath(req)) throw new RuntimeException(ex);
+        if (!isDeviceSyncPath(req)) throw ex;
         log.warn("device_sync_internal_error", ex);
         SyncErrorResponse body = new SyncErrorResponse(
                 SyncErrorResponse.SyncErrorCode.SYNC_INTERNAL_ERROR,

@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS tenant_official_fiscal_profiles (
 CREATE INDEX IF NOT EXISTS idx_tofp_tenant_status
     ON tenant_official_fiscal_profiles (tenant_id, status);
 
+ALTER TABLE tenant_official_fiscal_profiles ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE tenant_official_fiscal_profiles ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
 -- Signing profiles (não armazenar chave privada)
 CREATE TABLE IF NOT EXISTS fiscal_signing_profiles (
     id BIGSERIAL PRIMARY KEY,
@@ -58,6 +61,9 @@ CREATE TABLE IF NOT EXISTS fiscal_signing_profiles (
 
 CREATE INDEX IF NOT EXISTS idx_fsp_tenant_status
     ON fiscal_signing_profiles (tenant_id, status);
+
+ALTER TABLE fiscal_signing_profiles ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE fiscal_signing_profiles ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
 
 -- Official submissions (processo oficial futuro)
 CREATE TABLE IF NOT EXISTS official_fiscal_submissions (
@@ -118,6 +124,9 @@ CREATE INDEX IF NOT EXISTS idx_ofs_status_next_attempt
 CREATE INDEX IF NOT EXISTS idx_ofs_request_id
     ON official_fiscal_submissions (tenant_id, request_id);
 
+ALTER TABLE official_fiscal_submissions ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE official_fiscal_submissions ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
 CREATE INDEX IF NOT EXISTS idx_ofs_locked_at
     ON official_fiscal_submissions (status, locked_at);
 
@@ -152,3 +161,7 @@ CREATE INDEX IF NOT EXISTS idx_ofsa_tenant_submission
 CREATE INDEX IF NOT EXISTS idx_ofsa_tenant_request
     ON official_fiscal_submission_attempts (tenant_id, request_id);
 
+ALTER TABLE official_fiscal_submission_attempts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE NULL;
+ALTER TABLE official_fiscal_submission_attempts ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE official_fiscal_submission_attempts ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE official_fiscal_submission_attempts ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);

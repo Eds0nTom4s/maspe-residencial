@@ -9,6 +9,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.Optional;
+import com.restaurante.security.device.DevicePrincipal;
 
 /**
  * Configuração de auditoria JPA
@@ -37,6 +38,8 @@ public class AuditorConfig {
      */
     static class AuditorAwareImpl implements AuditorAware<String> {
 
+        private static final int MAX_LEN = 100;
+
         @Override
         public Optional<String> getCurrentAuditor() {
             // Obtém autenticação do SecurityContext (JWT)
@@ -44,7 +47,17 @@ public class AuditorConfig {
             
             if (authentication != null && authentication.isAuthenticated() 
                     && !"anonymousUser".equals(authentication.getPrincipal())) {
-                String username = authentication.getName();
+                Object principal = authentication.getPrincipal();
+                String username;
+                if (principal instanceof DevicePrincipal dp) {
+                    // Evita usar toString() do principal (pode ser muito grande e estourar created_by).
+                    username = "device:" + (dp.dispositivoCodigo() != null ? dp.dispositivoCodigo() : dp.dispositivoId());
+                } else {
+                    username = authentication.getName();
+                }
+                if (username != null && username.length() > MAX_LEN) {
+                    username = username.substring(0, MAX_LEN);
+                }
                 log.debug("Auditor capturado: {}", username);
                 return Optional.of(username);
             }

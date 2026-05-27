@@ -55,22 +55,24 @@ class TenantAdminEstruturaQrIT extends PostgresTestcontainersConfig {
                 TenantResolutionSource.JWT, true, false
         ));
 
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
         ProvisionarTenantResponse provisioned = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Rest A")
-                                .slug("rest-a-tenant")
-                                .tenantCode("RA")
+                                .slug("rest-a-tenant-" + suffix)
+                                .tenantCode("RA" + suffix)
                                 .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Rest A")
-                                .sigla("RA")
+                                .sigla(uniqueSigla("RA"))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email("owner@ra.com")
+                                .email("owner-" + suffix + "@ra.com")
+                                .telefone("+24490" + String.format("%06d", Integer.parseInt(suffix)))
                                 .criarUsuario(true)
                                 .build())
                         .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder()
@@ -107,18 +109,19 @@ class TenantAdminEstruturaQrIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
+        String suffixB = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
         ProvisionarTenantResponse other = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Rest B")
-                                .slug("rest-b-tenant")
-                                .tenantCode("RB")
+                                .slug("rest-b-tenant-" + suffixB)
+                                .tenantCode("RB" + suffixB)
                                 .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("RESTAURANTE_SIMPLES")
-                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("Rest B").sigla("RB").build())
-                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("owner@rb.com").criarUsuario(true).build())
+                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("Rest B").sigla(uniqueSigla("RB")).build())
+                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("owner-" + suffixB + "@rb.com").telefone("+24490" + String.format("%06d", Integer.parseInt(suffixB))).criarUsuario(true).build())
                         .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder().criarMesas(false).criarQrPorMesa(false).build())
                         .build()
         );
@@ -134,5 +137,17 @@ class TenantAdminEstruturaQrIT extends PostgresTestcontainersConfig {
         // sanity: mesa ainda existe
         assertThat(mesaRepository.findById(mesaId)).isPresent();
     }
-}
 
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
+    }
+}

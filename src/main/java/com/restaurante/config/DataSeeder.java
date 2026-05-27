@@ -426,17 +426,26 @@ public class DataSeeder {
 
         // Salão Principal — 10 mesas (capacidade 4 pessoas)
         for (int i = 1; i <= 10; i++) {
-            mesaRepository.save(mesa(i, "Mesa " + i, 4, salao));
+            Mesa mesa = mesa(i, "Mesa " + i, 4, salao);
+            if (mesa != null) {
+                mesaRepository.save(mesa);
+            }
         }
 
         // Bar Angolano — 4 banquetas/mesas de bar (capacidade 2 pessoas)
         for (int i = 1; i <= 4; i++) {
-            mesaRepository.save(mesa(100 + i, "Bar " + i, 2, barAngolano));
+            Mesa mesa = mesa(100 + i, "Bar " + i, 2, barAngolano);
+            if (mesa != null) {
+                mesaRepository.save(mesa);
+            }
         }
 
         // Esplanada — 6 mesas externas (capacidade 4 pessoas)
         for (int i = 1; i <= 6; i++) {
-            mesaRepository.save(mesa(200 + i, "Esplanada " + i, 4, esplanada));
+            Mesa mesa = mesa(200 + i, "Esplanada " + i, 4, esplanada);
+            if (mesa != null) {
+                mesaRepository.save(mesa);
+            }
         }
 
         log.info("  [mesas]           ✅ 20 criadas  (10 Salão + 4 Bar + 6 Esplanada — status derivado)");
@@ -444,7 +453,8 @@ public class DataSeeder {
 
     private Mesa mesa(int numero, String referencia, int capacidade, UnidadeAtendimento unidade) {
         if (unidade.getInstituicao() == null || unidade.getInstituicao().getTenant() == null) {
-            throw new IllegalStateException("Unidade/Instituição sem tenant para seed de mesas: " + unidade.getNome());
+            log.warn("  [mesas]           seed ignorado: unidade/instituição sem tenant ({})", unidade.getNome());
+            return null;
         }
         return Mesa.builder()
             .numero(numero)

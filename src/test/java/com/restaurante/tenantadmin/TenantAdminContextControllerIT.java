@@ -51,22 +51,24 @@ class TenantAdminContextControllerIT extends PostgresTestcontainersConfig {
                 TenantResolutionSource.JWT, true, false
         ));
 
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
         ProvisionarTenantResponse provisioned = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Banca A")
-                                .slug("banca-a")
-                                .tenantCode("BA")
+                                .slug("banca-a-" + suffix)
+                                .tenantCode("BA" + suffix)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Banca A")
-                                .sigla("BA")
+                                .sigla(uniqueSigla("BA"))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email("owner@a.com")
+                                .email("owner-" + suffix + "@a.com")
+                                .telefone("+24490" + String.format("%06d", Integer.parseInt(suffix)))
                                 .criarUsuario(true)
                                 .build())
                         .build()
@@ -87,5 +89,17 @@ class TenantAdminContextControllerIT extends PostgresTestcontainersConfig {
         assertThat(json.at("/data/planoCodigo").asText()).isEqualTo("PILOTO");
         assertThat(json.at("/data/limites/maxQrCodes").isNumber()).isTrue();
     }
-}
 
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
+    }
+}

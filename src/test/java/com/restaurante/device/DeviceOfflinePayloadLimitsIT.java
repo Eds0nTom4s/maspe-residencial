@@ -51,7 +51,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 "consuma.device.offline-sync.max-command-payload-bytes=64"
         }
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DeviceOfflinePayloadLimitsIT extends PostgresTestcontainersConfig {
 
@@ -150,4 +150,3 @@ class DeviceOfflinePayloadLimitsIT extends PostgresTestcontainersConfig {
         return dispositivoOperacionalRepository.saveAndFlush(d);
     }
 }
-

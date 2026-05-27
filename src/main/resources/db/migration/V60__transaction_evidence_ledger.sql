@@ -85,3 +85,19 @@ create table if not exists transaction_evidence_verification_issues (
 create index if not exists idx_transaction_evidence_verification_issues
     on transaction_evidence_verification_issues(tenant_id, verification_run_id, issue_type);
 
+alter table transaction_evidence_ledger_states add column if not exists created_by varchar(100);
+alter table transaction_evidence_ledger_states add column if not exists modified_by varchar(100);
+
+alter table transaction_evidence_events add column if not exists updated_at timestamp with time zone null;
+alter table transaction_evidence_events add column if not exists created_by varchar(100);
+alter table transaction_evidence_events add column if not exists modified_by varchar(100);
+
+alter table transaction_evidence_verification_runs add column if not exists updated_at timestamp with time zone null;
+alter table transaction_evidence_verification_runs add column if not exists version bigint not null default 0;
+alter table transaction_evidence_verification_runs add column if not exists created_by varchar(100);
+alter table transaction_evidence_verification_runs add column if not exists modified_by varchar(100);
+
+alter table transaction_evidence_verification_issues add column if not exists updated_at timestamp with time zone null;
+alter table transaction_evidence_verification_issues add column if not exists version bigint not null default 0;
+alter table transaction_evidence_verification_issues add column if not exists created_by varchar(100);
+alter table transaction_evidence_verification_issues add column if not exists modified_by varchar(100);

@@ -137,15 +137,27 @@ class ProducaoScopeSelectionIT extends PostgresTestcontainersConfig {
                         .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst Sel")
-                                .sigla("IS")
+                                .sigla(uniqueSigla("IS"))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
                                 .email("owner-sel-" + System.nanoTime() + "@a.com")
                                 .telefone("+244901" + (System.nanoTime() % 1_000_000))
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
         );
     }
-}
 
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
+    }
+}

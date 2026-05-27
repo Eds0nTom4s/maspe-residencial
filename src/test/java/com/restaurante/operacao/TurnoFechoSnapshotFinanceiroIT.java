@@ -107,12 +107,12 @@ class TurnoFechoSnapshotFinanceiroIT extends PostgresTestcontainersConfig {
         JsonNode fin = root.get("financeiro");
         assertThat(fin.get("snapshotVersion").asText()).isEqualTo("37.1");
 
-        assertThat(fin.get("totalCash").asText()).isEqualTo("10000.00");
-        assertThat(fin.get("totalTpa").asText()).isEqualTo("5000.00");
-        assertThat(fin.get("totalAppyPay").asText()).isEqualTo("0");
+        assertThat(new BigDecimal(fin.get("totalCash").asText())).isEqualByComparingTo(new BigDecimal("10000.00"));
+        assertThat(new BigDecimal(fin.get("totalTpa").asText())).isEqualByComparingTo(new BigDecimal("5000.00"));
+        assertThat(new BigDecimal(fin.get("totalAppyPay").asText())).isEqualByComparingTo(BigDecimal.ZERO);
 
-        assertThat(fin.get("totalPagamentoPedidos").asText()).isEqualTo("10000.00");
-        assertThat(fin.get("totalCarregamentoFundo").asText()).isEqualTo("5000.00");
+        assertThat(new BigDecimal(fin.get("totalPagamentoPedidos").asText())).isEqualByComparingTo(new BigDecimal("10000.00"));
+        assertThat(new BigDecimal(fin.get("totalCarregamentoFundo").asText())).isEqualByComparingTo(new BigDecimal("5000.00"));
 
         assertThat(fin.hasNonNull("totaisPorMetodo")).isTrue();
         assertThat(fin.hasNonNull("totaisPorOrigem")).isTrue();

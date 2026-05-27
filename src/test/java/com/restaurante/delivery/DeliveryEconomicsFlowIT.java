@@ -6,6 +6,7 @@ import com.restaurante.delivery.service.*;
 import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.*;
 import com.restaurante.repository.*;
+import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,8 +20,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-@ActiveProfiles("test")
-public class DeliveryEconomicsFlowIT {
+@ActiveProfiles("it-postgres")
+public class DeliveryEconomicsFlowIT extends PostgresTestcontainersConfig {
 
     @Autowired private TransactionTemplate transactionTemplate;
 

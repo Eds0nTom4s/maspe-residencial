@@ -11,6 +11,7 @@ import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.*;
 import com.restaurante.repository.*;
+import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,11 +26,11 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("it-postgres")
 @TestPropertySource(properties = {
         "consuma.inventory.enabled=true"
 })
-public class InventoryFlowIT {
+public class InventoryFlowIT extends PostgresTestcontainersConfig {
 
     @Autowired private TransactionTemplate transactionTemplate;
     @Autowired private ApplicationEventPublisher publisher;

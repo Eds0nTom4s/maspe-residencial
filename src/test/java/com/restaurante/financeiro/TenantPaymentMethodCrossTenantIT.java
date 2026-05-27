@@ -50,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class TenantPaymentMethodCrossTenantIT extends PostgresTestcontainersConfig {
 
@@ -216,6 +216,9 @@ class TenantPaymentMethodCrossTenantIT extends PostgresTestcontainersConfig {
     }
 
     private ProvisionarTenantResponse provisionTenant(String nome, String code) {
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        String effectiveCode = (code == null || code.isBlank()) ? ("T" + suffix) : (code + suffix);
+
         TenantContextHolder.set(new TenantContext(
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
@@ -226,17 +229,17 @@ class TenantPaymentMethodCrossTenantIT extends PostgresTestcontainersConfig {
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + nome)
                                 .slug(nome)
-                                .tenantCode(code)
+                                .tenantCode(effectiveCode)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + nome)
-                                .sigla(code)
+                                .sigla(effectiveCode)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(nome + "@owner.com")
+                                .email(nome + "+" + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())

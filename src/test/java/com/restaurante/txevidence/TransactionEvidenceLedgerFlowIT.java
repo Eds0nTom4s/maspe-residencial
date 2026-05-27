@@ -9,6 +9,7 @@ import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.service.operacional.OperationalEventLogService;
+import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import com.restaurante.txevidence.repository.TransactionEvidenceEventRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,13 +22,13 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("it-postgres")
 @TestPropertySource(properties = {
         "consuma.evidence.tx-ledger.enabled=true",
         "consuma.evidence.tx-ledger.key-version=1",
         "consuma.evidence.tx-ledger.dev-hmac-secret=test-secret"
 })
-public class TransactionEvidenceLedgerFlowIT {
+public class TransactionEvidenceLedgerFlowIT extends PostgresTestcontainersConfig {
 
     @Autowired private TenantRepository tenantRepository;
     @Autowired private OperationalEventLogService operationalEventLogService;
@@ -65,4 +66,3 @@ public class TransactionEvidenceLedgerFlowIT {
         return tenantRepository.saveAndFlush(t);
     }
 }
-

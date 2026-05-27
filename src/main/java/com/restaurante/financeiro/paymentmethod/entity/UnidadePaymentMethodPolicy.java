@@ -7,6 +7,8 @@ import com.restaurante.model.enums.PaymentMethodPolicyStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -64,6 +66,7 @@ public class UnidadePaymentMethodPolicy {
     @Column(name = "override_reason", length = 255)
     private String overrideReason;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata_json", columnDefinition = "jsonb")
     private String metadataJson;
 
@@ -89,4 +92,3 @@ public class UnidadePaymentMethodPolicy {
         updatedAt = Instant.now();
     }
 }
-

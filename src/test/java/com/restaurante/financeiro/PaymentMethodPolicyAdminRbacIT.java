@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -29,7 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class PaymentMethodPolicyAdminRbacIT extends PostgresTestcontainersConfig {
 
@@ -43,6 +44,7 @@ class PaymentMethodPolicyAdminRbacIT extends PostgresTestcontainersConfig {
     }
 
     @Test
+    @WithMockUser(authorities = { "ROLE_GERENTE" })
     void operator_and_kitchen_are_blocked_from_policy_admin_endpoints() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-pol-rbac-a", "PR2");
 
@@ -106,4 +108,3 @@ class PaymentMethodPolicyAdminRbacIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

@@ -13,6 +13,7 @@ public abstract class PostgresTestcontainersConfig {
             .withDatabaseName("consuma_test")
             .withUsername("consuma")
             .withPassword("consuma")
+            .withCommand("postgres", "-c", "max_connections=200")
             .withStartupAttempts(3)
             .withStartupTimeout(Duration.ofMinutes(2))
             .withReuse(true);

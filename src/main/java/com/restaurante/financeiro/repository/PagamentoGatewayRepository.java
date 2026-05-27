@@ -58,12 +58,12 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
     Page<Pagamento> findByTenantIdAndStatus(Long tenantId, StatusPagamentoGateway status, Pageable pageable);
 
     @Query("SELECT p FROM Pagamento p WHERE p.tenant.id = :tenantId " +
-            "AND (:status IS NULL OR p.status = :status) " +
-            "AND (:statusFinanceiroPedido IS NULL OR p.pedido.statusFinanceiro = :statusFinanceiroPedido) " +
-            "AND (:externalReference IS NULL OR p.externalReference = :externalReference) " +
-            "AND (:from IS NULL OR p.createdAt >= :from) " +
-            "AND (:to IS NULL OR p.createdAt <= :to) " +
-            "AND (:pedidoNumero IS NULL OR p.pedido.numero = :pedidoNumero)")
+            "AND (cast(:status as string) IS NULL OR p.status = :status) " +
+            "AND (cast(:statusFinanceiroPedido as string) IS NULL OR p.pedido.statusFinanceiro = :statusFinanceiroPedido) " +
+            "AND (cast(:externalReference as string) IS NULL OR p.externalReference = :externalReference) " +
+            "AND (cast(:from as timestamp) IS NULL OR p.createdAt >= :from) " +
+            "AND (cast(:to as timestamp) IS NULL OR p.createdAt <= :to) " +
+            "AND (cast(:pedidoNumero as string) IS NULL OR p.pedido.numero = :pedidoNumero)")
     Page<Pagamento> searchTenantPagamentos(
             Long tenantId,
             StatusPagamentoGateway status,
@@ -76,12 +76,12 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
     );
 
     @Query("SELECT p FROM Pagamento p WHERE " +
-            "(:status IS NULL OR p.status = :status) " +
-            "AND (:statusFinanceiroPedido IS NULL OR p.pedido.statusFinanceiro = :statusFinanceiroPedido) " +
-            "AND (:externalReference IS NULL OR p.externalReference = :externalReference) " +
-            "AND (:from IS NULL OR p.createdAt >= :from) " +
-            "AND (:to IS NULL OR p.createdAt <= :to) " +
-            "AND (:pedidoNumero IS NULL OR p.pedido.numero = :pedidoNumero)")
+            "(cast(:status as string) IS NULL OR p.status = :status) " +
+            "AND (cast(:statusFinanceiroPedido as string) IS NULL OR p.pedido.statusFinanceiro = :statusFinanceiroPedido) " +
+            "AND (cast(:externalReference as string) IS NULL OR p.externalReference = :externalReference) " +
+            "AND (cast(:from as timestamp) IS NULL OR p.createdAt >= :from) " +
+            "AND (cast(:to as timestamp) IS NULL OR p.createdAt <= :to) " +
+            "AND (cast(:pedidoNumero as string) IS NULL OR p.pedido.numero = :pedidoNumero)")
     Page<Pagamento> searchPlatformPagamentos(
             StatusPagamentoGateway status,
             StatusFinanceiroPedido statusFinanceiroPedido,
@@ -265,15 +265,15 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
               join fetch p.pedido ped
             where p.tenant.id = :tenantId
               and p.status = 'PENDENTE'
-              and (:turnoId is null or ped.turnoOperacional.id = :turnoId)
-              and (:pedidoId is null or ped.id = :pedidoId)
-              and (:unidadeAtendimentoId is null or ped.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId)
-              and (:metodo is null or p.metodo = :metodo)
-              and (:pollingStatus is null or p.pollingStatus = :pollingStatus)
-              and (:hasError is null or (:hasError = true and p.pollingLastErrorCode is not null) or (:hasError = false and p.pollingLastErrorCode is null))
-              and (:olderThan is null or p.createdAt <= :olderThan)
-              and (:de is null or p.createdAt >= :de)
-              and (:ate is null or p.createdAt <= :ate)
+              and (cast(:turnoId as long) is null or ped.turnoOperacional.id = :turnoId)
+              and (cast(:pedidoId as long) is null or ped.id = :pedidoId)
+              and (cast(:unidadeAtendimentoId as long) is null or ped.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:metodo as string) is null or p.metodo = :metodo)
+              and (cast(:pollingStatus as string) is null or p.pollingStatus = :pollingStatus)
+              and (cast(:hasError as string) is null or (cast(:hasError as string) = 'true' and p.pollingLastErrorCode is not null) or (cast(:hasError as string) = 'false' and p.pollingLastErrorCode is null))
+              and (cast(:olderThan as timestamp) is null or p.createdAt <= :olderThan)
+              and (cast(:de as timestamp) is null or p.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or p.createdAt <= :ate)
             """)
     Page<Pagamento> searchPendentesTenant(
             Long tenantId,
@@ -282,7 +282,7 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
             Long unidadeAtendimentoId,
             com.restaurante.financeiro.enums.MetodoPagamentoAppyPay metodo,
             com.restaurante.financeiro.enums.PagamentoPollingStatus pollingStatus,
-            Boolean hasError,
+            String hasError,
             LocalDateTime olderThan,
             LocalDateTime de,
             LocalDateTime ate,

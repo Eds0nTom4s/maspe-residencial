@@ -60,7 +60,6 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
     }
 
     @Test
-    @Transactional
     void canCreateTenantAndSubscriptionAndMembership() {
         Plano piloto = planoRepository.findByCodigo("PILOTO").orElseThrow();
         String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
@@ -133,7 +132,6 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
     }
 
     @Test
-    @Transactional
     void tenantMustEnforceUniqueSlugAndTenantCode() {
         Tenant t1 = new Tenant();
         t1.setNome("Bar do João");

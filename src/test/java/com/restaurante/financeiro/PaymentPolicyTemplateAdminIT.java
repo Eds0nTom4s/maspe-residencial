@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class PaymentPolicyTemplateAdminIT extends PostgresTestcontainersConfig {
 
@@ -47,6 +48,7 @@ class PaymentPolicyTemplateAdminIT extends PostgresTestcontainersConfig {
     }
 
     @Test
+    @WithMockUser(username = "owner")
     void owner_can_create_and_update_template_and_invalid_rules_are_rejected() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pmtpl-admin-a", "TA1");
         TenantContextHolder.set(new TenantContext(
@@ -119,6 +121,7 @@ class PaymentPolicyTemplateAdminIT extends PostgresTestcontainersConfig {
     }
 
     @Test
+    @WithMockUser(username = "cashier")
     void cashier_cannot_create_or_update_templates() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pmtpl-admin-b", "TA2");
         TenantContextHolder.set(new TenantContext(
@@ -152,6 +155,9 @@ class PaymentPolicyTemplateAdminIT extends PostgresTestcontainersConfig {
     }
 
     private ProvisionarTenantResponse provisionTenant(String nome, String code) {
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        String effectiveCode = (code == null || code.isBlank()) ? ("T" + suffix) : (code + suffix);
+
         TenantContextHolder.set(new TenantContext(
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
@@ -162,17 +168,17 @@ class PaymentPolicyTemplateAdminIT extends PostgresTestcontainersConfig {
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + nome)
                                 .slug(nome)
-                                .tenantCode(code)
+                                .tenantCode(effectiveCode)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + nome)
-                                .sigla(code)
+                                .sigla(effectiveCode)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(nome + "@owner.com")
+                                .email(nome + "+" + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
@@ -180,4 +186,3 @@ class PaymentPolicyTemplateAdminIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

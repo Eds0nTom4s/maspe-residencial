@@ -303,6 +303,11 @@ class TenantUsuarioControllerIT extends PostgresTestcontainersConfig {
     }
 
     private ProvisionarTenantResponse provisionTenant(String slug, String tenantCode) {
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        String effectiveTenantCode = (tenantCode == null || tenantCode.isBlank())
+                ? ("T" + suffix)
+                : (tenantCode + suffix);
+
         TenantContextHolder.set(new TenantContext(
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
@@ -313,17 +318,17 @@ class TenantUsuarioControllerIT extends PostgresTestcontainersConfig {
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + slug)
                                 .slug(slug)
-                                .tenantCode(tenantCode)
+                                .tenantCode(effectiveTenantCode)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + slug)
-                                .sigla(tenantCode)
+                                .sigla(effectiveTenantCode)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(slug + "@owner.com")
+                                .email(slug + "+" + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
@@ -332,11 +337,15 @@ class TenantUsuarioControllerIT extends PostgresTestcontainersConfig {
     }
 
     private User createUser(String email, String telefone) {
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        String uniqueEmail = email == null ? ("user-" + suffix + "@t.com") : email.replace("@", "+" + suffix + "@");
+        String uniqueTelefone = telefone == null ? ("+24490" + String.format("%06d", Integer.parseInt(suffix))) : telefone;
+
         User u = new User();
-        u.setUsername(email);
+        u.setUsername(uniqueEmail);
         u.setPassword("x");
-        u.setEmail(email);
-        u.setTelefone(telefone);
+        u.setEmail(uniqueEmail);
+        u.setTelefone(uniqueTelefone);
         u.setRoles(Set.of(Role.ROLE_GERENTE));
         u.setAtivo(true);
         return userRepository.saveAndFlush(u);

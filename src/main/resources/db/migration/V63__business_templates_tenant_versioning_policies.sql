@@ -36,4 +36,3 @@ create table if not exists tenant_operacao_policies (
 );
 
 create unique index if not exists uq_tenant_operacao_policy_tenant on tenant_operacao_policies (tenant_id);
-

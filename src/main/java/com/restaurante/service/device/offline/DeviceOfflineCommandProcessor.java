@@ -28,6 +28,7 @@ public class DeviceOfflineCommandProcessor {
         this.handlers = map;
     }
 
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public ProcessedResult process(DevicePrincipal device,
                                    DeviceOfflineCommandType type,
                                    String commandClientRequestId,

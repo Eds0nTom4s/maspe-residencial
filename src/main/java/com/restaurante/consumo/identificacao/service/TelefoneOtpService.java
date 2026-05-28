@@ -92,6 +92,7 @@ public class TelefoneOtpService {
         challenge.setClientIp(clientIp);
         challenge.setUserAgent(userAgent);
         challenge.setSessaoConsumo(sessaoConsumo);
+        challenge.setOtpHash("PENDING_HASH_GENERATION");
         repository.save(challenge);
 
         String otp = generateOtp();

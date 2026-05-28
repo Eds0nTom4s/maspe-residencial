@@ -78,7 +78,7 @@ public class TenantOfflineSyncObservabilityService {
         return sessionRepository.findAll(spec, effective).map(this::toListItem);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TenantOfflineSyncSessionDetailResponse getSession(String serverSyncId, String ip, String userAgent) {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
         TenantContext ctx = tenantGuard.requireContext();

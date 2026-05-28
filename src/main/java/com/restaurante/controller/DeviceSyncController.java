@@ -131,7 +131,11 @@ public class DeviceSyncController {
                     page.nextCursor(),
                     warnings
             );
-            return ResponseEntity.ok().eTag(etag).body(env);
+            var builder = ResponseEntity.ok();
+            if (allowNotModified) {
+                builder.eTag(etag);
+            }
+            return builder.body(env);
         });
     }
 
@@ -177,7 +181,11 @@ public class DeviceSyncController {
                     page.nextCursor(),
                     warnings
             );
-            return ResponseEntity.ok().eTag(etag).body(env);
+            var builder = ResponseEntity.ok();
+            if (allowNotModified) {
+                builder.eTag(etag);
+            }
+            return builder.body(env);
         });
     }
 
@@ -222,7 +230,11 @@ public class DeviceSyncController {
                     page.nextCursor(),
                     warnings
             );
-            return ResponseEntity.ok().eTag(etag).body(env);
+            var builder = ResponseEntity.ok();
+            if (allowNotModified) {
+                builder.eTag(etag);
+            }
+            return builder.body(env);
         });
     }
 

@@ -82,6 +82,20 @@ class DeviceCapabilityRolloutOverwriteModeIT extends PostgresTestcontainersConfi
         );
     }
 
+    private UsernamePasswordAuthenticationToken tenantAuth(ProvisionarTenantResponse prov) {
+        com.restaurante.security.JwtPrincipal principal = com.restaurante.security.JwtPrincipal.builder()
+                .userId(prov.getOwnerUserId())
+                .username(prov.getOwnerEmail())
+                .email(prov.getOwnerEmail())
+                .tokenType("TENANT")
+                .tenantId(prov.getTenantId())
+                .tenantCode(prov.getTenantCode())
+                .tenantRoles(Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()))
+                .authorities(List.of(new SimpleGrantedAuthority("ROLE_GERENTE")))
+                .build();
+        return new UsernamePasswordAuthenticationToken(principal, "N/A", principal.getAuthorities());
+    }
+
     @Test
     void overwrite_only_template_managed_preserves_manual_override() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("cap-ow-a", "COW");
@@ -103,7 +117,7 @@ class DeviceCapabilityRolloutOverwriteModeIT extends PostgresTestcontainersConfi
         capabilityRepository.saveAndFlush(e);
 
         String token = tenantToken(prov);
-        Long tpl = templateIdByCode("CAP_POS_CAIXA_PADRAO", token);
+        Long tpl = templateIdByCode("CAP_POS_CAIXA_PADRAO", prov);
         DeviceCapabilityRolloutRequest req = new DeviceCapabilityRolloutRequest();
         req.setUnidadeId(prov.getUnidadeAtendimentoId());
         req.setRolloutMode(DeviceCapabilityRolloutMode.UNIT_BY_DEVICE_TYPE);
@@ -111,6 +125,7 @@ class DeviceCapabilityRolloutOverwriteModeIT extends PostgresTestcontainersConfi
         req.setOverwriteMode(DeviceCapabilityOverwriteMode.OVERWRITE_ONLY_TEMPLATE_MANAGED);
 
         mockMvc.perform(post("/tenant/device-capability-templates/{templateId}/rollout/apply", tpl)
+                        .with(authentication(tenantAuth(prov)))
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
@@ -122,8 +137,10 @@ class DeviceCapabilityRolloutOverwriteModeIT extends PostgresTestcontainersConfi
         assertThat(after.isManualOverride()).isTrue();
     }
 
-    private Long templateIdByCode(String code, String token) throws Exception {
+    private Long templateIdByCode(String code, ProvisionarTenantResponse prov) throws Exception {
+        String token = tenantToken(prov);
         String list = mockMvc.perform(get("/tenant/device-capability-templates")
+                        .with(authentication(tenantAuth(prov)))
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();

@@ -81,6 +81,20 @@ class DeviceCapabilityRolloutApplyIT extends PostgresTestcontainersConfig {
         );
     }
 
+    private UsernamePasswordAuthenticationToken tenantAuth(ProvisionarTenantResponse prov) {
+        com.restaurante.security.JwtPrincipal principal = com.restaurante.security.JwtPrincipal.builder()
+                .userId(prov.getOwnerUserId())
+                .username(prov.getOwnerEmail())
+                .email(prov.getOwnerEmail())
+                .tokenType("TENANT")
+                .tenantId(prov.getTenantId())
+                .tenantCode(prov.getTenantCode())
+                .tenantRoles(Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()))
+                .authorities(List.of(new SimpleGrantedAuthority("ROLE_GERENTE")))
+                .build();
+        return new UsernamePasswordAuthenticationToken(principal, "N/A", principal.getAuthorities());
+    }
+
     @Test
     void apply_rollout_creates_template_managed_capabilities() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("cap-roll-a", "CRA");
@@ -92,7 +106,7 @@ class DeviceCapabilityRolloutApplyIT extends PostgresTestcontainersConfig {
 
         DispositivoOperacional d = criarDevice(prov, OperationalDeviceType.POS_CAIXA);
         String token = tenantToken(prov);
-        Long tpl = templateIdByCode("CAP_POS_CAIXA_PADRAO", token);
+        Long tpl = templateIdByCode("CAP_POS_CAIXA_PADRAO", prov);
 
         DeviceCapabilityRolloutRequest req = new DeviceCapabilityRolloutRequest();
         req.setUnidadeId(prov.getUnidadeAtendimentoId());
@@ -101,6 +115,7 @@ class DeviceCapabilityRolloutApplyIT extends PostgresTestcontainersConfig {
         req.setOverwriteMode(DeviceCapabilityOverwriteMode.OVERWRITE_EXISTING);
 
         mockMvc.perform(post("/tenant/device-capability-templates/{templateId}/rollout/apply", tpl)
+                        .with(authentication(tenantAuth(prov)))
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
@@ -115,8 +130,10 @@ class DeviceCapabilityRolloutApplyIT extends PostgresTestcontainersConfig {
         assertThat(cap.getTemplateAppliedAt()).isNotNull();
     }
 
-    private Long templateIdByCode(String code, String token) throws Exception {
+    private Long templateIdByCode(String code, ProvisionarTenantResponse prov) throws Exception {
+        String token = tenantToken(prov);
         String list = mockMvc.perform(get("/tenant/device-capability-templates")
+                        .with(authentication(tenantAuth(prov)))
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();

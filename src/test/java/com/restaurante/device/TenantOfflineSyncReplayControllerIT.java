@@ -67,7 +67,6 @@ import org.springframework.transaction.annotation.Transactional;
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-@Transactional
 class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -84,6 +83,7 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
     @Autowired com.restaurante.repository.TurnoOperacionalRepository turnoOperacionalRepository;
     @Autowired com.restaurante.repository.UserRepository userRepository;
     @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @AfterEach
     void clear() {
@@ -92,36 +92,46 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
 
     @Test
     void owner_can_preview_and_replay_retryable_conflict_and_export_is_sanitized() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("offline-replay", "RPL");
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final Produto[] prodArr = new Produto[1];
+        final DispositivoOperacional[] dispArr = new DispositivoOperacional[1];
 
-        // Abre turno programaticamente para evitar o erro DEVICE_ORDER_TURNO_REQUIRED
-        com.restaurante.model.entity.User ownerUser = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
-        com.restaurante.model.entity.Tenant tenantObj = tenantRepository.findById(prov.getTenantId()).orElseThrow();
-        com.restaurante.model.entity.Instituicao instObj = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
-        com.restaurante.model.entity.UnidadeAtendimento uaObj = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            provArr[0] = provisionTenant("offline-replay", "RPL");
+            var provVal = provArr[0];
 
-        com.restaurante.model.entity.TurnoOperacional turnoObj = new com.restaurante.model.entity.TurnoOperacional();
-        turnoObj.setTenant(tenantObj);
-        turnoObj.setInstituicao(instObj);
-        turnoObj.setUnidadeAtendimento(uaObj);
-        turnoObj.setAbertoPor(ownerUser);
-        turnoObj.setStatus(com.restaurante.model.enums.TurnoOperacionalStatus.ABERTO);
-        turnoObj.setTipo(com.restaurante.model.enums.TurnoOperacionalTipo.POS);
-        turnoObj.setNome("Turno Replay IT");
-        turnoObj.setAbertoEm(java.time.LocalDateTime.now());
-        turnoOperacionalRepository.saveAndFlush(turnoObj);
+            com.restaurante.model.entity.User ownerUser = userRepository.findById(provVal.getOwnerUserId()).orElseThrow();
+            com.restaurante.model.entity.Tenant tenantObj = tenantRepository.findById(provVal.getTenantId()).orElseThrow();
+            com.restaurante.model.entity.Instituicao instObj = instituicaoRepository.findById(provVal.getInstituicaoId()).orElseThrow();
+            com.restaurante.model.entity.UnidadeAtendimento uaObj = unidadeAtendimentoRepository.findById(provVal.getUnidadeAtendimentoId()).orElseThrow();
 
-        com.restaurante.model.entity.Cozinha cozinhaCentral = new com.restaurante.model.entity.Cozinha();
-        cozinhaCentral.setNome("Cozinha Central Replay");
-        cozinhaCentral.setTipo(com.restaurante.model.enums.TipoCozinha.CENTRAL);
-        cozinhaCentral.setAtiva(true);
-        cozinhaCentral = cozinhaRepository.saveAndFlush(cozinhaCentral);
+            com.restaurante.model.entity.TurnoOperacional turnoObj = new com.restaurante.model.entity.TurnoOperacional();
+            turnoObj.setTenant(tenantObj);
+            turnoObj.setInstituicao(instObj);
+            turnoObj.setUnidadeAtendimento(uaObj);
+            turnoObj.setAbertoPor(ownerUser);
+            turnoObj.setStatus(com.restaurante.model.enums.TurnoOperacionalStatus.ABERTO);
+            turnoObj.setTipo(com.restaurante.model.enums.TurnoOperacionalTipo.POS);
+            turnoObj.setNome("Turno Replay IT");
+            turnoObj.setAbertoEm(java.time.LocalDateTime.now());
+            turnoOperacionalRepository.saveAndFlush(turnoObj);
 
-        uaObj.adicionarCozinha(cozinhaCentral);
-        unidadeAtendimentoRepository.saveAndFlush(uaObj);
+            com.restaurante.model.entity.Cozinha cozinhaCentral = new com.restaurante.model.entity.Cozinha();
+            cozinhaCentral.setNome("Cozinha Central Replay");
+            cozinhaCentral.setTipo(com.restaurante.model.enums.TipoCozinha.CENTRAL);
+            cozinhaCentral.setAtiva(true);
+            cozinhaCentral = cozinhaRepository.saveAndFlush(cozinhaCentral);
 
-        Produto prod = criarProdutoBasico(prov.getTenantId(), false); // inativo => conflito
-        DispositivoOperacional disp = criarDevicePos(prov, OperationalDeviceType.POS_CAIXA);
+            uaObj.adicionarCozinha(cozinhaCentral);
+            unidadeAtendimentoRepository.saveAndFlush(uaObj);
+
+            prodArr[0] = criarProdutoBasico(provVal.getTenantId(), false); // inativo => conflito
+            dispArr[0] = criarDevicePos(provVal, OperationalDeviceType.POS_CAIXA);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        Produto prod = prodArr[0];
+        DispositivoOperacional disp = dispArr[0];
 
         UsernamePasswordAuthenticationToken deviceAuth = deviceAuth(prov, disp);
 
@@ -148,8 +158,11 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
         assertThat(sync.get("conflicts").asInt()).isEqualTo(1);
 
         // ativa produto e reprocessa
-        prod.setAtivo(true);
-        produtoRepository.saveAndFlush(prod);
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Produto p = produtoRepository.findById(prod.getId()).orElseThrow();
+            p.setAtivo(true);
+            produtoRepository.saveAndFlush(p);
+        });
 
         JwtPrincipal ownerPrincipal = JwtPrincipal.builder()
                 .userId(prov.getOwnerUserId())

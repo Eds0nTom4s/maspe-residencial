@@ -21,7 +21,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import com.restaurante.service.metrics.NoOpDeviceSyncMetricsService;
 
 @RestControllerAdvice
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class DeviceApiExceptionHandler {
 
     private final DeviceSyncMetricsService metrics;
@@ -32,19 +32,35 @@ public class DeviceApiExceptionHandler {
 
     private boolean isDeviceApiPath(HttpServletRequest req) {
         String uri = req != null ? req.getRequestURI() : null;
-        return uri != null && uri.startsWith("/device") && !uri.startsWith("/device/sync");
+        return uri != null && 
+               (uri.startsWith("/device") || uri.startsWith("/api/device")) && 
+               !(uri.startsWith("/device/sync") || uri.startsWith("/api/device/sync"));
     }
 
     private void maybeRecordHeartbeat(HttpServletRequest req, String result) {
         String uri = req != null ? req.getRequestURI() : null;
-        if (uri != null && uri.equals("/device/heartbeat")) {
+        if (uri != null && (uri.equals("/device/heartbeat") || uri.equals("/api/device/heartbeat"))) {
             metrics.recordHeartbeat(result);
         }
     }
 
+    private ResponseEntity<Object> delegateToGlobal(Exception ex, HttpServletRequest req, HttpStatus status, String error, String code) {
+        var body = com.restaurante.exception.GlobalExceptionHandler.ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(status.value())
+                .error(error)
+                .message(ex.getMessage())
+                .code(code)
+                .path(req != null ? req.getRequestURI() : "")
+                .build();
+        return ResponseEntity.status(status).body(body);
+    }
+
     @ExceptionHandler(DeviceUnauthorizedException.class)
-    public ResponseEntity<DeviceErrorResponse> unauthorized(DeviceUnauthorizedException ex, HttpServletRequest req) {
-        if (!isDeviceApiPath(req)) throw ex;
+    public ResponseEntity<Object> unauthorized(DeviceUnauthorizedException ex, HttpServletRequest req) {
+        if (!isDeviceApiPath(req)) {
+            return delegateToGlobal(ex, req, HttpStatus.UNAUTHORIZED, "Não autenticado", "DEVICE_UNAUTHORIZED");
+        }
         maybeRecordHeartbeat(req, "UNAUTHORIZED");
         DeviceErrorResponse body = new DeviceErrorResponse(
                 DeviceErrorResponse.DeviceErrorCode.DEVICE_UNAUTHORIZED,
@@ -58,8 +74,10 @@ public class DeviceApiExceptionHandler {
     }
 
     @ExceptionHandler(DeviceForbiddenException.class)
-    public ResponseEntity<DeviceErrorResponse> forbidden(DeviceForbiddenException ex, HttpServletRequest req) {
-        if (!isDeviceApiPath(req)) throw ex;
+    public ResponseEntity<Object> forbidden(DeviceForbiddenException ex, HttpServletRequest req) {
+        if (!isDeviceApiPath(req)) {
+            return delegateToGlobal(ex, req, HttpStatus.FORBIDDEN, "Acesso negado", "DEVICE_FORBIDDEN");
+        }
         maybeRecordHeartbeat(req, "FORBIDDEN");
         DeviceErrorResponse body = new DeviceErrorResponse(
                 DeviceErrorResponse.DeviceErrorCode.DEVICE_FORBIDDEN,
@@ -73,8 +91,24 @@ public class DeviceApiExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<DeviceErrorResponse> invalidRequest(MethodArgumentNotValidException ex, HttpServletRequest req) {
-        if (!isDeviceApiPath(req)) throw new RuntimeException(ex);
+    public ResponseEntity<Object> invalidRequest(MethodArgumentNotValidException ex, HttpServletRequest req) {
+        if (!isDeviceApiPath(req)) {
+            java.util.Map<String, String> errors = new java.util.HashMap<>();
+            ex.getBindingResult().getAllErrors().forEach((error) -> {
+                String fieldName = ((org.springframework.validation.FieldError) error).getField();
+                String errorMessage = error.getDefaultMessage();
+                errors.put(fieldName, errorMessage);
+            });
+            var body = com.restaurante.exception.GlobalExceptionHandler.ErrorResponse.builder()
+                    .timestamp(LocalDateTime.now())
+                    .status(HttpStatus.BAD_REQUEST.value())
+                    .error("Erro de validação")
+                    .message("Dados inválidos fornecidos")
+                    .path(req != null ? req.getRequestURI() : "")
+                    .validationErrors(errors)
+                    .build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+        }
         DeviceErrorResponse body = new DeviceErrorResponse(
                 DeviceErrorResponse.DeviceErrorCode.DEVICE_REQUEST_INVALID,
                 "Dados inválidos fornecidos.",
@@ -87,8 +121,10 @@ public class DeviceApiExceptionHandler {
     }
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<DeviceErrorResponse> business(BusinessException ex, HttpServletRequest req) {
-        if (!isDeviceApiPath(req)) throw ex;
+    public ResponseEntity<Object> business(BusinessException ex, HttpServletRequest req) {
+        if (!isDeviceApiPath(req)) {
+            return delegateToGlobal(ex, req, HttpStatus.BAD_REQUEST, "Erro de negócio", null);
+        }
         DeviceErrorResponse body = new DeviceErrorResponse(
                 DeviceErrorResponse.DeviceErrorCode.DEVICE_REQUEST_INVALID,
                 ex.getMessage(),
@@ -101,8 +137,10 @@ public class DeviceApiExceptionHandler {
     }
 
     @ExceptionHandler(DeviceApiException.class)
-    public ResponseEntity<DeviceErrorResponse> deviceApi(DeviceApiException ex, HttpServletRequest req) {
-        if (!isDeviceApiPath(req)) throw ex;
+    public ResponseEntity<Object> deviceApi(DeviceApiException ex, HttpServletRequest req) {
+        if (!isDeviceApiPath(req)) {
+            return delegateToGlobal(ex, req, ex.getStatus(), "Erro na API do dispositivo", ex.getCode() != null ? ex.getCode().name() : null);
+        }
         DeviceErrorResponse body = new DeviceErrorResponse(
                 ex.getCode(),
                 ex.getMessage(),

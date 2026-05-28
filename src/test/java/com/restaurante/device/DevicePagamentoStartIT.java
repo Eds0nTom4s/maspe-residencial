@@ -43,6 +43,9 @@ import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.model.entity.Cozinha;
+import com.restaurante.model.enums.TipoCozinha;
+import com.restaurante.repository.CozinhaRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,7 +78,7 @@ import org.springframework.transaction.annotation.Transactional;
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 @Transactional
 class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
@@ -91,6 +94,7 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired PagamentoGatewayRepository pagamentoGatewayRepository;
     @Autowired OperationalEventLogRepository operationalEventLogRepository;
+    @Autowired CozinhaRepository cozinhaRepository;
     @Autowired UserRepository userRepository;
     @Autowired TenantUserRepository tenantUserRepository;
     @Autowired JwtTokenProvider jwtTokenProvider;
@@ -254,10 +258,16 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
         FecharTurnoRequest fechar = new FecharTurnoRequest();
         fechar.setObservacao("Fecho teste");
         fechar.setForcarFecho(true);
-        ChecklistItemRespostaRequest it = new ChecklistItemRespostaRequest();
-        it.setCodigo("PEDIDOS_PENDENTES_VERIFICADOS");
-        it.setValorBoolean(true);
-        fechar.setChecklist(List.of(it));
+        ChecklistItemRespostaRequest it1 = new ChecklistItemRespostaRequest();
+        it1.setCodigo("PEDIDOS_PENDENTES_VERIFICADOS");
+        it1.setValorBoolean(true);
+        ChecklistItemRespostaRequest it2 = new ChecklistItemRespostaRequest();
+        it2.setCodigo("PAGAMENTOS_PENDENTES_VERIFICADOS");
+        it2.setValorBoolean(true);
+        ChecklistItemRespostaRequest it3 = new ChecklistItemRespostaRequest();
+        it3.setCodigo("SUBPEDIDOS_EM_ABERTO_VERIFICADOS");
+        it3.setValorBoolean(true);
+        fechar.setChecklist(List.of(it1, it2, it3));
         mockMvc.perform(post("/tenant/operacao/turnos/{id}/fechar", turnoId)
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -304,10 +314,28 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
         req.setUnidadeAtendimentoId(prov.getUnidadeAtendimentoId());
         req.setTipo(TurnoOperacionalTipo.DIARIO);
         req.setNome("Turno POS");
-        ChecklistItemRespostaRequest it = new ChecklistItemRespostaRequest();
-        it.setCodigo("DEVICE_ONLINE");
-        it.setValorBoolean(true);
-        req.setChecklist(List.of(it));
+
+        ChecklistItemRespostaRequest it1 = new ChecklistItemRespostaRequest();
+        it1.setCodigo("DEVICE_ONLINE");
+        it1.setValorBoolean(true);
+
+        ChecklistItemRespostaRequest it2 = new ChecklistItemRespostaRequest();
+        it2.setCodigo("QR_VISIVEL");
+        it2.setValorBoolean(true);
+
+        ChecklistItemRespostaRequest it3 = new ChecklistItemRespostaRequest();
+        it3.setCodigo("CATALOGO_ATUALIZADO");
+        it3.setValorBoolean(true);
+
+        ChecklistItemRespostaRequest it4 = new ChecklistItemRespostaRequest();
+        it4.setCodigo("UNIDADE_PRODUCAO_ATIVA");
+        it4.setValorBoolean(true);
+
+        ChecklistItemRespostaRequest it5 = new ChecklistItemRespostaRequest();
+        it5.setCodigo("OPERADOR_CONFIRMOU");
+        it5.setValorBoolean(true);
+
+        req.setChecklist(List.of(it1, it2, it3, it4, it5));
         return req;
     }
 
@@ -358,7 +386,7 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
         String uniqueCode = tenantCode + suffix;
         if (uniqueCode.length() > 10) uniqueCode = uniqueCode.substring(0, 10);
         String phone = "+244900" + Math.abs(slug.hashCode() % 1_000_000);
-        return provisioningService.provisionar(
+        var prov = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + slug)
@@ -379,5 +407,19 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
                                 .build())
                         .build()
         );
+
+        // Provisionar Cozinha CENTRAL ativa para a unidade
+        var ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
+        Cozinha cozinha = Cozinha.builder()
+                .nome("Cozinha CENTRAL")
+                .tipo(TipoCozinha.CENTRAL)
+                .ativa(true)
+                .descricao("Cozinha Central Offline")
+                .build();
+        cozinha = cozinhaRepository.saveAndFlush(cozinha);
+        ua.adicionarCozinha(cozinha);
+        unidadeAtendimentoRepository.saveAndFlush(ua);
+
+        return prov;
     }
 }

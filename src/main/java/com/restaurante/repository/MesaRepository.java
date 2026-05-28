@@ -127,7 +127,7 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
                    sum(case when m.updatedAt is null then 1 else 0 end) as nullUpdatedAtCount
             from Mesa m
             where m.tenant.id = :tenantId
-              and (:unidadeAtendimentoId is null or m.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:unidadeAtendimentoId as string) is null or m.unidadeAtendimento.id = :unidadeAtendimentoId)
               and m.ativa = true
             """)
     SyncAggProjection computeSyncAgg(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
@@ -136,7 +136,7 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
             select count(m)
             from Mesa m
             where m.tenant.id = :tenantId
-              and (:unidadeAtendimentoId is null or m.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:unidadeAtendimentoId as string) is null or m.unidadeAtendimento.id = :unidadeAtendimentoId)
               and m.ativa = true
             """)
     long countSyncByTenantAndScope(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
@@ -145,10 +145,10 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
             select m
             from Mesa m
             where m.tenant.id = :tenantId
-              and (:unidadeAtendimentoId is null or m.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:unidadeAtendimentoId as string) is null or m.unidadeAtendimento.id = :unidadeAtendimentoId)
               and m.ativa = true
-              and (:updatedSince is null or m.updatedAt > :updatedSince)
-              and (:lastId is null or m.id > :lastId)
+              and (cast(:updatedSince as timestamp) is null or m.updatedAt > :updatedSince)
+              and (cast(:lastId as string) is null or m.id > :lastId)
             order by m.id asc
             """)
     List<Mesa> syncKeyset(@Param("tenantId") Long tenantId,

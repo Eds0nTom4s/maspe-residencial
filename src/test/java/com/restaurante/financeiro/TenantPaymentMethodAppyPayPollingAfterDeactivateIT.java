@@ -31,9 +31,21 @@ import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UserRepository;
+import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.model.entity.Instituicao;
+import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.entity.Cozinha;
+import com.restaurante.model.enums.TipoCozinha;
+import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.security.device.DevicePrincipal;
+import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
+import com.restaurante.security.tenant.TenantResolutionSource;
+import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -48,6 +60,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
 
@@ -75,6 +88,12 @@ class TenantPaymentMethodAppyPayPollingAfterDeactivateIT extends PostgresTestcon
     @Autowired TenantRepository tenantRepository;
     @Autowired UserRepository userRepository;
     @Autowired JwtTokenProvider jwtTokenProvider;
+    @Autowired TenantPaymentMethodBootstrapService bootstrapService;
+    @Autowired InstituicaoRepository instituicaoRepository;
+    @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
+    @Autowired CozinhaRepository cozinhaRepository;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @MockBean AppyPayClient appyPayClient;
 
@@ -119,7 +138,7 @@ class TenantPaymentMethodAppyPayPollingAfterDeactivateIT extends PostgresTestcon
 	                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
 	                .andExpect(status().isCreated());
 
-        Produto prod = produtoRepository.findByTenantId(prov.getTenantId()).stream().findFirst().orElseThrow();
+        Produto prod = criarProduto(prov);
         DispositivoOperacional disp = criarDevicePos(prov);
 
         DevicePrincipal device = new DevicePrincipal(
@@ -204,13 +223,62 @@ class TenantPaymentMethodAppyPayPollingAfterDeactivateIT extends PostgresTestcon
     }
 
     private DispositivoOperacional criarDevicePos(ProvisionarTenantResponse prov) {
-        // provisioning template já cria device? criar um mínimo com FKs via IDs não é possível na entity; usar repo do projeto existente.
-        // Reaproveitar um device existente do tenant, se houver; caso contrário criar via entidade com relacionamentos.
-        return dispositivoOperacionalRepository
-                .findByTenantId(prov.getTenantId(), org.springframework.data.domain.PageRequest.of(0, 1))
-                .stream()
-                .findFirst()
-                .orElseThrow();
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        Instituicao inst = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
+        UnidadeAtendimento ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
+        DispositivoOperacional d = new DispositivoOperacional();
+        d.setTenant(tenant);
+        d.setInstituicao(inst);
+        d.setUnidadeAtendimento(ua);
+        d.setCodigo("POS-AP-" + System.nanoTime());
+        d.setNome("POS AppyPay");
+        d.setTipo(DispositivoTipo.POS);
+        d.setStatus(DispositivoStatus.ATIVO);
+        d.setTokenVersion(1);
+        return dispositivoOperacionalRepository.save(d);
+    }
+
+    private Produto criarProduto(ProvisionarTenantResponse prov) {
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        // garantir que existe uma Cozinha CENTRAL activa vinculada à UA via tabela de join
+        // Usa repositório para reload da UA com coleção inicializada
+        if (cozinhaRepository.findByUnidadeAtendimentoIdAndTipoAndAtiva(
+                prov.getUnidadeAtendimentoId(), TipoCozinha.CENTRAL, true).isEmpty()) {
+            vincularCozinhaCentral(prov.getUnidadeAtendimentoId());
+        }
+        CategoriaProduto cat = categoriaProdutoRepository.findBySlugAndTenantId("geral", prov.getTenantId())
+                .orElseGet(() -> {
+                    CategoriaProduto c = new CategoriaProduto();
+                    c.setTenant(tenant);
+                    c.setNome("Geral");
+                    c.setSlug("geral");
+                    c.setOrdem(0);
+                    c.setAtivo(true);
+                    return categoriaProdutoRepository.save(c);
+                });
+        Produto p = new Produto();
+        p.setTenant(tenant);
+        p.setCodigo("PROD-TEST-" + System.nanoTime());
+        p.setNome("Produto Teste");
+        p.setPreco(new BigDecimal("12.00"));
+        p.setCategoria(com.restaurante.model.enums.CategoriaProdutoLegacy.PRATO_PRINCIPAL);
+        p.setCategoriaProduto(cat);
+        p.setDisponivel(true);
+        p.setAtivo(true);
+        return produtoRepository.save(p);
+    }
+
+    void vincularCozinhaCentral(Long unidadeAtendimentoId) {
+        Cozinha coz = new Cozinha();
+        coz.setNome("Cozinha Central");
+        coz.setTipo(TipoCozinha.CENTRAL);
+        coz.setAtiva(true);
+        Cozinha salva = cozinhaRepository.saveAndFlush(coz);
+        // INSERT directo na tabela de join para evitar LazyInitializationException
+        jdbcTemplate.update(
+                "INSERT INTO unidade_cozinha (unidade_id, cozinha_id) VALUES (?, ?)",
+                unidadeAtendimentoId, salva.getId()
+        );
     }
 
     private AbrirTurnoRequest abrirTurnoReq(ProvisionarTenantResponse prov) {
@@ -243,7 +311,7 @@ class TenantPaymentMethodAppyPayPollingAfterDeactivateIT extends PostgresTestcon
                 TenantResolutionSource.JWT, true, false
         ));
         String phone = "+244900" + Math.abs(nome.hashCode() % 1_000_000);
-        return provisioningService.provisionar(
+        ProvisionarTenantResponse prov = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + nome)
@@ -264,5 +332,7 @@ class TenantPaymentMethodAppyPayPollingAfterDeactivateIT extends PostgresTestcon
                                 .build())
                         .build()
         );
+        bootstrapService.ensureDefaults(prov.getTenantId());
+        return prov;
     }
 }

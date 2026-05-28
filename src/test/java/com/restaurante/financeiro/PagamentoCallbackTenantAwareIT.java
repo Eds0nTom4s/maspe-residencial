@@ -92,7 +92,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         Tenant tenantA = criarTenant("Banca da Tia Rosa", "tia-rosa", "TIA");
         Instituicao instA = criarInstituicao(tenantA, "InstA", "IA", "NIF-PA-001", "+244900010001");
         UnidadeAtendimento uaA = criarUnidade(instA, "UA", TipoUnidadeAtendimento.RESTAURANTE);
-        criarCozinhaVinculada(uaA, "Bar", TipoCozinha.BAR_PREP);
+        criarCozinhaVinculada(uaA, "Cozinha Central", TipoCozinha.CENTRAL);
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
         Produto prodA = criarProduto(tenantA, catA, "AGUA", "Água", new BigDecimal("10.00"));
 
@@ -121,12 +121,12 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
                 """.formatted(pg.getExternalReference(), toCentavos(pg.getAmount()));
 
         ResponseEntity<Void> cb1 = restTemplate.postForEntity(
-                "/api/pagamentos/callback",
+                "/pagamentos/callback",
                 new HttpEntity<>(callbackJson, jsonHeaders()),
                 Void.class
         );
         ResponseEntity<Void> cb2 = restTemplate.postForEntity(
-                "/api/pagamentos/callback",
+                "/pagamentos/callback",
                 new HttpEntity<>(callbackJson, jsonHeaders()),
                 Void.class
         );
@@ -161,7 +161,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         Tenant tenantA = criarTenant("Bar do João", "bar-joao", "JOA");
         Instituicao instA = criarInstituicao(tenantA, "InstA2", "IA2", "NIF-PA-002", "+244900010002");
         UnidadeAtendimento uaA = criarUnidade(instA, "UA2", TipoUnidadeAtendimento.BAR);
-        criarCozinhaVinculada(uaA, "Bar2", TipoCozinha.BAR_PREP);
+        criarCozinhaVinculada(uaA, "Cozinha Central 2", TipoCozinha.CENTRAL);
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
         Produto prodA = criarProduto(tenantA, catA, "CERVEJA", "Cerveja", new BigDecimal("10.00"));
 
@@ -185,7 +185,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
                 """.formatted(pg.getExternalReference(), toCentavos(pg.getAmount()) + 1);
 
         ResponseEntity<Void> cb = restTemplate.postForEntity(
-                "/api/pagamentos/callback",
+                "/pagamentos/callback",
                 new HttpEntity<>(callbackJson, jsonHeaders()),
                 Void.class
         );
@@ -209,7 +209,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.add("Idempotency-Key", idempotencyKey);
         ResponseEntity<String> resp = restTemplate.postForEntity(
-                "/api/public/q/{token}/pedidos/{pedidoId}/pagamentos",
+                "/public/q/{token}/pedidos/{pedidoId}/pagamentos",
                 new HttpEntity<>(payPayload, headers),
                 String.class,
                 token,
@@ -228,7 +228,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.add("Idempotency-Key", idemKey);
         ResponseEntity<String> resp = restTemplate.postForEntity(
-                "/api/public/q/{token}/pedidos",
+                "/public/q/{token}/pedidos",
                 new HttpEntity<>(payload, headers),
                 String.class,
                 token

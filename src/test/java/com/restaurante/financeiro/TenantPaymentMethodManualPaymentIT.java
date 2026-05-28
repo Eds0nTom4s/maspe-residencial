@@ -9,6 +9,7 @@ import com.restaurante.dto.request.CriarCarregamentoFundoRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.financeiro.paymentmethod.repository.TenantPaymentMethodRepository;
+import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Tenant;
@@ -23,12 +24,17 @@ import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TurnoOperacionalTipo;
+import com.restaurante.repository.TurnoOperacionalRepository;
+import com.restaurante.model.entity.TurnoOperacional;
+import com.restaurante.model.enums.TurnoOperacionalStatus;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.security.device.DevicePrincipal;
+import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
+import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
@@ -45,6 +51,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -69,6 +76,8 @@ class TenantPaymentMethodManualPaymentIT extends PostgresTestcontainersConfig {
 	@Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
 	@Autowired com.restaurante.repository.UserRepository userRepository;
 	@Autowired JwtTokenProvider jwtTokenProvider;
+	@Autowired TenantPaymentMethodBootstrapService bootstrapService;
+	@Autowired TurnoOperacionalRepository turnoOperacionalRepository;
 
     @AfterEach
     void clear() {
@@ -81,6 +90,15 @@ class TenantPaymentMethodManualPaymentIT extends PostgresTestcontainersConfig {
 	        String mesaQrToken = prov.getMesas().get(0).getQrToken();
 
 	        activateCashForQrAndFundo(prov.getTenantId());
+
+            // abrir turno ANTES de criar a ordem (CASH exige turno aberto)
+	        String ownerToken = ownerToken(prov, TenantUserRole.TENANT_OWNER);
+	        String turnoJson = mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+	                        .header("Authorization", "Bearer " + ownerToken)
+	                        .contentType(MediaType.APPLICATION_JSON)
+	                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
+	                .andExpect(status().isCreated())
+	                .andReturn().getResponse().getContentAsString();
 
 	        // cria consumo anónimo
 	        String consumoJson = mockMvc.perform(post("/public/q/" + mesaQrToken + "/consumos/anonimo"))
@@ -99,15 +117,7 @@ class TenantPaymentMethodManualPaymentIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
 	        Long ordemId = objectMapper.readTree(ordemJson).at("/data/ordemPagamentoId").asLong();
 
-	        // abrir turno (tenant context)
-	        String ownerToken = ownerToken(prov, TenantUserRole.TENANT_OWNER);
-	        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-	                        .header("Authorization", "Bearer " + ownerToken)
-	                        .contentType(MediaType.APPLICATION_JSON)
-	                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
-	                .andExpect(status().isCreated());
-
-        // desativa CASH após criação
+        // desativa CASH após criação da ordem
         var cash = tenantPaymentMethodRepository.findByTenantIdAndCode(prov.getTenantId(), PaymentMethodCode.CASH).orElseThrow();
         cash.setStatus(PaymentMethodStatus.INACTIVE);
         tenantPaymentMethodRepository.saveAndFlush(cash);
@@ -152,6 +162,14 @@ class TenantPaymentMethodManualPaymentIT extends PostgresTestcontainersConfig {
 
 	        activateCashForQrAndFundo(prov.getTenantId());
 
+            // abrir turno ANTES de criar a ordem
+	        String ownerToken = ownerToken(prov, TenantUserRole.TENANT_OWNER);
+	        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+	                        .header("Authorization", "Bearer " + ownerToken)
+	                        .contentType(MediaType.APPLICATION_JSON)
+	                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
+	                .andExpect(status().isCreated());
+
 	        String consumoJson = mockMvc.perform(post("/public/q/" + mesaQrToken + "/consumos/anonimo"))
 	                .andExpect(status().isCreated())
 	                .andReturn().getResponse().getContentAsString();
@@ -166,14 +184,6 @@ class TenantPaymentMethodManualPaymentIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 	        Long ordemId = objectMapper.readTree(ordemJson).at("/data/ordemPagamentoId").asLong();
-
-	        // abrir turno
-	        String ownerToken = ownerToken(prov, TenantUserRole.TENANT_OWNER);
-	        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-	                        .header("Authorization", "Bearer " + ownerToken)
-	                        .contentType(MediaType.APPLICATION_JSON)
-	                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
-	                .andExpect(status().isCreated());
 
         var cash = tenantPaymentMethodRepository.findByTenantIdAndCode(prov.getTenantId(), PaymentMethodCode.CASH).orElseThrow();
         cash.setStatus(PaymentMethodStatus.SUSPENDED);
@@ -218,6 +228,16 @@ class TenantPaymentMethodManualPaymentIT extends PostgresTestcontainersConfig {
 
 	        activateCashForQrAndFundo(prov.getTenantId());
 
+            // abrir turno para criar a ordem (CASH exige turno)
+	        String ownerToken = ownerToken(prov, TenantUserRole.TENANT_OWNER);
+	        String turnoJson = mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+	                        .header("Authorization", "Bearer " + ownerToken)
+	                        .contentType(MediaType.APPLICATION_JSON)
+	                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
+	                .andExpect(status().isCreated())
+	                .andReturn().getResponse().getContentAsString();
+	        Long turnoId = objectMapper.readTree(turnoJson).at("/data/id").asLong();
+
 	        String consumoJson = mockMvc.perform(post("/public/q/" + mesaQrToken + "/consumos/anonimo"))
 	                .andExpect(status().isCreated())
 	                .andReturn().getResponse().getContentAsString();
@@ -233,7 +253,15 @@ class TenantPaymentMethodManualPaymentIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
 	        Long ordemId = objectMapper.readTree(ordemJson).at("/data/ordemPagamentoId").asLong();
 
-        // sem abrir turno
+        // fechar turno via repositório (sem TenantContext) — para que a confirmação falhe (sem turno aberto)
+        turnoOperacionalRepository.findById(turnoId).ifPresent(t -> {
+            t.setStatus(TurnoOperacionalStatus.FECHADO);
+            turnoOperacionalRepository.saveAndFlush(t);
+        });
+        assertThat(turnoOperacionalRepository.findById(turnoId)).isPresent();
+        assertThat(turnoOperacionalRepository.findById(turnoId).get().getStatus()).isEqualTo(TurnoOperacionalStatus.FECHADO);
+
+        // sem turno aberto agora
         DispositivoOperacional disp = criarDevicePos(prov);
         DevicePrincipal device = new DevicePrincipal(
                 disp.getId(),
@@ -333,7 +361,7 @@ class TenantPaymentMethodManualPaymentIT extends PostgresTestcontainersConfig {
                 TenantResolutionSource.JWT, true, false
         ));
         String phone = "+244900" + Math.abs(nome.hashCode() % 1_000_000);
-        return provisioningService.provisionar(
+        ProvisionarTenantResponse prov = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + nome)
@@ -359,5 +387,7 @@ class TenantPaymentMethodManualPaymentIT extends PostgresTestcontainersConfig {
                                 .build())
                         .build()
         );
+        bootstrapService.ensureDefaults(prov.getTenantId());
+        return prov;
     }
 }

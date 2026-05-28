@@ -14,6 +14,7 @@ import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -27,6 +28,7 @@ public class PagamentoManualPollingService {
     private final PagamentoGatewayPollingService pollingService;
     private final OperationalEventLogService operationalEventLogService;
 
+    @Transactional
     public PagamentoManualPollResponse forcarPolling(Long pagamentoId, ManualPollRequest request) {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
         TenantContext ctx = tenantGuard.requireContext();

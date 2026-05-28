@@ -38,6 +38,9 @@ import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
+import com.restaurante.repository.UserRepository;
+import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -65,12 +68,16 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.restaurante.model.enums.TenantUserEstado;
+import org.springframework.transaction.annotation.Transactional;
+
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
+@Transactional
 class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -84,12 +91,28 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired PagamentoGatewayRepository pagamentoGatewayRepository;
     @Autowired OperationalEventLogRepository operationalEventLogRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired TenantUserRepository tenantUserRepository;
+    @Autowired JwtTokenProvider jwtTokenProvider;
 
     @MockBean AppyPayClient appyPayClient;
 
     @AfterEach
     void clear() {
         TenantContextHolder.clear();
+    }
+
+    private String tenantToken(ProvisionarTenantResponse prov) {
+        var tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        var user = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
+        return jwtTokenProvider.generateTenantScopedToken(
+                user,
+                tenant,
+                TenantUserRole.TENANT_OWNER,
+                TenantUserEstado.ATIVO,
+                1,
+                null
+        );
     }
 
     @Test
@@ -112,7 +135,9 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
+        String token = tenantToken(prov);
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
                 .andExpect(status().isCreated());
@@ -200,7 +225,9 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
+        String token = tenantToken(prov);
         String abrirResp = mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
                 .andExpect(status().isCreated())
@@ -232,6 +259,7 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
         it.setValorBoolean(true);
         fechar.setChecklist(List.of(it));
         mockMvc.perform(post("/tenant/operacao/turnos/{id}/fechar", turnoId)
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(fechar)))
                 .andExpect(status().isOk());
@@ -326,23 +354,26 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 100_000L));
+        String uniqueCode = tenantCode + suffix;
+        if (uniqueCode.length() > 10) uniqueCode = uniqueCode.substring(0, 10);
         String phone = "+244900" + Math.abs(slug.hashCode() % 1_000_000);
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + slug)
-                                .slug(slug)
-                                .tenantCode(tenantCode)
+                                .slug(slug + "-" + suffix)
+                                .tenantCode(uniqueCode)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + slug)
-                                .sigla(tenantCode)
+                                .sigla(uniqueCode.substring(0, Math.min(4, uniqueCode.length())))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(slug + "@owner.com")
+                                .email(slug + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())

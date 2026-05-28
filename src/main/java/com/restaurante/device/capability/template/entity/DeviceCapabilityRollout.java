@@ -75,6 +75,7 @@ public class DeviceCapabilityRollout {
     private int totalErrors = 0;
 
     @Column(name = "result_json", columnDefinition = "jsonb")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     private String resultJson;
 
     @Column(name = "started_at", nullable = false, updatable = false)

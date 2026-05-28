@@ -17,6 +17,10 @@ import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.model.entity.Cozinha;
+import com.restaurante.model.enums.TipoCozinha;
+import com.restaurante.repository.CozinhaRepository;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
@@ -34,6 +38,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -50,6 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
+@Transactional
 class ProducaoKdsDeviceScopeIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -59,6 +65,8 @@ class ProducaoKdsDeviceScopeIT extends PostgresTestcontainersConfig {
     @Autowired TenantRepository tenantRepository;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
+    @Autowired CozinhaRepository cozinhaRepository;
+    @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
 
     @AfterEach
     void clear() {
@@ -145,7 +153,7 @@ class ProducaoKdsDeviceScopeIT extends PostgresTestcontainersConfig {
         ));
 
         String slug = "tenant-kds-dev-" + System.nanoTime();
-        return provisioningService.provisionar(
+        var prov = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant KDS Device")
@@ -166,6 +174,20 @@ class ProducaoKdsDeviceScopeIT extends PostgresTestcontainersConfig {
                                 .build())
                 .build()
         );
+
+        // Garantir Cozinha CENTRAL cadastrada e ativa para a Unidade de Atendimento do Tenant
+        var ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
+        Cozinha cozinha = Cozinha.builder()
+                .nome("Cozinha CENTRAL")
+                .tipo(TipoCozinha.CENTRAL)
+                .ativa(true)
+                .descricao("Cozinha Central de Teste")
+                .build();
+        cozinha = cozinhaRepository.saveAndFlush(cozinha);
+        ua.adicionarCozinha(cozinha);
+        unidadeAtendimentoRepository.saveAndFlush(ua);
+
+        return prov;
     }
 
     private static String uniqueSigla(String prefix) {

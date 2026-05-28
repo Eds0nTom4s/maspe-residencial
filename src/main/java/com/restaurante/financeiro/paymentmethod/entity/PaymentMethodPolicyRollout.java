@@ -74,6 +74,7 @@ public class PaymentMethodPolicyRollout {
     private int totalErrors;
 
     @Column(name = "result_json", columnDefinition = "jsonb")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     private String resultJson;
 
     @Column(name = "requested_at")

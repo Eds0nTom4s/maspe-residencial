@@ -9,14 +9,13 @@ import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.UnidadeAtendimento;
-import com.restaurante.model.enums.*;
-import com.restaurante.repository.DispositivoOperacionalRepository;
-import com.restaurante.repository.InstituicaoRepository;
-import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.UserRepository;
+import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import com.restaurante.security.tenant.TenantContext;
-import com.restaurante.security.tenant.TenantContextHolder;
-import com.restaurante.security.tenant.TenantResolutionSource;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.DispositivoOperacionalRepository;
+import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -37,12 +36,23 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.restaurante.security.tenant.TenantContextHolder;
+import com.restaurante.security.tenant.TenantContext;
+import com.restaurante.security.tenant.TenantResolutionSource;
+import com.restaurante.model.enums.Role;
+import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.PaymentMethodPolicyStatus;
+import com.restaurante.model.enums.PaymentMethodCode;
+import com.restaurante.model.enums.OperationalDeviceType;
+import org.springframework.transaction.annotation.Transactional;
+
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
+@Transactional
 class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -52,10 +62,26 @@ class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
     @Autowired TenantRepository tenantRepository;
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired TenantUserRepository tenantUserRepository;
+    @Autowired JwtTokenProvider jwtTokenProvider;
 
     @AfterEach
     void clear() {
         TenantContextHolder.clear();
+    }
+
+    private String tenantToken(ProvisionarTenantResponse prov) {
+        var tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        var user = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
+        return jwtTokenProvider.generateTenantScopedToken(
+                user,
+                tenant,
+                TenantUserRole.TENANT_OWNER,
+                TenantUserEstado.ATIVO,
+                1,
+                null
+        );
     }
 
     @Test
@@ -69,18 +95,22 @@ class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
                 TenantResolutionSource.JWT, false, false
         ));
 
+        String token = tenantToken(prov);
+
         UpdateDevicePaymentMethodPolicyRequest req = new UpdateDevicePaymentMethodPolicyRequest();
         req.setInheritFromUnidade(false);
         req.setStatus(PaymentMethodPolicyStatus.ALLOW);
         req.setCanStartGateway(false);
         String putResp = mockMvc.perform(put("/tenant/devices/{deviceId}/payment-method-policies/{code}", device.getId(), PaymentMethodCode.APPYPAY)
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(objectMapper.readTree(putResp).at("/data/code").asText()).isEqualTo("APPYPAY");
 
-        String list = mockMvc.perform(get("/tenant/devices/{deviceId}/payment-method-policies", device.getId()))
+        String list = mockMvc.perform(get("/tenant/devices/{deviceId}/payment-method-policies", device.getId())
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode data = objectMapper.readTree(list).at("/data");
@@ -92,11 +122,13 @@ class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
         invalid.setMinAmount(new BigDecimal("10.00"));
         invalid.setMaxAmount(new BigDecimal("5.00"));
         mockMvc.perform(put("/tenant/devices/{deviceId}/payment-method-policies/{code}", device.getId(), PaymentMethodCode.CASH)
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(invalid)))
                 .andExpect(status().isBadRequest());
 
-        mockMvc.perform(delete("/tenant/devices/{deviceId}/payment-method-policies/{code}", device.getId(), PaymentMethodCode.APPYPAY))
+        mockMvc.perform(delete("/tenant/devices/{deviceId}/payment-method-policies/{code}", device.getId(), PaymentMethodCode.APPYPAY)
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
     }
 
@@ -112,13 +144,17 @@ class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
                 TenantResolutionSource.JWT, false, false
         ));
 
-        mockMvc.perform(get("/tenant/devices/{deviceId}/payment-method-policies", deviceB.getId()))
+        String tokenA = tenantToken(a);
+
+        mockMvc.perform(get("/tenant/devices/{deviceId}/payment-method-policies", deviceB.getId())
+                        .header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isNotFound());
 
         UpdateDevicePaymentMethodPolicyRequest req = new UpdateDevicePaymentMethodPolicyRequest();
         req.setInheritFromUnidade(false);
         req.setStatus(PaymentMethodPolicyStatus.BLOCK);
         mockMvc.perform(put("/tenant/devices/{deviceId}/payment-method-policies/{code}", deviceB.getId(), PaymentMethodCode.CASH)
+                        .header("Authorization", "Bearer " + tokenA)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isNotFound());
@@ -146,23 +182,26 @@ class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 100_000L));
+        String uniqueCode = code + suffix;
+        if (uniqueCode.length() > 10) uniqueCode = uniqueCode.substring(0, 10);
         String phone = "+244900" + Math.abs(nome.hashCode() % 1_000_000);
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + nome)
-                                .slug(nome)
-                                .tenantCode(code)
+                                .slug(nome + "-" + suffix)
+                                .tenantCode(uniqueCode)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + nome)
-                                .sigla(code)
+                                .sigla(uniqueCode.substring(0, Math.min(4, uniqueCode.length())))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(nome + "@owner.com")
+                                .email(nome + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())

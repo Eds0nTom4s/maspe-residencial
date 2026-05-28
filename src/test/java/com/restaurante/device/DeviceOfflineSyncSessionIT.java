@@ -24,6 +24,9 @@ import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.model.entity.Cozinha;
+import com.restaurante.model.enums.TipoCozinha;
+import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.device.offline.repository.DeviceOfflineCommandRepository;
 import com.restaurante.device.offline.repository.DeviceOfflineSyncSessionRepository;
 import com.restaurante.security.device.DevicePrincipal;
@@ -53,12 +56,15 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.springframework.transaction.annotation.Transactional;
+
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc
+@AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
+@Transactional
 class DeviceOfflineSyncSessionIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -72,6 +78,7 @@ class DeviceOfflineSyncSessionIT extends PostgresTestcontainersConfig {
     @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
     @Autowired DeviceOfflineSyncSessionRepository syncSessionRepository;
     @Autowired DeviceOfflineCommandRepository commandRepository;
+    @Autowired CozinhaRepository cozinhaRepository;
 
     @AfterEach
     void clear() {
@@ -180,27 +187,44 @@ class DeviceOfflineSyncSessionIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 100_000L));
+        String uniqueCode = code + suffix;
+        if (uniqueCode.length() > 10) uniqueCode = uniqueCode.substring(0, 10);
         String phone = "+244900" + Math.abs(nome.hashCode() % 1_000_000);
-        return provisioningService.provisionar(
+        var prov = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + nome)
-                                .slug(nome)
-                                .tenantCode(code)
+                                .slug(nome + "-" + suffix)
+                                .tenantCode(uniqueCode)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + nome)
-                                .sigla(code)
+                                .sigla(uniqueCode.substring(0, Math.min(4, uniqueCode.length())))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(nome + "@owner.com")
+                                .email(nome + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
                         .build()
         );
+
+        // Provisionar Cozinha CENTRAL ativa para a unidade
+        var ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
+        Cozinha cozinha = Cozinha.builder()
+                .nome("Cozinha CENTRAL")
+                .tipo(TipoCozinha.CENTRAL)
+                .ativa(true)
+                .descricao("Cozinha Central Offline")
+                .build();
+        cozinha = cozinhaRepository.saveAndFlush(cozinha);
+        ua.adicionarCozinha(cozinha);
+        unidadeAtendimentoRepository.saveAndFlush(ua);
+
+        return prov;
     }
 }

@@ -4,12 +4,15 @@ import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.ProvisionarTenantPreviewResponse;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
+import com.restaurante.exception.ProvisioningErrorResponse;
+import com.restaurante.exception.ProvisioningException;
 import com.restaurante.model.entity.ProvisioningTemplate;
 import com.restaurante.repository.ProvisioningTemplateRepository;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.service.TenantProvisioningPreviewService;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -22,6 +25,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.time.LocalDateTime;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/platform/tenants")
@@ -36,18 +41,26 @@ public class PlatformTenantProvisioningController {
 
     @PostMapping("/provisionar")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<ProvisionarTenantResponse>> provisionar(@Valid @RequestBody ProvisionarTenantRequest request) {
+    public ResponseEntity<?> provisionar(@Valid @RequestBody ProvisionarTenantRequest request, HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
-        ProvisionarTenantResponse resp = provisioningService.provisionar(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Tenant provisionado", resp));
+        try {
+            ProvisionarTenantResponse resp = provisioningService.provisionar(request);
+            return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Tenant provisionado", resp));
+        } catch (ProvisioningException ex) {
+            return provisioningError(ex, http);
+        }
     }
 
     @PostMapping("/provisionar/preview")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<ProvisionarTenantPreviewResponse>> preview(@Valid @RequestBody ProvisionarTenantRequest request) {
+    public ResponseEntity<?> preview(@Valid @RequestBody ProvisionarTenantRequest request, HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
-        ProvisionarTenantPreviewResponse resp = provisioningPreviewService.preview(request);
-        return ResponseEntity.ok(ApiResponse.success("Preview de provisionamento", resp));
+        try {
+            ProvisionarTenantPreviewResponse resp = provisioningPreviewService.preview(request);
+            return ResponseEntity.ok(ApiResponse.success("Preview de provisionamento", resp));
+        } catch (ProvisioningException ex) {
+            return provisioningError(ex, http);
+        }
     }
 
     @GetMapping("/templates")
@@ -55,5 +68,25 @@ public class PlatformTenantProvisioningController {
     public ResponseEntity<ApiResponse<List<ProvisioningTemplate>>> listarTemplates() {
         tenantGuard.assertPlatformAdmin();
         return ResponseEntity.ok(ApiResponse.success("Templates", templateRepository.findByAtivoTrue()));
+    }
+
+    private ResponseEntity<ProvisioningErrorResponse> provisioningError(ProvisioningException ex, HttpServletRequest http) {
+        HttpStatus status = ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.BAD_REQUEST;
+        String path = http != null ? http.getRequestURI() : null;
+        String correlationId = UUID.randomUUID().toString();
+        ProvisioningErrorResponse resp = new ProvisioningErrorResponse(
+                LocalDateTime.now(),
+                status.value(),
+                "Provisioning error",
+                ex.getMessage(),
+                ex.getCode(),
+                ex.getField(),
+                ex.getDetail(),
+                ex.getRecommendedAction(),
+                path,
+                correlationId,
+                ex.getExtra()
+        );
+        return ResponseEntity.status(status).body(resp);
     }
 }

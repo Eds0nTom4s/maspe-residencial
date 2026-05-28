@@ -44,6 +44,18 @@ public class TenantContextFilter extends OncePerRequestFilter {
             });
             setByFilter = resolved.isPresent();
             filterChain.doFilter(request, response);
+        } catch (com.restaurante.exception.TenantTokenStaleException e) {
+            log.warn("Tenant token stale no filtro: {}", e.getMessage());
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.setCharacterEncoding("UTF-8");
+            String json = String.format(
+                "{\"timestamp\":\"%s\",\"status\":401,\"error\":\"Sessão desatualizada\",\"code\":\"TENANT_TOKEN_STALE\",\"message\":\"%s\",\"path\":\"%s\"}",
+                java.time.LocalDateTime.now(),
+                e.getMessage().replace("\"", "\\\""),
+                request.getRequestURI().replace("\"", "\\\"")
+            );
+            response.getWriter().write(json);
         } finally {
             if (setByFilter) {
                 if (previous != null) {

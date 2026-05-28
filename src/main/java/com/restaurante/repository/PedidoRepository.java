@@ -81,13 +81,13 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
     @Query("SELECT p FROM Pedido p " +
            "WHERE p.tenant.id = :tenantId " +
-           "AND (:statusOperacional IS NULL OR p.status = :statusOperacional) " +
-           "AND (:statusFinanceiro IS NULL OR p.statusFinanceiro = :statusFinanceiro) " +
-           "AND (:inicio IS NULL OR p.createdAt >= :inicio) " +
-           "AND (:fim IS NULL OR p.createdAt <= :fim) " +
-           "AND (:instituicaoId IS NULL OR p.sessaoConsumo.instituicao.id = :instituicaoId) " +
-           "AND (:unidadeAtendimentoId IS NULL OR p.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId) " +
-           "AND (:mesaId IS NULL OR p.sessaoConsumo.mesa.id = :mesaId)")
+           "AND (cast(:statusOperacional as string) IS NULL OR p.status = :statusOperacional) " +
+           "AND (cast(:statusFinanceiro as string) IS NULL OR p.statusFinanceiro = :statusFinanceiro) " +
+           "AND (cast(:inicio as timestamp) IS NULL OR p.createdAt >= :inicio) " +
+           "AND (cast(:fim as timestamp) IS NULL OR p.createdAt <= :fim) " +
+           "AND (cast(:instituicaoId as string) IS NULL OR p.sessaoConsumo.instituicao.id = :instituicaoId) " +
+           "AND (cast(:unidadeAtendimentoId as string) IS NULL OR p.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId) " +
+           "AND (cast(:mesaId as string) IS NULL OR p.sessaoConsumo.mesa.id = :mesaId)")
     Page<Pedido> findTenantPedidosWithFilters(
             @Param("tenantId") Long tenantId,
             @Param("statusOperacional") StatusPedido statusOperacional,
@@ -156,10 +156,10 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
      * Todos os parâmetros são opcionais — null ignora o filtro.
      */
     @Query("SELECT p FROM Pedido p " +
-           "WHERE (:status IS NULL OR p.status = :status) " +
-           "AND (:inicio IS NULL OR p.createdAt >= :inicio) " +
-           "AND (:fim IS NULL OR p.createdAt <= :fim) " +
-           "AND (:sessaoId IS NULL OR p.sessaoConsumo.id = :sessaoId)")
+           "WHERE (cast(:status as string) IS NULL OR p.status = :status) " +
+           "AND (cast(:inicio as timestamp) IS NULL OR p.createdAt >= :inicio) " +
+           "AND (cast(:fim as timestamp) IS NULL OR p.createdAt <= :fim) " +
+           "AND (cast(:sessaoId as string) IS NULL OR p.sessaoConsumo.id = :sessaoId)")
     Page<Pedido> findComFiltros(@Param("status") StatusPedido status,
                                 @Param("inicio") LocalDateTime inicio,
                                 @Param("fim") LocalDateTime fim,

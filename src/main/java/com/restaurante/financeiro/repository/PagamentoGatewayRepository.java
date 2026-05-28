@@ -57,13 +57,18 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
 
     Page<Pagamento> findByTenantIdAndStatus(Long tenantId, StatusPagamentoGateway status, Pageable pageable);
 
-    @Query("SELECT p FROM Pagamento p WHERE p.tenant.id = :tenantId " +
-            "AND (cast(:status as string) IS NULL OR p.status = :status) " +
-            "AND (cast(:statusFinanceiroPedido as string) IS NULL OR p.pedido.statusFinanceiro = :statusFinanceiroPedido) " +
-            "AND (cast(:externalReference as string) IS NULL OR p.externalReference = :externalReference) " +
-            "AND (cast(:from as timestamp) IS NULL OR p.createdAt >= :from) " +
-            "AND (cast(:to as timestamp) IS NULL OR p.createdAt <= :to) " +
-            "AND (cast(:pedidoNumero as string) IS NULL OR p.pedido.numero = :pedidoNumero)")
+    @Query("""
+            select p
+            from Pagamento p
+              left join p.pedido ped
+            where p.tenant.id = :tenantId
+              and (cast(:status as string) is null or p.status = :status)
+              and (cast(:statusFinanceiroPedido as string) is null or ped.statusFinanceiro = :statusFinanceiroPedido)
+              and (cast(:externalReference as string) is null or p.externalReference = :externalReference)
+              and (cast(:from as timestamp) is null or p.createdAt >= :from)
+              and (cast(:to as timestamp) is null or p.createdAt <= :to)
+              and (cast(:pedidoNumero as string) is null or ped.numero = :pedidoNumero)
+            """)
     Page<Pagamento> searchTenantPagamentos(
             Long tenantId,
             StatusPagamentoGateway status,
@@ -263,6 +268,9 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
             select p
             from Pagamento p
               join fetch p.pedido ped
+              join fetch ped.sessaoConsumo sc
+              left join fetch sc.instituicao
+              left join fetch sc.unidadeAtendimento
             where p.tenant.id = :tenantId
               and p.status = 'PENDENTE'
               and (cast(:turnoId as long) is null or ped.turnoOperacional.id = :turnoId)

@@ -34,8 +34,6 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Set;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -44,8 +42,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
+@org.springframework.transaction.annotation.Transactional
 class PlatformTenantProvisioningControllerIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -66,13 +65,8 @@ class PlatformTenantProvisioningControllerIT extends PostgresTestcontainersConfi
     }
 
     @Test
-    @WithMockUser(username = "platform-admin")
+    @WithMockUser(username = "platform-admin", authorities = "ROLE_ADMIN")
     void platformAdmin_canProvisionTenantWithMinimalInfra() throws Exception {
-        TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
-                TenantResolutionSource.JWT, true, false
-        ));
-
         String payload = """
                 {
                   "tenant": {
@@ -147,13 +141,8 @@ class PlatformTenantProvisioningControllerIT extends PostgresTestcontainersConfi
     }
 
     @Test
-    @WithMockUser(username = "non-platform")
+    @WithMockUser(username = "non-platform", authorities = "ROLE_GERENTE")
     void nonPlatformAdmin_cannotProvision() throws Exception {
-        TenantContextHolder.set(new TenantContext(
-                1L, "TA", 2L, Set.of("ROLE_GERENTE"),
-                TenantResolutionSource.JWT, false, false
-        ));
-
         String payload = """
                 {
                   "tenant": { "nome": "X", "slug": "x", "tipo": "VENDEDOR_RUA" },
@@ -167,7 +156,6 @@ class PlatformTenantProvisioningControllerIT extends PostgresTestcontainersConfi
         mockMvc.perform(post("/platform/tenants/provisionar")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isForbidden());
     }
 }
-

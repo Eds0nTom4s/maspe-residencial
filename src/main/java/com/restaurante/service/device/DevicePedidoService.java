@@ -530,6 +530,12 @@ public class DevicePedidoService {
                     DeviceErrorResponse.DeviceRecoveryAction.RETRY,
                     null);
         }
+        if (rec.getStatus() == DevicePedidoIdempotencyStatus.FAILED) {
+            rec.setStatus(DevicePedidoIdempotencyStatus.IN_PROGRESS);
+            rec.setErrorCode(null);
+            idempotencyRepository.saveAndFlush(rec);
+            return new DevicePedidoIdempotencyRecordState(rec, null);
+        }
         throw new DeviceApiException(HttpStatus.CONFLICT,
                 DeviceErrorResponse.DeviceErrorCode.DEVICE_ORDER_IDEMPOTENCY_CONFLICT,
                 "Pedido falhou anteriormente para esta idempotencyKey/clientRequestId.",

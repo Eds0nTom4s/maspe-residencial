@@ -11,6 +11,9 @@ import com.restaurante.repository.TenantUserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,9 +51,30 @@ public class TenantGuard {
     }
 
     public void assertPlatformAdmin() {
-        TenantContext ctx = requireContext();
-        if (!ctx.platformAdmin()) {
-            throw new BusinessException("Ação permitida apenas para PLATFORM_ADMIN.");
+        // Preferir contexto resolvido pelo TenantContextFilter/TenantResolver.
+        // Fallback: quando não há TenantContext (ex.: user sem seleção de tenant),
+        // ainda devemos responder 403 em vez de 500 para endpoints platform-scoped.
+        TenantContext ctx = TenantContextHolder.get().orElse(null);
+        if (ctx != null) {
+            if (!ctx.platformAdmin()) {
+                throw new TenantAccessDeniedException("Ação permitida apenas para PLATFORM_ADMIN.");
+            }
+            return;
+        }
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new TenantAccessDeniedException("Ação permitida apenas para PLATFORM_ADMIN.");
+        }
+        boolean isAdmin = false;
+        for (GrantedAuthority a : authentication.getAuthorities()) {
+            if ("ROLE_ADMIN".equals(a.getAuthority())) {
+                isAdmin = true;
+                break;
+            }
+        }
+        if (!isAdmin) {
+            throw new TenantAccessDeniedException("Ação permitida apenas para PLATFORM_ADMIN.");
         }
     }
 

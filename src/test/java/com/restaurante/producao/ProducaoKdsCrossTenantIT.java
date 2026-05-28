@@ -53,6 +53,19 @@ class ProducaoKdsCrossTenantIT extends PostgresTestcontainersConfig {
     @Autowired TenantRepository tenantRepository;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
+    @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUpCozinha() {
+        if (cozinhaRepository.findByAtivaAndTipo(true, com.restaurante.model.enums.TipoCozinha.CENTRAL).isEmpty()) {
+            com.restaurante.model.entity.Cozinha c = com.restaurante.model.entity.Cozinha.builder()
+                    .nome("Cozinha Central Teste")
+                    .tipo(com.restaurante.model.enums.TipoCozinha.CENTRAL)
+                    .ativa(true)
+                    .build();
+            cozinhaRepository.save(c);
+        }
+    }
 
     @AfterEach
     void clear() {

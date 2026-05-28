@@ -13,6 +13,8 @@ import com.restaurante.financeiro.enums.MetodoPagamentoAppyPay;
 import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
 import com.restaurante.financeiro.paymentmethod.repository.TenantPaymentMethodRepository;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.User;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.enums.DeviceCapability;
@@ -22,14 +24,16 @@ import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.PaymentMethodStatus;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantTipo;
+import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TurnoOperacionalTipo;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.UserRepository;
+import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.security.device.DevicePrincipal;
-import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
-import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -58,7 +62,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class TenantPaymentMethodAppyPayPollingAfterDeactivateIT extends PostgresTestcontainersConfig {
 
@@ -68,6 +72,9 @@ class TenantPaymentMethodAppyPayPollingAfterDeactivateIT extends PostgresTestcon
     @Autowired ProdutoRepository produtoRepository;
     @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
     @Autowired TenantPaymentMethodRepository tenantPaymentMethodRepository;
+    @Autowired TenantRepository tenantRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired JwtTokenProvider jwtTokenProvider;
 
     @MockBean AppyPayClient appyPayClient;
 
@@ -93,18 +100,24 @@ class TenantPaymentMethodAppyPayPollingAfterDeactivateIT extends PostgresTestcon
                 .amount(1200L)
                 .build());
 
-        ProvisionarTenantResponse prov = provisionTenant("pm-poll-a", "PPA1");
+	        ProvisionarTenantResponse prov = provisionTenant("pm-poll-a", "PPA1");
 
-        // abrir turno com OWNER
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
-                .andExpect(status().isCreated());
+	        // abrir turno com OWNER
+	        User ownerForTurno = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
+	        Tenant tenantForTurno = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+	        String ownerToken = jwtTokenProvider.generateTenantScopedToken(
+	                ownerForTurno,
+	                tenantForTurno,
+	                TenantUserRole.TENANT_OWNER,
+	                TenantUserEstado.ATIVO,
+	                1,
+	                null
+	        );
+	        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+	                        .header("Authorization", "Bearer " + ownerToken)
+	                        .contentType(MediaType.APPLICATION_JSON)
+	                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
+	                .andExpect(status().isCreated());
 
         Produto prod = produtoRepository.findByTenantId(prov.getTenantId()).stream().findFirst().orElseThrow();
         DispositivoOperacional disp = criarDevicePos(prov);
@@ -150,12 +163,18 @@ class TenantPaymentMethodAppyPayPollingAfterDeactivateIT extends PostgresTestcon
         tenantPaymentMethodRepository.saveAndFlush(appy);
 
         // FINANCE força polling manual -> deve confirmar mesmo com método desativado
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
+        User owner = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        String token = jwtTokenProvider.generateTenantScopedToken(
+                owner,
+                tenant,
+                TenantUserRole.TENANT_FINANCE,
+                TenantUserEstado.ATIVO,
+                1,
+                null
+        );
         String manual = mockMvc.perform(post("/tenant/financeiro/pagamentos/{id}/poll", pagamentoId)
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"motivo\":\"teste\"}")
                         .accept(MediaType.APPLICATION_JSON))

@@ -68,7 +68,7 @@ class TenantProducaoRbacIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse provisioned = provisionTenant();
 
         TenantContextHolder.set(new TenantContext(
-                provisioned.getTenantId(), provisioned.getTenantCode(), provisioned.getOwnerUserId(),
+                provisioned.getTenantId(), provisioned.getTenantCode(), 9999L,
                 Set.of("TENANT_FINANCE"), TenantResolutionSource.JWT, false, false
         ));
 

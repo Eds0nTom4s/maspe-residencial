@@ -13,9 +13,11 @@ import com.restaurante.financeiro.paymentmethod.repository.TenantPaymentMethodRe
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Instituicao;
-import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DispositivoStatus;
 import com.restaurante.model.enums.DispositivoTipo;
@@ -23,9 +25,11 @@ import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.PaymentMethodStatus;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantTipo;
+import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.ProdutoRepository;
@@ -33,6 +37,8 @@ import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
+import com.restaurante.security.JwtTokenProvider;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -62,7 +68,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class TenantPaymentMethodAppyPayPosIT extends PostgresTestcontainersConfig {
 
@@ -76,6 +82,9 @@ class TenantPaymentMethodAppyPayPosIT extends PostgresTestcontainersConfig {
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired TenantPaymentMethodBootstrapService bootstrapService;
     @Autowired TenantPaymentMethodRepository tenantPaymentMethodRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired JwtTokenProvider jwtTokenProvider;
+    @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
 
     @MockBean AppyPayClient appyPayClient;
 
@@ -103,17 +112,32 @@ class TenantPaymentMethodAppyPayPosIT extends PostgresTestcontainersConfig {
         tenantPaymentMethodRepository.saveAndFlush(appy);
 
         // abrir turno (tenant context)
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
+        com.restaurante.model.entity.User owner = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        String token = jwtTokenProvider.generateTenantScopedToken(
+                owner,
+                tenant,
+                TenantUserRole.TENANT_OWNER,
+                TenantUserEstado.ATIVO,
+                1,
+                null
+        );
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(TestFixtures.abrirTurnoReq(prov))))
                 .andExpect(status().isCreated());
 
-        Produto prod = produtoRepository.findByTenantId(prov.getTenantId()).stream().findFirst().orElseThrow();
+        Tenant tenantEntity = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        CategoriaProduto cat = categoriaProdutoRepository.findBySlugAndTenantId("geral", prov.getTenantId()).orElseThrow();
+        Produto prod = new Produto();
+        prod.setTenant(tenantEntity);
+        prod.setCategoriaProduto(cat);
+        prod.setCategoria(CategoriaProdutoLegacy.OUTROS);
+        prod.setCodigo("PROD-" + System.nanoTime());
+        prod.setNome("Produto teste");
+        prod.setPreco(new BigDecimal("100.00"));
+        prod = produtoRepository.saveAndFlush(prod);
         DispositivoOperacional disp = criarDevicePos(prov);
 
         DevicePrincipal device = new DevicePrincipal(
@@ -209,6 +233,11 @@ class TenantPaymentMethodAppyPayPosIT extends PostgresTestcontainersConfig {
                                 .email(nome + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
+                                .build())
+                        .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder()
+                                .criarMesas(true)
+                                .quantidadeMesas(1)
+                                .criarQrPorMesa(true)
                                 .build())
                         .build()
         );

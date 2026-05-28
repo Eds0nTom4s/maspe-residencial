@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -30,8 +31,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
+@WithMockUser(authorities = { "ROLE_GERENTE" })
 class TenantConsumoAdminIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -82,23 +84,24 @@ class TenantConsumoAdminIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
-        String phone = "+244900" + Math.abs(slug.hashCode() % 1_000_000);
+        long suffix = Math.abs(System.nanoTime() % 1_000_000L);
+        String phone = "+24492" + String.format("%07d", Math.abs(new java.util.Random().nextInt(10000000)));
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + slug)
-                                .slug(slug)
+                                .slug(slug + "-" + suffix)
                                 .tenantCode(code)
-                                .tipo(com.restaurante.model.enums.TenantTipo.VENDEDOR_RUA)
+                                .tipo(com.restaurante.model.enums.TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
-                        .templateCodigo("VENDEDOR_RUA")
+                        .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + slug)
                                 .sigla(code)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(slug + "@owner.com")
+                                .email(slug + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())

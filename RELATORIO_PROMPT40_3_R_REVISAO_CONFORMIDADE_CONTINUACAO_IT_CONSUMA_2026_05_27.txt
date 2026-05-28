@@ -1,0 +1,264 @@
+RELATÓRIO — PROMPT 40.3-R (Revisão de Conformidade + Retomada Controlada da Suíte IT CONSUMA)
+Gerado em: 2026-05-28 (Africa/Luanda)
+
+================================================================================
+1. RESUMO EXECUTIVO
+================================================================================
+- Estado atual do repositório foi coletado (branch/commit/working tree/stash).
+- Auditoria de conformidade executada via grep/ls conforme checklist.
+- Revalidação Docker/Flyway/healthcheck NÃO pôde ser executada neste ambiente por falta de permissão no socket Docker:
+  “permission denied while trying to connect to the docker API at unix:///var/run/docker.sock”.
+- Execução dos grupos Maven (Step 4) também ficou bloqueada aqui pelo mesmo motivo (Testcontainers depende de Docker).
+- Baseado nos últimos `target/surefire-reports` existentes (run anterior), foram identificados 4 testes falhando e aplicadas correções permitidas
+  (fixtures/segurança/token/ajuste de elegibilidade de polling), além de uma correção de conformidade em `TenantRoleAuthorizationIT`.
+
+Situação final neste ambiente:
+- NÃO é possível afirmar “BUILD SUCCESS” agora sem reexecução local dos comandos `docker compose` e `mvn ... test`.
+- Correções de teste foram aplicadas e precisam ser validadas com uma nova execução.
+
+================================================================================
+2. BRANCH E COMMIT
+================================================================================
+- Branch atual: restauracao-antes-da-loja
+- Tracking: origin/restauracao-antes-da-loja
+- HEAD (últimos 15): 0bbdcb4 "40.3 parcila" (ver `git log --oneline -15`)
+
+================================================================================
+3. ESTADO DO WORKING TREE
+================================================================================
+- `git status -sb` indica working tree sujo.
+- Arquivos modificados (total): 51 (`git diff --name-only | wc -l`)
+- Arquivos novos: nenhum detectado neste levantamento.
+- Migrações novas no working tree: nenhuma (apenas verificação de existência/duplicidade; ver seção 8).
+
+Principais categorias afetadas (working tree):
+- Produção (src/main/java): alterações em segurança/tenant, device, financeiro, repositories.
+- Testes (src/test/java): diversas ITs/Tests ajustadas para perfil it-postgres, fixtures, autenticação e TenantContext.
+- Build: `pom.xml` modificado.
+
+================================================================================
+4. STASH ENCONTRADO
+================================================================================
+- `git stash list`:
+  - stash@{0}: On restauracao-antes-da-loja: wip prompt6 (station B)
+- Nenhum stash foi aplicado (regra respeitada).
+
+================================================================================
+5. AUDITORIA DE CONFORMIDADE (SENSÍVEL)
+================================================================================
+5.1 addFilters=false (Spring Security filters desligados)
+Comando:
+- `rg -n "addFilters\\s*=\\s*false" src/test/java`
+Resultado:
+- Ocorrências totais atuais: 58
+
+Classificação (amostra focada em itens tocados/relacionados à fase 40.3):
+- `src/test/java/com/restaurante/security/TenantRoleAuthorizationIT.java`
+  - ANTES: `@AutoConfigureMockMvc(addFilters = false)` (não aceitável p/ teste de autorização tenant)
+  - AGORA (neste prompt): alterado para `@AutoConfigureMockMvc` e requests com JWT real (aceitável).
+- `src/test/java/com/restaurante/tenantadmin/TenantPedidoControllerIT.java`
+  - Ainda contém `addFilters=false` (requer revisão: endpoint tenant deve validar Security/TenantContext reais).
+- `src/test/java/com/restaurante/producao/ProducaoKdsCrossTenantIT.java` / `src/test/java/com/restaurante/producao/TenantProducaoRbacIT.java`
+  - Ainda contém `addFilters=false` (requer revisão: RBAC/tenant-scope são centrais na fase 40.3).
+
+Observação:
+- Existem muitos usos históricos de `addFilters=false` fora do escopo imediato deste ciclo.
+- Regra da fase: NÃO usar `addFilters=false` como solução genérica; priorizar token/headers/flows reais.
+
+5.2 @Transactional em testes
+Comando:
+- `rg -n "@Transactional" src/test/java`
+Resultado:
+- Ocorrências totais: 34
+
+Classificação (foco em ITs alteradas na fase):
+- `src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningControllerIT.java`
+  - Contém `@Transactional` no class-level: risco de mascarar problemas de fixture/unique constraints (requer revisão posterior).
+- `src/test/java/com/restaurante/financeiro/TenantPagamentosPendentesIT.java`
+  - Contém `@Transactional`: aceitável somente se não estiver mascarando LazyInitialization em fluxo HTTP real; aqui o problema observado foi cooldown de polling, não lazy.
+- `src/test/java/com/restaurante/device/TenantDeviceCapabilityControllerIT.java`
+  - Contém `@Transactional`: requer revisão (pode estar sendo usado para facilitar asserts/fixtures; evitar mascarar comportamento real de API).
+
+5.3 Profiles H2 indevidos
+Comando:
+- `rg -n '@ActiveProfiles\\(\"test\"\\)' src/test/java`
+Resultado:
+- Encontrados vários testes unitários com profile "test" (esperado).
+- ITs críticos para PostgreSQL devem usar `@ActiveProfiles("it-postgres")` e `extends PostgresTestcontainersConfig`.
+
+5.4 Evidência de H2Dialect em surefire-reports
+Comando:
+- `rg -n "H2Dialect" target/surefire-reports || true`
+Resultado:
+- Avisos encontrados em alguns testes unitários (ex.: billing/placeholder), não caracterizando uso indevido de H2 nas ITs do perfil `it-postgres`.
+
+================================================================================
+6. OCORRÊNCIAS addFilters=false E DECISÃO (RESUMO)
+================================================================================
+- Decisão global: manter auditoria registrada; NÃO corrigir todos os 58 usos neste ciclo sem reexecução e triagem por impacto.
+- Corrigido neste prompt:
+  - `src/test/java/com/restaurante/security/TenantRoleAuthorizationIT.java` (passou a usar JWT real + filters ligados).
+- Pendentes de revisão por criticidade (exemplos dentro do escopo 40.3):
+  - `src/test/java/com/restaurante/tenantadmin/TenantPedidoControllerIT.java`
+  - `src/test/java/com/restaurante/producao/ProducaoKdsCrossTenantIT.java`
+  - `src/test/java/com/restaurante/producao/TenantProducaoRbacIT.java`
+
+================================================================================
+7. OCORRÊNCIAS @Transactional E DECISÃO (RESUMO)
+================================================================================
+- Decisão global: `@Transactional` só é aceitável quando não altera o comportamento real esperado em runtime.
+- Ajuste aplicado neste prompt:
+  - Não foi removido `@Transactional` de classes existentes; apenas corrigimos flakiness de polling via fixture (createdAt).
+- Pendências:
+  - Revisar uso class-level em `PlatformTenantProvisioningControllerIT` e ITs de device/tenant para garantir que não está mascarando:
+    - LazyInitializationException que ocorreria em runtime
+    - violação de unique constraint encoberta por rollback do teste
+
+================================================================================
+8. MIGRATIONS VERIFICADAS
+================================================================================
+Comando:
+- `ls src/main/resources/db/migration | sort | rg "^V(62|63|64)__"`
+Resultado:
+- V62__delivery_economics.sql
+- V63__business_templates_tenant_versioning_policies.sql
+- V64__tenant_users_unique_constraint.sql
+
+Conclusão:
+- Não foram detectadas duplicidades para V62/V63/V64 neste snapshot.
+
+================================================================================
+9. FLYWAY / HEALTHCHECK (REVALIDAÇÃO)
+================================================================================
+Comandos requeridos pelo checklist:
+- `docker compose -f docker-compose.local.yml down -v`
+- `docker compose -f docker-compose.local.yml up -d --build`
+- `curl -i http://localhost:8080/api/actuator/health`
+
+Status:
+- BLOQUEADO neste ambiente por permissão no Docker socket.
+- Necessário reexecutar localmente e anexar logs de subida/Flyway + resposta do healthcheck para aprovação 40.3.
+
+================================================================================
+10. TESTES EXECUTADOS POR GRUPO (STEP 4)
+================================================================================
+Comandos requeridos (não executados aqui por bloqueio Docker/Testcontainers):
+1) mvn -Dmaven.repo.local=/tmp/m2 -Dtest='*Tenant*IT,*Tenant*Test' test
+2) mvn -Dmaven.repo.local=/tmp/m2 -Dtest='*Device*IT,*Dispositivo*IT,*CaixaOperadorDeviceIT' test
+3) mvn -Dmaven.repo.local=/tmp/m2 -Dtest='*Snapshot*IT,*Snapshot*Test,*Payment*IT,*Payment*Test,*Pagamento*IT,*Pagamento*Test' test
+4) mvn -Dmaven.repo.local=/tmp/m2 -Dtest='*Producao*IT,*Kds*IT,*Fila*IT' test
+5) mvn -Dmaven.repo.local=/tmp/m2 -Dtest='*Billing*IT,*Inventory*IT,*Delivery*IT,*Evidence*IT,*FlowIT' test
+6) mvn -Dmaven.repo.local=/tmp/m2 test
+
+Evidência usada neste prompt:
+- Último snapshot de falhas em `target/surefire-reports` (run anterior) apontou 4 testes com failure.
+
+================================================================================
+11. FALHAS ENCONTRADAS (BASE: target/surefire-reports)
+================================================================================
+Arquivos com falha detectados via XML:
+- com.restaurante.financeiro.PagamentoCallbackTenantAwareIT
+- com.restaurante.financeiro.TenantPagamentosPendentesIT
+- com.restaurante.financeiro.TenantPaymentMethodAppyPayPollingAfterDeactivateIT
+- com.restaurante.financeiro.TenantPaymentMethodManualPaymentIT
+
+Classificação:
+1) TenantContext / Autenticação
+   - `TenantPaymentMethodAppyPayPollingAfterDeactivateIT`: 401 ao abrir turno (faltava autenticação real).
+2) Cooldown / regras de polling (flakiness por relógio)
+   - `TenantPagamentosPendentesIT`: “Pagamento não elegível para polling agora.” (initialDelayMinutes default=2).
+3) Fixture/config de método de pagamento (status/flags)
+   - `TenantPaymentMethodManualPaymentIT`: 400 ao criar carregamento CASH via QR (CASH não habilitado para QR/fundo no bootstrap).
+4) Contexto Spring/Controller mapping
+   - `PagamentoCallbackTenantAwareIT`: requests em `/api/public/q/.../pedidos` estavam caindo em static resource handler (controller não mapeado no contexto desse teste); corrigido forçando `classes = SistemaRestauracaoApplication.class`.
+
+================================================================================
+12. CORREÇÕES APLICADAS (PERMITIDAS)
+================================================================================
+12.1 Correções em testes (fix de flakiness/fixtures/security)
+- `src/test/java/com/restaurante/financeiro/TenantPagamentosPendentesIT.java`
+  - Ajusta `createdAt` do pagamento para `now - 5 min` antes do polling manual (evita falha pelo `initialDelayMinutes=2`).
+- `src/test/java/com/restaurante/financeiro/TenantPaymentMethodAppyPayPollingAfterDeactivateIT.java`
+  - Troca abertura de turno de `TenantContextHolder` para JWT real via `Authorization: Bearer ...`.
+- `src/test/java/com/restaurante/financeiro/TenantPaymentMethodManualPaymentIT.java`
+  - Ativa CASH para QR/fundo (`status=ACTIVE`, `enabledForQr=true`, `enabledForFundoConsumo=true`) antes de criar carregamentos.
+  - Troca abertura de turno para JWT real (sem depender de `TenantContextHolder`).
+- `src/test/java/com/restaurante/financeiro/PagamentoCallbackTenantAwareIT.java`
+  - Força `@SpringBootTest(classes = SistemaRestauracaoApplication.class, ...)` para garantir mapeamento real de controllers.
+- `src/test/java/com/restaurante/security/TenantRoleAuthorizationIT.java`
+  - Remove `addFilters=false` e passa a validar o caminho real via JWT Bearer por role/estado (conformidade com 40.3).
+
+================================================================================
+13. ALTERAÇÕES EM CÓDIGO DE PRODUÇÃO (AUDITADAS NESTE CICLO)
+================================================================================
+Observação importante:
+- Existem múltiplos arquivos de produção modificados no working tree. Neste prompt, a auditoria aprofundada foi feita somente em alguns arquivos sensíveis
+  (diff inspecionado diretamente) por limitação de tempo/execução de suíte.
+
+Arquivos inspecionados (diff):
+- `src/main/java/com/restaurante/security/tenant/TenantContextFilter.java`
+  - Adiciona tratamento explícito de `TenantTokenStaleException` retornando 401 com JSON.
+  - Risco: duplicar/contornar `@ControllerAdvice` e alterar formato de erro; requer validação de contrato.
+- `src/main/java/com/restaurante/security/tenant/TenantResolver.java`
+  - Suporte a `DevicePrincipal` para resolver TenantContext via device token.
+  - Para platform admin sem tenant selecionado, retorna TenantContext platformAdmin=true (evita 500 em endpoints platform-scoped).
+  - Risco: mudança de comportamento de resolução (necessita teste/validação de segurança).
+- `src/main/java/com/restaurante/security/tenant/TenantGuard.java`
+  - `assertPlatformAdmin()` passa a ter fallback por `SecurityContextHolder` e lança `TenantAccessDeniedException` (403) em vez de 500 quando falta TenantContext.
+  - Risco: mudança em exceção/semântica de erro; provável bug real (plataforma).
+- `src/main/java/com/restaurante/repository/SubPedidoRepository.java`
+  - Introduz casts em parâmetros opcionais para compatibilidade PostgreSQL (evita “could not determine data type of parameter” com nulls).
+  - Risco: casts para string em parâmetros numéricos (ex.: `unidadeProducaoId`) devem ser revalidados com execução real.
+
+Decisão de conformidade (provisória):
+- Alterações de produção acima parecem direcionadas a bugs reais de tenant/security e compatibilidade PG, mas exigem reexecução e validação de impacto.
+- Sem “mvn test” reexecutado, não é possível aprovar definitivamente.
+
+================================================================================
+14. ALTERAÇÕES APENAS EM TESTES/CONFIGURAÇÃO
+================================================================================
+- As correções aplicadas neste prompt foram focadas em testes (security/fixtures/timestamps) para remover flakiness e alinhar com filtros ativos.
+- Não houve criação de feature nova.
+- Não houve desativação global de Spring Security.
+- Não houve desativação de Flyway nem `ddl-auto=create/update`.
+
+================================================================================
+15. RESULTADO FINAL DO mvn test / mvn verify
+================================================================================
+- NÃO EXECUTADO neste ambiente (bloqueio Docker/Testcontainers).
+- Necessário reexecutar localmente:
+  - `mvn -Dmaven.repo.local=/tmp/m2 test`
+  - (opcional) `mvn -Dmaven.repo.local=/tmp/m2 verify`
+
+================================================================================
+16. PENDÊNCIAS
+================================================================================
+1) Reexecutar Step 3 (docker compose down/up + healthcheck) e anexar evidência.
+2) Reexecutar Step 4 por grupos e registrar resultados.
+3) Revisar usos remanescentes de `addFilters=false` em ITs críticas do tenant/producao/financeiro.
+4) Revisar `@Transactional` class-level em ITs para evitar mascaramento de problemas (especialmente fixtures únicas).
+5) Revisar diffs de produção restantes no working tree (há muitos arquivos modificados além dos auditados em detalhe).
+
+================================================================================
+17. RISCOS RESTANTES
+================================================================================
+- Há alterações grandes em segurança/tenant/resolução; sem suíte verde, risco de regressão em RBAC/tenant selection.
+- Muitos testes ainda podem depender de `addFilters=false` e `TenantContextHolder` manual, divergindo de runtime real.
+- Casts JPQL precisam ser validados com execução real em PostgreSQL.
+
+================================================================================
+18. DECISÃO FINAL (PROMPT 40.3)
+================================================================================
+- IT SUITE REPROVADA (por ora), por ausência de evidência de “BUILD SUCCESS” pós-correções e impossibilidade de reexecução aqui.
+
+================================================================================
+19. PRÓXIMO PROMPT RECOMENDADO
+================================================================================
+- Continuar no Prompt 40.3 (estabilização IT) até obter:
+  - `mvn -Dmaven.repo.local=/tmp/m2 test` => BUILD SUCCESS
+  - com PostgreSQL real + Testcontainers + Security + TenantContext corretos.
+
+Pergunta final:
+“Após revisar conformidade e continuar a estabilização, a suíte IT da CONSUMA está realmente verde com PostgreSQL real, Testcontainers, Spring Security e TenantContext corretos?”
+Resposta (neste ambiente): Ainda não é possível confirmar; exige reexecução local dos passos 3 e 4/6 com evidência de BUILD SUCCESS.
+

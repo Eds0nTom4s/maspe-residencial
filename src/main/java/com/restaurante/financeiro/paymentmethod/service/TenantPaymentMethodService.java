@@ -33,20 +33,20 @@ public class TenantPaymentMethodService {
         bootstrapService.ensureDefaults(tenantId);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<TenantPaymentMethod> listForTenant(Long tenantId) {
         ensureDefaultsForTenant(tenantId);
         return repository.findByTenantIdOrderBySortOrderAscCodeAsc(tenantId);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TenantPaymentMethod getOrThrow(Long tenantId, PaymentMethodCode code) {
         ensureDefaultsForTenant(tenantId);
         return repository.findByTenantIdAndCode(tenantId, code)
                 .orElseThrow(() -> new ResourceNotFoundException("Método de pagamento não configurado."));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<TenantPaymentMethod> listAvailableForContext(Long tenantId,
                                                              PaymentUsageContext context,
                                                              PaymentDestination destination) {
@@ -58,7 +58,7 @@ public class TenantPaymentMethodService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TenantPaymentMethod validateMethodAllowed(Long tenantId,
                                                      PaymentMethodCode code,
                                                      PaymentUsageContext context,

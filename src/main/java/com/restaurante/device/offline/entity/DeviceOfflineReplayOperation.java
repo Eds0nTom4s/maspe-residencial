@@ -20,6 +20,8 @@ import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.Setter;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 @Entity
@@ -93,12 +95,15 @@ public class DeviceOfflineReplayOperation {
     private boolean force = false;
 
     @Column(name = "command_status_filter_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String commandStatusFilterJson;
 
     @Column(name = "command_type_filter_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String commandTypeFilterJson;
 
     @Column(name = "command_ids_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String commandIdsJson;
 
     @Column(name = "total_items", nullable = false)

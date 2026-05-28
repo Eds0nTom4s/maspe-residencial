@@ -60,7 +60,8 @@ class AuthTenantSelectIT extends PostgresTestcontainersConfig {
 
     @Test
     void selectTenant_returnsTenantScopedTokenWithClaims() throws Exception {
-        ProvisionarTenantResponse provisioned = provisionTenant("banca-a", "BA", "owner-a@a.com");
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        ProvisionarTenantResponse provisioned = provisionTenant("banca-a-" + suffix, "BA" + suffix, "owner-a-" + suffix + "@a.com");
 
         User owner = userRepository.findById(provisioned.getOwnerUserId()).orElseThrow();
         String globalToken = jwtTokenProvider.generateToken(owner.getUsername(), "ROLE_GERENTE");
@@ -92,8 +93,9 @@ class AuthTenantSelectIT extends PostgresTestcontainersConfig {
 
     @Test
     void selectTenant_deniesWhenUserNotMemberOfTenant() throws Exception {
-        ProvisionarTenantResponse tenantA = provisionTenant("banca-a2", "BA2", "owner-a2@a.com");
-        ProvisionarTenantResponse tenantB = provisionTenant("banca-b2", "BB2", "owner-b2@b.com");
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        ProvisionarTenantResponse tenantA = provisionTenant("banca-a2-" + suffix, "BA2" + suffix, "owner-a2-" + suffix + "@a.com");
+        ProvisionarTenantResponse tenantB = provisionTenant("banca-b2-" + suffix, "BB2" + suffix, "owner-b2-" + suffix + "@b.com");
 
         User ownerA = userRepository.findById(tenantA.getOwnerUserId()).orElseThrow();
         String globalTokenA = jwtTokenProvider.generateToken(ownerA.getUsername(), "ROLE_GERENTE");

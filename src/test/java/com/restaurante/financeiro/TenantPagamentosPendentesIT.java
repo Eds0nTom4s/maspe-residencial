@@ -12,13 +12,17 @@ import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.financeiro.enums.MetodoPagamentoAppyPay;
 import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
+import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Produto;
+import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DispositivoStatus;
 import com.restaurante.model.enums.DispositivoTipo;
+import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.model.enums.OperationalEntityType;
 import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.Role;
@@ -26,12 +30,14 @@ import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TurnoOperacionalTipo;
 import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.OperationalEventLogRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
@@ -49,7 +55,9 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
@@ -66,8 +74,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
+@Transactional
 class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -78,8 +87,11 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
-    @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
-    @Autowired OperationalEventLogRepository operationalEventLogRepository;
+	@Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
+	@Autowired OperationalEventLogRepository operationalEventLogRepository;
+	@Autowired UserRepository userRepository;
+	@Autowired CozinhaRepository cozinhaRepository;
+	@Autowired PagamentoGatewayRepository pagamentoGatewayRepository;
 
     @MockBean AppyPayClient appyPayClient;
 
@@ -103,21 +115,28 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
                 .chargeId("ch_pend_1")
                 .status("CONFIRMED")
                 .amount(1200L)
+                .paymentMethod("REF")
+                .entity("10100")
+                .reference("999123456")
                 .build());
 
         ProvisionarTenantResponse prov = provisionTenant("pend-ops-1", "PO1");
 
-        // abrir turno com OWNER (context)
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
+        com.restaurante.model.entity.User owner = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
+        UsernamePasswordAuthenticationToken ownerAuth = new UsernamePasswordAuthenticationToken(
+                owner,
+                "N/A",
+                List.of(new SimpleGrantedAuthority(Role.ROLE_GERENTE.name()))
+        );
+
         var abrirTurnoResp = mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .with(authentication(ownerAuth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
                 .andExpect(status().isCreated());
         Long turnoId = objectMapper.readTree(abrirTurnoResp.andReturn().getResponse().getContentAsString()).at("/data/id").asLong();
+
+        ensureCozinhaCentralAtiva(prov);
 
         Produto prod = criarProdutoBasico(prov.getTenantId());
         DispositivoOperacional disp = criarDevicePos(prov);
@@ -146,18 +165,16 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
-        long pagamentoId = objectMapper.readTree(payResp).at("/data/pagamentoId").asLong();
+	        long pagamentoId = objectMapper.readTree(payResp).at("/data/pagamentoId").asLong();
+	        // Polling manual tem delay inicial (default 2min). Ajustar createdAt para tornar elegível sem flakiness.
+	        Pagamento pg = pagamentoGatewayRepository.findById(pagamentoId).orElseThrow();
+	        pg.setCreatedAt(LocalDateTime.now().minusMinutes(5));
+	        pagamentoGatewayRepository.saveAndFlush(pg);
 
-        // troca para FINANCE para consultar pendentes (context)
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-
-        String pend = mockMvc.perform(get("/tenant/financeiro/pagamentos/pendentes")
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
+	        String pend = mockMvc.perform(get("/tenant/financeiro/pagamentos/pendentes")
+	                        .with(authentication(ownerAuth))
+	                        .accept(MediaType.APPLICATION_JSON))
+	                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode pendJson = objectMapper.readTree(pend);
         assertThat(pendJson.at("/data/content").isArray()).isTrue();
@@ -165,25 +182,28 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
         assertThat(pend).contains("\"pagamentoId\":" + pagamentoId);
 
         String resumo = mockMvc.perform(get("/tenant/financeiro/pagamentos/pendentes/resumo")
+                        .with(authentication(ownerAuth))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(objectMapper.readTree(resumo).at("/data/totalPendentes").asLong()).isGreaterThanOrEqualTo(1);
 
         String detalhe = mockMvc.perform(get("/tenant/financeiro/pagamentos/{id}/polling", pagamentoId)
+                        .with(authentication(ownerAuth))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(objectMapper.readTree(detalhe).at("/data/pollingAttempts").asInt()).isGreaterThanOrEqualTo(0);
 
         String manual = mockMvc.perform(post("/tenant/financeiro/pagamentos/{id}/poll", pagamentoId)
+                        .with(authentication(ownerAuth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"motivo\":\"Cliente apresentou comprovativo\"}")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode manualJson = objectMapper.readTree(manual);
-        assertThat(manualJson.at("/data/confirmado").asBoolean()).isTrue();
+        assertThat(manualJson.at("/data/confirmado").asBoolean()).as(manual).isTrue();
 
         // eventos manuais registrados via OperationalEventLog (entityType PAGAMENTO)
         var recent = operationalEventLogRepository.findTop20ByTenantIdAndEntityTypeAndEntityIdOrderByCreatedAtDesc(
@@ -194,6 +214,7 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
 
         // alertas por turno não deve ser 404
         mockMvc.perform(get("/tenant/financeiro/turnos/{turnoId}/alertas-pagamento", turnoId)
+                        .with(authentication(ownerAuth))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
     }
@@ -207,13 +228,15 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
         it.setQuantidade(1);
         req.setItens(List.of(it));
 
-        String resp = mockMvc.perform(post("/device/pedidos")
+        var result = mockMvc.perform(post("/device/pedidos")
                         .with(authentication(auth))
                         .header("Idempotency-Key", "idem-order-" + System.nanoTime())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn();
+        int httpStatus = result.getResponse().getStatus();
+        String resp = result.getResponse().getContentAsString();
+        assertThat(httpStatus).as(resp).isEqualTo(201);
         return objectMapper.readTree(resp).at("/data/pedidoId").asLong();
     }
 
@@ -223,11 +246,21 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
         req.setUnidadeAtendimentoId(prov.getUnidadeAtendimentoId());
         req.setTipo(TurnoOperacionalTipo.DIARIO);
         req.setNome("Turno Pendências");
-        ChecklistItemRespostaRequest it = new ChecklistItemRespostaRequest();
-        it.setCodigo("DEVICE_ONLINE");
-        it.setValorBoolean(true);
-        req.setChecklist(List.of(it));
+        req.setChecklist(List.of(
+                boolItem("DEVICE_ONLINE", true),
+                boolItem("QR_VISIVEL", true),
+                boolItem("CATALOGO_ATUALIZADO", true),
+                boolItem("UNIDADE_PRODUCAO_ATIVA", true),
+                boolItem("OPERADOR_CONFIRMOU", true)
+        ));
         return req;
+    }
+
+    private static ChecklistItemRespostaRequest boolItem(String codigo, boolean v) {
+        ChecklistItemRespostaRequest it = new ChecklistItemRespostaRequest();
+        it.setCodigo(codigo);
+        it.setValorBoolean(v);
+        return it;
     }
 
     private DispositivoOperacional criarDevicePos(ProvisionarTenantResponse prov) {
@@ -268,6 +301,20 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
         return produtoRepository.save(prod);
     }
 
+    private void ensureCozinhaCentralAtiva(ProvisionarTenantResponse prov) {
+        var ua = unidadeAtendimentoRepository.findByIdAndTenantId(prov.getUnidadeAtendimentoId(), prov.getTenantId()).orElseThrow();
+        if (!cozinhaRepository.findByUnidadeAtendimentoId(ua.getId()).isEmpty()) return;
+
+        Cozinha cozinha = new Cozinha();
+        cozinha.setNome("Cozinha Central " + (System.nanoTime() % 100_000));
+        cozinha.setTipo(TipoCozinha.CENTRAL);
+        cozinha.setAtiva(true);
+        cozinha = cozinhaRepository.saveAndFlush(cozinha);
+
+        ua.adicionarCozinha(cozinha);
+        unidadeAtendimentoRepository.saveAndFlush(ua);
+    }
+
     private ProvisionarTenantResponse provisionTenant(String slug, String tenantCode) {
         TenantContextHolder.set(new TenantContext(
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
@@ -292,6 +339,11 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
                                 .email(slug + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
+                                .build())
+                        .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder()
+                                .criarMesas(true)
+                                .quantidadeMesas(1)
+                                .criarQrPorMesa(true)
                                 .build())
                         .build()
         );

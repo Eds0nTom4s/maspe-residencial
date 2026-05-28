@@ -11,6 +11,7 @@ import com.restaurante.repository.TenantUserAccessVersionRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.security.JwtTokenProvider;
+import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.exception.TenantTokenStaleException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -56,6 +57,21 @@ public class TenantResolver {
             return Optional.empty();
         }
 
+        // Device-authenticated requests (Authorization: Device <token>)
+        // DeviceAuthenticationFilter popula SecurityContext com DevicePrincipal; aqui convertemos para TenantContext.
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof DevicePrincipal d && d.tenantId() != null) {
+            return Optional.of(new TenantContext(
+                    d.tenantId(),
+                    d.tenantCode(),
+                    null,
+                    extractRoleNames(authentication),
+                    TenantResolutionSource.DEVICE_TOKEN,
+                    false,
+                    false
+            ));
+        }
+
         boolean platformAdmin = hasAuthority(authentication, Role.ROLE_ADMIN.name());
 
         // Preferir resolução via JWT tenant-scoped (tokenType=TENANT)
@@ -72,7 +88,17 @@ public class TenantResolver {
         // PLATFORM_ADMIN: só resolve tenant quando houver seleção explícita
         if (platformAdmin) {
             if (selectedTenantId.isEmpty()) {
-                return Optional.empty();
+                // Para endpoints platform-scoped (ex.: provisionamento), ainda precisamos de um contexto
+                // com platformAdmin=true, mesmo sem tenant selecionado.
+                return Optional.of(new TenantContext(
+                        null,
+                        null,
+                        userId,
+                        extractRoleNames(authentication),
+                        TenantResolutionSource.PLATFORM_ADMIN,
+                        true,
+                        false
+                ));
             }
             Tenant tenant = requireActiveTenant(selectedTenantId.get());
             return Optional.of(new TenantContext(
@@ -294,6 +320,8 @@ public class TenantResolver {
                     platformAdmin,
                     false
             ));
+        } catch (com.restaurante.exception.TenantTokenStaleException e) {
+            throw e;
         } catch (Exception ignored) {
             return Optional.empty();
         }

@@ -27,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class PlatformTenantProvisioningPreviewControllerIT extends PostgresTestcontainersConfig {
 
@@ -187,7 +187,6 @@ class PlatformTenantProvisioningPreviewControllerIT extends PostgresTestcontaine
         mockMvc.perform(post("/platform/tenants/provisionar/preview")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isForbidden());
     }
 }
-

@@ -54,6 +54,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(
+        classes = com.restaurante.SistemaRestauracaoApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "spring.main.web-application-type=servlet"
 )
@@ -303,6 +304,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         p.setUrlImagem(null);
         p.setDisponivel(true);
         p.setAtivo(true);
+        p.setCategoria(com.restaurante.model.enums.CategoriaProdutoLegacy.PRATO_PRINCIPAL);
         p.setCategoriaProduto(categoriaProduto);
         return produtoRepository.saveAndFlush(p);
     }

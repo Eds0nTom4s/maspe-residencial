@@ -22,6 +22,8 @@ import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.Setter;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 @Entity
@@ -134,9 +136,11 @@ public class DeviceOfflineSyncSession {
     private String userAgent;
 
     @Column(name = "summary_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String summaryJson;
 
     @Column(name = "error_summary_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String errorSummaryJson;
 
     @Column(name = "created_at", nullable = false, updatable = false)

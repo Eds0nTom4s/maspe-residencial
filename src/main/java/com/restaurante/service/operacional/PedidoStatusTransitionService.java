@@ -60,7 +60,7 @@ public class PedidoStatusTransitionService {
 
         if (novoStatus == null) throw new BusinessException("Status é obrigatório.");
 
-        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItensESubPedidos(pedidoId, ctx.tenantId())
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, ctx.tenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
 
         StatusPedido anterior = pedido.getStatus();

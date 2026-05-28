@@ -28,6 +28,7 @@ import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import org.springframework.transaction.annotation.Transactional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,8 +52,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc(addFilters = true)
 @ActiveProfiles("it-postgres")
+@Transactional
 class TenantPaymentMethodDeviceIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;

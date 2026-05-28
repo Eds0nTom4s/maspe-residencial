@@ -42,7 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 "consuma.otp.hash-pepper=testpepper"
         }
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DeviceConsumoIdentificadoAssistidoIT extends PostgresTestcontainersConfig {
 

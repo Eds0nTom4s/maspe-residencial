@@ -46,7 +46,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc(addFilters = true)
 @ActiveProfiles("it-postgres")
-@Transactional
 class TenantDeviceCapabilityControllerIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -59,6 +58,7 @@ class TenantDeviceCapabilityControllerIT extends PostgresTestcontainersConfig {
     @Autowired TenantUserRepository tenantUserRepository;
     @Autowired JwtTokenProvider jwtTokenProvider;
     @Autowired com.restaurante.repository.UserRepository userRepository;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @AfterEach
     void clear() {
@@ -67,12 +67,20 @@ class TenantDeviceCapabilityControllerIT extends PostgresTestcontainersConfig {
 
     @Test
     void owner_can_list_and_update_device_capabilities() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("cap-ctrl-a", "DCA");
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final DispositivoOperacional[] dArr = new DispositivoOperacional[1];
+
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            provArr[0] = provisionTenant("cap-ctrl-a", "DCA");
+            dArr[0] = criarDevice(provArr[0], OperationalDeviceType.POS_CAIXA);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        DispositivoOperacional device = dArr[0];
+
         com.restaurante.model.entity.User owner = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
         Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
         String token = jwtTokenProvider.generateTenantScopedToken(owner, tenant, TenantUserRole.TENANT_OWNER, TenantUserEstado.ATIVO, 1, null);
-
-        DispositivoOperacional device = criarDevice(prov, OperationalDeviceType.POS_CAIXA);
 
         String list = mockMvc.perform(get("/tenant/devices/{deviceId}/capabilities", device.getId())
                         .header("Authorization", "Bearer " + token))
@@ -94,14 +102,24 @@ class TenantDeviceCapabilityControllerIT extends PostgresTestcontainersConfig {
 
     @Test
     void cashier_cannot_update_device_capabilities() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("cap-ctrl-b", "DCB");
-        User cashier = createUser("cash@ctrlb.com", "+244900111222");
-        linkTenantUser(prov.getTenantId(), cashier.getId(), TenantUserRole.TENANT_CASHIER, TenantUserEstado.ATIVO);
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final User[] cashierArr = new User[1];
+        final DispositivoOperacional[] dArr = new DispositivoOperacional[1];
+
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            provArr[0] = provisionTenant("cap-ctrl-b", "DCB");
+            cashierArr[0] = createUser("cash@ctrlb.com", "+244900111222");
+            linkTenantUser(provArr[0].getTenantId(), cashierArr[0].getId(), TenantUserRole.TENANT_CASHIER, TenantUserEstado.ATIVO);
+            dArr[0] = criarDevice(provArr[0], OperationalDeviceType.POS_CAIXA);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        User cashier = cashierArr[0];
+        DispositivoOperacional device = dArr[0];
 
         Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
         String token = jwtTokenProvider.generateTenantScopedToken(cashier, tenant, TenantUserRole.TENANT_CASHIER, TenantUserEstado.ATIVO, 1, null);
 
-        DispositivoOperacional device = criarDevice(prov, OperationalDeviceType.POS_CAIXA);
         UpdateDeviceCapabilityRequest req = new UpdateDeviceCapabilityRequest();
         req.setEnabled(false);
 

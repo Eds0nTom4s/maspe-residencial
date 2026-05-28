@@ -49,7 +49,6 @@ import org.springframework.transaction.annotation.Transactional;
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-@Transactional
 class DeviceCapabilityRolloutOverwriteModeIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -63,6 +62,7 @@ class DeviceCapabilityRolloutOverwriteModeIT extends PostgresTestcontainersConfi
     @Autowired UserRepository userRepository;
     @Autowired TenantUserRepository tenantUserRepository;
     @Autowired JwtTokenProvider jwtTokenProvider;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @AfterEach
     void clear() {
@@ -98,23 +98,32 @@ class DeviceCapabilityRolloutOverwriteModeIT extends PostgresTestcontainersConfi
 
     @Test
     void overwrite_only_template_managed_preserves_manual_override() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("cap-ow-a", "COW");
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final DispositivoOperacional[] dArr = new DispositivoOperacional[1];
+
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            provArr[0] = provisionTenant("cap-ow-a", "COW");
+            dArr[0] = criarDevice(provArr[0], OperationalDeviceType.POS_CAIXA);
+            
+            // existing manual override
+            DeviceOperationalCapabilityEntity e = new DeviceOperationalCapabilityEntity();
+            e.setTenant(tenantRepository.findById(provArr[0].getTenantId()).orElseThrow());
+            e.setDispositivoOperacional(dArr[0]);
+            e.setCapability(DeviceCapability.LOOKUP_CONSUMPTION_BY_PHONE);
+            e.setEnabled(false);
+            e.setManualOverride(true);
+            e.setTemplateManaged(false);
+            capabilityRepository.saveAndFlush(e);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        DispositivoOperacional d = dArr[0];
+
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
-
-        DispositivoOperacional d = criarDevice(prov, OperationalDeviceType.POS_CAIXA);
-        // existing manual override
-        DeviceOperationalCapabilityEntity e = new DeviceOperationalCapabilityEntity();
-        e.setTenant(tenantRepository.findById(prov.getTenantId()).orElseThrow());
-        e.setDispositivoOperacional(d);
-        e.setCapability(DeviceCapability.LOOKUP_CONSUMPTION_BY_PHONE);
-        e.setEnabled(false);
-        e.setManualOverride(true);
-        e.setTemplateManaged(false);
-        capabilityRepository.saveAndFlush(e);
 
         String token = tenantToken(prov);
         Long tpl = templateIdByCode("CAP_POS_CAIXA_PADRAO", prov);

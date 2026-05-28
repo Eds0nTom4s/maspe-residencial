@@ -48,7 +48,6 @@ import org.springframework.transaction.annotation.Transactional;
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-@Transactional
 class DeviceCapabilityRolloutApplyIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -62,6 +61,7 @@ class DeviceCapabilityRolloutApplyIT extends PostgresTestcontainersConfig {
     @Autowired UserRepository userRepository;
     @Autowired TenantUserRepository tenantUserRepository;
     @Autowired JwtTokenProvider jwtTokenProvider;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @AfterEach
     void clear() {
@@ -97,14 +97,23 @@ class DeviceCapabilityRolloutApplyIT extends PostgresTestcontainersConfig {
 
     @Test
     void apply_rollout_creates_template_managed_capabilities() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("cap-roll-a", "CRA");
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final DispositivoOperacional[] dArr = new DispositivoOperacional[1];
+
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            provArr[0] = provisionTenant("cap-roll-a", "CRA");
+            dArr[0] = criarDevice(provArr[0], OperationalDeviceType.POS_CAIXA);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        DispositivoOperacional d = dArr[0];
+
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
 
-        DispositivoOperacional d = criarDevice(prov, OperationalDeviceType.POS_CAIXA);
         String token = tenantToken(prov);
         Long tpl = templateIdByCode("CAP_POS_CAIXA_PADRAO", prov);
 

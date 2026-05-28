@@ -56,7 +56,6 @@ import org.springframework.transaction.annotation.Transactional;
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-@Transactional
 class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -69,6 +68,7 @@ class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
     @Autowired UserRepository userRepository;
     @Autowired TenantUserRepository tenantUserRepository;
     @Autowired JwtTokenProvider jwtTokenProvider;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @AfterEach
     void clear() {
@@ -104,8 +104,16 @@ class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
 
     @Test
     void owner_can_put_and_delete_device_policy_and_invalid_min_max_is_rejected() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("pm-dev-pol-a", "DPA");
-        DispositivoOperacional device = criarDevicePos(prov);
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final DispositivoOperacional[] dArr = new DispositivoOperacional[1];
+
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            provArr[0] = provisionTenant("pm-dev-pol-a", "DPA");
+            dArr[0] = criarDevicePos(provArr[0]);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        DispositivoOperacional device = dArr[0];
 
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
@@ -156,9 +164,19 @@ class PaymentMethodDevicePolicyIT extends PostgresTestcontainersConfig {
 
     @Test
     void cross_tenant_device_policy_returns_404() throws Exception {
-        ProvisionarTenantResponse a = provisionTenant("pm-dev-pol-b1", "DPB1");
-        ProvisionarTenantResponse b = provisionTenant("pm-dev-pol-b2", "DPB2");
-        DispositivoOperacional deviceB = criarDevicePos(b);
+        final ProvisionarTenantResponse[] aArr = new ProvisionarTenantResponse[1];
+        final ProvisionarTenantResponse[] bArr = new ProvisionarTenantResponse[1];
+        final DispositivoOperacional[] dArr = new DispositivoOperacional[1];
+
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            aArr[0] = provisionTenant("pm-dev-pol-b1", "DPB1");
+            bArr[0] = provisionTenant("pm-dev-pol-b2", "DPB2");
+            dArr[0] = criarDevicePos(bArr[0]);
+        });
+
+        ProvisionarTenantResponse a = aArr[0];
+        ProvisionarTenantResponse b = bArr[0];
+        DispositivoOperacional deviceB = dArr[0];
 
         TenantContextHolder.set(new TenantContext(
                 a.getTenantId(), a.getTenantCode(), a.getOwnerUserId(),

@@ -80,7 +80,6 @@ import org.springframework.transaction.annotation.Transactional;
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-@Transactional
 class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -98,6 +97,7 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
     @Autowired UserRepository userRepository;
     @Autowired TenantUserRepository tenantUserRepository;
     @Autowired JwtTokenProvider jwtTokenProvider;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @MockBean AppyPayClient appyPayClient;
 
@@ -131,7 +131,19 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
                 .paymentUrl("https://pay.local/pos")
                 .build());
 
-        ProvisionarTenantResponse prov = provisionTenant("dev-pos-pay-1", "DPP");
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final Produto[] prodArr = new Produto[1];
+        final DispositivoOperacional[] dispArr = new DispositivoOperacional[1];
+
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            provArr[0] = provisionTenant("dev-pos-pay-1", "DPP");
+            prodArr[0] = criarProdutoBasico(provArr[0].getTenantId());
+            dispArr[0] = criarDevicePos(provArr[0]);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        Produto prod = prodArr[0];
+        DispositivoOperacional disp = dispArr[0];
 
         // abrir turno (tenant context)
         TenantContextHolder.set(new TenantContext(
@@ -145,9 +157,6 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
                 .andExpect(status().isCreated());
-
-        Produto prod = criarProdutoBasico(prov.getTenantId());
-        DispositivoOperacional disp = criarDevicePos(prov);
 
         DevicePrincipal device = new DevicePrincipal(
                 disp.getId(),
@@ -222,7 +231,19 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
                 .reference("999123456")
                 .build());
 
-        ProvisionarTenantResponse prov = provisionTenant("dev-pos-pay-2", "DP2");
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final Produto[] prodArr = new Produto[1];
+        final DispositivoOperacional[] dispArr = new DispositivoOperacional[1];
+
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            provArr[0] = provisionTenant("dev-pos-pay-2", "DP2");
+            prodArr[0] = criarProdutoBasico(provArr[0].getTenantId());
+            dispArr[0] = criarDevicePos(provArr[0]);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        Produto prod = prodArr[0];
+        DispositivoOperacional disp = dispArr[0];
 
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
@@ -237,9 +258,6 @@ class DevicePagamentoStartIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         Long turnoId = objectMapper.readTree(abrirResp).at("/data/id").asLong();
-
-        Produto prod = criarProdutoBasico(prov.getTenantId());
-        DispositivoOperacional disp = criarDevicePos(prov);
         DevicePrincipal device = new DevicePrincipal(
                 disp.getId(), disp.getCodigo(),
                 prov.getTenantId(), prov.getTenantCode(),

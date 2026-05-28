@@ -158,6 +158,26 @@ public class DeviceSyncExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
+    @ExceptionHandler(com.restaurante.exception.DeviceApiException.class)
+    public ResponseEntity<Object> handleDeviceApi(com.restaurante.exception.DeviceApiException ex, HttpServletRequest req) {
+        if (!isDeviceSyncPath(req)) {
+            return delegateToGlobal(ex, req, ex.getStatus(), ex.getMessage(), ex.getCode() != null ? ex.getCode().name() : null);
+        }
+        log.info("device_sync_device_api_error code={}", ex.getCode());
+        SyncErrorResponse body = new SyncErrorResponse(
+                SyncErrorResponse.SyncErrorCode.SYNC_INTERNAL_ERROR,
+                ex.getMessage(),
+                null,
+                false,
+                SyncEnvelope.FullSyncRequiredReason.NONE,
+                true,
+                SyncErrorResponse.SyncRecoveryAction.RETRY,
+                LocalDateTime.now(),
+                ex.getDetails()
+        );
+        return ResponseEntity.status(ex.getStatus()).body(body);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Object> handleOther(Exception ex, HttpServletRequest req) {
         if (!isDeviceSyncPath(req)) {

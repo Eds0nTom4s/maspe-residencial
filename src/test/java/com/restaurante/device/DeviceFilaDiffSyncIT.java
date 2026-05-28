@@ -188,6 +188,8 @@ class DeviceFilaDiffSyncIT extends PostgresTestcontainersConfig {
         Long pedidoId = json.at("/data/pedidoId").asLong();
         List<SubPedido> subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId);
         SubPedido sp = subs.getFirst();
+        sp.setStatus(com.restaurante.model.enums.StatusSubPedido.PENDENTE);
+        subPedidoRepository.saveAndFlush(sp);
         Long unidadeProducaoId = sp.getUnidadeProducao() != null ? sp.getUnidadeProducao().getId() : null;
 
         return new Setup(tenant, inst.getId(), unidade.getId(), pedidoId, sp.getId(), unidadeProducaoId);

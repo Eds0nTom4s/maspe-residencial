@@ -54,7 +54,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc(addFilters = true)
 @ActiveProfiles("it-postgres")
-@Transactional
 class TenantPaymentMethodDeviceIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -66,6 +65,7 @@ class TenantPaymentMethodDeviceIT extends PostgresTestcontainersConfig {
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired TenantPaymentMethodBootstrapService bootstrapService;
     @Autowired TenantPaymentMethodRepository tenantPaymentMethodRepository;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @AfterEach
     void clear() {
@@ -74,16 +74,24 @@ class TenantPaymentMethodDeviceIT extends PostgresTestcontainersConfig {
 
     @Test
     void device_payment_methods_returns_only_active_enabledForPos_and_tenant_scoped() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("pm-dev-a", "PDA");
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final DispositivoOperacional[] dispArr = new DispositivoOperacional[1];
 
-        bootstrapService.ensureDefaults(prov.getTenantId());
-        // desativar APPYPAY para POS
-        var appy = tenantPaymentMethodRepository.findByTenantIdAndCode(prov.getTenantId(), PaymentMethodCode.APPYPAY).orElseThrow();
-        appy.setStatus(PaymentMethodStatus.INACTIVE);
-        appy.setEnabledForPos(false);
-        tenantPaymentMethodRepository.saveAndFlush(appy);
+        provArr[0] = provisionTenant("pm-dev-a", "PDA");
 
-        DispositivoOperacional disp = criarDevicePos(prov);
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            bootstrapService.ensureDefaults(provArr[0].getTenantId());
+            // desativar APPYPAY para POS
+            var appy = tenantPaymentMethodRepository.findByTenantIdAndCode(provArr[0].getTenantId(), PaymentMethodCode.APPYPAY).orElseThrow();
+            appy.setStatus(PaymentMethodStatus.INACTIVE);
+            appy.setEnabledForPos(false);
+            tenantPaymentMethodRepository.saveAndFlush(appy);
+            dispArr[0] = criarDevicePos(provArr[0]);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        DispositivoOperacional disp = dispArr[0];
+
         DevicePrincipal device = new DevicePrincipal(
                 disp.getId(),
                 disp.getCodigo(),

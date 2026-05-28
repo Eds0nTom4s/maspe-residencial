@@ -11,6 +11,10 @@ import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.model.entity.DispositivoOperacional;
+import com.restaurante.model.entity.FundoConsumo;
+import com.restaurante.repository.FundoConsumoRepository;
+import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.Test;
@@ -44,28 +48,54 @@ class DeviceClienteConsumoIT extends PostgresTestcontainersConfig {
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired SessaoConsumoRepository sessaoConsumoRepository;
+    @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @Autowired FundoConsumoRepository fundoConsumoRepository;
 
     @Test
     void device_can_list_open_sessions_by_phone_inside_own_unidade() throws Exception {
-        Tenant tenant = criarTenant("Tenant Dev", "tenant-dev", "TDV");
-        Instituicao inst = criarInstituicao(tenant, "Inst Dev", "ID", "NIF-ID-001", "+244900002001");
-        UnidadeAtendimento ua = criarUnidade(inst, "UA Dev", TipoUnidadeAtendimento.RESTAURANTE);
+        final Tenant[] tenantArr = new Tenant[1];
+        final Instituicao[] instArr = new Instituicao[1];
+        final UnidadeAtendimento[] uaArr = new UnidadeAtendimento[1];
+        final SessaoConsumo[] sArr = new SessaoConsumo[1];
+        final DispositivoOperacional[] dispArr = new DispositivoOperacional[1];
 
-        SessaoConsumo s = new SessaoConsumo();
-        s.setTenant(tenant);
-        s.setInstituicao(inst);
-        s.setUnidadeAtendimento(ua);
-        s.setModoAnonimo(true);
-        s.setStatus(StatusSessaoConsumo.ABERTA);
-        s.setTipoSessao(TipoSessao.PRE_PAGO);
-        s.setTelefoneIdentificado("+244923000000");
-        s.setIdentificacaoStatus(SessaoIdentificacaoStatus.IDENTIFICADA);
-        s.setIdentificadoPorOtp(true);
-        sessaoConsumoRepository.saveAndFlush(s);
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            tenantArr[0] = criarTenant("Tenant Dev", "tenant-dev", "TDV");
+            instArr[0] = criarInstituicao(tenantArr[0], "Inst Dev", "ID", "NIF-ID-001", "+244900002001");
+            uaArr[0] = criarUnidade(instArr[0], "UA Dev", TipoUnidadeAtendimento.RESTAURANTE);
+
+            SessaoConsumo s = new SessaoConsumo();
+            s.setTenant(tenantArr[0]);
+            s.setInstituicao(instArr[0]);
+            s.setUnidadeAtendimento(uaArr[0]);
+            s.setModoAnonimo(true);
+            s.setStatus(StatusSessaoConsumo.ABERTA);
+            s.setTipoSessao(TipoSessao.PRE_PAGO);
+            s.setTelefoneIdentificado("+244923000000");
+            s.setIdentificacaoStatus(SessaoIdentificacaoStatus.IDENTIFICADA);
+            s.setQrCodeSessao("QR-TEST-123");
+            sArr[0] = sessaoConsumoRepository.saveAndFlush(s);
+
+            FundoConsumo fundo = FundoConsumo.builder()
+                    .sessaoConsumo(sArr[0])
+                    .saldoAtual(java.math.BigDecimal.ZERO)
+                    .ativo(true)
+                    .build();
+            fundoConsumoRepository.saveAndFlush(fundo);
+
+            dispArr[0] = criarDevicePos(tenantArr[0], instArr[0], uaArr[0]);
+        });
+
+        Tenant tenant = tenantArr[0];
+        Instituicao inst = instArr[0];
+        UnidadeAtendimento ua = uaArr[0];
+        SessaoConsumo s = sArr[0];
+        DispositivoOperacional disp = dispArr[0];
 
         DevicePrincipal device = new DevicePrincipal(
-                1L,
-                "POS-1",
+                disp.getId(),
+                disp.getCodigo(),
                 tenant.getId(),
                 tenant.getTenantCode(),
                 inst.getId(),
@@ -121,5 +151,17 @@ class DeviceClienteConsumoIT extends PostgresTestcontainersConfig {
         u.setAtiva(true);
         u.setInstituicao(instituicao);
         return unidadeAtendimentoRepository.saveAndFlush(u);
+    }
+
+    private DispositivoOperacional criarDevicePos(Tenant tenant, Instituicao inst, UnidadeAtendimento ua) {
+        DispositivoOperacional d = new DispositivoOperacional();
+        d.setTenant(tenant);
+        d.setInstituicao(inst);
+        d.setUnidadeAtendimento(ua);
+        d.setNome("POS Dev");
+        d.setCodigo("POS-DEV-" + System.nanoTime());
+        d.setTipo(DispositivoTipo.POS);
+        d.setStatus(DispositivoStatus.ATIVO);
+        return dispositivoOperacionalRepository.saveAndFlush(d);
     }
 }

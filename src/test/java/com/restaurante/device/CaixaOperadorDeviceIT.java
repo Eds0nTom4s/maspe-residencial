@@ -77,6 +77,8 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
     @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @AfterEach
     void clear() {
@@ -97,7 +99,9 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
                 DeviceCapability.OPEN_OPERATOR_CASH_SESSION,
                 DeviceCapability.CLOSE_OPERATOR_CASH_SESSION,
                 DeviceCapability.VIEW_OPERATOR_CASH_SESSION,
-                DeviceCapability.VIEW_OPERATOR_CASH_SESSION_ITEMS
+                DeviceCapability.VIEW_OPERATOR_CASH_SESSION_ITEMS,
+                DeviceCapability.OFFLINE_SYNC,
+                DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER
         ));
 
         long pedidoId = criarPedidoOnline(auth, prod.getId());
@@ -152,7 +156,9 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
                 DeviceCapability.OPEN_OPERATOR_CASH_SESSION,
                 DeviceCapability.CLOSE_OPERATOR_CASH_SESSION,
                 DeviceCapability.VIEW_OPERATOR_CASH_SESSION,
-                DeviceCapability.VIEW_OPERATOR_CASH_SESSION_ITEMS
+                DeviceCapability.VIEW_OPERATOR_CASH_SESSION_ITEMS,
+                DeviceCapability.OFFLINE_SYNC,
+                DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER
         ));
 
         AbrirCaixaOperadorRequest open = new AbrirCaixaOperadorRequest();
@@ -185,8 +191,8 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         JsonNode closeJson = objectMapper.readTree(closeResp);
         assertThat(closeJson.at("/data/status").asText()).isEqualTo("CLOSED");
-        assertThat(closeJson.at("/data/expectedCashAmount").asText()).isEqualTo("10.00");
-        assertThat(closeJson.at("/data/expectedTpaAmount").asText()).isEqualTo("10.00");
+        assertThat(closeJson.at("/data/expectedCashAmount").decimalValue()).isEqualByComparingTo(new BigDecimal("10.00"));
+        assertThat(closeJson.at("/data/expectedTpaAmount").decimalValue()).isEqualByComparingTo(new BigDecimal("10.00"));
         assertThat(closeJson.at("/data/manualDifferenceAmount").decimalValue()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
@@ -347,17 +353,33 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
     }
 
     private DispositivoOperacional criarDevicePos(ProvisionarTenantResponse prov) {
-        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
-        var inst = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
-        var ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
-        DispositivoOperacional d = new DispositivoOperacional();
-        d.setTenant(tenant);
-        d.setInstituicao(inst);
-        d.setUnidadeAtendimento(ua);
-        d.setTipo(DispositivoTipo.POS);
-        d.setStatus(DispositivoStatus.ATIVO);
-        d.setCodigo("POS-" + (System.nanoTime() % 1_000_000));
-        d.setNome("POS Caixa");
-        return dispositivoOperacionalRepository.save(d);
+        final DispositivoOperacional[] dispArr = new DispositivoOperacional[1];
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+            var inst = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
+            var ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
+
+            // Provisionar Cozinha CENTRAL ativa para a unidade
+            com.restaurante.model.entity.Cozinha cozinha = com.restaurante.model.entity.Cozinha.builder()
+                    .nome("Cozinha CENTRAL")
+                    .tipo(com.restaurante.model.enums.TipoCozinha.CENTRAL)
+                    .ativa(true)
+                    .descricao("Cozinha Central Offline")
+                    .build();
+            cozinha = cozinhaRepository.saveAndFlush(cozinha);
+            ua.adicionarCozinha(cozinha);
+            unidadeAtendimentoRepository.saveAndFlush(ua);
+
+            DispositivoOperacional d = new DispositivoOperacional();
+            d.setTenant(tenant);
+            d.setInstituicao(inst);
+            d.setUnidadeAtendimento(ua);
+            d.setTipo(DispositivoTipo.POS);
+            d.setStatus(DispositivoStatus.ATIVO);
+            d.setCodigo("POS-" + (System.nanoTime() % 1_000_000));
+            d.setNome("POS Caixa");
+            dispArr[0] = dispositivoOperacionalRepository.save(d);
+        });
+        return dispArr[0];
     }
 }

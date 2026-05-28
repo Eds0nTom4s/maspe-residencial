@@ -103,6 +103,19 @@ public class UnidadePaymentMethodPolicyAdminService {
 
         UnidadePaymentMethodPolicy saved = policyRepository.save(policy);
 
+        Map<String, Object> details = new java.util.HashMap<>();
+        details.put("unidadeId", unidadeId);
+        details.put("code", code.name());
+        details.put("statusAnterior", anterior != null ? anterior.name() : null);
+        details.put("statusNovo", saved.getStatus() != null ? saved.getStatus().name() : null);
+        details.put("inheritFromTenant", saved.isInheritFromTenant());
+        details.put("enabledForQr", saved.getEnabledForQr());
+        details.put("enabledForPos", saved.getEnabledForPos());
+        details.put("enabledForPedido", saved.getEnabledForPedido());
+        details.put("enabledForFundoConsumo", saved.getEnabledForFundoConsumo());
+        details.put("minAmount", saved.getMinAmount());
+        details.put("maxAmount", saved.getMaxAmount());
+
         operationalEventLogService.logPublicEvent(
                 tenantMethod.getTenant(), null, unidade, null, null,
                 OperationalEventType.PAYMENT_METHOD_UNIT_POLICY_UPDATED,
@@ -110,19 +123,7 @@ public class UnidadePaymentMethodPolicyAdminService {
                 saved.getId(),
                 OperationalOrigem.TENANT_ADMIN,
                 "Política de método de pagamento (unidade) atualizada",
-                Map.ofEntries(
-                        Map.entry("unidadeId", unidadeId),
-                        Map.entry("code", code.name()),
-                        Map.entry("statusAnterior", anterior != null ? anterior.name() : null),
-                        Map.entry("statusNovo", saved.getStatus() != null ? saved.getStatus().name() : null),
-                        Map.entry("inheritFromTenant", saved.isInheritFromTenant()),
-                        Map.entry("enabledForQr", saved.getEnabledForQr()),
-                        Map.entry("enabledForPos", saved.getEnabledForPos()),
-                        Map.entry("enabledForPedido", saved.getEnabledForPedido()),
-                        Map.entry("enabledForFundoConsumo", saved.getEnabledForFundoConsumo()),
-                        Map.entry("minAmount", saved.getMinAmount()),
-                        Map.entry("maxAmount", saved.getMaxAmount())
-                ),
+                details,
                 ip, userAgent
         );
 

@@ -282,11 +282,19 @@ public class TenantResolver {
                 return Optional.empty();
             }
 
-            // Segurança: valida tenant ATIVO e membership ATIVO (fallback de banco), mas evita buscar lista/roles por request.
+            // Segurança: valida tenant ATIVO e membership (aceita qualquer estado para poder rejeitar com 403)
             Tenant tenant = requireActiveTenant(tenantId);
             TenantUserRepository tenantUserRepository = requireTenantUserRepository();
             boolean belongs = tenantUserRepository.existsByTenantIdAndUserIdAndEstado(tenant.getId(), userId, TenantUserEstado.ATIVO);
             if (!belongs) {
+                // Verificar se existe membership com estado diferente de ATIVO (SUSPENSO, INATIVO)
+                boolean existsAny = tenantUserRepository.existsByTenantIdAndUserId(tenant.getId(), userId);
+                if (existsAny) {
+                    // Membership existe mas está suspensa/inactiva → 403
+                    throw new com.restaurante.exception.TenantAccessDeniedException(
+                            "Acesso negado: membership não está activa para este tenant."
+                    );
+                }
                 return Optional.empty();
             }
 
@@ -321,6 +329,8 @@ public class TenantResolver {
                     false
             ));
         } catch (com.restaurante.exception.TenantTokenStaleException e) {
+            throw e;
+        } catch (com.restaurante.exception.TenantAccessDeniedException e) {
             throw e;
         } catch (Exception ignored) {
             return Optional.empty();

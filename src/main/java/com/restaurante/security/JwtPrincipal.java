@@ -30,6 +30,7 @@ public class JwtPrincipal implements UserDetails {
     Long tenantId;
     String tenantCode;
     Set<String> tenantRoles;
+    String tenantUserStatus; // ATIVO | SUSPENSO | INATIVO — lido do claim 'tenantUserStatus'
 
     Instant issuedAt;
     Instant expiresAt;

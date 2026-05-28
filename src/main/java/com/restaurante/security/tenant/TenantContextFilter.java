@@ -56,6 +56,18 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 request.getRequestURI().replace("\"", "\\\"")
             );
             response.getWriter().write(json);
+        } catch (com.restaurante.exception.TenantAccessDeniedException e) {
+            log.warn("Acesso negado no filtro de tenant: {}", e.getMessage());
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.setCharacterEncoding("UTF-8");
+            String json = String.format(
+                "{\"timestamp\":\"%s\",\"status\":403,\"error\":\"Acesso negado\",\"code\":\"MEMBERSHIP_NOT_ACTIVE\",\"message\":\"%s\",\"path\":\"%s\"}",
+                java.time.LocalDateTime.now(),
+                e.getMessage().replace("\"", "\\\""),
+                request.getRequestURI().replace("\"", "\\\"")
+            );
+            response.getWriter().write(json);
         } finally {
             if (setByFilter) {
                 if (previous != null) {

@@ -129,6 +129,17 @@ public class TenantGuard {
             throw new TenantAccessDeniedException("TenantContext obrigatório para validação de role.");
         }
 
+        // Verifica estado da membership via claim JWT (sem consulta DB)
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof com.restaurante.security.JwtPrincipal jp) {
+            String memberStatus = jp.getTenantUserStatus();
+            if (memberStatus != null && !"ATIVO".equals(memberStatus)) {
+                throw new TenantAccessDeniedException(
+                        "Acesso negado: membership com estado '" + memberStatus + "'."
+                );
+            }
+        }
+
         // Fast path: roles já carregadas no TenantContext (TenantResolver)
         Set<String> roleNames = ctx.roles() != null ? ctx.roles() : Set.of();
         for (TenantUserRole role : roles) {

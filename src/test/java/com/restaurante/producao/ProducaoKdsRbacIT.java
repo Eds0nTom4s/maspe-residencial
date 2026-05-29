@@ -44,7 +44,7 @@ class ProducaoKdsRbacIT extends PostgresTestcontainersConfig {
     void finance_isBlockedFromMetricasAndSubpedidosTenant() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), 9999L,
                 Set.of("TENANT_FINANCE"), TenantResolutionSource.JWT, false, false
         ));
 
@@ -60,7 +60,7 @@ class ProducaoKdsRbacIT extends PostgresTestcontainersConfig {
     void kitchen_isBlockedFromSubpedidosTenantGeneralEndpoint() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), 9999L,
                 Set.of("TENANT_KITCHEN"), TenantResolutionSource.JWT, false, false
         ));
 

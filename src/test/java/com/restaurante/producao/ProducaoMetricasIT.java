@@ -57,6 +57,19 @@ class ProducaoMetricasIT extends PostgresTestcontainersConfig {
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired SubPedidoRepository subPedidoRepository;
+    @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUpCozinha() {
+        if (cozinhaRepository.findByAtivaAndTipo(true, com.restaurante.model.enums.TipoCozinha.CENTRAL).isEmpty()) {
+            com.restaurante.model.entity.Cozinha c = com.restaurante.model.entity.Cozinha.builder()
+                    .nome("Cozinha Central Teste")
+                    .tipo(com.restaurante.model.enums.TipoCozinha.CENTRAL)
+                    .ativa(true)
+                    .build();
+            cozinhaRepository.save(c);
+        }
+    }
 
     @AfterEach
     void clear() {
@@ -87,7 +100,9 @@ class ProducaoMetricasIT extends PostgresTestcontainersConfig {
         List<SubPedido> subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoResp.getPedidoId());
         assertThat(subs).isNotEmpty();
 
-        LocalDateTime base = LocalDateTime.now().minusMinutes(20);
+        // O subpedido foi criado agora (createdAt = now()). Ajustamos base para now()
+        // de modo que iniciadoEm (base + 1 min) e prontoEm (base + 6 min) sejam positivos.
+        LocalDateTime base = LocalDateTime.now();
         for (int i = 0; i < subs.size(); i++) {
             SubPedido sp = subs.get(i);
             sp.setIniciadoEm(base.plusMinutes(1));
@@ -172,7 +187,7 @@ class ProducaoMetricasIT extends PostgresTestcontainersConfig {
                 .codigo("P-" + (System.nanoTime() % 1_000_000))
                 .nome("Produto Métricas")
                 .preco(new BigDecimal("20.00"))
-                .categoria(CategoriaProdutoLegacy.OUTROS)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .ativo(true)
                 .build();
         prod.setTenant(tenant);

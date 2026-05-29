@@ -53,6 +53,19 @@ class ProducaoKdsMinhaUnidadeIT extends PostgresTestcontainersConfig {
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired TenantRepository tenantRepository;
+    @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUpCozinha() {
+        if (cozinhaRepository.findByAtivaAndTipo(true, com.restaurante.model.enums.TipoCozinha.CENTRAL).isEmpty()) {
+            com.restaurante.model.entity.Cozinha c = com.restaurante.model.entity.Cozinha.builder()
+                    .nome("Cozinha Central Teste")
+                    .tipo(com.restaurante.model.enums.TipoCozinha.CENTRAL)
+                    .ativa(true)
+                    .build();
+            cozinhaRepository.save(c);
+        }
+    }
 
     @AfterEach
     void clear() {
@@ -98,12 +111,13 @@ class ProducaoKdsMinhaUnidadeIT extends PostgresTestcontainersConfig {
         ));
 
         String slug = "tenant-kds-" + System.nanoTime();
+        String tenantCode = "TK" + (System.nanoTime() % 1000);
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant KDS")
                                 .slug(slug)
-                                .tenantCode("TK" + (System.nanoTime() % 1000))
+                                .tenantCode(tenantCode)
                                 .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
@@ -148,7 +162,7 @@ class ProducaoKdsMinhaUnidadeIT extends PostgresTestcontainersConfig {
                 .codigo("P-" + (System.nanoTime() % 1_000_000))
                 .nome("Produto KDS")
                 .preco(new BigDecimal("10.00"))
-                .categoria(CategoriaProdutoLegacy.OUTROS)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .ativo(true)
                 .build();
         prod.setTenant(tenant);

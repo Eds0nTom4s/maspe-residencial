@@ -170,8 +170,8 @@ public class InventoryFlowIT extends PostgresTestcontainersConfig {
         Instituicao i = new Instituicao();
         i.setTenant(tenant);
         i.setNome("Inst");
-        i.setSigla("I");
-        i.setNif("5000000003");
+        i.setSigla("I" + (System.currentTimeMillis() % 100000));
+        i.setNif("5" + (System.currentTimeMillis() % 100000000L));
         i.setTelefoneAutorizacao("+244900000003");
         i.setAtiva(true);
         return instituicaoRepository.saveAndFlush(i);

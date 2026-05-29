@@ -42,7 +42,7 @@ public class PagamentoManualPollingService {
                 pagamento,
                 origem,
                 "Polling manual solicitado",
-                Map.of("motivo", sanitize(request != null ? request.getMotivo() : null)),
+                buildMotivoMeta(request),
                 null,
                 null
         );
@@ -85,6 +85,12 @@ public class PagamentoManualPollingService {
         String t = s.trim();
         if (t.length() > 500) t = t.substring(0, 500);
         return t;
+    }
+
+    private static Map<String, Object> buildMotivoMeta(ManualPollRequest request) {
+        String motivo = sanitize(request != null ? request.getMotivo() : null);
+        if (motivo == null) return Map.of();
+        return Map.of("motivo", motivo);
     }
 
     private OperationalOrigem origemFromContext(TenantContext ctx) {

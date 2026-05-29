@@ -221,6 +221,9 @@ public class TenantResolver {
         if (principal instanceof User u) {
             return Optional.ofNullable(u.getId());
         }
+        if (principal instanceof com.restaurante.security.JwtPrincipal jp) {
+            return Optional.ofNullable(jp.getUserId());
+        }
         return Optional.empty();
     }
 

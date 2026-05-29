@@ -531,7 +531,7 @@ public class OperationalEventLogService {
      * - origem deve ser informada (ex.: QR_PUBLICO)
      * - metadata deve ser sanitizada pelo caller
      */
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    @Transactional
     public void logPublicEvent(Tenant tenant,
                                Instituicao instituicao,
                                UnidadeAtendimento unidadeAtendimento,

@@ -38,8 +38,11 @@ services:
       SPRING_SQL_INIT_MODE: never
       APP_BASE_URL: http://localhost:8080/api
       CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:4200,http://localhost:5173,http://localhost:5174,http://localhost:8080
-      APPYPAY_MOCK: "true"
-      TELCOSMS_MOCK: "true"
+      # Forçar mocks no perfil dev (application-dev.properties define mock=false por padrão).
+      # Spring relaxed binding: APP_PAYMENT_APPYPAY_MOCK -> app.payment.appypay.mock
+      # e APP_NOTIFICATION_TELCOSMS_MOCK -> app.notification.telcosms.mock
+      APP_PAYMENT_APPYPAY_MOCK: "true"
+      APP_NOTIFICATION_TELCOSMS_MOCK: "true"
       MINIO_ENDPOINT: http://host.docker.internal:9000
       MINIO_PUBLIC_URL: http://localhost:9000/restaurante-images
       JWT_SECRET: "local-dev-jwt-secret-please-change-32chars-min-0000000000000000"

@@ -16,6 +16,7 @@ import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.service.PedidoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -44,10 +45,11 @@ public class SubPedidoStatusTransitionService {
 
         Long tenantId;
         boolean isDevice = devicePrincipal != null;
+        TenantContext ctx = null;
         if (isDevice) {
             tenantId = devicePrincipal.tenantId();
         } else {
-            TenantContext ctx = tenantGuard.requireContext();
+            ctx = tenantGuard.requireContext();
             tenantId = ctx.tenantId();
         }
 
@@ -57,7 +59,11 @@ public class SubPedidoStatusTransitionService {
             throw new BusinessException("Status é obrigatório.");
         }
 
-        boolean isKitchen = !isDevice && tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_KITCHEN);
+        boolean isKitchen = !isDevice
+                && ctx != null
+                && !ctx.platformAdmin()
+                && ctx.roles() != null
+                && ctx.roles().contains(TenantUserRole.TENANT_KITCHEN.name());
         if (isKitchen) {
             // Cozinha só pode transições de produção
             if (!(novoStatus == StatusSubPedido.EM_PREPARACAO || novoStatus == StatusSubPedido.PRONTO)) {
@@ -156,11 +162,14 @@ public class SubPedidoStatusTransitionService {
                 default -> OperationalOrigem.DEVICE_POS;
             };
         }
-        if (tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_KITCHEN)) return OperationalOrigem.TENANT_KITCHEN;
-        if (tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_CASHIER)) return OperationalOrigem.TENANT_CASHIER;
-        if (tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_OPERATOR)) return OperationalOrigem.TENANT_OPERATOR;
-        if (tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_ADMIN)) return OperationalOrigem.TENANT_ADMIN;
-        if (tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_OWNER)) return OperationalOrigem.TENANT_OWNER;
+        TenantContext ctx = TenantContextHolder.get().orElse(null);
+        if (ctx != null && !ctx.platformAdmin() && ctx.roles() != null) {
+            if (ctx.roles().contains(TenantUserRole.TENANT_KITCHEN.name())) return OperationalOrigem.TENANT_KITCHEN;
+            if (ctx.roles().contains(TenantUserRole.TENANT_CASHIER.name())) return OperationalOrigem.TENANT_CASHIER;
+            if (ctx.roles().contains(TenantUserRole.TENANT_OPERATOR.name())) return OperationalOrigem.TENANT_OPERATOR;
+            if (ctx.roles().contains(TenantUserRole.TENANT_ADMIN.name())) return OperationalOrigem.TENANT_ADMIN;
+            if (ctx.roles().contains(TenantUserRole.TENANT_OWNER.name())) return OperationalOrigem.TENANT_OWNER;
+        }
         return OperationalOrigem.SYSTEM;
     }
 

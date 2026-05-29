@@ -81,8 +81,8 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
               join e.subPedido sp
             where e.tenant.id = :tenantId
               and sp.unidadeProducao.id = :unidadeProducaoId
-              and (:de is null or e.createdAt >= :de)
-              and (:ate is null or e.createdAt <= :ate)
+              and e.createdAt >= coalesce(:de, e.createdAt)
+              and e.createdAt <= coalesce(:ate, e.createdAt)
             """)
     LocalDateTime maxCreatedAtByTenantAndUnidadeProducaoAndPeriod(
             @Param("tenantId") Long tenantId,

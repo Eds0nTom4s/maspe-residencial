@@ -60,6 +60,8 @@ public class SecurityConfig {
                         .accessDeniedHandler(jwtAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
                         // Endpoints públicos de autenticação (exceto seleção de tenant)
+                        // Hardening: registro de staff via JWT deve ser restrito a ADMIN autenticado.
+                        .requestMatchers(HttpMethod.POST, "/api/auth/jwt/register", "/auth/jwt/register").hasRole("ADMIN")
                         .requestMatchers("/api/auth/tenant/select", "/auth/tenant/select").authenticated()
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
                         .requestMatchers("/api/public/**", "/public/**").permitAll()

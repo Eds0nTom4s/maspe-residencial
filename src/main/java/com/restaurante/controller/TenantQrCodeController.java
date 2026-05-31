@@ -65,4 +65,17 @@ public class TenantQrCodeController {
         TenantQrCodeResponse qr = qrService.gerarQrParaMesa(mesaId);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("QR criado", qr));
     }
+
+    @GetMapping("/qr/principal")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<com.restaurante.dto.response.TenantQrPrincipalResponse>> principal() {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
+        var resp = qrService.buscarQrPrincipal();
+        return ResponseEntity.ok(ApiResponse.success("QR principal encontrado.", resp));
+    }
 }

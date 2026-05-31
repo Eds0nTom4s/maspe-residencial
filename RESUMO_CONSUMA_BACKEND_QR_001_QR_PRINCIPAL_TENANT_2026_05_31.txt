@@ -1,0 +1,71 @@
+RESUMO CONSUMA - BACKEND - QR-001 - QR PRINCIPAL TENANT
+Data: 2026-05-31
+
+1. Estado da fase
+- A fase CONSUMA - BACKEND - QR-001 foi executada.
+- O endpoint foi implementado e validado por testes de integração locais.
+
+2. Objetivo executado
+- Implementar o endpoint GET /api/tenant/qr/principal para resolver o QR principal do tenant autenticado.
+- Garantir retorno seguro sem expor campos sensíveis.
+- Controlar ausência de QR como 404, não 500.
+
+3. O que foi implementado
+- Endpoint GET /api/tenant/qr/principal adicionado em TenantQrCodeController.
+- Serviço TenantAdminQrService atualizado para buscar o QR principal do tenant no contexto JWT/TenantContext.
+- DTO público específico criado para a resposta.
+- A resposta pública retorna URLs públicas e não expõe segredos ou tokens.
+
+4. Endpoint final
+- GET /api/tenant/qr/principal
+- O prefixo /api é aplicado globalmente em runtime.
+
+5. Arquivos criados/alterados
+Modificados:
+- src/main/java/com/restaurante/service/tenantadmin/TenantAdminQrService.java
+- src/main/java/com/restaurante/controller/TenantQrCodeController.java
+Adicionados:
+- src/main/java/com/restaurante/dto/response/TenantQrPrincipalResponse.java
+- src/test/java/com/restaurante/tenantadmin/TenantQrPrincipalControllerIT.java
+
+6. Segurança aplicada
+- Endpoint exige autenticação.
+- Endpoint exige roles tenant apropriadas.
+- Usa TenantContext do JWT para resolver o tenant.
+- Não retorna campos sensíveis: token, qrToken, secret, deviceToken, activationCode, jwt, accessToken, refreshToken, password ou hash.
+
+7. Testes executados
+- Teste de integração implementado: TenantQrPrincipalControllerIT.
+- Cenários cobertos: acesso sem autenticação e acesso válido com tenant owner.
+
+8. Resultado dos testes
+- Teste local: BUILD SUCCESS.
+- Resultado: 2 testes executados, 0 falhas, 0 erros.
+
+9. Pendências
+- Validar e, se necessário, ajustar a propriedade consuma.public-base-url.
+- Motivo: configuração incorreta pode fazer qrUrlPublica e cardapioUrlPublica apontarem para caminho errado, especialmente se o endpoint público exigir /public.
+
+10. Próximo passo recomendado
+1. Obter credencial tenant/owner válida.
+2. Testar GET /api/tenant/qr/principal com token real.
+3. Confirmar que retorna HTTP 200.
+4. Confirmar que as URLs públicas funcionam.
+5. Confirmar que nenhum token bruto é exposto.
+6. Abrir a UI em /tenant/qr e validar se o link aparece corretamente.
+7. Depois de validar, avançar para: CONSUMA - UI - 012 - Catálogo e Produtos do Tenant.
+
+11. Decisão final
+- APROVADO COM RESSALVAS
+- Justificativa: endpoint implementado com DTO seguro, controle de erro e teste de integração aprovado. A ressalva é validar consuma.public-base-url e executar teste manual em sandbox real com token tenant/owner válido.
+
+Testes manuais pendentes:
+- Sem token:
+  curl -i http://localhost:8081/api/tenant/qr/principal
+  Resultado esperado: 401
+- Com token tenant/owner:
+  curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/tenant/qr/principal
+  Resultado esperado: 200 com success=true e data contendo qrUrlPublica ou cardapioUrlPublica.
+- Verificar ausência de campos sensíveis:
+  curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/tenant/qr/principal | jq
+  Não devem aparecer: qrToken, token, secret, deviceToken, activationCode, jwt, accessToken, refreshToken, password, hash.

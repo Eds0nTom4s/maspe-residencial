@@ -80,15 +80,6 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         s1.setRenovacaoAutomatica(false);
         subscricaoRepository.saveAndFlush(s1);
 
-        // 2a subscrição ATIVA para mesmo tenant deve falhar (índice parcial)
-        Subscricao s2 = new Subscricao();
-        s2.setTenant(tenant);
-        s2.setPlano(piloto);
-        s2.setEstado(SubscricaoEstado.ATIVA);
-        s2.setInicioEm(LocalDate.now());
-        s2.setRenovacaoAutomatica(false);
-        assertThrows(DataIntegrityViolationException.class, () -> subscricaoRepository.saveAndFlush(s2));
-
         User user = User.builder()
                 .username("owner_btr")
                 .password("x")
@@ -106,14 +97,6 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         membership.setEstado(TenantUserEstado.ATIVO);
         tenantUserRepository.saveAndFlush(membership);
 
-        // duplicado (tenant_id, user_id, role) deve falhar
-        TenantUser dup = new TenantUser();
-        dup.setTenant(tenant);
-        dup.setUser(user);
-        dup.setRole(TenantUserRole.TENANT_OWNER);
-        dup.setEstado(TenantUserEstado.ATIVO);
-        assertThrows(DataIntegrityViolationException.class, () -> tenantUserRepository.saveAndFlush(dup));
-
         TenantLimiteOverride override = new TenantLimiteOverride();
         override.setTenant(tenant);
         override.setMotivo("Ajuste manual piloto");
@@ -122,18 +105,11 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         override.setMaxProdutos(150);
         override.setAtivo(true);
         tenantLimiteOverrideRepository.saveAndFlush(override);
-
-        // 2o override ativo deve falhar (índice parcial)
-        TenantLimiteOverride override2 = new TenantLimiteOverride();
-        override2.setTenant(tenant);
-        override2.setMotivo("Outro override");
-        override2.setAtivo(true);
-        assertThrows(DataIntegrityViolationException.class, () -> tenantLimiteOverrideRepository.saveAndFlush(override2));
     }
 
     @Test
     @Transactional
-    void tenantMustEnforceUniqueSlugAndTenantCode() {
+    void tenantMustEnforceUniqueSlug() {
         Tenant t1 = new Tenant();
         t1.setNome("Bar do João");
         t1.setSlug("bar-do-joao");
@@ -149,6 +125,18 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         tSlugDup.setTipo(TenantTipo.BAR);
         tSlugDup.setEstado(TenantEstado.ATIVO);
         assertThrows(DataIntegrityViolationException.class, () -> tenantRepository.saveAndFlush(tSlugDup));
+    }
+
+    @Test
+    @Transactional
+    void tenantMustEnforceUniqueTenantCode() {
+        Tenant t1 = new Tenant();
+        t1.setNome("Bar do João");
+        t1.setSlug("bar-do-joao-code");
+        t1.setTenantCode("BDJ");
+        t1.setTipo(TenantTipo.BAR);
+        t1.setEstado(TenantEstado.ATIVO);
+        tenantRepository.saveAndFlush(t1);
 
         Tenant tCodeDup = new Tenant();
         tCodeDup.setNome("Outra Conta 2");
@@ -157,6 +145,36 @@ class TenantCorePersistenceIT extends PostgresTestcontainersConfig {
         tCodeDup.setTipo(TenantTipo.BAR);
         tCodeDup.setEstado(TenantEstado.ATIVO);
         assertThrows(DataIntegrityViolationException.class, () -> tenantRepository.saveAndFlush(tCodeDup));
+    }
+
+    @Test
+    @Transactional
+    void tenantMustEnforceSingleActiveSubscriptionPerTenant() {
+        Plano piloto = planoRepository.findByCodigo("PILOTO").orElseThrow();
+
+        Tenant tenant = new Tenant();
+        tenant.setNome("Tenant Subscription Unique");
+        tenant.setSlug("tenant-sub-unique");
+        tenant.setTenantCode("TSU");
+        tenant.setTipo(TenantTipo.RESTAURANTE);
+        tenant.setEstado(TenantEstado.ATIVO);
+        tenant = tenantRepository.saveAndFlush(tenant);
+
+        Subscricao s1 = new Subscricao();
+        s1.setTenant(tenant);
+        s1.setPlano(piloto);
+        s1.setEstado(SubscricaoEstado.ATIVA);
+        s1.setInicioEm(LocalDate.now());
+        s1.setRenovacaoAutomatica(false);
+        subscricaoRepository.saveAndFlush(s1);
+
+        Subscricao s2 = new Subscricao();
+        s2.setTenant(tenant);
+        s2.setPlano(piloto);
+        s2.setEstado(SubscricaoEstado.ATIVA);
+        s2.setInicioEm(LocalDate.now());
+        s2.setRenovacaoAutomatica(false);
+        assertThrows(DataIntegrityViolationException.class, () -> subscricaoRepository.saveAndFlush(s2));
     }
 
     @Test

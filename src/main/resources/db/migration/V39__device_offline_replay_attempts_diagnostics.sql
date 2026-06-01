@@ -43,9 +43,13 @@ ALTER TABLE device_offline_commands
     ADD COLUMN IF NOT EXISTS last_replay_attempt_at TIMESTAMP WITH TIME ZONE NULL,
     ADD COLUMN IF NOT EXISTS last_replay_attempt_id BIGINT NULL;
 
-ALTER TABLE device_offline_commands
-    ADD CONSTRAINT IF NOT EXISTS fk_device_offline_cmd_last_replay_attempt
-        FOREIGN KEY (last_replay_attempt_id) REFERENCES device_offline_command_replay_attempts(id);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_offline_cmd_last_replay_attempt') THEN
+        ALTER TABLE device_offline_commands
+            ADD CONSTRAINT fk_device_offline_cmd_last_replay_attempt
+                FOREIGN KEY (last_replay_attempt_id) REFERENCES device_offline_command_replay_attempts(id);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_device_offline_cmd_last_replay_attempt ON device_offline_commands (tenant_id, last_replay_attempt_id);
-

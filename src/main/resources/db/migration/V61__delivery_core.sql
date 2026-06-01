@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS tenant_delivery_policies (
     status VARCHAR(40) NOT NULL,
     created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
     updated_at TIMESTAMP(6),
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     version BIGINT
 );
 
@@ -39,6 +41,8 @@ CREATE TABLE IF NOT EXISTS product_delivery_policies (
     status VARCHAR(40) NOT NULL,
     created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
     updated_at TIMESTAMP(6),
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     version BIGINT
 );
 
@@ -66,6 +70,8 @@ CREATE TABLE IF NOT EXISTS order_fulfillments (
     cancellation_reason TEXT,
     created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
     updated_at TIMESTAMP(6),
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     version BIGINT
 );
 
@@ -93,6 +99,8 @@ CREATE TABLE IF NOT EXISTS courier_profiles (
     active_delivery_job_id BIGINT,
     created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
     updated_at TIMESTAMP(6),
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     version BIGINT
 );
 
@@ -131,6 +139,8 @@ CREATE TABLE IF NOT EXISTS delivery_jobs (
     failure_reason TEXT,
     created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
     updated_at TIMESTAMP(6),
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     version BIGINT
 );
 
@@ -151,6 +161,8 @@ CREATE TABLE IF NOT EXISTS delivery_courier_invites (
     rejection_reason TEXT,
     created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
     updated_at TIMESTAMP(6),
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     version BIGINT
 );
 
@@ -160,14 +172,58 @@ CREATE INDEX IF NOT EXISTS idx_delivery_invite_courier_status ON delivery_courie
 
 CREATE TABLE IF NOT EXISTS courier_location_pings (
     id BIGSERIAL PRIMARY KEY,
+    version BIGINT,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP(6),
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     courier_id BIGINT NOT NULL REFERENCES courier_profiles(id),
     latitude NUMERIC(10, 6) NOT NULL,
     longitude NUMERIC(10, 6) NOT NULL,
     accuracy_meters NUMERIC(9, 3),
     recorded_at TIMESTAMP(6) NOT NULL DEFAULT now(),
-    source VARCHAR(40) NOT NULL,
-    created_at TIMESTAMP(6) NOT NULL DEFAULT now()
+    source VARCHAR(40) NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_courier_ping_courier_time ON courier_location_pings (courier_id, recorded_at);
 
+ALTER TABLE courier_location_pings
+    ADD COLUMN IF NOT EXISTS version BIGINT;
+ALTER TABLE courier_location_pings
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP(6) NOT NULL DEFAULT now();
+ALTER TABLE courier_location_pings
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP(6);
+ALTER TABLE courier_location_pings
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE courier_location_pings
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
+ALTER TABLE tenant_delivery_policies
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE tenant_delivery_policies
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
+ALTER TABLE product_delivery_policies
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE product_delivery_policies
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
+ALTER TABLE order_fulfillments
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE order_fulfillments
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
+ALTER TABLE courier_profiles
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE courier_profiles
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
+ALTER TABLE delivery_jobs
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE delivery_jobs
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
+ALTER TABLE delivery_courier_invites
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE delivery_courier_invites
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);

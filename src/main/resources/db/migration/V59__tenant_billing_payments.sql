@@ -25,6 +25,8 @@ create table if not exists tenant_billing_payment_sequences (
     last_number bigint not null default 0,
     created_at timestamp with time zone not null default now(),
     updated_at timestamp with time zone null,
+    created_by varchar(100),
+    modified_by varchar(100),
     version bigint not null default 0,
     constraint uq_tenant_billing_payment_sequences unique (tenant_id, seq_year)
 );
@@ -56,6 +58,8 @@ create table if not exists tenant_billing_payments (
 
     created_at timestamp with time zone not null default now(),
     updated_at timestamp with time zone null,
+    created_by varchar(100),
+    modified_by varchar(100),
     version bigint not null default 0,
 
     constraint uq_tenant_billing_payments_number unique (tenant_id, payment_number)
@@ -82,7 +86,11 @@ create table if not exists tenant_billing_payment_attempts (
     error_message text null,
     attempted_at timestamp with time zone not null default now(),
     completed_at timestamp with time zone null,
-    created_at timestamp with time zone not null default now()
+    created_at timestamp with time zone not null default now(),
+    updated_at timestamp with time zone null,
+    created_by varchar(100),
+    modified_by varchar(100),
+    version bigint not null default 0
 );
 
 create index if not exists idx_tenant_billing_payment_attempts_invoice
@@ -111,8 +119,33 @@ create table if not exists tenant_billing_collection_policies (
 
     created_at timestamp with time zone not null default now(),
     updated_at timestamp with time zone null,
+    created_by varchar(100),
+    modified_by varchar(100),
     version bigint not null default 0,
 
     constraint uq_tenant_billing_collection_policies unique (tenant_id)
 );
 
+alter table if exists tenant_billing_payment_sequences
+    add column if not exists created_by varchar(100);
+alter table if exists tenant_billing_payment_sequences
+    add column if not exists modified_by varchar(100);
+
+alter table if exists tenant_billing_payments
+    add column if not exists created_by varchar(100);
+alter table if exists tenant_billing_payments
+    add column if not exists modified_by varchar(100);
+
+alter table if exists tenant_billing_payment_attempts
+    add column if not exists updated_at timestamp with time zone null;
+alter table if exists tenant_billing_payment_attempts
+    add column if not exists created_by varchar(100);
+alter table if exists tenant_billing_payment_attempts
+    add column if not exists modified_by varchar(100);
+alter table if exists tenant_billing_payment_attempts
+    add column if not exists version bigint not null default 0;
+
+alter table if exists tenant_billing_collection_policies
+    add column if not exists created_by varchar(100);
+alter table if exists tenant_billing_collection_policies
+    add column if not exists modified_by varchar(100);

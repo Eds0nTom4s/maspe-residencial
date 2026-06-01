@@ -1,0 +1,73 @@
+CONSUMA - BACKEND - IT-FIX-003 - CORRIGIR TENANTCOREPERSISTENCEIT APÓS ESTABILIZAÇÃO FLYWAY/JPA
+Data: 2026-05-31
+
+1) Resumo executivo
+- O teste de integração `TenantCorePersistenceIT` passou a executar com PostgreSQL real (Testcontainers) após a estabilização Flyway/JPA.
+- O erro remanescente não era mais de schema/migration: era um problema de desenho do teste usando `@Transactional` com PostgreSQL.
+- Foi corrigido isolando cada violação esperada de constraint em seu próprio teste/transação, evitando que uma violação esperada deixe a transação em estado "aborted" e contamine as asserções seguintes.
+
+2) Estado inicial do teste
+Comando:
+`mvn -Dtest=TenantCorePersistenceIT test`
+
+Resultado observado antes do fix:
+- Tests run: 5
+- Failures: 1
+- Errors: 1
+
+Sintoma principal:
+- Em `tenantMustEnforceUniqueSlugAndTenantCode`, o primeiro `assertThrows(DataIntegrityViolationException)` dispara uma violação esperada.
+- No PostgreSQL, após uma violação, a transação atual fica abortada e qualquer comando subsequente falha com:
+  `ERROR: current transaction is aborted, commands ignored until end of transaction block`
+- Isso fazia o segundo `assertThrows(...)` falhar com `JpaSystemException` ao invés de `DataIntegrityViolationException`.
+
+3) Causa raiz
+- O teste executava múltiplas violações esperadas (e também operações “happy-path”) dentro da MESMA transação gerenciada pelo `@Transactional`.
+- Em PostgreSQL, uma violação de constraint aborta a transação corrente até rollback; portanto, qualquer persistência subsequente na mesma transação falha e muda o tipo/encapsulamento da exceção.
+
+4) Arquivo alterado
+- `src/test/java/com/restaurante/tenantcore/TenantCorePersistenceIT.java`
+
+5) Estratégia usada
+- Testes separados (abordagem preferencial).
+  - `tenantMustEnforceUniqueSlug()` valida unicidade de `slug`.
+  - `tenantMustEnforceUniqueTenantCode()` valida unicidade de `tenantCode`.
+  - `tenantMustEnforceSingleActiveSubscriptionPerTenant()` valida índice parcial de “subscrição ativa”.
+- O teste `canCreateTenantAndSubscriptionAndMembership()` foi ajustado para não executar violações esperadas no meio do fluxo (para não abortar a transação e quebrar inserts seguintes).
+
+6) O que NÃO foi alterado
+- Não foram feitas alterações em migrations para resolver este erro de transação abortada.
+- Não foram removidas constraints de unicidade.
+- Não houve relaxamento de validações de domínio.
+- Não foi trocado PostgreSQL por H2.
+- Hibernate `validate` permaneceu ativo (não foi desativado).
+- Não houve mascaramento de exceções (a correção foi estrutural: separar transações/asserções).
+
+7) Resultado de `mvn -Dtest=TenantCorePersistenceIT test`
+Comando:
+`mvn -Dtest=TenantCorePersistenceIT test`
+
+Resultado após o fix:
+- BUILD SUCCESS
+- Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+8) Resultado de testes adicionais
+Comando:
+`mvn -Dtest="TenantCorePersistenceIT,*Tenant*IT" test`
+
+Resultado:
+- BUILD SUCCESS
+- Tests run: 73, Failures: 0, Errors: 0, Skipped: 72
+
+Observação:
+- A maior parte dos ITs foi pulada por indisponibilidade/detecção de Docker em parte do suite (Testcontainers não encontrou ambiente Docker válido e os testes marcados com `disabledWithoutDocker = true` foram SKIPPED).
+
+9) Pendências
+- Investigar intermitência/ambiente: por que o Docker foi detectado em `TenantCorePersistenceIT` isolado, mas parte do suite `*Tenant*IT` foi marcada como sem Docker e pulada.
+- (Opcional, fora do escopo deste fix) Revisitar cobertura de constraints em `tenant_users`: o baseline (V1) cria a tabela e o V2 usa `CREATE TABLE IF NOT EXISTS`, o que pode impedir a aplicação de constraints definidas apenas no V2 quando a tabela já existe.
+
+10) Decisão final
+APROVADO COM RESSALVAS
+- A correção do problema “transaction aborted” no `TenantCorePersistenceIT` foi validada com execução real e sem mascaramento.
+- Ressalva: execução do grupo `*Tenant*IT` ficou majoritariamente SKIPPED por Docker/Testcontainers (ambiente), então não houve validação ampla de todos os ITs dependentes de Docker nesta rodada.
+

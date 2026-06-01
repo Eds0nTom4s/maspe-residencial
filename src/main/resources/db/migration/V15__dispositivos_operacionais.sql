@@ -2,7 +2,7 @@
 -- Objetivo: Identidade de dispositivo, ativação por código curto (hash), token opaco (hash),
 --           heartbeat e vinculação a Tenant/Instituicao/UnidadeAtendimento.
 
-create table dispositivos_operacionais (
+create table if not exists dispositivos_operacionais (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -46,11 +46,15 @@ create table dispositivos_operacionais (
     constraint uk_dispositivo_tenant_codigo unique (tenant_id, codigo)
 );
 
-create index idx_dispositivo_tenant on dispositivos_operacionais (tenant_id);
-create index idx_dispositivo_tenant_status on dispositivos_operacionais (tenant_id, status);
-create index idx_dispositivo_tenant_instituicao on dispositivos_operacionais (tenant_id, instituicao_id);
-create index idx_dispositivo_tenant_unidade on dispositivos_operacionais (tenant_id, unidade_atendimento_id);
-create index idx_dispositivo_device_token_hash on dispositivos_operacionais (device_token_hash);
-create index idx_dispositivo_activation_code_hash on dispositivos_operacionais (activation_code_hash);
-create index idx_dispositivo_ultimo_heartbeat on dispositivos_operacionais (ultimo_heartbeat_em);
+create index if not exists idx_dispositivo_tenant on dispositivos_operacionais (tenant_id);
+create index if not exists idx_dispositivo_tenant_status on dispositivos_operacionais (tenant_id, status);
+create index if not exists idx_dispositivo_tenant_instituicao on dispositivos_operacionais (tenant_id, instituicao_id);
+create index if not exists idx_dispositivo_tenant_unidade on dispositivos_operacionais (tenant_id, unidade_atendimento_id);
+create index if not exists idx_dispositivo_device_token_hash on dispositivos_operacionais (device_token_hash);
+create index if not exists idx_dispositivo_activation_code_hash on dispositivos_operacionais (activation_code_hash);
+create index if not exists idx_dispositivo_ultimo_heartbeat on dispositivos_operacionais (ultimo_heartbeat_em);
 
+-- Baseline V1 já cria a tabela/índices acima, mas não garantia unicidade por (tenant_id, codigo).
+-- Em ambientes onde a tabela já existe, criamos o índice único sem falhar.
+create unique index if not exists uk_dispositivo_tenant_codigo
+    on dispositivos_operacionais (tenant_id, codigo);

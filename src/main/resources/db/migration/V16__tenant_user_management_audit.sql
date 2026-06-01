@@ -1,6 +1,6 @@
 -- Prompt 19: Gestão de usuários do tenant + auditoria operacional mínima
 
-create table tenant_audit_logs (
+create table if not exists tenant_audit_logs (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -28,10 +28,9 @@ create table tenant_audit_logs (
     constraint fk_tenant_audit_logs_tenant foreign key (tenant_id) references tenants (id)
 );
 
-create index idx_tenant_audit_logs_tenant on tenant_audit_logs (tenant_id);
-create index idx_tenant_audit_logs_actor on tenant_audit_logs (actor_user_id);
-create index idx_tenant_audit_logs_target on tenant_audit_logs (target_user_id);
-create index idx_tenant_audit_logs_action on tenant_audit_logs (action);
-create index idx_tenant_audit_logs_created_at on tenant_audit_logs (created_at);
-create index idx_tenant_audit_logs_tenant_created_at on tenant_audit_logs (tenant_id, created_at);
-
+create index if not exists idx_tenant_audit_logs_tenant on tenant_audit_logs (tenant_id);
+create index if not exists idx_tenant_audit_logs_actor on tenant_audit_logs (actor_user_id);
+create index if not exists idx_tenant_audit_logs_target on tenant_audit_logs (target_user_id);
+create index if not exists idx_tenant_audit_logs_action on tenant_audit_logs (action);
+create index if not exists idx_tenant_audit_logs_created_at on tenant_audit_logs (created_at);
+create index if not exists idx_tenant_audit_logs_tenant_created_at on tenant_audit_logs (tenant_id, created_at);

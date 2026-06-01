@@ -38,7 +38,7 @@ CREATE TABLE sessao_owner_action_tokens (
     CONSTRAINT fk_owner_action_token_participante
         FOREIGN KEY (owner_participante_id) REFERENCES sessao_consumo_participantes(id),
     CONSTRAINT fk_owner_action_token_cliente
-        FOREIGN KEY (cliente_consumo_id) REFERENCES clientes_consumo(id),
+        FOREIGN KEY (cliente_consumo_id) REFERENCES cliente_consumo(id),
 
     -- Constraints
     CONSTRAINT ck_owner_action_token_use_count_nonneg

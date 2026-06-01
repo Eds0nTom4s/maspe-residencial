@@ -1,0 +1,20 @@
+CONSUMA Backend — Prompt 40.1 (Reexecução Docker local + PostgreSQL real + Testcontainers + Validação E2E)
+Data: 2026-05-27 (Africa/Luanda)
+
+1) RESUMO EXECUTIVO
+- A reexecução do Prompt 40.1 foi BLOQUEADA no ambiente atual porque o Docker daemon permanece inacessível via socket (`/var/run/docker.sock`), retornando:
+  - `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`
+- O repositório está no branch `restauracao-antes-da-loja` com um commit local adicional pós-Prompt 39 (`7486adf` — “deploy no docker part 1”), ainda não publicado no remoto.
+- Diagnóstico rápido: `getent group docker` lista `edsontomas` no grupo `docker`, mas esta sessão ainda não recarregou grupos (o comando `id` não mostra `docker`) — requer logout/login/reinício do terminal para o Docker funcionar sem sudo.
+- Observação: tentativas de contorno via `newgrp`/`sg` falharam (`Cannot open audit interface - aborting.`) e `sudo` está bloqueado por `"no new privileges"`.
+- Como o Prompt 40.1 proíbe validação “simulada”, não foi possível:
+  - subir `docker-compose.local.yml` (PostgreSQL real + API);
+  - validar Flyway em banco limpo;
+  - validar healthcheck real;
+  - executar suites `*IT` com Testcontainers realmente ativo;
+  - validar templates CONSUMA_PONTO_V1/CONSUMA_REST_V1 end-to-end via HTTP + DB real.
+
+Decisão deste Prompt 40.1 (neste ambiente): REPROVADO (BLOQUEANTE: Docker daemon inacessível).
+
+Próximo passo prático:
+- Reexecutar o Prompt 40.1 num terminal/host onde `docker version` e `docker info` funcionem sem erro, e então repetir: `docker compose -f docker-compose.local.yml down -v` + `up -d --build` + `mvn verify`.

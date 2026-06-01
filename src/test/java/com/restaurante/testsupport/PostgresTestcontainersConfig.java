@@ -6,17 +6,34 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 @Testcontainers(disabledWithoutDocker = true)
+@IntegrationTest
 public abstract class PostgresTestcontainersConfig {
 
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("consuma_test")
-            .withUsername("consuma")
-            .withPassword("consuma");
+    private static volatile PostgreSQLContainer<?> POSTGRES;
+
+    private static PostgreSQLContainer<?> postgres() {
+        PostgreSQLContainer<?> container = POSTGRES;
+        if (container != null) {
+            return container;
+        }
+
+        synchronized (PostgresTestcontainersConfig.class) {
+            container = POSTGRES;
+            if (container == null) {
+                container = new PostgreSQLContainer<>("postgres:16-alpine")
+                        .withDatabaseName("consuma_test")
+                        .withUsername("consuma")
+                        .withPassword("consuma");
+                container.start();
+                POSTGRES = container;
+            }
+        }
+
+        return container;
+    }
 
     @BeforeAll
     static void requireDocker() {
@@ -31,9 +48,9 @@ public abstract class PostgresTestcontainersConfig {
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.datasource.url", () -> postgres().getJdbcUrl());
+        registry.add("spring.datasource.username", () -> postgres().getUsername());
+        registry.add("spring.datasource.password", () -> postgres().getPassword());
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
 
         // Segurança extra: garantir que não usamos H2 em testes

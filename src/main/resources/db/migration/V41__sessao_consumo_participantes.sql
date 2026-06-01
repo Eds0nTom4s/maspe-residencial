@@ -37,14 +37,23 @@ ALTER TABLE pedidos
     ADD COLUMN IF NOT EXISTS sessao_participante_id BIGINT NULL,
     ADD COLUMN IF NOT EXISTS cliente_consumo_id BIGINT NULL;
 
-ALTER TABLE pedidos
-    ADD CONSTRAINT IF NOT EXISTS fk_pedidos_sessao_participante
-        FOREIGN KEY (sessao_participante_id) REFERENCES sessao_consumo_participantes(id);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_pedidos_sessao_participante') THEN
+        ALTER TABLE pedidos
+            ADD CONSTRAINT fk_pedidos_sessao_participante
+                FOREIGN KEY (sessao_participante_id) REFERENCES sessao_consumo_participantes(id);
+    END IF;
+END $$;
 
-ALTER TABLE pedidos
-    ADD CONSTRAINT IF NOT EXISTS fk_pedidos_cliente_consumo
-        FOREIGN KEY (cliente_consumo_id) REFERENCES cliente_consumo(id);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_pedidos_cliente_consumo') THEN
+        ALTER TABLE pedidos
+            ADD CONSTRAINT fk_pedidos_cliente_consumo
+                FOREIGN KEY (cliente_consumo_id) REFERENCES cliente_consumo(id);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_pedidos_sessao_participante ON pedidos (sessao_participante_id);
 CREATE INDEX IF NOT EXISTS idx_pedidos_cliente_consumo ON pedidos (cliente_consumo_id);
-

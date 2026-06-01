@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS tenant_official_fiscal_profiles (
 
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NULL,
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     version BIGINT NOT NULL DEFAULT 0,
 
     CONSTRAINT fk_tofp_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id),
@@ -51,6 +53,8 @@ CREATE TABLE IF NOT EXISTS fiscal_signing_profiles (
     rotated_at TIMESTAMP WITH TIME ZONE NULL,
     expires_at TIMESTAMP WITH TIME ZONE NULL,
     updated_at TIMESTAMP WITH TIME ZONE NULL,
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     version BIGINT NOT NULL DEFAULT 0,
 
     CONSTRAINT fk_fsp_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
@@ -98,6 +102,8 @@ CREATE TABLE IF NOT EXISTS official_fiscal_submissions (
 
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NULL,
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
     version BIGINT NOT NULL DEFAULT 0,
 
     CONSTRAINT fk_ofs_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id),
@@ -117,6 +123,21 @@ CREATE INDEX IF NOT EXISTS idx_ofs_status_next_attempt
 
 CREATE INDEX IF NOT EXISTS idx_ofs_request_id
     ON official_fiscal_submissions (tenant_id, request_id);
+
+ALTER TABLE tenant_official_fiscal_profiles
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE tenant_official_fiscal_profiles
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
+ALTER TABLE fiscal_signing_profiles
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE fiscal_signing_profiles
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
+ALTER TABLE official_fiscal_submissions
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE official_fiscal_submissions
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
 
 CREATE INDEX IF NOT EXISTS idx_ofs_locked_at
     ON official_fiscal_submissions (status, locked_at);
@@ -140,6 +161,10 @@ CREATE TABLE IF NOT EXISTS official_fiscal_submission_attempts (
     started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     finished_at TIMESTAMP WITH TIME ZONE NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE NULL,
+    created_by VARCHAR(100),
+    modified_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
 
     CONSTRAINT fk_ofsa_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id),
     CONSTRAINT fk_ofsa_submission FOREIGN KEY (official_fiscal_submission_id) REFERENCES official_fiscal_submissions(id),
@@ -152,3 +177,11 @@ CREATE INDEX IF NOT EXISTS idx_ofsa_tenant_submission
 CREATE INDEX IF NOT EXISTS idx_ofsa_tenant_request
     ON official_fiscal_submission_attempts (tenant_id, request_id);
 
+ALTER TABLE official_fiscal_submission_attempts
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE NULL;
+ALTER TABLE official_fiscal_submission_attempts
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+ALTER TABLE official_fiscal_submission_attempts
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+ALTER TABLE official_fiscal_submission_attempts
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;

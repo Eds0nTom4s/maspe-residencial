@@ -1,0 +1,227 @@
+RELATÓRIO TÉCNICO — PROMPT 40.1
+Reexecução Docker local + PostgreSQL real + Testcontainers + Validação end-to-end — CONSUMA
+Data: 2026-05-27 (Africa/Luanda)
+
+================================================================================
+1) Resumo executivo
+================================================================================
+- Status: BLOQUEADO.
+- Motivo: Docker daemon inacessível no ambiente atual (erro de permissão no socket `unix:///var/run/docker.sock`).
+- Consequência: não foi possível executar Docker Compose, validar PostgreSQL real + Flyway “do zero”, nem executar Testcontainers/ITs end-to-end.
+- Decisão deste Prompt 40.1 (neste ambiente): REPROVADO (bloqueante).
+
+================================================================================
+2) Ambiente usado
+================================================================================
+- Execução em ambiente com restrições de acesso ao Docker daemon (apesar de o Docker CLI estar presente).
+- Evidências coletadas (outputs reais):
+  - `docker version`:
+    - `Client: Docker Engine - Community` (Docker CLI instalado)
+    - `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`
+  - `docker info`:
+    - `Server: permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`
+  - `docker compose version`:
+    - `Docker Compose version v5.1.3`
+
+================================================================================
+3) Docker daemon status (objetivo #1)
+================================================================================
+Comandos executados:
+- `docker version` (FALHOU no acesso ao daemon)
+- `docker info` (FALHOU no acesso ao daemon)
+- `docker compose version` (OK)
+
+Erro bloqueante observado:
+- `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`
+
+Diagnóstico adicional do socket (no ambiente atual):
+- `/run/docker.sock` e `/var/run/docker.sock` existem com permissões `srw-rw----` e owner/group `nobody:nogroup`.
+- Mesmo com o utilizador pertencendo ao grupo `nogroup`, o acesso ao daemon continuou negado, sugerindo restrição do ambiente (sandbox/isolamento) além de permissões de arquivo.
+- Observação importante sobre grupos (indicativo de “sessão não recarregada”):
+  - `getent group docker` lista `edsontomas` como membro do grupo `docker`.
+  - porém `id`/`groups` nesta sessão ainda NÃO incluem `docker`.
+  - Ação recomendada (fora deste ambiente): logout/login (ou reiniciar sessão/terminal) para recarregar grupos, e então repetir `docker version`.
+
+Evidências complementares (outputs reais):
+- `ls -l /var/run/docker.sock /run/docker.sock`:
+  - `srw-rw---- 1 nobody nogroup ... /run/docker.sock`
+  - `srw-rw---- 1 nobody nogroup ... /var/run/docker.sock`
+- `id` / `groups`:
+  - `uid=1001(edsontomas) gid=1001(edsontomas) groups=1001(edsontomas),65534(nogroup)`
+  - `edsontomas nogroup`
+- `getent group docker`:
+  - `docker:x:999:centraltec_admin,edsontomas`
+
+Tentativas de mitigação (falharam por restrição do ambiente):
+- `newgrp docker -c 'docker version'` e `sg docker -c 'docker version'`:
+  - `Cannot open audit interface - aborting.`
+- `sudo -n docker version`:
+  - `sudo: The "no new privileges" flag is set, which prevents sudo from running as root.`
+
+================================================================================
+4) Branch e commit
+================================================================================
+- Branch: `restauracao-antes-da-loja`
+- HEAD: `7486adf` — “deploy no docker part 1”
+- Commit anterior: `a515508` — “Modelos operacionais baseados em templates- backend temporariamente terminado”
+- Observação (verificado por `git status -sb`): branch está `ahead 1` de `origin/restauracao-antes-da-loja`.
+
+================================================================================
+5) Alterações locais
+================================================================================
+Estado atual:
+- Não há alterações locais (tracked) pendentes de commit no momento.
+- Arquivos criados neste Prompt 40.1: este relatório e o resumo executivo correspondente.
+  
+Mudanças do Prompt 40 (já commitadas em `7486adf`):
+- `pom.xml` (Actuator)
+- `src/main/resources/application.properties` (health/probes do Actuator)
+- `src/test/resources/application.properties` (exclusão de ManagementWebSecurityAutoConfiguration em testes)
+- `docker-compose.local.yml` (compose local postgres+api)
+
+================================================================================
+6) Arquivos Docker usados
+================================================================================
+- `docker-compose.local.yml` (alvo da validação)
+- `Dockerfile` (alvo do build do serviço API)
+
+================================================================================
+7) Containers iniciados
+================================================================================
+- N/A (bloqueado por Docker daemon inacessível).
+
+================================================================================
+8) Resultado do docker compose ps
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+9) Logs relevantes da API
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+10) Resultado do healthcheck
+================================================================================
+- N/A (bloqueado).
+
+Endpoint esperado quando o compose local estiver no ar:
+- `GET http://localhost:8080/api/actuator/health`
+
+================================================================================
+11) Resultado Flyway em PostgreSQL real
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+12) Resultado dos testes unitários
+================================================================================
+- NÃO reexecutado no escopo do Prompt 40.1, pois o bloqueio ocorreu no passo 1 (Docker daemon inacessível).
+
+================================================================================
+13) Resultado dos testes de integração/Testcontainers
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+14) Quantidade de testes executados/falhados/skipped
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+15) Resultado preview CONSUMA_PONTO_V1
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+16) Resultado provision CONSUMA_PONTO_V1
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+17) Resultado preview CONSUMA_REST_V1
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+18) Resultado provision CONSUMA_REST_V1
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+19) Resultado slug duplicado/rollback
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+20) Resultado QR/pedido
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+21) Resultado POS/device/KDS
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+22) Resultado pagamento/callback/polling
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+23) Resultado turno/snapshot/evidence
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+24) Resultado logistics mínimo
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+25) Resultado multi-tenant
+================================================================================
+- N/A (bloqueado).
+
+================================================================================
+26) Erros encontrados
+================================================================================
+BLOQUEANTE:
+1) Docker daemon inacessível via `/var/run/docker.sock` (permission denied).
+
+================================================================================
+27) Correções aplicadas
+================================================================================
+- Nenhuma correção aplicada neste Prompt 40.1 (o bloqueio ocorreu antes do início do compose/validações).
+
+================================================================================
+28) Pendências
+================================================================================
+Para concluir o Prompt 40.1:
+1) Executar num ambiente onde `docker version` e `docker info` funcionem sem “permission denied”.
+2) Rodar:
+   - `docker compose -f docker-compose.local.yml down -v`
+   - `docker compose -f docker-compose.local.yml up -d --build`
+   - `curl -i http://localhost:8080/api/actuator/health`
+   - Validar Flyway no PostgreSQL container (`flyway_schema_history`)
+   - `mvn -Dmaven.repo.local=/tmp/m2 verify` (com Testcontainers ativo e ITs realmente rodando)
+3) Executar testes HTTP de preview/provision para CONSUMA_PONTO_V1 e CONSUMA_REST_V1 e validar persistência no DB real.
+
+================================================================================
+29) Riscos restantes
+================================================================================
+- Sem Docker/PostgreSQL real/Testcontainers rodando, permanecem riscos de:
+  - divergência H2 vs PostgreSQL (constraints/SQL/índices)
+  - falhas de Flyway em banco limpo
+  - regressões em fluxos E2E (templates/QR/POS/pagamento/turno/snapshot/evidence/logistics)
+
+================================================================================
+30) Decisão final
+================================================================================
+REPROVADO
+- Motivo: objetivo #1 do Prompt 40.1 falhou (Docker daemon não acessível), impossibilitando validação real.
+
+================================================================================
+31) Próximo prompt recomendado
+================================================================================
+Reexecutar este mesmo Prompt 40.1 em um host/terminal com Docker daemon acessível e anexar as evidências (compose ps/logs/health/flyway/mvn verify + testes HTTP).

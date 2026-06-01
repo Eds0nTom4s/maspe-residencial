@@ -117,18 +117,27 @@ create index if not exists idx_caixa_items_method on caixa_operador_session_item
 alter table ordens_pagamento
     add column if not exists caixa_operador_session_id bigint;
 
-alter table ordens_pagamento
-    add constraint if not exists fk_ordem_pg_caixa_operador
-    foreign key (caixa_operador_session_id) references caixa_operador_sessions;
+do $$
+begin
+    if not exists (select 1 from pg_constraint where conname = 'fk_ordem_pg_caixa_operador') then
+        alter table ordens_pagamento
+            add constraint fk_ordem_pg_caixa_operador
+                foreign key (caixa_operador_session_id) references caixa_operador_sessions;
+    end if;
+end $$;
 
 create index if not exists idx_ordem_pg_caixa_operador on ordens_pagamento (tenant_id, caixa_operador_session_id);
 
 alter table pagamentos_gateway
     add column if not exists ordem_pagamento_id bigint;
 
-alter table pagamentos_gateway
-    add constraint if not exists fk_pagamento_ordem_pagamento
-    foreign key (ordem_pagamento_id) references ordens_pagamento;
+do $$
+begin
+    if not exists (select 1 from pg_constraint where conname = 'fk_pagamento_ordem_pagamento') then
+        alter table pagamentos_gateway
+            add constraint fk_pagamento_ordem_pagamento
+                foreign key (ordem_pagamento_id) references ordens_pagamento;
+    end if;
+end $$;
 
 create index if not exists idx_pagamento_ordem_pagamento on pagamentos_gateway (tenant_id, ordem_pagamento_id);
-

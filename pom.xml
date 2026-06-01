@@ -24,6 +24,10 @@
         <lombok.version>1.18.30</lombok.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <flyway.version>10.22.0</flyway.version>
+        <!-- Testcontainers 1.19.x usa docker-java 3.3.x (API v1.32) e falha com Docker Engine moderno (min v1.40). -->
+        <testcontainers.version>1.20.0</testcontainers.version>
+        <!-- ITs (Testcontainers/Postgres) são opt-in via profile `it`. -->
+        <skipITs>true</skipITs>
     </properties>
 
     <dependencies>
@@ -241,16 +245,43 @@
                     <includes>
                         <include>**/*Test.java</include>
                         <include>**/*Tests.java</include>
-                        <include>**/*IT.java</include>
                     </includes>
                     <excludes>
                         <exclude>**/e2e/**</exclude>
                         <exclude>**/*E2E*Test.java</exclude>
                     </excludes>
-                    <properties>
-                        <excludeTags>manual</excludeTags>
-                    </properties>
+                    <!-- JUnit5: filtra por tags via groups/excludedGroups -->
+                    <excludedGroups>manual,it</excludedGroups>
+                    <!-- Docker 29+ exige min API v1.40; docker-java/Testcontainers podem cair em v1.32 por padrão. -->
+                    <systemPropertyVariables>
+                        <api.version>1.44</api.version>
+                    </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <skipITs>${skipITs}</skipITs>
+                    <includes>
+                        <include>**/*IT.java</include>
+                        <include>**/*Test.java</include>
+                    </includes>
+                    <!-- JUnit5: executa somente testes marcados como integração -->
+                    <groups>it</groups>
+                    <!-- Mesma proteção de API do Docker que usamos no surefire -->
+                    <systemPropertyVariables>
+                        <api.version>1.44</api.version>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -258,4 +289,13 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>it</id>
+            <properties>
+                <skipITs>false</skipITs>
+            </properties>
+        </profile>
+    </profiles>
 </project>

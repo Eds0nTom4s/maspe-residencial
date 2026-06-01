@@ -1,0 +1,88 @@
+CONSUMA - BACKEND - IT-FIX-004 - NORMALIZAR DETECÇÃO DOCKER/TESTCONTAINERS NOS ITS
+Data: 2026-05-31
+
+1) Resumo executivo
+- Foi identificado que a maior causa de “build verde com muitos SKIPPED” vinha de testes com Testcontainers/PostgreSQL rodando no pipeline padrão (Surefire) em ambientes onde Docker não está acessível (ex.: sandbox restrito).
+- A correção normaliza a execução:
+  - `mvn test` (Surefire) não executa mais testes de integração (marcados como `it`), evitando skips por falta de Docker e evitando falso positivo.
+  - Testes de integração passam a ser opt-in via profile Maven `-Pit` e executados pelo Failsafe.
+  - Um gate explícito (`DockerAvailabilityIT`) falha (não SKIP) quando Docker/Testcontainers não está disponível sob `-Pit`, evitando “verde” quando os ITs não rodaram.
+
+2) Estado inicial (antes do fix)
+Comando:
+`mvn -Dtest="TenantCorePersistenceIT,*Tenant*IT" test`
+
+Resultado observado:
+- BUILD SUCCESS
+- Tests run: 73
+- Skipped: 72
+
+Motivo recorrente nos reports XML:
+- `disabledWithoutDocker is true and Docker is not available`
+
+3) Causa raiz
+- Inconsistência de ambiente: dentro de sandbox restrito o acesso ao socket Docker (`/var/run/docker.sock`) falha (EPERM/Operation not permitted), o que faz o Testcontainers considerar Docker indisponível.
+- Como vários ITs usavam `@Testcontainers(disabledWithoutDocker = true)` (via classe base), o Maven reportava BUILD SUCCESS com muitos SKIPPED.
+- Além disso, alguns testes que dependem de Postgres/Testcontainers estavam nomeados como `*Test` e eram executados no Surefire, contaminando o “mvn test” com skips quando Docker não estava acessível.
+
+4) Onde Docker/Testcontainers é detectado
+- `src/test/java/com/restaurante/testsupport/PostgresTestcontainersConfig.java`
+  - `@Testcontainers(disabledWithoutDocker = true)`
+  - `Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(), ...)`
+
+5) Arquivos alterados
+- `pom.xml`
+- `src/test/java/com/restaurante/testsupport/PostgresTestcontainersConfig.java`
+- `src/test/java/com/restaurante/testsupport/IntegrationTest.java` (novo)
+- `src/test/java/com/restaurante/testsupport/DockerAvailabilityIT.java` (novo)
+
+6) Estratégia aplicada
+6.1) Tag + perfil Maven
+- Criado marcador `@IntegrationTest` (meta-annotated com `@Tag("it")` e `@Inherited`) para que classes concretas que herdam `PostgresTestcontainersConfig` sejam consideradas “it” sem precisar anotar cada teste manualmente.
+- Ajustado Surefire para excluir `it` e `manual` por padrão (evita rodar ITs no `mvn test`).
+- Adicionado Failsafe com profile `it` (`-Pit`) para rodar apenas testes do grupo `it` (inclui tanto classes `*IT` quanto `*Test` marcadas como integração).
+
+6.2) Gate “anti-falso-verde”
+- Adicionado `DockerAvailabilityIT` como teste de integração (tag `it`) que:
+  - falha quando Docker/Testcontainers não está disponível;
+  - evita que `-Pit` termine verde com ITs SKIPPED por Docker indisponível.
+
+6.3) Evitar side effects na descoberta de testes
+- `PostgresTestcontainersConfig` foi ajustada para inicializar/startar o `PostgreSQLContainer` de forma lazy (em vez de criar container no carregamento de classe), reduzindo ruído/efeitos colaterais quando testes não serão executados.
+
+7) O que NÃO foi alterado
+- Não removemos `disabledWithoutDocker = true`.
+- Não mascaramos skips como sucesso (ao rodar `-Pit`, Docker indisponível agora falha explicitamente).
+- Não trocamos PostgreSQL/Testcontainers por H2 para ITs.
+- Não desativamos Flyway.
+- Não alteramos regras de negócio.
+
+8) Execuções e resultados
+8.1) `mvn test` (Surefire) — ambiente sem Docker acessível
+Evidência:
+- Após o ajuste, `mvn test` não emite logs de Testcontainers/Docker (`DockerClientFactory`, `disabledWithoutDocker`) e os SKIPPED por Docker desaparecem.
+- Os SKIPPED remanescentes observados são de testes que se auto-skipam por motivo funcional (ex.: `ConcurrencyChaosTest`), não por Docker.
+
+8.2) `mvn -Pit verify` — comportamento esperado quando Docker NÃO está acessível
+- Esperado: falha explícita no gate `DockerAvailabilityIT`, evitando build verde com ITs SKIPPED.
+- Observação: em sandbox restrito, execuções de `mvn verify` podem falhar também por restrição de escrita em `~/.m2` (resolução/download de plugins). Neste caso, a estratégia recomendada é executar fora do sandbox.
+
+8.3) `mvn -Pit -Dit.test=DockerAvailabilityIT verify` — fora do sandbox (Docker acessível)
+Resultado:
+- BUILD SUCCESS
+- `DockerAvailabilityIT` executa e confirma Docker disponível.
+
+8.4) `mvn -Pit -Dit.test=TenantCorePersistenceIT verify` — fora do sandbox (Postgres/Testcontainers real)
+Resultado:
+- BUILD SUCCESS
+- `TenantCorePersistenceIT`: Tests run 7, Failures 0, Errors 0, Skipped 0
+
+9) Pendências
+- (Ambiente) Se a execução ocorrer em ambiente restrito (sandbox/CI sem Docker), documentar explicitamente que `-Pit` requer Docker acessível e `~/.m2` gravável (ou usar `-Dmaven.repo.local` em diretório gravável).
+- (Opcional) Avaliar se `mvn -Pit verify` deve pular o surefire (unit tests) quando o objetivo é apenas validar ITs (ex.: documentar comando de atalho).
+
+10) Decisão final
+APROVADO COM RESSALVAS
+- A normalização elimina falso positivo no fluxo padrão (`mvn test`) e cria um caminho confiável para rodar ITs (`-Pit`) com falha explícita quando Docker não está disponível.
+- Ressalva: em ambientes com restrição de escrita em `~/.m2` ou bloqueio de socket Docker, é necessário rodar fora do sandbox/usar configuração de repositório Maven gravável para execução completa.
+

@@ -37,7 +37,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 @EnableMethodSecurity(prePostEnabled = true)
 @RequiredArgsConstructor
 @Slf4j
-@org.springframework.context.annotation.Profile("!test")
+@org.springframework.context.annotation.Profile("!test & !it-postgres")
 public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;

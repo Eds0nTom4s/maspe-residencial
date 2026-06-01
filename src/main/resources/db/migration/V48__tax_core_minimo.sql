@@ -177,7 +177,7 @@ create table if not exists fiscal_documents (
     constraint fk_fiscal_doc_instituicao foreign key (instituicao_id) references instituicoes,
     constraint fk_fiscal_doc_unidade foreign key (unidade_atendimento_id) references unidades_atendimento,
     constraint fk_fiscal_doc_turno foreign key (turno_operacional_id) references turnos_operacionais,
-    constraint fk_fiscal_doc_sessao foreign key (sessao_consumo_id) references sessao_consumo,
+    constraint fk_fiscal_doc_sessao foreign key (sessao_consumo_id) references sessoes_consumo,
     constraint fk_fiscal_doc_pedido foreign key (pedido_id) references pedidos,
     constraint fk_fiscal_doc_pagamento foreign key (pagamento_id) references pagamentos_gateway,
     constraint fk_fiscal_doc_caixa foreign key (caixa_operador_session_id) references caixa_operador_sessions,

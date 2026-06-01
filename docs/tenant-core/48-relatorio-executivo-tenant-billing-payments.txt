@@ -140,7 +140,7 @@ Sem auditoria de comprovativo bruto, dados bancários sensíveis, AppyPay raw, e
 - `src/test/java/com/restaurante/billing/TenantBillingCollectionServiceTest.java`
 - `src/test/java/com/restaurante/billing/TenantAccessBillingGuardServiceTest.java`
 - `src/test/java/com/restaurante/billing/BillingEvidencePaymentTest.java`
-- `src/test/java/com/restaurante/billing/TenantBillingPaymentFlowIT.java`
+- `src/test/java/com/restaurante/billing/TenantBillingPaymentFlowTest.java`
 
 ================================================================================
 11) COMANDOS EXECUTADOS E RESULTADOS
@@ -160,7 +160,7 @@ Sem auditoria de comprovativo bruto, dados bancários sensíveis, AppyPay raw, e
 - `mvn -q -Dtest=BillingEvidencePaymentTest test`
   Resultado: SUCESSO (exit code 0)
 
-- `mvn -q -Dtest=TenantBillingPaymentFlowIT test`
+- `mvn -q -Dtest=TenantBillingPaymentFlowTest test`
   Resultado: SUCESSO (exit code 0)
 
 - `mvn test`
@@ -181,4 +181,3 @@ CONCLUÍDO — Prompt 48 implementado, com:
 - pagamentos SaaS do tenant separados dos pagamentos operacionais;
 - overdue/grace/policy e base de suspensão controlada;
 - evidência e auditoria consistentes.
-

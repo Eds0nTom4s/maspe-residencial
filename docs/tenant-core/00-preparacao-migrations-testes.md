@@ -73,6 +73,15 @@ Requisitos:
 Comandos:
 - `mvn -q -DskipTests compile`
 - `mvn test`
+- `mvn -Pit verify`
+- `mvn -Pit -Dit.test=TenantCorePersistenceIT verify`
+- `mvn -Pit -Dit.test="TenantCorePersistenceIT,TenantRoleAuthorizationIT" verify`
+
+Regra importante:
+- Não usar `mvn -Dtest=...IT test` para testes de integração.
+- O projeto agora falha explicitamente esse atalho no bootstrap do teste, para não permitir `BUILD SUCCESS` com muitos `skipped`.
+- Para ITs PostgreSQL/Testcontainers, o entrypoint confiável é sempre o Failsafe: `-Pit` + `-Dit.test=...` + `verify`.
+- O teste `DockerAvailabilityIT` roda no profile `it` para falhar explicitamente quando Docker/Testcontainers não estiverem acessíveis.
 
 ## Arquivos adicionados/alterados no Prompt 0.1 / 0.2
 

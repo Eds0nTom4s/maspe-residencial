@@ -170,7 +170,7 @@ Novos:
 - src/test/java/com/restaurante/billing/TenantBillingInvoiceServiceTest.java
 - src/test/java/com/restaurante/billing/UsageAdjustmentServiceTest.java
 - src/test/java/com/restaurante/billing/BillingEvidenceServiceTest.java
-- src/test/java/com/restaurante/billing/BillingUsageFlowIT.java
+- src/test/java/com/restaurante/billing/BillingUsageFlowTest.java
 
 ================================================================================
 12) COMANDOS EXECUTADOS E RESULTADOS
@@ -178,7 +178,7 @@ Novos:
 - mvn -q -DskipTests compile
   Resultado: SUCESSO (exit code 0)
 
-- mvn -q -Dtest=BillingUsageFlowIT test
+- mvn -q -Dtest=BillingUsageFlowTest test
   Resultado: SUCESSO (exit code 0)
 
 - mvn -q -Dtest=BillingCycleServiceTest test

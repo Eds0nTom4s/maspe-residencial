@@ -27,6 +27,7 @@ import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,28 +87,32 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
         ));
 
         long beforeTenants = tenantRepository.count();
+        String slug = UniqueTestData.uniqueSlug("banca-tia-rosa-preview");
+        String tenantPhone = UniqueTestData.uniqueTelefone();
+        String ownerPhone = UniqueTestData.uniqueTelefone();
+        String email = UniqueTestData.uniqueEmail("rosa-preview");
 
         String payload = """
                 {
                   "planoCodigo": "PILOTO",
                   "tenant": {
                     "nomeNegocio": "Banca da Tia Rosa",
-                    "slug": "banca-tia-rosa-preview",
+                    "slug": "%s",
                     "tipo": "VENDEDOR_RUA",
-                    "telefone": "+244900000000",
-                    "email": "rosa-preview@email.com"
+                    "telefone": "%s",
+                    "email": "%s"
                   },
                   "owner": {
                     "nome": "Rosa Manuel",
-                    "telefone": "+244900000000",
-                    "email": "rosa-preview@email.com"
+                    "telefone": "%s",
+                    "email": "%s"
                   },
                   "ponto": {
                     "entregaManual": true,
                     "allowPickup": true
                   }
                 }
-                """;
+                """.formatted(slug, tenantPhone, email, ownerPhone, email);
 
         mockMvc.perform(post("/platform/templates/CONSUMA_PONTO_V1/preview")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -115,7 +120,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
                 .andExpect(status().isOk());
 
         assertThat(tenantRepository.count()).isEqualTo(beforeTenants);
-        assertThat(tenantRepository.findBySlug("banca-tia-rosa-preview")).isEmpty();
+        assertThat(tenantRepository.findBySlug(slug)).isEmpty();
     }
 
     @Test
@@ -127,21 +132,25 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
         ));
 
         long beforeTenants = tenantRepository.count();
+        String slug = UniqueTestData.uniqueSlug("rest-kialo-preview");
+        String tenantPhone = UniqueTestData.uniqueTelefone();
+        String ownerPhone = UniqueTestData.uniqueTelefone();
+        String email = UniqueTestData.uniqueEmail("kialo-preview");
 
         String payload = """
                 {
                   "planoCodigo": "PILOTO",
                   "tenant": {
                     "nomeNegocio": "Restaurante Kialo",
-                    "slug": "rest-kialo-preview",
+                    "slug": "%s",
                     "tipo": "RESTAURANTE",
-                    "telefone": "+244911111111",
-                    "email": "kialo-preview@email.com"
+                    "telefone": "%s",
+                    "email": "%s"
                   },
                   "owner": {
                     "nome": "Owner Kialo",
-                    "telefone": "+244911111111",
-                    "email": "kialo-preview@email.com"
+                    "telefone": "%s",
+                    "email": "%s"
                   },
                   "rest": {
                     "temMesas": true,
@@ -152,7 +161,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
                     "entrega": "MANUAL"
                   }
                 }
-                """;
+                """.formatted(slug, tenantPhone, email, ownerPhone, email);
 
         mockMvc.perform(post("/platform/templates/CONSUMA_REST_V1/preview")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -160,7 +169,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
                 .andExpect(status().isOk());
 
         assertThat(tenantRepository.count()).isEqualTo(beforeTenants);
-        assertThat(tenantRepository.findBySlug("rest-kialo-preview")).isEmpty();
+        assertThat(tenantRepository.findBySlug(slug)).isEmpty();
     }
 
     @Test
@@ -170,22 +179,27 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
                 null, null, 1L, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
+        String slug = UniqueTestData.uniqueSlug("banca-tia-rosa");
+        String tenantCode = UniqueTestData.uniqueTenantCode("ROSA");
+        String tenantPhone = UniqueTestData.uniqueTelefone();
+        String ownerPhone = UniqueTestData.uniqueTelefone();
+        String ownerEmail = UniqueTestData.uniqueEmail("rosa");
 
         String payload = """
                 {
                   "planoCodigo": "PILOTO",
                   "tenant": {
                     "nomeNegocio": "Banca da Tia Rosa",
-                    "slug": "banca-tia-rosa",
-                    "tenantCode": "ROSA",
+                    "slug": "%s",
+                    "tenantCode": "%s",
                     "tipo": "VENDEDOR_RUA",
-                    "telefone": "+244900000000",
-                    "email": "rosa@email.com"
+                    "telefone": "%s",
+                    "email": "%s"
                   },
                   "owner": {
                     "nome": "Rosa Manuel",
-                    "telefone": "+244900000000",
-                    "email": "rosa@email.com",
+                    "telefone": "%s",
+                    "email": "%s",
                     "senhaTemporaria": "Alterar@123"
                   },
                   "ponto": {
@@ -193,7 +207,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
                     "allowPickup": true
                   }
                 }
-                """;
+                """.formatted(slug, tenantCode, tenantPhone, ownerEmail, ownerPhone, ownerEmail);
 
         String resp = mockMvc.perform(post("/platform/templates/CONSUMA_PONTO_V1/provision")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -219,7 +233,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
                 .extracting("slug")
                 .contains("geral", "destaques", "promocoes");
 
-        var owner = userRepository.findByEmail("rosa@email.com").orElseThrow();
+        var owner = userRepository.findByEmail(ownerEmail).orElseThrow();
         assertThat(tenantUserRepository.findByTenantIdAndUserId(t.getId(), owner.getId())).isPresent();
         assertThat(qrCodeOperacionalRepository.countByTenantId(t.getId())).isEqualTo(1);
 
@@ -242,22 +256,27 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
                 null, null, 1L, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
+        String slug = UniqueTestData.uniqueSlug("rest-kialo");
+        String tenantCode = UniqueTestData.uniqueTenantCode("KIALO");
+        String tenantPhone = UniqueTestData.uniqueTelefone();
+        String ownerPhone = UniqueTestData.uniqueTelefone();
+        String ownerEmail = UniqueTestData.uniqueEmail("kialo");
 
         String payload = """
                 {
                   "planoCodigo": "PILOTO",
                   "tenant": {
                     "nomeNegocio": "Restaurante Kialo",
-                    "slug": "rest-kialo",
-                    "tenantCode": "KIALO",
+                    "slug": "%s",
+                    "tenantCode": "%s",
                     "tipo": "RESTAURANTE",
-                    "telefone": "+244911111111",
-                    "email": "kialo@email.com"
+                    "telefone": "%s",
+                    "email": "%s"
                   },
                   "owner": {
                     "nome": "Owner Kialo",
-                    "telefone": "+244911111111",
-                    "email": "kialo@email.com"
+                    "telefone": "%s",
+                    "email": "%s"
                   },
                   "rest": {
                     "temMesas": true,
@@ -268,7 +287,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
                     "entrega": "NONE"
                   }
                 }
-                """;
+                """.formatted(slug, tenantCode, tenantPhone, ownerEmail, ownerPhone, ownerEmail);
 
         String resp = mockMvc.perform(post("/platform/templates/CONSUMA_REST_V1/provision")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -318,19 +337,21 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
 
         Tenant existing = new Tenant();
         existing.setNome("Existing");
-        existing.setSlug("slug-dup");
-        existing.setTenantCode("DUP01");
+        String duplicatedSlug = UniqueTestData.uniqueSlug("slug-dup");
+        existing.setSlug(duplicatedSlug);
+        existing.setTenantCode(UniqueTestData.uniqueTenantCode("DUP01"));
         existing.setTipo(TenantTipo.VENDEDOR_RUA);
         existing.setEstado(TenantEstado.ATIVO);
         tenantRepository.saveAndFlush(existing);
+        String ownerPhone = UniqueTestData.uniqueTelefone();
 
         String payload = """
                 {
                   "planoCodigo": "PILOTO",
-                  "tenant": { "nomeNegocio": "X", "slug": "slug-dup", "tipo": "VENDEDOR_RUA" },
-                  "owner": { "nome": "O", "telefone": "+244900111111" }
+                  "tenant": { "nomeNegocio": "X", "slug": "%s", "tipo": "VENDEDOR_RUA" },
+                  "owner": { "nome": "O", "telefone": "%s" }
                 }
-                """;
+                """.formatted(duplicatedSlug, ownerPhone);
 
         mockMvc.perform(post("/platform/templates/CONSUMA_PONTO_V1/provision")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -347,7 +368,8 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
         ));
 
         Plano p = new Plano();
-        p.setCodigo("LIMIT0");
+        String planCode = UniqueTestData.uniqueTenantCode("LIMIT0");
+        p.setCodigo(planCode);
         p.setNome("Limit 0");
         p.setDescricao("Blocks institutions");
         p.setPrecoMensal(BigDecimal.ZERO);
@@ -364,20 +386,23 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
         p.setAtivo(true);
         planoRepository.saveAndFlush(p);
 
+        String slug = UniqueTestData.uniqueSlug("limit-tenant");
+        String tenantCode = UniqueTestData.uniqueTenantCode("LIMT");
+        String ownerPhone = UniqueTestData.uniqueTelefone();
         String payload = """
                 {
-                  "planoCodigo": "LIMIT0",
-                  "tenant": { "nomeNegocio": "Limit", "slug": "limit-tenant", "tipo": "VENDEDOR_RUA", "tenantCode": "LIMT" },
-                  "owner": { "nome": "O", "telefone": "+244900111111" }
+                  "planoCodigo": "%s",
+                  "tenant": { "nomeNegocio": "Limit", "slug": "%s", "tipo": "VENDEDOR_RUA", "tenantCode": "%s" },
+                  "owner": { "nome": "O", "telefone": "%s" }
                 }
-                """;
+                """.formatted(planCode, slug, tenantCode, ownerPhone);
 
         mockMvc.perform(post("/platform/templates/CONSUMA_PONTO_V1/provision")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isConflict());
 
-        assertThat(tenantRepository.findBySlug("limit-tenant")).isEmpty();
+        assertThat(tenantRepository.findBySlug(slug)).isEmpty();
     }
 
     @Test
@@ -391,8 +416,8 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
         // Cria uma instituição pré-existente com NIF global para forçar UNIQUE violation no meio.
         Tenant t0 = new Tenant();
         t0.setNome("T0");
-        t0.setSlug("t0-bt");
-        t0.setTenantCode("T0BT");
+        t0.setSlug(UniqueTestData.uniqueSlug("t0-bt"));
+        t0.setTenantCode(UniqueTestData.uniqueTenantCode("T0BT"));
         t0.setTipo(TenantTipo.RESTAURANTE);
         t0.setEstado(TenantEstado.ATIVO);
         t0 = tenantRepository.saveAndFlush(t0);
@@ -410,33 +435,37 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
         var inst0 = new com.restaurante.model.entity.Instituicao();
         inst0.setTenant(t0);
         inst0.setNome("Existing Inst");
-        inst0.setSigla("EXBT");
-        inst0.setNif("NIF-CONFLITO");
-        inst0.setTelefoneAutorizacao("+244900000001");
+        String conflictNif = UniqueTestData.uniqueNif("CONFLITO");
+        inst0.setSigla(UniqueTestData.uniqueInstituicaoSigla("EXBT"));
+        inst0.setNif(conflictNif);
+        inst0.setTelefoneAutorizacao(UniqueTestData.uniqueTelefone());
         inst0.setAtiva(true);
         instituicaoRepository.saveAndFlush(inst0);
+        String rollbackSlug = UniqueTestData.uniqueSlug("bt-rollback");
+        String rollbackTenantCode = UniqueTestData.uniqueTenantCode("RBKT");
+        String rollbackOwnerPhone = UniqueTestData.uniqueTelefone();
 
         String payload = """
                 {
                   "planoCodigo": "PILOTO",
                   "tenant": {
                     "nomeNegocio": "Rollback",
-                    "slug": "bt-rollback",
-                    "tenantCode": "RBKT",
+                    "slug": "%s",
+                    "tenantCode": "%s",
                     "tipo": "VENDEDOR_RUA",
-                    "nif": "NIF-CONFLITO"
+                    "nif": "%s"
                   },
-                  "owner": { "nome": "O", "telefone": "+244900111111" }
+                  "owner": { "nome": "O", "telefone": "%s" }
                 }
-                """;
+                """.formatted(rollbackSlug, rollbackTenantCode, conflictNif, rollbackOwnerPhone);
 
         mockMvc.perform(post("/platform/templates/CONSUMA_PONTO_V1/provision")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().is5xxServerError());
 
-        assertThat(tenantRepository.findBySlug("bt-rollback")).isEmpty();
-        assertThat(tenantRepository.findByTenantCode("RBKT")).isEmpty();
+        assertThat(tenantRepository.findBySlug(rollbackSlug)).isEmpty();
+        assertThat(tenantRepository.findByTenantCode(rollbackTenantCode)).isEmpty();
     }
 
     @Test
@@ -450,10 +479,10 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
         String payload = """
                 {
                   "planoCodigo": "PILOTO",
-                  "tenant": { "nomeNegocio": "X", "slug": "x-bt", "tipo": "VENDEDOR_RUA" },
-                  "owner": { "nome": "O", "telefone": "+244900111111" }
+                  "tenant": { "nomeNegocio": "X", "slug": "%s", "tipo": "VENDEDOR_RUA" },
+                  "owner": { "nome": "O", "telefone": "%s" }
                 }
-                """;
+                """.formatted(UniqueTestData.uniqueSlug("x-bt"), UniqueTestData.uniqueTelefone());
 
         mockMvc.perform(post("/platform/templates/CONSUMA_PONTO_V1/provision")
                         .contentType(MediaType.APPLICATION_JSON)

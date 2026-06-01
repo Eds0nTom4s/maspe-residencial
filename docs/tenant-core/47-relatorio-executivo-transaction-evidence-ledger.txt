@@ -118,8 +118,7 @@ Novos:
 - src/test/java/com/restaurante/txevidence/TransactionEvidenceLedgerServiceTest.java
 - src/test/java/com/restaurante/txevidence/TransactionEvidenceVerificationServiceTest.java
 - src/test/java/com/restaurante/txevidence/TransactionLedgerEvidenceServiceTest.java
-- src/test/java/com/restaurante/txevidence/TransactionEvidenceLedgerFlowIT.java
+- src/test/java/com/restaurante/txevidence/TransactionEvidenceLedgerFlowTest.java
 
 12) STATUS FINAL
 - Prompt 47 concluído: ledger transacional append-only implementado, verificação disponível, endpoints e Evidence Bundle summary entregues, build/test ok.
-

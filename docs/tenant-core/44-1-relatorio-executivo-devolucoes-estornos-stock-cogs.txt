@@ -116,7 +116,7 @@ Service
 - Não há refund financeiro automático; devolução de stock é governança operacional.
 
 11) Testes (novos)
-- src/test/java/com/restaurante/inventory/InventoryReturnFlowIT.java
+- src/test/java/com/restaurante/inventory/InventoryReturnFlowTest.java
 - src/test/java/com/restaurante/inventory/InventoryReturnEvidenceTest.java
 
 12) Comandos executados
@@ -136,4 +136,3 @@ Service
 - Permitir gestão/edição controlada de linhas em DRAFT (ou “nova devolução substituta”).
 - Calcular totalRevenueReversed/totalTaxReversed/totalMarginReversed com base em FiscalDocument/credit note (quando existir).
 - Integrar com eventos reais de refund/estorno, mantendo desacoplamento do pagamento.
-

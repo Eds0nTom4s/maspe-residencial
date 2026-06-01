@@ -1,0 +1,208 @@
+CONSUMA - BACKEND - RELATORIO IT-FIX-005
+Tema: fixtures tenant idempotentes e isoladas
+Data: 2026-06-01
+Repositorio: /home/edsontomas/Documentos/WS - CONSUMA/backend/maspe-residencial
+
+STATUS FINAL
+APROVADO COM RESSALVAS
+
+RESUMO EXECUTIVO
+Foi implementada a primeira camada de estabilizacao da suite IT focada em colisao de dados unicos entre testes.
+O resultado principal foi positivo: as colisoes dominantes por sigla de instituicao, username, telefone, slug e tenantCode deixaram de aparecer como causa de falha nas classes-alvo desta fase.
+O unico conflito de unique constraint que permaneceu como falha no lote validado foi o cenario intencional `failureMidway_rollsBack` de `PlatformBusinessTemplateControllerIT`, que duplica NIF dentro do proprio teste para forcar rollback.
+
+CONTEXTO INICIAL
+Antes desta fase, a suite completa via `mvn -Pit verify` apresentava:
+- completed: 232
+- errors: 182
+- failures: 21
+- skipped: 0
+
+Constraints dominantes observadas nos reports antigos:
+- `instituicoes_sigla_key`
+- `instituicoes_nif_key`
+- `tenants_slug_key`
+- `tenants_tenant_code_key`
+- `users_username_key`
+- `users_telefone_key`
+- `uk_subscricoes_tenant_ativa`
+
+CONTAGENS ANTES
+Fonte: `/tmp/failsafe-reports.before_itfix005_20260601_1519`
+Contagem textual bruta nos reports antigos:
+- `instituicoes_sigla_key`: 78
+- `instituicoes_nif_key`: 21
+- `tenants_slug_key`: 23
+- `tenants_tenant_code_key`: 12
+- `users_username_key`: 22
+- `users_telefone_key`: 44
+- `uk_subscricoes_tenant_ativa`: 1
+
+Contagem mais precisa por casos realmente falhados (`error`/`failure` em XML):
+- `instituicoes_sigla_key`: 7 casos
+- `instituicoes_nif_key`: 1 caso
+- `tenants_slug_key`: 2 casos
+- `tenants_tenant_code_key`: 1 caso
+- `users_username_key`: 2 casos
+- `users_telefone_key`: 4 casos
+- `uk_subscricoes_tenant_ativa`: 0 casos falhados
+
+ESCOPO EXECUTADO
+Classes priorizadas nesta fase:
+- `TenantCorePersistenceIT`
+- `DeviceReadOnlySyncIT`
+- `ProducaoKdsRbacIT`
+- `ProducaoKdsDeviceScopeIT`
+- `PlatformBusinessTemplateControllerIT`
+- `PlatformFinanceiroControllerIT`
+- `TenantFinanceiroControllerIT`
+- `TenantRoleAuthorizationIT`
+- `DispositivoOperacionalTenantAdminIT`
+
+ALTERACOES IMPLEMENTADAS
+1. Criado helper central:
+- `src/test/java/com/restaurante/testsupport/UniqueTestData.java`
+
+Metodos adicionados:
+- `uniqueSuffix()`
+- `uniqueSlug(String prefix)`
+- `uniqueTenantCode(String prefix)`
+- `uniqueInstituicaoSigla(String prefix)`
+- `uniqueNif(String prefix)`
+- `uniqueUsername(String prefix)`
+- `uniqueEmail(String prefix)`
+- `uniqueTelefone()`
+- `uniqueDeviceCode(String prefix)`
+- `uniqueQrCode(String prefix)`
+
+2. Fixtures migradas para dados unicos nas classes-alvo:
+- `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsRbacIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsDeviceScopeIT.java`
+- `src/test/java/com/restaurante/financeiro/PlatformFinanceiroControllerIT.java`
+- `src/test/java/com/restaurante/financeiro/TenantFinanceiroControllerIT.java`
+- `src/test/java/com/restaurante/security/TenantRoleAuthorizationIT.java`
+- `src/test/java/com/restaurante/device/DispositivoOperacionalTenantAdminIT.java`
+- `src/test/java/com/restaurante/tenantcore/TenantCorePersistenceIT.java`
+- `src/test/java/com/restaurante/businesstemplate/PlatformBusinessTemplateControllerIT.java`
+
+3. Regra preservada:
+- nenhuma constraint foi removida
+- nenhum indice unico foi relaxado
+- nenhum teste foi pulado
+- PostgreSQL real com Testcontainers foi mantido
+
+VALIDACAO EXECUTADA
+1. Compilacao:
+- `mvn -q -DskipTests compile`
+- resultado: OK
+
+2. Validacao curta sem Docker acessivel no sandbox:
+- `mvn -q -Pit -Dit.test=TenantCorePersistenceIT,DeviceReadOnlySyncIT,ProducaoKdsRbacIT,ProducaoKdsDeviceScopeIT,PlatformBusinessTemplateControllerIT,PlatformFinanceiroControllerIT,TenantFinanceiroControllerIT,TenantRoleAuthorizationIT,DispositivoOperacionalTenantAdminIT failsafe:integration-test failsafe:verify`
+- resultado no sandbox: falha esperada por Docker/Testcontainers indisponivel
+
+3. Validacao real fora do sandbox:
+- `mvn -q -Pit -Dit.test=TenantCorePersistenceIT,DeviceReadOnlySyncIT,ProducaoKdsRbacIT,ProducaoKdsDeviceScopeIT,PlatformBusinessTemplateControllerIT,PlatformFinanceiroControllerIT,TenantFinanceiroControllerIT,TenantRoleAuthorizationIT,DispositivoOperacionalTenantAdminIT failsafe:integration-test failsafe:verify`
+- resumo final deste lote:
+  - completed: 37
+  - errors: 27
+  - failures: 0
+  - skipped: 0
+
+CONTAGENS DEPOIS
+Fonte: `target/failsafe-reports`
+
+Contagem precisa por casos falhados (`error`/`failure` em XML):
+- `instituicoes_sigla_key`: 0 casos
+- `instituicoes_nif_key`: 1 caso
+- `tenants_slug_key`: 0 casos
+- `tenants_tenant_code_key`: 0 casos
+- `users_username_key`: 0 casos
+- `users_telefone_key`: 0 casos
+- `uk_subscricoes_tenant_ativa`: 0 casos
+
+CASO RESIDUAL DE UNIQUE CONSTRAINT
+Permaneceu 1 caso:
+- classe: `PlatformBusinessTemplateControllerIT`
+- teste: `failureMidway_rollsBack`
+- constraint: `instituicoes_nif_key`
+
+Interpretacao:
+Este nao indica mais fixture compartilhada entre testes.
+O teste gera um `conflictNif` unico com `UniqueTestData.uniqueNif("CONFLITO")`, cria uma instituicao preexistente com esse NIF e reaproveita o mesmo valor no payload do provisionamento para provocar a violacao no meio do fluxo e verificar rollback.
+Ou seja: o conflito restante e intencional ao proprio cenario.
+
+EVIDENCIA DE MELHORA POR CLASSE
+1. `TenantCorePersistenceIT`
+- status: 7 testes, 0 errors, 0 failures
+- observacao: classe estabilizada para este objetivo
+
+2. `DeviceReadOnlySyncIT`
+- deixou de falhar por `instituicoes_sigla_key`
+- falhas atuais: `DeviceUnauthorizedException` / 401 por auth device
+
+3. `ProducaoKdsRbacIT`
+- deixou de falhar por `instituicoes_sigla_key`
+- falhas atuais: SQL PostgreSQL com parametros nulos sem tipo (`could not determine data type of parameter`)
+
+4. `ProducaoKdsDeviceScopeIT`
+- deixou de falhar por `instituicoes_sigla_key`
+- falhas atuais: regra funcional de cozinha ativa / `ResourceNotFoundException`
+
+5. `TenantFinanceiroControllerIT`
+- deixou de falhar por `users_username_key`
+- falha atual: SQL PostgreSQL com parametro nulo sem tipo
+
+6. `PlatformFinanceiroControllerIT`
+- deixou de falhar por `tenants_tenant_code_key`
+- falha atual: SQL PostgreSQL com parametro nulo sem tipo
+
+7. `TenantRoleAuthorizationIT`
+- deixou de falhar por `users_username_key` e `users_telefone_key`
+- falhas atuais: `AccessDeniedException` esperada/nao mapeada e uma query PostgreSQL com parametro nulo sem tipo
+
+8. `DispositivoOperacionalTenantAdminIT`
+- deixou de falhar por `users_telefone_key`
+- falhas atuais: `DEVICE_TOKEN_HASH_SECRET nao configurado` e um caso de `AccessDeniedException`
+
+9. `PlatformBusinessTemplateControllerIT`
+- fixtures de slug, tenantCode, telefone e owner foram isoladas
+- conflito residual de NIF e intencional no teste de rollback
+- ainda existem erros funcionais adicionais fora do escopo de fixture, incluindo problema de persistencia `jsonb` em `tenant_payment_methods.metadata_json`
+
+LEITURA TECNICA
+Conclusao principal desta fase:
+- a camada dominante de falhas por dados fixos compartilhados foi removida das classes-alvo
+- a suite deixou de "cair cedo" por colisao artificial e passou a expor problemas reais de:
+  - autenticacao device
+  - RBAC / mapeamento de `AccessDenied`
+  - queries JPA/SQL com filtros opcionais incompatíveis com PostgreSQL
+  - configuracao de secrets em testes
+  - fluxo funcional de bootstrap/template/producao
+
+ARQUIVOS PRINCIPAIS ALTERADOS NESTA FASE
+- `src/test/java/com/restaurante/testsupport/UniqueTestData.java`
+- `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsRbacIT.java`
+- `src/test/java/com/restaurante/producao/ProducaoKdsDeviceScopeIT.java`
+- `src/test/java/com/restaurante/financeiro/PlatformFinanceiroControllerIT.java`
+- `src/test/java/com/restaurante/financeiro/TenantFinanceiroControllerIT.java`
+- `src/test/java/com/restaurante/security/TenantRoleAuthorizationIT.java`
+- `src/test/java/com/restaurante/device/DispositivoOperacionalTenantAdminIT.java`
+- `src/test/java/com/restaurante/tenantcore/TenantCorePersistenceIT.java`
+- `src/test/java/com/restaurante/businesstemplate/PlatformBusinessTemplateControllerIT.java`
+
+CONCLUSAO
+IT-FIX-005 cumpriu o objetivo principal.
+As fixtures tenant foram tornadas significativamente mais idempotentes e isoladas.
+As colisões dominantes de unique constraint deixaram de ser o fator principal de falha no lote validado.
+O proximo passo correto e atacar IT-FIX-006 com foco em:
+- auth device / 401 inesperado
+- RBAC / 403 versus 200
+- queries com filtros opcionais que falham no PostgreSQL
+- secrets obrigatorios em ITs de device
+- falhas funcionais de bootstrap/template/KDS
+
+ARTEFATOS DE APOIO
+- reports antigos preservados em: `/tmp/failsafe-reports.before_itfix005_20260601_1519`
+- reports novos desta validacao em: `target/failsafe-reports`

@@ -25,7 +25,7 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SessaoParticipanteExpirationJob (41.4) — Registo de runs")
-class SessaoParticipanteLifecycleJobHealthIT {
+class SessaoParticipanteLifecycleJobHealthTest {
 
     @Mock SessaoParticipanteLifecycleProperties props;
     @Mock SessaoParticipanteExpirationService expirationService;

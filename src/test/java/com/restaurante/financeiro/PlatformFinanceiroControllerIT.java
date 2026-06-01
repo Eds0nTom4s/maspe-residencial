@@ -15,6 +15,7 @@ import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -104,8 +105,8 @@ class PlatformFinanceiroControllerIT extends PostgresTestcontainersConfig {
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
-        t.setSlug(slug);
-        t.setTenantCode(tenantCode);
+        t.setSlug(UniqueTestData.uniqueSlug(slug));
+        t.setTenantCode(UniqueTestData.uniqueTenantCode(tenantCode));
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
@@ -127,4 +128,3 @@ class PlatformFinanceiroControllerIT extends PostgresTestcontainersConfig {
         return pagamentoGatewayRepository.saveAndFlush(p);
     }
 }
-

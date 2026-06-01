@@ -167,14 +167,14 @@ Device/POS (somente leitura):
 12) Limitações e observações
 - Sem reversão automática de consumo/COGS em devoluções/estornos (dívida P44-DEBT-1).
 - Sem inventário offline definitivo (consumo roda no servidor após replay/confirm).
-- InventoryFlowIT possui fallback (sem depender do sincronismo AFTER_COMMIT) para garantir validação do contrato evento → consumo em ambiente de testes.
+- InventoryFlowTest possui fallback (sem depender do sincronismo AFTER_COMMIT) para garantir validação do contrato evento → consumo em ambiente de testes.
 
 13) Testes (novos)
 - src/test/java/com/restaurante/inventory/InventoryStockServiceTest.java
 - src/test/java/com/restaurante/inventory/InventoryRecipeServiceTest.java
 - src/test/java/com/restaurante/inventory/InventoryConsumptionServiceTest.java
 - src/test/java/com/restaurante/inventory/InventoryEvidenceServiceTest.java
-- src/test/java/com/restaurante/inventory/InventoryFlowIT.java
+- src/test/java/com/restaurante/inventory/InventoryFlowTest.java
 
 14) Comandos executados e resultados
 - mvn -q -DskipTests compile
@@ -186,4 +186,3 @@ Device/POS (somente leitura):
 
 15) Status final
 - Prompt 44 concluído: inventário core operacional implementado, integrado ao ciclo pós-pagamento e evidenciado no Evidence Bundle, sem alterar AppyPay, caixa, fiscalidade existente ou WORM.
-

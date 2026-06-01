@@ -1,6 +1,7 @@
 package com.restaurante.testsupport;
 
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Inherited;
@@ -19,6 +20,6 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Inherited
 @Tag("it")
+@ExtendWith(RequireFailsafeRunnerCondition.class)
 public @interface IntegrationTest {
 }
-

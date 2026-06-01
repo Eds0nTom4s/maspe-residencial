@@ -163,7 +163,7 @@ Novos/validados neste hardening:
 - `src/test/java/com/restaurante/inventory/InventoryReturnEvidenceTest.java`
 
 Alterado:
-- `src/test/java/com/restaurante/inventory/InventoryReturnFlowIT.java`
+- `src/test/java/com/restaurante/inventory/InventoryReturnFlowTest.java`
   - ajustes para evitar “double return” e validar WASTE + MANUAL_REVIEW em pedidos distintos.
 
 ================================================================================
@@ -195,4 +195,3 @@ CONCLUÍDO — Prompt 44.2 (hardening de devoluções/refund/margem reversa) com
 compilação e suíte de testes passando, mantendo as restrições:
 sem alteração estrutural em AppyPay, sem recalcular bundles antigos, e sem apagar
 histórico (append-only).
-

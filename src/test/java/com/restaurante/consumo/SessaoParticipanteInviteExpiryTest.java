@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
 /**
  * Prompt 41.3 — Testes de ciclo de vida: expiração, ACTIVE não afetado, idempotência.
  */
-class SessaoParticipanteInviteExpiryIT {
+class SessaoParticipanteInviteExpiryTest {
 
     private SessaoConsumoParticipante buildParticipant(Long id, SessaoParticipanteStatus status, Instant expiresAt, Tenant tenant, SessaoConsumo sessao) {
         SessaoConsumoParticipante p = new SessaoConsumoParticipante();

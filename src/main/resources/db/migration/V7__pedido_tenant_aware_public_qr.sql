@@ -56,14 +56,45 @@ set tenant_id = (select id from tenants where tenant_code = 'LEGACY')
 where tenant_id is null;
 
 -- 5) Backfill itens_pedido.tenant_id from pedido/subpedido/produto
-update itens_pedido ip
-set tenant_id = coalesce(
-    (select p.tenant_id from pedidos p where p.id = ip.pedido_id),
-    (select sp.tenant_id from sub_pedidos sp where sp.id = ip.sub_pedido_id),
-    (select pr.tenant_id from produtos pr where pr.id = ip.produto_id),
-    (select id from tenants where tenant_code = 'LEGACY')
+with itens_pedido_backfill as (
+    select
+        ip.id as item_id,
+        coalesce(
+            p.tenant_id,
+            sp.tenant_id,
+            pr.tenant_id,
+            (select id from tenants where tenant_code = 'LEGACY')
+        ) as resolved_tenant_id
+    from itens_pedido ip
+    join pedidos p on p.id = ip.pedido_id
+    left join sub_pedidos sp on sp.id = ip.sub_pedido_id
+    left join produtos pr on pr.id = ip.produto_id
+    where ip.tenant_id is null
 )
-where ip.tenant_id is null;
+update itens_pedido ip
+set tenant_id = b.resolved_tenant_id
+from itens_pedido_backfill b
+where ip.id = b.item_id;
+
+-- fallback for itens that (rarely) have pedido_id null: derive from sub_pedido/produto
+with itens_pedido_backfill_sem_pedido as (
+    select
+        ip.id as item_id,
+        coalesce(
+            sp.tenant_id,
+            pr.tenant_id,
+            (select id from tenants where tenant_code = 'LEGACY')
+        ) as resolved_tenant_id
+    from itens_pedido ip
+    join sub_pedidos sp on sp.id = ip.sub_pedido_id
+    left join produtos pr on pr.id = ip.produto_id
+    where ip.pedido_id is null
+      and ip.tenant_id is null
+)
+update itens_pedido ip
+set tenant_id = b.resolved_tenant_id
+from itens_pedido_backfill_sem_pedido b
+where ip.id = b.item_id;
 
 update itens_pedido
 set tenant_id = (select id from tenants where tenant_code = 'LEGACY')
@@ -76,27 +107,36 @@ alter table itens_pedido alter column tenant_id set not null;
 
 do $$
 begin
-    if not exists (select 1 from pg_constraint where conname = 'fk_pedido_tenant') then
+    if not exists (
+        select 1 from pg_constraint where conname = 'fk_pedido_tenant'
+    ) then
         alter table pedidos
             add constraint fk_pedido_tenant
             foreign key (tenant_id) references tenants;
     end if;
-end $$;
+end
+$$;
 
 do $$
 begin
-    if not exists (select 1 from pg_constraint where conname = 'fk_subpedido_tenant') then
+    if not exists (
+        select 1 from pg_constraint where conname = 'fk_subpedido_tenant'
+    ) then
         alter table sub_pedidos
             add constraint fk_subpedido_tenant
             foreign key (tenant_id) references tenants;
     end if;
-end $$;
+end
+$$;
 
 do $$
 begin
-    if not exists (select 1 from pg_constraint where conname = 'fk_item_pedido_tenant') then
+    if not exists (
+        select 1 from pg_constraint where conname = 'fk_item_pedido_tenant'
+    ) then
         alter table itens_pedido
             add constraint fk_item_pedido_tenant
             foreign key (tenant_id) references tenants;
     end if;
-end $$;
+end
+$$;

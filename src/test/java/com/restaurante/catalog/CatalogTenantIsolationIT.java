@@ -146,10 +146,11 @@ class CatalogTenantIsolationIT extends PostgresTestcontainersConfig {
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
+        long suffix = Math.abs(System.nanoTime() % 1_000_000L);
         Tenant t = new Tenant();
         t.setNome(nome);
-        t.setSlug(slug);
-        t.setTenantCode(tenantCode);
+        t.setSlug(slug + "-" + suffix);
+        t.setTenantCode(tenantCode + "-" + suffix);
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
@@ -166,11 +167,12 @@ class CatalogTenantIsolationIT extends PostgresTestcontainersConfig {
     }
 
     private User criarUser(String username, String email, String telefone) {
+        long suffix = Math.abs(System.nanoTime() % 1_000_000L);
         User u = new User();
-        u.setUsername(username);
+        u.setUsername(username + "-" + suffix);
         u.setPassword("x");
-        u.setEmail(email);
-        u.setTelefone(telefone);
+        u.setEmail(username + "-" + suffix + "@test.local");
+        u.setTelefone("+2449" + String.format("%08d", (int) (suffix % 100_000_000L)));
         u.setRoles(Set.of(Role.ROLE_ADMIN));
         u.setAtivo(true);
         return userRepository.saveAndFlush(u);

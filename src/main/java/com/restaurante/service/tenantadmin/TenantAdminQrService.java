@@ -2,6 +2,7 @@ package com.restaurante.service.tenantadmin;
 
 import com.restaurante.dto.response.TenantMesaResponse;
 import com.restaurante.dto.response.TenantQrCodeResponse;
+import com.restaurante.dto.response.TenantQrPrincipalResponse;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.QrCodeOperacional;
@@ -38,6 +39,57 @@ public class TenantAdminQrService {
         return qrCodeOperacionalRepository.findByTenantId(ctx.tenantId()).stream()
                 .map(this::toDto)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public TenantQrPrincipalResponse buscarQrPrincipal() {
+        TenantContext ctx = requireTenantContext();
+        Long tenantId = ctx.tenantId();
+
+        List<QrCodeOperacional> qrs = qrCodeOperacionalRepository.findByTenantIdAndAtivoTrueAndRevogadoFalse(tenantId);
+        if (qrs == null || qrs.isEmpty()) {
+            throw new com.restaurante.exception.ResourceNotFoundException("QR principal não encontrado para este negócio.");
+        }
+
+        // Prefer UNIDADE_ATENDIMENTO when available
+        QrCodeOperacional chosen = qrs.stream()
+                .filter(q -> q.getTipo() == QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO && q.getUnidadeAtendimento() != null)
+                .findFirst()
+                .orElse(qrs.get(0));
+
+        TenantQrPrincipalResponse resp = new TenantQrPrincipalResponse();
+        // tenant info
+        resp.setTenantId(tenantId);
+        if (chosen.getTenant() != null) {
+            resp.setTenantNome(chosen.getTenant().getNome());
+        }
+
+        resp.setQrCodeId(chosen.getId());
+        resp.setTipo(chosen.getTipo() != null ? chosen.getTipo().name() : null);
+        resp.setStatus(Boolean.TRUE.equals(chosen.getAtivo()) && !Boolean.TRUE.equals(chosen.getRevogado()) ? "ATIVO" : "INATIVO");
+
+        // URLs públicas (não expor token explicitamente)
+        String token = chosen.getToken();
+        String base = publicBaseUrl != null ? publicBaseUrl.trim() : "http://localhost:8080";
+        if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        String qrUrl = base + "/q/" + token;
+        String cardapioUrl = base + "/q/" + token + "/cardapio";
+        resp.setQrUrlPublica(qrUrl);
+        resp.setCardapioUrlPublica(cardapioUrl);
+
+        if (chosen.getUnidadeAtendimento() != null) {
+            resp.setUnidadeAtendimentoId(chosen.getUnidadeAtendimento().getId());
+            resp.setUnidadeNome(chosen.getUnidadeAtendimento().getNome());
+        }
+
+        if (chosen.getCreatedAt() != null) {
+            resp.setGeradoEm(chosen.getCreatedAt().atOffset(java.time.ZoneOffset.UTC));
+        }
+        if (chosen.getUpdatedAt() != null) {
+            resp.setAtualizadoEm(chosen.getUpdatedAt().atOffset(java.time.ZoneOffset.UTC));
+        }
+
+        return resp;
     }
 
     @Transactional(readOnly = true)

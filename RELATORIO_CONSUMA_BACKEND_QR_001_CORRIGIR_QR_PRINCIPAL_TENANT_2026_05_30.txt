@@ -1,0 +1,134 @@
+RELATÓRIO: CONSUMA - BACKEND - QR-001 - CORRIGIR QR PRINCIPAL DO TENANT
+Data: 2026-05-30
+Autor: Equipa Backend (executado por GitHub Copilot agente)
+Branch: restauracao-antes-da-loja
+Commit: bfd8fa0
+
+1. Resumo executivo
+- Objetivo: Corrigir e estabilizar o endpoint GET /api/tenant/qr/principal para devolver o QR principal do tenant autenticado sem expor tokens sensíveis e sem retornar HTTP 500 em casos esperados.
+- Ação: Adicionada implementação segura para resolver QR principal no backend, DTO público sem campos sensíveis, endpoint exposto e testes de integração automatizados.
+- Estado final: Endpoint implementado em /tenant/qr/principal (o prefixo /api é aplicado globalmente no runtime) e verificado por testes de integração. Testes passaram localmente.
+
+2. Objetivo
+Ver requisito detalhado: resolver tenant via JWT/TenantContext, buscar QR principal, retornar 200/404 conforme disponibilidade, não expor token bruto, retornar URLs públicas seguras, adicionar teste de integração e relatório.
+
+3. Branch e commit
+- Branch atual: restauracao-antes-da-loja
+- Commit: bfd8fa0
+
+4. Estado inicial
+- Código existente fornecia gerenciamento de QRs via `TenantQrCodeController` (/tenant/qrcodes), `TenantAdminQrService` e `QrCodeOperacionalService`.
+- Não havia um DTO público específico para "QR principal" sem token; `TenantQrCodeResponse` continha `token`.
+- Não existia método específico claramente publicado em `/tenant/qr/principal` no controller do código disponível.
+- Possíveis fontes de HTTP 500 incluíam: montagem de DTO expondo campo token indevido, TenantContext não resolvido (NPE), ou queries retornando null sem tratamento. Não foi encontrado stacktrace prévio no ambiente.
+
+5. Como o erro 500 foi reproduzido
+- Não houve stacktrace original disponível no repositório. Em vez disso, executei testes de integração que simulam o fluxo com provisionamento e token JWT, para validar comportamento esperado e evitar 500s.
+- Testes foram executados localmente com Testcontainers (perfil it-postgres).
+
+6. Stacktrace / causa raiz
+- Não foi possível coletar um stacktrace pré-existente do ambiente sandbox dentro deste workspace (nenhum log do 500 foi fornecido). Em inspeção do código, os riscos que provavelmente causariam 500 eram:
+  - Acesso a propriedades lazy (tenant/unidade) fora de transação causando NullPointer/LazyInitializationException.
+  - Montagem de DTO que incluía `token` e dependia de campos possivelmente nulos.
+  - Falta de endpoint dedicado que tratasse ausência de QR com ResourceNotFoundException.
+- Para mitigar, implementei tratamento explícito: método transacional de leitura, seleção segura de QR (Optional/lista), lançamento de ResourceNotFoundException em ausência de QR (resultado 404), e DTO sem campos sensíveis.
+
+7. Arquivos alterados / adicionados
+- Modificados:
+  - src/main/java/com/restaurante/service/tenantadmin/TenantAdminQrService.java  (adicionado método `buscarQrPrincipal()`)
+  - src/main/java/com/restaurante/controller/TenantQrCodeController.java (novo endpoint GET /tenant/qr/principal)
+- Adicionados:
+  - src/main/java/com/restaurante/dto/response/TenantQrPrincipalResponse.java (DTO público sem campos sensíveis)
+  - src/test/java/com/restaurante/tenantadmin/TenantQrPrincipalControllerIT.java (teste de integração)
+
+8. Controller ajustado/criado
+- Controller: `TenantQrCodeController` (arquivo existente) recebeu novo método:
+  - GET /tenant/qr/principal
+  - Valida roles: TENANT_OWNER, TENANT_ADMIN, TENANT_OPERATOR, TENANT_CASHIER
+  - Retorna ApiResponse.success com `TenantQrPrincipalResponse` em caso de sucesso.
+
+9. Service ajustado/criado
+- `TenantAdminQrService` agora expõe `buscarQrPrincipal()` (transacional readOnly):
+  - Obtém TenantContext via tenantGuard.requireContext(); valida tenant e membership via requireTenantContext();
+  - Busca QRs ativos do tenant (`findByTenantIdAndAtivoTrueAndRevogadoFalse`);
+  - Seleciona preferencialmente um QR do tipo `UNIDADE_ATENDIMENTO` quando presente; fallback para primeiro QR ativo;
+  - Monta `TenantQrPrincipalResponse` sem expor `token` bruto; constrói `qrUrlPublica` e `cardapioUrlPublica` usando `consuma.public-base-url` + "/q/{token}" e "/q/{token}/cardapio";
+  - Em ausência de QR lança `ResourceNotFoundException` (tratado globalmente pelo handler para 404).
+
+10. Repository ajustado/criado
+- Nenhuma alteração em repositories; usei `QrCodeOperacionalRepository#findByTenantIdAndAtivoTrueAndRevogadoFalse` existente.
+
+11. DTO criado/ajustado
+- `TenantQrPrincipalResponse` criado com campos permitidos:
+  - tenantId, tenantNome, qrCodeId, tipo, status, qrUrlPublica, cardapioUrlPublica, unidadeAtendimentoId, unidadeNome, geradoEm, atualizadoEm
+- Proibidos (não retornados): token, qrToken, secret, deviceToken, activationCode, jwt, accessToken, refreshToken, password, hash
+
+12. Tratamento de erros
+- Ausência de QR: lança `ResourceNotFoundException` → HTTP 404 esperado.
+- Tenant não resolvido: `requireTenantContext()` já lança `ResourceNotFoundException` com mensagem padrão (resultado 404/403 conforme handler); a política do projeto foi respeitada.
+- Erros inesperados continuam retornando 500, mas somente em casos reais de falha de infra; fluxos normais (sem QR, sem tenant) agora retornam 404/403/401 conforme esperado.
+
+13. Segurança aplicada
+- Endpoint exige autenticação e valida roles via `tenantGuard.assertAnyTenantRole(...)`.
+- Verifica que o usuário pertence ao tenant através de `requireTenantContext()`/`tenantGuard.assertCurrentUserBelongsToTenant`.
+- Não permite exposição de tokens ou segredos.
+
+14. Campos sensíveis removidos
+- O novo DTO não expõe `token` nem qualquer campo sensível.
+- Código anterior (`TenantQrCodeResponse`) ainda contém `token` e continua sendo usado internamente para administração — não foi alterado (compatibilidade). O endpoint principal usa DTO seguro.
+
+15. Testes criados
+- `TenantQrPrincipalControllerIT` com cenários mínimo:
+  1) Unauthenticated -> 401
+  2) Tenant provisionado + usuário owner -> GET /tenant/qr/principal retorna 200, campo `qrCodeId` e `qrUrlPublica` presentes; campos sensíveis ausentes.
+- Testes executados com profile `it-postgres` e containers (Testcontainers).
+
+16. Resultado dos testes
+- Execução local: `mvn -Dtest=TenantQrPrincipalControllerIT test` → BUILD SUCCESS
+- Tests run: 2, Failures: 0, Errors: 0
+
+17. Resultado do curl manual
+- Teste manual recomendado (ambiente local):
+
+  1) Sem token:
+     curl -i http://localhost:8081/api/tenant/qr/principal
+     -> 401
+
+  2) Com token tenant-scoped (exemplo):
+     curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/tenant/qr/principal
+     -> 200 com payload JSON similar a:
+     {
+       "success": true,
+       "message": "QR principal encontrado.",
+       "data": { ... }
+     }
+
+- Verifique ausência dos campos sensíveis via `jq`.
+
+18. Resultado esperado na UI
+- Frontend (UI-011) deve receber `data.qrUrlPublica` ou `data.cardapioUrlPublica` e apresentar o QR/link. Nenhum token sensível é retornado.
+
+19. Pendências
+- Verificar se `consuma.public-base-url` está corretamente configurado em sandbox (deve apontar para o host público que inclui o path `/public` quando aplicável).
+- Revisar outras APIs que ainda retornem `TenantQrCodeResponse` com `token` explícito — avaliar se precisam de endpoints seguros separados.
+
+20. Riscos
+- Se `publicBaseUrl` estiver mal configurado (sem a parte `/public`), os links públicos podem não apontar para os endpoints públicos corretos. Ajuste configuração em sandbox/production.
+- O DTO seguro evita exposição, mas consumidores administrativos que dependem do `token` interno (se existirem) devem usar endpoints administrativos autenticados e não o público.
+
+21. Decisão final
+- APROVADO com RESSALVAS
+  - Endpoint principal implementado e coberto por testes.
+  - RESSALVA: confirmar `consuma.public-base-url` em sandbox/produção para garantir que `qrUrlPublica` e `cardapioUrlPublica` apontem ao caminho público correto (incluindo `/public` se aplicável).
+
+22. Próximo passo recomendado
+- Validar em sandbox real: gerar token tenant/owner e executar `curl` manual. Ajustar `consuma.public-base-url` se necessário.
+- Opcional: remover `token` do `TenantQrCodeResponse` e introduzir endpoints administrativos separados que retornem token apenas quando explicitamente necessário (auditável).
+
+23. Comandos úteis
+- Rodar testes locais:
+  mvn -Dtest=TenantQrPrincipalControllerIT test
+- Rodar apenas o módulo (sugestão):
+  mvn -DskipTests=false test -Dtest=TenantQrPrincipalControllerIT
+
+--- Fim do Relatório ---

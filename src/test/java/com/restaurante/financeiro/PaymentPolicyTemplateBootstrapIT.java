@@ -2,12 +2,11 @@ package com.restaurante.financeiro;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.restaurante.dto.request.PaymentPolicyRolloutRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
-import com.restaurante.financeiro.paymentmethod.repository.DevicePaymentMethodPolicyRepository;
-import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyRolloutWorkerService;
-import com.restaurante.model.enums.*;
+import com.restaurante.model.enums.Role;
+import com.restaurante.model.enums.TenantTipo;
+import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
@@ -18,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -26,7 +24,6 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(
@@ -35,13 +32,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
-class PaymentPolicyAsyncRolloutWorkerTest extends PostgresTestcontainersConfig {
+class PaymentPolicyTemplateBootstrapIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
-    @Autowired PaymentMethodPolicyRolloutWorkerService workerService;
-    @Autowired DevicePaymentMethodPolicyRepository devicePolicyRepository;
 
     @AfterEach
     void clear() {
@@ -49,48 +44,32 @@ class PaymentPolicyAsyncRolloutWorkerTest extends PostgresTestcontainersConfig {
     }
 
     @Test
-    void worker_processes_pending_rollout_to_completion() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("pm-async-worker-a", "AW1");
+    void tenant_without_templates_receives_default_templates_idempotently() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("pmtpl-boot-a", "TB1");
+
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
 
-        Long tpl = templateIdByCode("KDS_SEM_PAGAMENTO");
-        PaymentPolicyRolloutRequest req = new PaymentPolicyRolloutRequest();
-        req.setUnidadeId(prov.getUnidadeAtendimentoId());
-        req.setRolloutMode(PaymentMethodPolicyRolloutMode.UNIT_ALL_DEVICES);
-        req.setOverwriteMode(PaymentMethodPolicyOverwriteMode.OVERWRITE_EXISTING);
-
-        String submit = mockMvc.perform(post("/tenant/payment-policy-templates/{templateId}/rollout/submit", tpl)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
+        String resp1 = mockMvc.perform(get("/tenant/payment-policy-templates"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        long rolloutId = objectMapper.readTree(submit).at("/data/rolloutId").asLong();
 
-        for (int i = 0; i < 10; i++) workerService.processOneEligibleRollout();
+        JsonNode data1 = objectMapper.readTree(resp1).at("/data");
+        assertThat(data1.isArray()).isTrue();
+        assertThat(data1.toString()).contains("POS_CAIXA_COMPLETO");
+        assertThat(data1.toString()).contains("POS_ATENDIMENTO_SEM_CASH");
+        assertThat(data1.toString()).contains("KDS_SEM_PAGAMENTO");
+        assertThat(data1.toString()).contains("QUIOSQUE_APPYPAY");
 
-        String statusResp = mockMvc.perform(get("/tenant/payment-policy-rollouts/{rolloutId}", rolloutId))
+        // idempotente: segunda chamada não duplica
+        String resp2 = mockMvc.perform(get("/tenant/payment-policy-templates"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        JsonNode status = objectMapper.readTree(statusResp).at("/data/status");
-        assertThat(status.asText()).isIn("COMPLETED", "COMPLETED_WITH_SKIPS", "PARTIAL_FAILED");
-
-        // policies podem ter sido criadas/atualizadas durante o worker
-        assertThat(devicePolicyRepository.count()).isGreaterThanOrEqualTo(0);
-    }
-
-    private Long templateIdByCode(String code) throws Exception {
-        String list = mockMvc.perform(get("/tenant/payment-policy-templates"))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        JsonNode arr = objectMapper.readTree(list).at("/data");
-        for (JsonNode n : arr) {
-            if (code.equals(n.at("/code").asText())) return n.at("/templateId").asLong();
-        }
-        throw new IllegalStateException("Template não encontrado no test: " + code);
+        JsonNode data2 = objectMapper.readTree(resp2).at("/data");
+        assertThat(data2.size()).isEqualTo(data1.size());
     }
 
     private ProvisionarTenantResponse provisionTenant(String nome, String code) {
@@ -122,4 +101,3 @@ class PaymentPolicyAsyncRolloutWorkerTest extends PostgresTestcontainersConfig {
         );
     }
 }
-

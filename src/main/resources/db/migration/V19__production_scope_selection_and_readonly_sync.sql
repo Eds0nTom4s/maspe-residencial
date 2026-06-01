@@ -12,6 +12,21 @@ CREATE TABLE IF NOT EXISTS tenant_user_production_scopes (
 );
 
 ALTER TABLE tenant_user_production_scopes
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP(6) NOT NULL DEFAULT now();
+
+ALTER TABLE tenant_user_production_scopes
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP(6) NULL;
+
+ALTER TABLE tenant_user_production_scopes
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);
+
+ALTER TABLE tenant_user_production_scopes
+    ADD COLUMN IF NOT EXISTS modified_by VARCHAR(100);
+
+ALTER TABLE tenant_user_production_scopes
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE tenant_user_production_scopes
     ADD CONSTRAINT fk_tups_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id);
 
 ALTER TABLE tenant_user_production_scopes
@@ -42,4 +57,3 @@ ALTER TABLE dispositivos_operacionais
 
 CREATE INDEX IF NOT EXISTS idx_dispositivo_tenant_unidade_producao
     ON dispositivos_operacionais (tenant_id, unidade_producao_id);
-

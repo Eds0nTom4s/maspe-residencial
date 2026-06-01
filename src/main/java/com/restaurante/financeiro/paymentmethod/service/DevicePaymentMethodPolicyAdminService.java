@@ -114,6 +114,21 @@ public class DevicePaymentMethodPolicyAdminService {
 
         DevicePaymentMethodPolicy saved = policyRepository.save(policy);
 
+        Map<String, Object> details = new java.util.HashMap<>();
+        details.put("deviceId", deviceId);
+        details.put("unidadeId", device.getUnidadeAtendimento() != null ? device.getUnidadeAtendimento().getId() : null);
+        details.put("code", code.name());
+        details.put("statusAnterior", anterior != null ? anterior.name() : null);
+        details.put("statusNovo", saved.getStatus() != null ? saved.getStatus().name() : null);
+        details.put("inheritFromUnidade", saved.isInheritFromUnidade());
+        details.put("enabledForPos", saved.getEnabledForPos());
+        details.put("enabledForPedido", saved.getEnabledForPedido());
+        details.put("enabledForFundoConsumo", saved.getEnabledForFundoConsumo());
+        details.put("canConfirmManual", saved.getCanConfirmManual());
+        details.put("canStartGateway", saved.getCanStartGateway());
+        details.put("minAmount", saved.getMinAmount());
+        details.put("maxAmount", saved.getMaxAmount());
+
         operationalEventLogService.logPublicEvent(
                 tenantMethod.getTenant(), null, device.getUnidadeAtendimento(), null, null,
                 OperationalEventType.PAYMENT_METHOD_DEVICE_POLICY_UPDATED,
@@ -121,21 +136,7 @@ public class DevicePaymentMethodPolicyAdminService {
                 saved.getId(),
                 OperationalOrigem.TENANT_ADMIN,
                 "Política de método de pagamento (device) atualizada",
-                Map.ofEntries(
-                        Map.entry("deviceId", deviceId),
-                        Map.entry("unidadeId", device.getUnidadeAtendimento() != null ? device.getUnidadeAtendimento().getId() : null),
-                        Map.entry("code", code.name()),
-                        Map.entry("statusAnterior", anterior != null ? anterior.name() : null),
-                        Map.entry("statusNovo", saved.getStatus() != null ? saved.getStatus().name() : null),
-                        Map.entry("inheritFromUnidade", saved.isInheritFromUnidade()),
-                        Map.entry("enabledForPos", saved.getEnabledForPos()),
-                        Map.entry("enabledForPedido", saved.getEnabledForPedido()),
-                        Map.entry("enabledForFundoConsumo", saved.getEnabledForFundoConsumo()),
-                        Map.entry("canConfirmManual", saved.getCanConfirmManual()),
-                        Map.entry("canStartGateway", saved.getCanStartGateway()),
-                        Map.entry("minAmount", saved.getMinAmount()),
-                        Map.entry("maxAmount", saved.getMaxAmount())
-                ),
+                details,
                 ip, userAgent
         );
 

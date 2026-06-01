@@ -37,7 +37,7 @@ public class PaymentMethodPolicyTemplateService {
     private final ObjectMapper objectMapper;
     private final TenantRepository tenantRepository;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<PaymentMethodPolicyTemplate> listTemplates() {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE, TenantUserRole.TENANT_CASHIER);
         TenantContext ctx = tenantGuard.requireContext();
@@ -45,7 +45,7 @@ public class PaymentMethodPolicyTemplateService {
         return templateRepository.findByTenant_IdOrderByIdDesc(ctx.tenantId());
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public PaymentMethodPolicyTemplate getTemplateWithItems(Long templateId) {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE, TenantUserRole.TENANT_CASHIER);
         TenantContext ctx = tenantGuard.requireContext();

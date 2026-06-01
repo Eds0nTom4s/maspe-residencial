@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
-class PaymentPolicyRolloutStaleLockRecoveryTest extends PostgresTestcontainersConfig {
+class PaymentPolicyRolloutStaleLockRecoveryIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -147,4 +147,3 @@ class PaymentPolicyRolloutStaleLockRecoveryTest extends PostgresTestcontainersCo
         );
     }
 }
-

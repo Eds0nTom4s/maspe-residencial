@@ -1,5 +1,6 @@
 package com.restaurante.security.tenant;
 
+import com.restaurante.exception.TenantAccessDeniedException;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.TenantEstado;
@@ -10,6 +11,9 @@ import com.restaurante.repository.TenantUserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,9 +51,30 @@ public class TenantGuard {
     }
 
     public void assertPlatformAdmin() {
-        TenantContext ctx = requireContext();
-        if (!ctx.platformAdmin()) {
-            throw new BusinessException("Ação permitida apenas para PLATFORM_ADMIN.");
+        // Preferir contexto resolvido pelo TenantContextFilter/TenantResolver.
+        // Fallback: quando não há TenantContext (ex.: user sem seleção de tenant),
+        // ainda devemos responder 403 em vez de 500 para endpoints platform-scoped.
+        TenantContext ctx = TenantContextHolder.get().orElse(null);
+        if (ctx != null) {
+            if (!ctx.platformAdmin()) {
+                throw new TenantAccessDeniedException("Ação permitida apenas para PLATFORM_ADMIN.");
+            }
+            return;
+        }
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new TenantAccessDeniedException("Ação permitida apenas para PLATFORM_ADMIN.");
+        }
+        boolean isAdmin = false;
+        for (GrantedAuthority a : authentication.getAuthorities()) {
+            if ("ROLE_ADMIN".equals(a.getAuthority())) {
+                isAdmin = true;
+                break;
+            }
+        }
+        if (!isAdmin) {
+            throw new TenantAccessDeniedException("Ação permitida apenas para PLATFORM_ADMIN.");
         }
     }
 
@@ -101,7 +126,18 @@ public class TenantGuard {
             return;
         }
         if (ctx.tenantId() == null || ctx.userId() == null) {
-            throw new AccessDeniedException("TenantContext obrigatório para validação de role.");
+            throw new TenantAccessDeniedException("TenantContext obrigatório para validação de role.");
+        }
+
+        // Verifica estado da membership via claim JWT (sem consulta DB)
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof com.restaurante.security.JwtPrincipal jp) {
+            String memberStatus = jp.getTenantUserStatus();
+            if (memberStatus != null && !"ATIVO".equals(memberStatus)) {
+                throw new TenantAccessDeniedException(
+                        "Acesso negado: membership com estado '" + memberStatus + "'."
+                );
+            }
         }
 
         // Fast path: roles já carregadas no TenantContext (TenantResolver)
@@ -124,7 +160,7 @@ public class TenantGuard {
             if (ok) return;
         }
 
-        throw new AccessDeniedException("Usuário não possui permissão para executar esta ação.");
+        throw new TenantAccessDeniedException("Usuário não possui permissão para executar esta ação.");
     }
 
     public void assertAnyTenantRole(TenantUserRole... roles) {

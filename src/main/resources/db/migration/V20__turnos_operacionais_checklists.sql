@@ -1,7 +1,7 @@
 -- Prompt 29: Turnos Operacionais + Checklists de Abertura/Fecho
 -- Objetivo: disciplina operacional (abertura/fecho), checklist obrigatório, pré-fecho e resumo por período.
 
-create table turnos_operacionais (
+create table if not exists turnos_operacionais (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -39,17 +39,17 @@ create table turnos_operacionais (
     constraint fk_turno_dispositivo_fecho foreign key (dispositivo_fecho_id) references dispositivos_operacionais
 );
 
-create index idx_turno_tenant on turnos_operacionais (tenant_id);
-create index idx_turno_tenant_status on turnos_operacionais (tenant_id, status);
-create index idx_turno_tenant_inst_ua on turnos_operacionais (tenant_id, instituicao_id, unidade_atendimento_id);
-create index idx_turno_tenant_aberto_em on turnos_operacionais (tenant_id, aberto_em);
+create index if not exists idx_turno_tenant on turnos_operacionais (tenant_id);
+create index if not exists idx_turno_tenant_status on turnos_operacionais (tenant_id, status);
+create index if not exists idx_turno_tenant_inst_ua on turnos_operacionais (tenant_id, instituicao_id, unidade_atendimento_id);
+create index if not exists idx_turno_tenant_aberto_em on turnos_operacionais (tenant_id, aberto_em);
 
 -- Apenas 1 turno ABERTO/EM_FECHO por tenant+instituicao+unidade_atendimento
-create unique index ux_turno_aberto_tenant_inst_ua
+create unique index if not exists ux_turno_aberto_tenant_inst_ua
     on turnos_operacionais (tenant_id, instituicao_id, unidade_atendimento_id)
     where status in ('ABERTO', 'EM_FECHO');
 
-create table checklist_operacional_templates (
+create table if not exists checklist_operacional_templates (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -67,11 +67,11 @@ create table checklist_operacional_templates (
     constraint fk_checklist_template_tenant foreign key (tenant_id) references tenants
 );
 
-create index idx_checklist_template_tenant on checklist_operacional_templates (tenant_id);
-create index idx_checklist_template_tipo on checklist_operacional_templates (tipo);
-create index idx_checklist_template_ativo on checklist_operacional_templates (ativo);
+create index if not exists idx_checklist_template_tenant on checklist_operacional_templates (tenant_id);
+create index if not exists idx_checklist_template_tipo on checklist_operacional_templates (tipo);
+create index if not exists idx_checklist_template_ativo on checklist_operacional_templates (ativo);
 
-create table checklist_operacional_item_templates (
+create table if not exists checklist_operacional_item_templates (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -91,11 +91,11 @@ create table checklist_operacional_item_templates (
     constraint fk_checklist_item_template_template foreign key (template_id) references checklist_operacional_templates
 );
 
-create index idx_checklist_item_template_template on checklist_operacional_item_templates (template_id);
-create index idx_checklist_item_template_codigo on checklist_operacional_item_templates (codigo);
-create index idx_checklist_item_template_ativo on checklist_operacional_item_templates (ativo);
+create index if not exists idx_checklist_item_template_template on checklist_operacional_item_templates (template_id);
+create index if not exists idx_checklist_item_template_codigo on checklist_operacional_item_templates (codigo);
+create index if not exists idx_checklist_item_template_ativo on checklist_operacional_item_templates (ativo);
 
-create table checklist_operacional_runs (
+create table if not exists checklist_operacional_runs (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -121,12 +121,12 @@ create table checklist_operacional_runs (
     constraint fk_checklist_run_dispositivo foreign key (dispositivo_id) references dispositivos_operacionais
 );
 
-create index idx_checklist_run_tenant on checklist_operacional_runs (tenant_id);
-create index idx_checklist_run_tenant_turno on checklist_operacional_runs (tenant_id, turno_id);
-create index idx_checklist_run_tipo on checklist_operacional_runs (tipo);
-create index idx_checklist_run_status on checklist_operacional_runs (status);
+create index if not exists idx_checklist_run_tenant on checklist_operacional_runs (tenant_id);
+create index if not exists idx_checklist_run_tenant_turno on checklist_operacional_runs (tenant_id, turno_id);
+create index if not exists idx_checklist_run_tipo on checklist_operacional_runs (tipo);
+create index if not exists idx_checklist_run_status on checklist_operacional_runs (status);
 
-create table checklist_operacional_item_runs (
+create table if not exists checklist_operacional_item_runs (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -154,17 +154,16 @@ create table checklist_operacional_item_runs (
     constraint fk_checklist_item_run_template foreign key (item_template_id) references checklist_operacional_item_templates
 );
 
-create index idx_checklist_item_run_run on checklist_operacional_item_runs (run_id);
-create index idx_checklist_item_run_codigo on checklist_operacional_item_runs (codigo);
-create index idx_checklist_item_run_status on checklist_operacional_item_runs (status);
+create index if not exists idx_checklist_item_run_run on checklist_operacional_item_runs (run_id);
+create index if not exists idx_checklist_item_run_codigo on checklist_operacional_item_runs (codigo);
+create index if not exists idx_checklist_item_run_status on checklist_operacional_item_runs (status);
 
 -- Pedido -> TurnoOperacional (nullable nesta fase)
 alter table pedidos add column turno_operacional_id bigint;
 alter table pedidos add constraint fk_pedido_turno_operacional foreign key (turno_operacional_id) references turnos_operacionais;
-create index idx_pedido_tenant_turno_operacional on pedidos (tenant_id, turno_operacional_id);
+create index if not exists idx_pedido_tenant_turno_operacional on pedidos (tenant_id, turno_operacional_id);
 
 -- OperationalEventLog -> TurnoOperacional (nullable)
 alter table operational_event_logs add column turno_id bigint;
 alter table operational_event_logs add constraint fk_operational_event_turno foreign key (turno_id) references turnos_operacionais;
-create index idx_operational_event_tenant_turno on operational_event_logs (tenant_id, turno_id);
-
+create index if not exists idx_operational_event_tenant_turno on operational_event_logs (tenant_id, turno_id);

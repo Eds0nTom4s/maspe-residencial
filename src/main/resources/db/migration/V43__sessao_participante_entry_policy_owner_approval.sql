@@ -23,54 +23,108 @@ ALTER TABLE sessao_consumo_participantes
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessao_participante_invited_by_participante') THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_invited_by_participante'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
         ALTER TABLE sessao_consumo_participantes
             ADD CONSTRAINT fk_sessao_participante_invited_by_participante
                 FOREIGN KEY (invited_by_participante_id) REFERENCES sessao_consumo_participantes(id);
     END IF;
-END $$;
+END
+$$;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessao_participante_invited_by_device') THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_invited_by_device'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
         ALTER TABLE sessao_consumo_participantes
             ADD CONSTRAINT fk_sessao_participante_invited_by_device
                 FOREIGN KEY (invited_by_device_id) REFERENCES dispositivos_operacionais(id);
     END IF;
-END $$;
+END
+$$;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessao_participante_approved_by_participante') THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_approved_by_participante'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
         ALTER TABLE sessao_consumo_participantes
             ADD CONSTRAINT fk_sessao_participante_approved_by_participante
                 FOREIGN KEY (approved_by_participante_id) REFERENCES sessao_consumo_participantes(id);
     END IF;
-END $$;
+END
+$$;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessao_participante_approved_by_device') THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_approved_by_device'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
         ALTER TABLE sessao_consumo_participantes
             ADD CONSTRAINT fk_sessao_participante_approved_by_device
                 FOREIGN KEY (approved_by_device_id) REFERENCES dispositivos_operacionais(id);
     END IF;
-END $$;
+END
+$$;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessao_participante_rejected_by_participante') THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_rejected_by_participante'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
         ALTER TABLE sessao_consumo_participantes
             ADD CONSTRAINT fk_sessao_participante_rejected_by_participante
                 FOREIGN KEY (rejected_by_participante_id) REFERENCES sessao_consumo_participantes(id);
     END IF;
-END $$;
+END
+$$;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessao_participante_rejected_by_device') THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_rejected_by_device'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
         ALTER TABLE sessao_consumo_participantes
             ADD CONSTRAINT fk_sessao_participante_rejected_by_device
                 FOREIGN KEY (rejected_by_device_id) REFERENCES dispositivos_operacionais(id);
     END IF;
-END $$;
+END
+$$;

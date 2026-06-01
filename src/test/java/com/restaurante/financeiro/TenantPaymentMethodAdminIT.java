@@ -5,12 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.request.UpdateTenantPaymentMethodRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantUser;
+import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.Role;
+import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -19,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,13 +41,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
+@WithMockUser(authorities = { "ROLE_GERENTE" })
 class TenantPaymentMethodAdminIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
+    @Autowired TenantRepository tenantRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired TenantUserRepository tenantUserRepository;
 
     @AfterEach
     void clear() {
@@ -49,6 +61,7 @@ class TenantPaymentMethodAdminIT extends PostgresTestcontainersConfig {
     @Test
     void owner_can_list_methods_and_cashier_cannot_patch() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-admin-a", "PMA");
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
 
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
@@ -63,8 +76,23 @@ class TenantPaymentMethodAdminIT extends PostgresTestcontainersConfig {
         assertThat(data.isArray()).isTrue();
         assertThat(data.size()).isGreaterThanOrEqualTo(3);
 
+        User cashier = new User();
+        cashier.setUsername("cashier-" + System.nanoTime());
+        cashier.setPassword("{noop}x");
+        cashier.setEmail("cashier-" + System.nanoTime() + "@test.local");
+        cashier.setTelefone("+244910" + String.format("%06d", (int) (System.nanoTime() % 1_000_000)));
+        cashier.adicionarRole(Role.ROLE_GERENTE);
+        cashier = userRepository.saveAndFlush(cashier);
+
+        TenantUser tu = new TenantUser();
+        tu.setTenant(tenant);
+        tu.setUser(cashier);
+        tu.setRole(TenantUserRole.TENANT_CASHIER);
+        tu.setEstado(TenantUserEstado.ATIVO);
+        tenantUserRepository.saveAndFlush(tu);
+
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), cashier.getId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_CASHIER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
@@ -106,4 +134,3 @@ class TenantPaymentMethodAdminIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

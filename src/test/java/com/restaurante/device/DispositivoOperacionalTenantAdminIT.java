@@ -41,7 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DispositivoOperacionalTenantAdminIT extends PostgresTestcontainersConfig {
 
@@ -157,7 +157,7 @@ class DispositivoOperacionalTenantAdminIT extends PostgresTestcontainersConfig {
         operator.setUsername("op@t.com");
         operator.setPassword("x");
         operator.setEmail("op@t.com");
-        operator.setTelefone("+244900000111");
+        operator.setTelefone("+244922000111");
         operator.setRoles(Set.of(Role.ROLE_GERENTE));
         operator.setAtivo(true);
         operator = userRepository.saveAndFlush(operator);
@@ -230,12 +230,13 @@ class DispositivoOperacionalTenantAdminIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
-        String phone = "+244900" + Math.abs(slug.hashCode() % 1_000_000);
+        long suffix = Math.abs(System.nanoTime() % 1_000_000L);
+        String phone = "+24492" + String.format("%07d", Math.abs(new java.util.Random().nextInt(10000000)));
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + slug)
-                                .slug(slug)
+                                .slug(slug + "-" + suffix)
                                 .tenantCode(tenantCode)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
@@ -246,7 +247,7 @@ class DispositivoOperacionalTenantAdminIT extends PostgresTestcontainersConfig {
                                 .sigla(tenantCode)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(slug + "@owner.com")
+                                .email(slug + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
@@ -254,4 +255,3 @@ class DispositivoOperacionalTenantAdminIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

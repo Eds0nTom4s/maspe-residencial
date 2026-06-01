@@ -29,6 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -46,7 +47,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
 
@@ -204,6 +205,7 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                 device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
         );
+        SecurityContextHolder.getContext().setAuthentication(auth);
 
         var res1 = mockMvc.perform(get("/device/sync/mesas")
                         .with(authentication(auth))
@@ -303,7 +305,7 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
                         .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst Device Sync")
-                                .sigla("IDS")
+                                .sigla(uniqueSigla("IDS"))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
                                 .email("owner-dev-sync-" + System.nanoTime() + "@a.com")
@@ -312,6 +314,19 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
                                 .build())
                         .build()
         );
+    }
+
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
     }
 
     private Produto criarProdutoBasico(Long tenantId) {

@@ -58,7 +58,7 @@ public class TenantAdminPedidoService {
     @Transactional(readOnly = true)
     public TenantPedidoDetalheResponse buscarDetalhe(Long pedidoId) {
         TenantContext ctx = requireTenantContext();
-        Pedido p = pedidoRepository.findByIdAndTenantIdComItensESubPedidos(pedidoId, ctx.tenantId())
+        Pedido p = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, ctx.tenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
         return toDetalhe(p);
     }

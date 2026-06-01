@@ -58,11 +58,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.restaurante.security.JwtPrincipal;
+import org.springframework.transaction.annotation.Transactional;
+
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
 
@@ -77,6 +80,10 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired DeviceOfflineCommandRepository commandRepository;
     @Autowired DeviceOfflineCommandReplayAttemptRepository attemptRepository;
+    @Autowired com.restaurante.repository.TurnoOperacionalRepository turnoOperacionalRepository;
+    @Autowired com.restaurante.repository.UserRepository userRepository;
+    @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @AfterEach
     void clear() {
@@ -85,9 +92,46 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
 
     @Test
     void owner_can_preview_and_replay_retryable_conflict_and_export_is_sanitized() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("offline-replay", "RPL");
-        Produto prod = criarProdutoBasico(prov.getTenantId(), false); // inativo => conflito
-        DispositivoOperacional disp = criarDevicePos(prov, OperationalDeviceType.POS_CAIXA);
+        final ProvisionarTenantResponse[] provArr = new ProvisionarTenantResponse[1];
+        final Produto[] prodArr = new Produto[1];
+        final DispositivoOperacional[] dispArr = new DispositivoOperacional[1];
+
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            provArr[0] = provisionTenant("offline-replay", "RPL");
+            var provVal = provArr[0];
+
+            com.restaurante.model.entity.User ownerUser = userRepository.findById(provVal.getOwnerUserId()).orElseThrow();
+            com.restaurante.model.entity.Tenant tenantObj = tenantRepository.findById(provVal.getTenantId()).orElseThrow();
+            com.restaurante.model.entity.Instituicao instObj = instituicaoRepository.findById(provVal.getInstituicaoId()).orElseThrow();
+            com.restaurante.model.entity.UnidadeAtendimento uaObj = unidadeAtendimentoRepository.findById(provVal.getUnidadeAtendimentoId()).orElseThrow();
+
+            com.restaurante.model.entity.TurnoOperacional turnoObj = new com.restaurante.model.entity.TurnoOperacional();
+            turnoObj.setTenant(tenantObj);
+            turnoObj.setInstituicao(instObj);
+            turnoObj.setUnidadeAtendimento(uaObj);
+            turnoObj.setAbertoPor(ownerUser);
+            turnoObj.setStatus(com.restaurante.model.enums.TurnoOperacionalStatus.ABERTO);
+            turnoObj.setTipo(com.restaurante.model.enums.TurnoOperacionalTipo.POS);
+            turnoObj.setNome("Turno Replay IT");
+            turnoObj.setAbertoEm(java.time.LocalDateTime.now());
+            turnoOperacionalRepository.saveAndFlush(turnoObj);
+
+            com.restaurante.model.entity.Cozinha cozinhaCentral = new com.restaurante.model.entity.Cozinha();
+            cozinhaCentral.setNome("Cozinha Central Replay");
+            cozinhaCentral.setTipo(com.restaurante.model.enums.TipoCozinha.CENTRAL);
+            cozinhaCentral.setAtiva(true);
+            cozinhaCentral = cozinhaRepository.saveAndFlush(cozinhaCentral);
+
+            uaObj.adicionarCozinha(cozinhaCentral);
+            unidadeAtendimentoRepository.saveAndFlush(uaObj);
+
+            prodArr[0] = criarProdutoBasico(provVal.getTenantId(), false); // inativo => conflito
+            dispArr[0] = criarDevicePos(provVal, OperationalDeviceType.POS_CAIXA);
+        });
+
+        ProvisionarTenantResponse prov = provArr[0];
+        Produto prod = prodArr[0];
+        DispositivoOperacional disp = dispArr[0];
 
         UsernamePasswordAuthenticationToken deviceAuth = deviceAuth(prov, disp);
 
@@ -114,8 +158,25 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
         assertThat(sync.get("conflicts").asInt()).isEqualTo(1);
 
         // ativa produto e reprocessa
-        prod.setAtivo(true);
-        produtoRepository.saveAndFlush(prod);
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Produto p = produtoRepository.findById(prod.getId()).orElseThrow();
+            p.setAtivo(true);
+            produtoRepository.saveAndFlush(p);
+        });
+
+        JwtPrincipal ownerPrincipal = JwtPrincipal.builder()
+                .userId(prov.getOwnerUserId())
+                .username(prov.getOwnerEmail())
+                .email(prov.getOwnerEmail())
+                .tokenType("TENANT")
+                .tenantId(prov.getTenantId())
+                .tenantCode(prov.getTenantCode())
+                .tenantRoles(Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()))
+                .authorities(List.of(new SimpleGrantedAuthority("ROLE_GERENTE")))
+                .build();
+        UsernamePasswordAuthenticationToken ownerAuth = new UsernamePasswordAuthenticationToken(
+                ownerPrincipal, "N/A", ownerPrincipal.getAuthorities()
+        );
 
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
@@ -127,6 +188,7 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
         prevReq.setStatuses(List.of(DeviceOfflineCommandStatus.CONFLICT));
         prevReq.setOnlyEligible(true);
         String preview = mockMvc.perform(post("/tenant/offline-sync/sessions/{id}/replay/preview", serverSyncId)
+                        .with(authentication(ownerAuth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(prevReq)))
                 .andExpect(status().isOk())
@@ -139,6 +201,7 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
         replayReq.setDryRun(false);
         replayReq.setForce(false);
         String replay = mockMvc.perform(post("/tenant/offline-sync/sessions/{id}/replay", serverSyncId)
+                        .with(authentication(ownerAuth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(replayReq)))
                 .andExpect(status().isOk())
@@ -154,7 +217,8 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
         assertThat(attemptRepository.findByTenantAndCommand(prov.getTenantId(), saved.getId(), org.springframework.data.domain.PageRequest.of(0, 10)).getTotalElements())
                 .isGreaterThanOrEqualTo(1);
 
-        String export = mockMvc.perform(get("/tenant/offline-sync/sessions/{id}/diagnostic-export", serverSyncId))
+        String export = mockMvc.perform(get("/tenant/offline-sync/sessions/{id}/diagnostic-export", serverSyncId)
+                        .with(authentication(ownerAuth)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(export).doesNotContain("payload_json");
@@ -165,8 +229,23 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
     @Test
     void finance_cannot_execute_replay() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("offline-replay-fin", "RPF");
+        
+        JwtPrincipal financePrincipal = JwtPrincipal.builder()
+                .userId(999999L)
+                .username("finance@test.com")
+                .email("finance@test.com")
+                .tokenType("TENANT")
+                .tenantId(prov.getTenantId())
+                .tenantCode(prov.getTenantCode())
+                .tenantRoles(Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()))
+                .authorities(List.of(new SimpleGrantedAuthority("ROLE_GERENTE")))
+                .build();
+        UsernamePasswordAuthenticationToken financeAuth = new UsernamePasswordAuthenticationToken(
+                financePrincipal, "N/A", financePrincipal.getAuthorities()
+        );
+
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), 999999L,
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
                 TenantResolutionSource.JWT, false, false
         ));
@@ -174,6 +253,7 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
         req.setStatuses(List.of(DeviceOfflineCommandStatus.CONFLICT));
         req.setReason("x");
         mockMvc.perform(post("/tenant/offline-sync/sessions/{id}/replay", "does-not-exist")
+                        .with(authentication(financeAuth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isForbidden());
@@ -185,7 +265,7 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
                 prov.getTenantId(), prov.getTenantCode(),
                 prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
                 DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.OFFLINE_SYNC, DeviceCapability.OFFLINE_CREATE_ORDER),
+                List.of(DeviceCapability.OFFLINE_SYNC, DeviceCapability.OFFLINE_CREATE_ORDER, DeviceCapability.CREATE_ORDER),
                 1
         );
         return new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
@@ -235,12 +315,13 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
-        String phone = "+244900" + Math.abs(slug.hashCode() % 1_000_000);
+        long suffix = Math.abs(System.nanoTime() % 1_000_000L);
+        String phone = "+24492" + String.format("%07d", Math.abs(new java.util.Random().nextInt(10000000)));
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + slug)
-                                .slug(slug)
+                                .slug(slug + "-" + suffix)
                                 .tenantCode(code)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
@@ -251,7 +332,7 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
                                 .sigla(code)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(slug + "@owner.com")
+                                .email(slug + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
@@ -259,4 +340,3 @@ class TenantOfflineSyncReplayControllerIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

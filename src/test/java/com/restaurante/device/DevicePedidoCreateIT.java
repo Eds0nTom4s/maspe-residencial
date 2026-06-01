@@ -56,7 +56,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
 
@@ -85,7 +85,11 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
+        var userAuth = new UsernamePasswordAuthenticationToken(
+                prov.getOwnerUserId().toString(), "N/A", List.of(new SimpleGrantedAuthority("ROLE_GERENTE"))
+        );
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .with(authentication(userAuth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
                 .andExpect(status().isCreated());
@@ -155,7 +159,11 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
+        var userAuth = new UsernamePasswordAuthenticationToken(
+                prov.getOwnerUserId().toString(), "N/A", List.of(new SimpleGrantedAuthority("ROLE_GERENTE"))
+        );
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .with(authentication(userAuth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
                 .andExpect(status().isCreated());

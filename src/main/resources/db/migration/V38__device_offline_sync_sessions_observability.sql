@@ -59,12 +59,15 @@ ALTER TABLE device_offline_commands
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_offline_cmd_session') THEN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_offline_cmd_session'
+    ) THEN
         ALTER TABLE device_offline_commands
             ADD CONSTRAINT fk_device_offline_cmd_session
                 FOREIGN KEY (sync_session_db_id) REFERENCES device_offline_sync_sessions(id);
     END IF;
-END $$;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_device_offline_cmd_sync_session ON device_offline_commands (tenant_id, sync_session_db_id);
 CREATE INDEX IF NOT EXISTS idx_device_offline_cmd_server_sync ON device_offline_commands (tenant_id, server_sync_id);

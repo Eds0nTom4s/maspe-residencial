@@ -1,0 +1,381 @@
+RELATÓRIO — PROMPT 41.1 — PREPARAÇÃO TÉCNICA DA SANDBOX OPERACIONAL CONTROLADA (CONSUMA)
+Data: 2026-05-29
+Timezone: Africa/Luanda
+
+================================================================================
+1) RESUMO EXECUTIVO
+================================================================================
+Resultado: APROVADO COM RESSALVAS
+
+Foi preparada uma sandbox local controlada (Docker Compose + PostgreSQL real) com:
+- docker-compose.sandbox.yml dedicado (não mistura dev/local com sandbox).
+- Perfil Spring `sandbox` com Flyway ativo, ddl-auto=validate, mocks controlados (AppyPay/SMS).
+- Seeds mínimos para operação: criação automática de um PLATFORM_ADMIN (ROLE_ADMIN) via env vars.
+- Hardening de erros: MissingServletRequestParameterException agora retorna 400 (não 500).
+- Hardening de segurança: `/api/auth/jwt/register` deixa de ser público (exige ADMIN).
+- Correção bloqueante real do provisionamento: username (users.username) ampliado (V66) para suportar emails >50 chars.
+
+Foram validados em sandbox (PostgreSQL real + Flyway + API):
+- Flyway aplicado até V66 com success=true (66/66).
+- Health/readiness/liveness = UP.
+- Provisionamento real via templates: 1 tenant PONTO e 1 tenant RESTA (com dados únicos).
+- Dados mínimos controlados criados via endpoints reais (incluindo produtos PONTO e listagem devices REST).
+
+================================================================================
+2) OBJETIVO DA FASE
+================================================================================
+Preparar tecnicamente a Sandbox Operacional da CONSUMA (antes da UI):
+- ambiente controlado, seguro e repetível;
+- docker compose e perfil `sandbox`;
+- secrets via env (sempre REDACTED);
+- smoke test (script + doc);
+- observabilidade mínima;
+- hardening de handlers 4xx/5xx quando bloqueante.
+
+================================================================================
+3) ESTADO INICIAL RECEBIDO (DO PROMPT 40.1-R)
+================================================================================
+Decisão anterior: APROVADO COM RESSALVAS.
+E2E local validado com Docker/PostgreSQL real (fluxos mínimos operacionais).
+Suíte global `mvn test` permanece REPROVADA e virou fase própria (fora do escopo 41.1).
+
+================================================================================
+4) BRANCH / COMMIT
+================================================================================
+Branch: restauracao-antes-da-loja
+HEAD (inicial desta fase): 5117cd8
+
+================================================================================
+5) WORKING TREE (ANTES DAS ALTERAÇÕES)
+================================================================================
+No início da fase 41.1, o working tree estava limpo (sem diffs pendentes).
+
+================================================================================
+6) STASH EXISTENTE
+================================================================================
+stash@{0}: On restauracao-antes-da-loja: wip prompt6 (station B)
+Não aplicado.
+
+================================================================================
+7) MODELO DE SANDBOX ESCOLHIDO
+================================================================================
+Modelo A) Sandbox local controlada (Docker Compose + PostgreSQL Docker + mocks).
+Estrutura preparada para migração futura a servidor (B) mantendo `.env.sandbox` e `docker-compose.sandbox.yml`.
+
+================================================================================
+8) ARQUIVOS DOCKER UTILIZADOS/CRIADOS
+================================================================================
+- docker-compose.sandbox.yml (novo)
+  - serviços: postgres-sandbox, api-sandbox
+  - volume: sistema-restauracao-postgres-data-sandbox
+  - rede: consuma-sandbox
+  - porta externa configurável por `SANDBOX_API_PORT`
+
+Nota operacional:
+- Para interpolação de variáveis (porta, etc.), usar:
+  `docker compose --env-file .env.sandbox -f docker-compose.sandbox.yml up -d --build`
+
+================================================================================
+9) ARQUIVOS DE ENV / PROPERTIES UTILIZADOS/CRIADOS
+================================================================================
+- .env.sandbox.example (novo, versionado)
+  - `.env.sandbox` é ignorado pelo git (deve ser criado localmente por cópia).
+- src/main/resources/application-sandbox.properties (novo)
+  - perfil `sandbox` (Flyway ativo; ddl-auto=validate; mocks controlados; secrets obrigatórios).
+
+================================================================================
+10) SECRETS (SEMPRE REDACTED)
+================================================================================
+Fonte: `.env.sandbox` (arquivo local ignorado) + env injection no container.
+
+Status:
+- SANDBOX_ADMIN_PASSWORD: SECRET_SET=true SECRET_STRENGTH=adequado SECRET_VALUE=REDACTED
+- DB_PASSWORD: SECRET_SET=true SECRET_STRENGTH=adequado SECRET_VALUE=REDACTED
+- JWT_SECRET: SECRET_SET=true SECRET_STRENGTH=adequado SECRET_VALUE=REDACTED
+- DEVICE_TOKEN_HASH_SECRET: SECRET_SET=true SECRET_STRENGTH=adequado SECRET_VALUE=REDACTED
+- SYNC_CURSOR_HMAC_SECRET: SECRET_SET=true SECRET_STRENGTH=adequado SECRET_VALUE=REDACTED
+- CONSUMA_SNAPSHOT_HMAC_SECRET_V1: SECRET_SET=true SECRET_STRENGTH=adequado SECRET_VALUE=REDACTED
+- APPYPAY_WEBHOOK_SECRET: SECRET_SET=true SECRET_STRENGTH=adequado SECRET_VALUE=REDACTED
+
+Observação:
+- Em sandbox local, o report não expõe valores de secrets.
+- Em sandbox servidor, `SANDBOX_ADMIN_PASSWORD` fraco é BLOQUEANTE (não aplicável aqui).
+
+================================================================================
+11) DOCKER DAEMON STATUS
+================================================================================
+docker version:
+- Docker Engine - Community 29.4.1 (client/server)
+
+docker compose version:
+- Docker Compose version v5.1.3
+
+docker info (resumo):
+- OS: Pop!_OS 22.04 LTS
+- Driver: overlay2
+
+================================================================================
+12) DOCKER COMPOSE STATUS (SANDBOX)
+================================================================================
+Comando utilizado:
+- `docker compose --env-file .env.sandbox -f docker-compose.sandbox.yml down -v`
+- `docker compose --env-file .env.sandbox -f docker-compose.sandbox.yml up -d --build`
+
+Status final (ps):
+- postgres-sandbox: healthy
+- api-sandbox: running
+
+Porta externa usada nesta execução:
+- api-sandbox: 8081 -> 8080 (para evitar colisão com stack local em 8080)
+
+================================================================================
+13) POSTGRESQL STATUS (SANDBOX)
+================================================================================
+Container: consuma-postgres-sandbox
+DB: restaurante_sandbox_db
+User: postgres
+
+================================================================================
+14) FLYWAY STATUS (SANDBOX)
+================================================================================
+Evidência (flyway_schema_history):
+- total=66, ok=66, failed=0
+- última migration: V66 — users username increase length — success=true
+
+================================================================================
+15) HEALTHCHECK / READINESS / LIVENESS
+================================================================================
+Validação (executada a partir de dentro do container api-sandbox):
+- GET /api/actuator/health -> HTTP 200 {"status":"UP",...}
+- GET /api/actuator/health/readiness -> HTTP 200 {"status":"UP"}
+- GET /api/actuator/health/liveness -> HTTP 200 {"status":"UP"}
+
+Nota de ambiente/harness:
+- Nesta execução, `curl http://localhost:<porta>` a partir do host do runner não foi confiável;
+  a validação foi feita via `docker exec` dentro do container (não é limitação do backend).
+
+================================================================================
+16) HARDENING DE HANDLERS 4xx/5xx
+================================================================================
+Correção aplicada:
+- MissingServletRequestParameterException agora retorna 400 BAD_REQUEST com code=MISSING_PARAMETER.
+
+Evidência:
+- GET /api/tenant/operacao/turnos/atual (sem query params) com auth válida:
+  - HTTP 400
+  - error="Parâmetro obrigatório ausente"
+  - code="MISSING_PARAMETER"
+
+================================================================================
+17) DADOS MÍNIMOS CRIADOS (CONTROLADOS)
+================================================================================
+Provisionamento via templates (dados únicos por execução):
+
+Execução de referência:
+- PONTO:
+  - tenantId=7
+  - tenantCode=PONTOW7Q
+  - qrToken prefix (sanitizado): q_ebp2higNE...
+  - Produtos criados via /api/tenant/produtos: 3 (HTTP 201)
+  - Cardápio público via QR: HTTP 200
+
+- REST:
+  - tenantId=8
+  - tenantCode=RESTSDZY
+  - instituicaoId=7
+  - unidadeAtendimentoId=7
+  - qrToken prefix (sanitizado): q_JpF4bkY58...
+  - Devices provisionados visíveis via /api/tenant/dispositivos:
+    - POS id=5
+    - KDS id=6
+
+Notas:
+- Owner password foi definido via `owner.senhaTemporaria` apenas para permitir operação controlada
+  e emissão de tenant token via /api/auth/tenant/select, sem expor secrets no relatório.
+
+================================================================================
+18) RESULTADO DO SMOKE TEST
+================================================================================
+Foi preparado:
+- script: scripts/sandbox-smoke.sh
+- doc: docs/sandbox/SMOKE_TEST_SANDBOX.md
+
+Validação nesta execução:
+- Parte do smoke foi executada diretamente por chamadas HTTP internas (docker exec),
+  validando health, provisionamento e criação de dados mínimos.
+
+================================================================================
+19) RESULTADO PREVIEW/PROVISION PONTO
+================================================================================
+- Preview: HTTP 200 (payload BusinessTemplateProvisionRequest com tenant/owner/ponto)
+- Provision: HTTP 201 (após correção V66)
+
+================================================================================
+20) RESULTADO PREVIEW/PROVISION REST
+================================================================================
+- Preview: HTTP 200
+- Provision: HTTP 201 (após correção V66)
+
+================================================================================
+21) QR / PEDIDO / PAGAMENTO (SANDBOX)
+================================================================================
+Neste Prompt 41.1, o foco foi preparar o ambiente. A validação E2E completa de
+pagamento/callback/polling, device/POS/KDS, turno/snapshot/evidence já foi feita no 40.1-R.
+
+Sandbox 41.1 confirmou ao menos:
+- Cardápio público por QR (PONTO): HTTP 200.
+
+================================================================================
+22) POS / DEVICE / KDS (SANDBOX)
+================================================================================
+Sandbox 41.1 confirmou:
+- Template REST provisiona devices (POS/KDS) e aparecem em /api/tenant/dispositivos.
+
+================================================================================
+23) TURNO / SNAPSHOT / EVIDENCE (SANDBOX)
+================================================================================
+Não reexecutado integralmente aqui; já validado no 40.1-R.
+O smoke doc descreve passos manuais/automatizáveis para fechar turno e exportar snapshot/evidence.
+
+================================================================================
+24) LOGISTICS MÍNIMO (SANDBOX)
+================================================================================
+Não reexecutado integralmente aqui; já validado no 40.1-R (TENANT_MANUAL).
+
+================================================================================
+25) MULTI-TENANT (SANDBOX)
+================================================================================
+Sandbox 41.1 cria tenants distintos (PONTO e REST) com slugs únicos.
+Fluxos E2E de isolamento foram validados no 40.1-R; esta fase não expandiu esse escopo.
+
+================================================================================
+26) OBSERVABILIDADE / LOGS
+================================================================================
+Actuator exposto: health, info (por padrão).
+Scan de logs recentes (count-only) não indicou vazamento textual de:
+- "accessToken", "Authorization: Bearer", "deviceToken" (0 ocorrências no tail observado).
+
+================================================================================
+27) SEGURANÇA / SECRETS / CORS / ACTUATOR
+================================================================================
+Aplicado:
+- Security ativo (Spring Security não desligado).
+- Actuator: health público; restante protegido por ADMIN.
+- /api/auth/jwt/register: hardening para exigir ADMIN (não mais público).
+
+Risco mitigado:
+- Antes: /api/auth/** era permitAll; endpoint register permitiria criação de ROLE_ADMIN por qualquer caller.
+- Agora: register exige ADMIN autenticado.
+
+================================================================================
+28) CORREÇÕES APLICADAS
+================================================================================
+Produção (código):
+1) GlobalExceptionHandler:
+   - MissingServletRequestParameterException -> 400 BAD_REQUEST (code=MISSING_PARAMETER)
+   - ConstraintViolationException -> 400 BAD_REQUEST (validationErrors)
+
+2) SandboxSeeder (perfil sandbox):
+   - Garante PLATFORM_ADMIN (ROLE_ADMIN) por env vars SANDBOX_ADMIN_*
+
+3) SecurityConfig:
+   - POST /api/auth/jwt/register exige ADMIN (hardening de segurança)
+
+4) Username length:
+   - Aumentado limite de users.username para suportar emails comuns
+   - Atualizados DTOs de login/register para max=120
+
+Migrations:
+- V66__users_username_increase_length.sql (novo)
+
+================================================================================
+29) ARQUIVOS ALTERADOS / NOVOS
+================================================================================
+Config:
+- docker-compose.sandbox.yml
+- .env.sandbox.example
+- src/main/resources/application-sandbox.properties
+
+Docs/Scripts:
+- docs/sandbox/SMOKE_TEST_SANDBOX.md
+- scripts/sandbox-smoke.sh
+
+Produção (código):
+- src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+- src/main/java/com/restaurante/config/SandboxSeeder.java
+- src/main/java/com/restaurante/config/SecurityConfig.java
+- src/main/java/com/restaurante/model/entity/User.java
+- src/main/java/com/restaurante/dto/request/LoginRequest.java
+- src/main/java/com/restaurante/dto/request/RegisterRequest.java
+
+DB migrations:
+- src/main/resources/db/migration/V66__users_username_increase_length.sql
+
+================================================================================
+30) SEPARAÇÃO (CONFIG / TESTES-SCRIPTS / PRODUÇÃO)
+================================================================================
+- Configuração: docker-compose.sandbox.yml, .env.sandbox.example, application-sandbox.properties
+- Testes/Scripts/Docs: scripts/sandbox-smoke.sh, docs/sandbox/SMOKE_TEST_SANDBOX.md
+- Produção: GlobalExceptionHandler, SecurityConfig, User entity, SandboxSeeder
+- Migrations: V66__users_username_increase_length.sql
+
+================================================================================
+31) JUSTIFICATIVA PARA ALTERAÇÕES EM PRODUÇÃO
+================================================================================
+1) Handler 400:
+   - Bug real: MissingServletRequestParameterException estava virando 500 (erro do servidor).
+   - Impacto: UX/ops ruim; dificulta troubleshooting em sandbox/piloto.
+   - Correção: handler localizado, sem alterar regras de negócio.
+
+2) SandboxSeeder:
+   - Bug/Gap real: Perfil sandbox não tinha seed de PLATFORM_ADMIN (DataSeeder é dev-only).
+   - Impacto: impossível operar platform endpoints (templates/provision) na sandbox.
+   - Correção: seed mínimo controlado via env vars; não expõe password.
+
+3) /auth/jwt/register hardening:
+   - Bug real de segurança: endpoint público permitia registrar user com ROLE_ADMIN.
+   - Impacto: compromete completamente qualquer ambiente (inclusive sandbox servidor).
+   - Correção: exige ADMIN autenticado.
+
+4) V66 users.username length:
+   - Bug real: provisionamento falhava (500) ao criar owner user com username=email >50.
+   - Impacto: bloqueia provisionamento e onboarding em sandbox/piloto.
+   - Correção: aumenta limite para 120 e ajusta validações; mantém compatibilidade.
+
+================================================================================
+32) PENDÊNCIAS
+================================================================================
+- Validar Nginx sandbox (opcional) e estratégia de exposição/SSL para servidor.
+- Automatizar por completo (script) os passos de turno/pre-fecho/fecho/snapshot/evidence, se desejado.
+
+================================================================================
+33) RISCOS RESTANTES
+================================================================================
+- Suíte global `mvn test` continua com falhas (fora do escopo desta fase) e deve ser fase própria.
+- Necessidade de disciplina operacional para gestão de secrets e rotação quando migrar para servidor.
+
+================================================================================
+34) DECISÃO FINAL
+================================================================================
+APROVADO COM RESSALVAS
+
+Sandbox local controlada está tecnicamente pronta para receber a primeira UI de operação (41.2),
+com composição, perfil sandbox, seeds mínimos, templates funcionando e smoke documentado.
+
+================================================================================
+35) PRÓXIMO PASSO RECOMENDADO
+================================================================================
+- PROMPT 41.2 — UI SANDBOX PLATFORM CONSOLE
+  - login platform admin
+  - healthcheck
+  - preview/provision PONTO/REST
+  - listar tenants/QR/devices
+  - executar smoke manual guiado
+
+================================================================================
+36) PRÓXIMO PROMPT SUGERIDO (PARALELO)
+================================================================================
+- “FASE MVN TEST GLOBAL — TRIAGEM E REMEDIAÇÃO”
+  - categorizar failures/errors (financeiro amplo, H2 misconfig, fixtures, bugs reais)
+  - converter testes H2 para it-postgres quando aplicável
+  - estabilizar fixtures/idempotency

@@ -374,7 +374,18 @@ public class TenantOfflineSyncReplayService {
             requireOfflineCapabilities(replayDevice, cmd.getCommandType(), ip, userAgent);
 
             String derivedIdempotencyKey = "offline:" + replayDevice.dispositivoId() + ":" + cmd.getClientRequestId();
-            var processed = processor.process(replayDevice, cmd.getCommandType(), cmd.getClientRequestId(), effectivePayload, derivedIdempotencyKey, ip, userAgent);
+            org.springframework.security.core.Authentication originalAuth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            DeviceOfflineCommandProcessor.ProcessedResult processed;
+            try {
+                org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                        new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                                replayDevice, "N/A", java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_DEVICE"))
+                        )
+                );
+                processed = processor.process(replayDevice, cmd.getCommandType(), cmd.getClientRequestId(), effectivePayload, derivedIdempotencyKey, ip, userAgent);
+            } finally {
+                org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(originalAuth);
+            }
 
             cmd.setStatus(DeviceOfflineCommandStatus.APPLIED);
             cmd.setProcessedAt(Instant.now());

@@ -57,7 +57,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DeviceOfflineSyncObservabilityControllerIT extends PostgresTestcontainersConfig {
 
@@ -70,6 +70,8 @@ class DeviceOfflineSyncObservabilityControllerIT extends PostgresTestcontainersC
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
+    @Autowired com.restaurante.repository.UserRepository userRepository;
+    @Autowired com.restaurante.repository.TurnoOperacionalRepository turnoOperacionalRepository;
 
     @AfterEach
     void clear() {
@@ -81,6 +83,7 @@ class DeviceOfflineSyncObservabilityControllerIT extends PostgresTestcontainersC
         ProvisionarTenantResponse prov = provisionTenant("offline-obs-ctrl", "OCT");
         Produto prod = criarProdutoBasico(prov.getTenantId(), true);
         DispositivoOperacional disp = criarDevicePos(prov, OperationalDeviceType.POS_CAIXA);
+        abrirTurnoOperacional(prov);
 
         UsernamePasswordAuthenticationToken auth = authFor(prov, disp);
 
@@ -106,24 +109,28 @@ class DeviceOfflineSyncObservabilityControllerIT extends PostgresTestcontainersC
         String serverSyncId = objectMapper.readTree(syncResp).at("/data/serverSyncId").asText();
         assertThat(serverSyncId).isNotBlank();
 
+        UsernamePasswordAuthenticationToken ownerAuth = tenantAuth(prov);
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
 
-        String list = mockMvc.perform(get("/tenant/offline-sync/sessions"))
+        String list = mockMvc.perform(get("/tenant/offline-sync/sessions")
+                        .with(authentication(ownerAuth)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(list).contains(serverSyncId);
 
-        String detail = mockMvc.perform(get("/tenant/offline-sync/sessions/{id}", serverSyncId))
+        String detail = mockMvc.perform(get("/tenant/offline-sync/sessions/{id}", serverSyncId)
+                        .with(authentication(ownerAuth)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode d = objectMapper.readTree(detail).at("/data");
         assertThat(d.get("appVersion").asText()).isEqualTo("2.0.0");
 
-        String cmds = mockMvc.perform(get("/tenant/offline-sync/sessions/{id}/commands", serverSyncId))
+        String cmds = mockMvc.perform(get("/tenant/offline-sync/sessions/{id}/commands", serverSyncId)
+                        .with(authentication(ownerAuth)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(cmds).doesNotContain("payloadJson");
@@ -131,12 +138,14 @@ class DeviceOfflineSyncObservabilityControllerIT extends PostgresTestcontainersC
 
         // cross-tenant: outro tenant não vê sessão
         ProvisionarTenantResponse prov2 = provisionTenant("offline-obs-ctrl-b", "OCB");
+        UsernamePasswordAuthenticationToken ownerAuth2 = tenantAuth(prov2);
         TenantContextHolder.set(new TenantContext(
                 prov2.getTenantId(), prov2.getTenantCode(), prov2.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
-        mockMvc.perform(get("/tenant/offline-sync/sessions/{id}", serverSyncId))
+        mockMvc.perform(get("/tenant/offline-sync/sessions/{id}", serverSyncId)
+                        .with(authentication(ownerAuth2)))
                 .andExpect(status().isNotFound());
     }
 
@@ -146,6 +155,7 @@ class DeviceOfflineSyncObservabilityControllerIT extends PostgresTestcontainersC
         Produto prodOk = criarProdutoBasico(prov.getTenantId(), true);
         Produto prodInactive = criarProdutoBasico(prov.getTenantId(), false);
         DispositivoOperacional disp = criarDevicePos(prov, OperationalDeviceType.POS_CAIXA);
+        abrirTurnoOperacional(prov);
         UsernamePasswordAuthenticationToken auth = authFor(prov, disp);
 
         // session OK
@@ -184,16 +194,32 @@ class DeviceOfflineSyncObservabilityControllerIT extends PostgresTestcontainersC
                         .content(objectMapper.writeValueAsString(bad)))
                 .andExpect(status().isOk());
 
+        UsernamePasswordAuthenticationToken ownerAuth = tenantAuth(prov);
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
-        String resp = mockMvc.perform(get("/tenant/offline-sync/metrics"))
+        String resp = mockMvc.perform(get("/tenant/offline-sync/metrics")
+                        .with(authentication(ownerAuth)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode j = objectMapper.readTree(resp).at("/data/topConflictCodes");
         assertThat(j.toString()).contains("PRODUCT_INACTIVE");
+    }
+
+    private UsernamePasswordAuthenticationToken tenantAuth(ProvisionarTenantResponse prov) {
+        com.restaurante.security.JwtPrincipal principal = com.restaurante.security.JwtPrincipal.builder()
+                .userId(prov.getOwnerUserId())
+                .username(prov.getOwnerEmail())
+                .email(prov.getOwnerEmail())
+                .tokenType("TENANT")
+                .tenantId(prov.getTenantId())
+                .tenantCode(prov.getTenantCode())
+                .tenantRoles(Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()))
+                .authorities(List.of(new SimpleGrantedAuthority("ROLE_GERENTE")))
+                .build();
+        return new UsernamePasswordAuthenticationToken(principal, "N/A", principal.getAuthorities());
     }
 
     private UsernamePasswordAuthenticationToken authFor(ProvisionarTenantResponse prov, DispositivoOperacional disp) {
@@ -202,10 +228,28 @@ class DeviceOfflineSyncObservabilityControllerIT extends PostgresTestcontainersC
                 prov.getTenantId(), prov.getTenantCode(),
                 prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
                 DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.OFFLINE_SYNC, DeviceCapability.OFFLINE_CREATE_ORDER),
+                List.of(DeviceCapability.OFFLINE_SYNC, DeviceCapability.OFFLINE_CREATE_ORDER, DeviceCapability.CREATE_ORDER),
                 1
         );
         return new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
+    }
+
+    private void abrirTurnoOperacional(ProvisionarTenantResponse prov) {
+        com.restaurante.model.entity.User ownerUser = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
+        com.restaurante.model.entity.Tenant tenantObj = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        com.restaurante.model.entity.Instituicao instObj = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
+        com.restaurante.model.entity.UnidadeAtendimento uaObj = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
+
+        com.restaurante.model.entity.TurnoOperacional turnoObj = new com.restaurante.model.entity.TurnoOperacional();
+        turnoObj.setTenant(tenantObj);
+        turnoObj.setInstituicao(instObj);
+        turnoObj.setUnidadeAtendimento(uaObj);
+        turnoObj.setAbertoPor(ownerUser);
+        turnoObj.setStatus(com.restaurante.model.enums.TurnoOperacionalStatus.ABERTO);
+        turnoObj.setTipo(com.restaurante.model.enums.TurnoOperacionalTipo.POS);
+        turnoObj.setNome("Turno Observability IT");
+        turnoObj.setAbertoEm(java.time.LocalDateTime.now());
+        turnoOperacionalRepository.saveAndFlush(turnoObj);
     }
 
     private Produto criarProdutoBasico(Long tenantId, boolean ativo) {

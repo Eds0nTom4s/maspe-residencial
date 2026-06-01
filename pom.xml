@@ -48,10 +48,10 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-validation</artifactId>
-        </dependency>
+	        <dependency>
+	            <groupId>org.springframework.boot</groupId>
+	            <artifactId>spring-boot-starter-validation</artifactId>
+	        </dependency>
 
         <!-- WebSocket para notificações em tempo real -->
         <dependency>
@@ -251,10 +251,14 @@
                         <exclude>**/*E2E*Test.java</exclude>
                     </excludes>
                     <!-- JUnit5: filtra por tags via groups/excludedGroups -->
-                    <excludedGroups>manual,it</excludedGroups>
+                    <!-- Se alguém usar -Dtest com classes filtradas por tag, o build deve falhar e não ficar "verde vazio". -->
+                    <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
+                    <!-- JUnit5: filtramos apenas testes manuais; ITs explícitos devem falhar com mensagem clara. -->
+                    <excludedGroups>manual</excludedGroups>
                     <!-- Docker 29+ exige min API v1.40; docker-java/Testcontainers podem cair em v1.32 por padrão. -->
                     <systemPropertyVariables>
                         <api.version>1.44</api.version>
+                        <consuma.test.runner>surefire</consuma.test.runner>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
@@ -272,6 +276,7 @@
                     <!-- Mesma proteção de API do Docker que usamos no surefire -->
                     <systemPropertyVariables>
                         <api.version>1.44</api.version>
+                        <consuma.test.runner>failsafe</consuma.test.runner>
                     </systemPropertyVariables>
                 </configuration>
                 <executions>

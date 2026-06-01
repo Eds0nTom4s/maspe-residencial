@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 })
 public class User extends BaseEntity implements UserDetails {
 
-    @Column(name = "username", nullable = false, unique = true, length = 50)
+    @Column(name = "username", nullable = false, unique = true, length = 120)
     private String username;
 
     @Column(name = "password", nullable = false)

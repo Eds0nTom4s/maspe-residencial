@@ -13,6 +13,8 @@ import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.OrdemPagamento;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantUser;
+import com.restaurante.model.entity.User;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.MetodoPagamentoManual;
@@ -22,11 +24,14 @@ import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.OrdemPagamentoTipo;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantTipo;
+import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TurnoOperacionalTipo;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.OperationalEventLogRepository;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.security.tenant.TenantContext;
@@ -57,7 +62,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
 
@@ -71,6 +76,8 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
     @Autowired TurnoOperacionalRepository turnoOperacionalRepository;
     @Autowired OrdemPagamentoRepository ordemPagamentoRepository;
     @Autowired OperationalEventLogRepository operationalEventLogRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired TenantUserRepository tenantUserRepository;
 
     @AfterEach
     void clear() {
@@ -83,7 +90,7 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse prov = provisionTenant("snap-exp-a", "SEA");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name(), TenantUserRole.TENANT_FINANCE.name()),
                 TenantResolutionSource.JWT, false, false
         ));
 
@@ -110,7 +117,7 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse prov = provisionTenant("snap-exp-b", "SEB");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name(), TenantUserRole.TENANT_FINANCE.name()),
                 TenantResolutionSource.JWT, false, false
         ));
 
@@ -150,7 +157,7 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse prov = provisionTenant("snap-exp-c", "SEC");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name(), TenantUserRole.TENANT_FINANCE.name()),
                 TenantResolutionSource.JWT, false, false
         ));
 
@@ -195,7 +202,7 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse prov = provisionTenant("snap-exp-e", "SEE");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name(), TenantUserRole.TENANT_FINANCE.name()),
                 TenantResolutionSource.JWT, false, false
         ));
 
@@ -240,8 +247,27 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
     @WithMockUser(username = "operator")
     void operator_nao_pode_exportar_snapshot() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("snap-exp-d", "SED");
+
+        User operator = new User();
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        operator.setUsername("op+" + suffix + "@t.com");
+        operator.setPassword("x");
+        operator.setEmail(operator.getUsername());
+        operator.setTelefone("+24490" + String.format("%06d", Integer.parseInt(suffix)));
+        operator.setRoles(Set.of(Role.ROLE_GERENTE));
+        operator.setAtivo(true);
+        operator = userRepository.saveAndFlush(operator);
+
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        TenantUser tu = new TenantUser();
+        tu.setTenant(tenant);
+        tu.setUser(operator);
+        tu.setRole(TenantUserRole.TENANT_OPERATOR);
+        tu.setEstado(TenantUserEstado.ATIVO);
+        tenantUserRepository.saveAndFlush(tu);
+
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), operator.getId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OPERATOR.name()),
                 TenantResolutionSource.JWT, false, false
         ));

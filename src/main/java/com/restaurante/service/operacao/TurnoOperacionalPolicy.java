@@ -2,7 +2,7 @@ package com.restaurante.service.operacao;
 
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantContext;
-import org.springframework.security.access.AccessDeniedException;
+import com.restaurante.exception.TenantAccessDeniedException;
 import org.springframework.stereotype.Component;
 
 import java.util.Set;
@@ -53,7 +53,6 @@ public class TurnoOperacionalPolicy {
         for (String role : roles) {
             if (allowed.contains(role)) return;
         }
-        throw new AccessDeniedException("Usuário não possui permissão para executar esta ação.");
+        throw new TenantAccessDeniedException("Usuário não possui permissão para executar esta ação.");
     }
 }
-

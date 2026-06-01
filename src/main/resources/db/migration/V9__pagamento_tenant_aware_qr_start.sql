@@ -50,12 +50,15 @@ alter table pagamentos_gateway alter column tenant_id set not null;
 
 do $$
 begin
-    if not exists (select 1 from pg_constraint where conname = 'fk_pagamento_tenant') then
+    if not exists (
+        select 1 from pg_constraint where conname = 'fk_pagamento_tenant'
+    ) then
         alter table pagamentos_gateway
             add constraint fk_pagamento_tenant
             foreign key (tenant_id) references tenants;
     end if;
-end $$;
+end
+$$;
 
 -- 4) Idempotency table for public QR payment start
 create table if not exists public_qr_payment_requests (

@@ -15,29 +15,56 @@ ALTER TABLE sessao_consumo_participantes
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_sessao_participante_resend_count_nonneg') THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'ck_sessao_participante_resend_count_nonneg'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
         ALTER TABLE sessao_consumo_participantes
             ADD CONSTRAINT ck_sessao_participante_resend_count_nonneg CHECK (resend_count >= 0);
     END IF;
-END $$;
+END
+$$;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessao_participante_cancelled_by_participante') THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_cancelled_by_participante'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
         ALTER TABLE sessao_consumo_participantes
             ADD CONSTRAINT fk_sessao_participante_cancelled_by_participante
                 FOREIGN KEY (cancelled_by_participante_id) REFERENCES sessao_consumo_participantes(id);
     END IF;
-END $$;
+END
+$$;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessao_participante_cancelled_by_device') THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.conname = 'fk_sessao_participante_cancelled_by_device'
+          AND n.nspname = 'public'
+          AND t.relname = 'sessao_consumo_participantes'
+    ) THEN
         ALTER TABLE sessao_consumo_participantes
             ADD CONSTRAINT fk_sessao_participante_cancelled_by_device
                 FOREIGN KEY (cancelled_by_device_id) REFERENCES dispositivos_operacionais(id);
     END IF;
-END $$;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_sessao_participantes_expiration
     ON sessao_consumo_participantes (tenant_id, status, expires_at);

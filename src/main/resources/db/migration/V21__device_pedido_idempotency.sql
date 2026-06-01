@@ -1,6 +1,6 @@
 -- Prompt 30: POS/Device cria pedido online (idempotência por device)
 
-create table device_pedido_idempotency_records (
+create table if not exists device_pedido_idempotency_records (
     id bigserial not null,
     version bigint,
     created_at timestamp(6) not null,
@@ -27,7 +27,6 @@ create table device_pedido_idempotency_records (
     constraint uk_device_pedido_client_request unique (tenant_id, device_id, client_request_id)
 );
 
-create index idx_device_pedido_idem_tenant_device on device_pedido_idempotency_records (tenant_id, device_id);
-create index idx_device_pedido_idem_pedido on device_pedido_idempotency_records (pedido_id);
-create index idx_device_pedido_idem_created_at on device_pedido_idempotency_records (created_at);
-
+create index if not exists idx_device_pedido_idem_tenant_device on device_pedido_idempotency_records (tenant_id, device_id);
+create index if not exists idx_device_pedido_idem_pedido on device_pedido_idempotency_records (pedido_id);
+create index if not exists idx_device_pedido_idem_created_at on device_pedido_idempotency_records (created_at);

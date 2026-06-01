@@ -5,6 +5,9 @@ import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.financeiro.paymentmethod.repository.TenantPaymentMethodRepository;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.User;
+import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.PaymentMethodStatus;
 import com.restaurante.model.enums.Role;
@@ -13,6 +16,9 @@ import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
+import com.restaurante.security.JwtTokenProvider;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -32,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class TenantPaymentMethodLastActiveIT extends PostgresTestcontainersConfig {
 
@@ -41,6 +47,9 @@ class TenantPaymentMethodLastActiveIT extends PostgresTestcontainersConfig {
     @Autowired TenantProvisioningService provisioningService;
     @Autowired TenantPaymentMethodBootstrapService bootstrapService;
     @Autowired TenantPaymentMethodRepository tenantPaymentMethodRepository;
+    @Autowired TenantRepository tenantRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired JwtTokenProvider jwtTokenProvider;
 
     @AfterEach
     void clear() {
@@ -62,13 +71,19 @@ class TenantPaymentMethodLastActiveIT extends PostgresTestcontainersConfig {
         appy.setStatus(PaymentMethodStatus.INACTIVE);
         tenantPaymentMethodRepository.saveAndFlush(appy);
 
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
+        User owner = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        String token = jwtTokenProvider.generateTenantScopedToken(
+                owner,
+                tenant,
+                TenantUserRole.TENANT_OWNER,
+                TenantUserEstado.ATIVO,
+                1,
+                null
+        );
 
-        mockMvc.perform(post("/tenant/payment-methods/CASH/deactivate"))
+        mockMvc.perform(post("/tenant/payment-methods/CASH/deactivate")
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isBadRequest());
     }
 
@@ -101,4 +116,3 @@ class TenantPaymentMethodLastActiveIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

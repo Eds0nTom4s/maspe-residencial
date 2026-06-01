@@ -18,6 +18,7 @@ import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantSubscriptionStatus;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,12 +32,12 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("it-postgres")
 @TestPropertySource(properties = {
         "consuma.billing.enabled=true",
         "consuma.billing.evidence.enabled=true"
 })
-public class TenantBillingPaymentFlowIT {
+public class TenantBillingPaymentFlowIT extends PostgresTestcontainersConfig {
 
     @Autowired private TenantRepository tenantRepository;
     @Autowired private BillingPlanRepository planRepository;
@@ -136,4 +137,3 @@ public class TenantBillingPaymentFlowIT {
         return tenantRepository.saveAndFlush(t);
     }
 }
-

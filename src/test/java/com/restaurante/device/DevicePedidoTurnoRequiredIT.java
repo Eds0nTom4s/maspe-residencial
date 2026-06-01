@@ -55,7 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 "consuma.operacao.require-open-turno-for-device-orders=true"
         }
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DevicePedidoTurnoRequiredIT extends PostgresTestcontainersConfig {
 
@@ -180,4 +180,3 @@ class DevicePedidoTurnoRequiredIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

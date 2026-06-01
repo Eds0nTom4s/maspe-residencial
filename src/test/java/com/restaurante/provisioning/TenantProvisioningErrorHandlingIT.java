@@ -2,9 +2,7 @@ package com.restaurante.provisioning;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
-import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -16,8 +14,6 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Set;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -26,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class TenantProvisioningErrorHandlingIT extends PostgresTestcontainersConfig {
 
@@ -39,13 +35,8 @@ class TenantProvisioningErrorHandlingIT extends PostgresTestcontainersConfig {
     }
 
     @Test
-    @WithMockUser(username = "platform-admin")
+    @WithMockUser(username = "platform-admin", authorities = "ROLE_ADMIN")
     void realProvision_returnsStandardizedError_onQrLimitExceeded() throws Exception {
-        TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
-                TenantResolutionSource.JWT, true, false
-        ));
-
         String payload = """
                 {
                   "tenant": { "nome": "Rest C", "slug": "rest-c", "tipo": "RESTAURANTE" },
@@ -76,4 +67,3 @@ class TenantProvisioningErrorHandlingIT extends PostgresTestcontainersConfig {
         assertThat(json.at("/field").asText()).contains("maxQrCodes");
     }
 }
-

@@ -1,6 +1,8 @@
 package com.restaurante.delivery.service;
 
 import com.restaurante.delivery.repository.CourierProfileRepository;
+import com.restaurante.delivery.repository.CourierReliabilityProfileRepository;
+import com.restaurante.model.entity.CourierReliabilityProfile;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.CourierProfile;
 import com.restaurante.model.entity.ItemPedido;
@@ -18,13 +20,16 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class DeliveryCourierMatchingService {
 
     private final CourierProfileRepository courierProfileRepository;
+    private final CourierReliabilityProfileRepository reliabilityProfileRepository;
     private final ItemPedidoRepository itemPedidoRepository;
     private final ProductDeliveryPolicyService productDeliveryPolicyService;
 
@@ -90,8 +95,24 @@ public class DeliveryCourierMatchingService {
             matched.add(new MatchedCourier(c, dist));
         }
 
-        // Sort by distance (closest first)
-        matched.sort(Comparator.comparingDouble(MatchedCourier::distance));
+        // Fetch reliability scores to avoid N+1 queries
+        Map<Long, Integer> scoreMap = new HashMap<>();
+        for (MatchedCourier mc : matched) {
+            int score = reliabilityProfileRepository.findByCourierId(mc.courier().getId())
+                    .map(CourierReliabilityProfile::getScore)
+                    .orElse(100);
+            scoreMap.put(mc.courier().getId(), score);
+        }
+
+        // Sort by reliability score (descending), then by distance (closest first)
+        matched.sort((m1, m2) -> {
+            int score1 = scoreMap.getOrDefault(m1.courier().getId(), 100);
+            int score2 = scoreMap.getOrDefault(m2.courier().getId(), 100);
+            if (score1 != score2) {
+                return Integer.compare(score2, score1);
+            }
+            return Double.compare(m1.distance(), m2.distance());
+        });
 
         return matched.stream().map(MatchedCourier::courier).toList();
     }

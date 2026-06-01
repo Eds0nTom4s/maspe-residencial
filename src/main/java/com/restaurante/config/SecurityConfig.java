@@ -11,17 +11,12 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -40,13 +35,13 @@ import org.springframework.web.cors.CorsConfigurationSource;
 @org.springframework.context.annotation.Profile("!test & !it-postgres")
 public class SecurityConfig {
 
-    private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ObjectProvider<DeviceAuthenticationFilter> deviceAuthenticationFilterProvider;
     private final ObjectProvider<TenantContextFilter> tenantContextFilterProvider;
     private final JwtSecurityExceptionHandlers.JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtSecurityExceptionHandlers.JwtAccessDeniedHandler jwtAccessDeniedHandler;
     private final CorsConfigurationSource corsConfigurationSource;
+    private final AuthenticationProvider authenticationProvider;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -60,6 +55,8 @@ public class SecurityConfig {
                         .accessDeniedHandler(jwtAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
                         // Endpoints públicos de autenticação (exceto seleção de tenant)
+                        // Hardening: registro de staff via JWT deve ser restrito a ADMIN autenticado.
+                        .requestMatchers(HttpMethod.POST, "/api/auth/jwt/register", "/auth/jwt/register").hasRole("ADMIN")
                         .requestMatchers("/api/auth/tenant/select", "/auth/tenant/select").authenticated()
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
                         .requestMatchers("/api/public/**", "/public/**").permitAll()
@@ -94,7 +91,7 @@ public class SecurityConfig {
                         // Qualquer outra requisição requer autenticação
                         .anyRequest().authenticated()
                 )
-                .authenticationProvider(authenticationProvider())
+                .authenticationProvider(authenticationProvider)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         DeviceAuthenticationFilter deviceAuthenticationFilter = deviceAuthenticationFilterProvider.getIfAvailable();
@@ -117,27 +114,4 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean
-    public AuthenticationProvider authenticationProvider() {
-        log.info("🔧 Configurando DaoAuthenticationProvider...");
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
-        authProvider.setUserDetailsService(userDetailsService);
-        authProvider.setPasswordEncoder(passwordEncoder());
-        log.info("✅ DaoAuthenticationProvider configurado com BCryptPasswordEncoder");
-        return authProvider;
-    }
-
-    @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
-        log.info("🔧 Configurando AuthenticationManager...");
-        return config.getAuthenticationManager();
-    }
-
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        log.info("🔧 Criando BCryptPasswordEncoder...");
-        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-        log.info("✅ BCryptPasswordEncoder criado - Strength: 10 (default)");
-        return encoder;
-    }
 }

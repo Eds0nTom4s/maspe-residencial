@@ -7,6 +7,7 @@ import com.restaurante.dto.request.DeviceCriarPedidoRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.Tenant;
@@ -14,9 +15,11 @@ import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DispositivoStatus;
 import com.restaurante.model.enums.DispositivoTipo;
+import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
@@ -36,6 +39,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -66,17 +70,20 @@ class DevicePedidoTurnoPolicyIT extends PostgresTestcontainersConfig {
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
+    @Autowired CozinhaRepository cozinhaRepository;
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
 
     @AfterEach
     void clear() {
         TenantContextHolder.clear();
+        SecurityContextHolder.clearContext();
     }
 
     @Test
     void device_canCreatePedido_withoutTurno_when_policy_disabled() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("dev-pos-turno-off", "DTO");
+        ensureCentralCozinha();
         Produto prod = criarProdutoBasico(prov.getTenantId());
         DispositivoOperacional disp = criarDevicePos(prov);
 
@@ -94,6 +101,8 @@ class DevicePedidoTurnoPolicyIT extends PostgresTestcontainersConfig {
                 1
         );
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
+        // Como a auto-config do Spring Security é excluída em testes, garantimos o contexto explicitamente.
+        SecurityContextHolder.getContext().setAuthentication(auth);
 
         DeviceCriarPedidoRequest req = new DeviceCriarPedidoRequest();
         req.setClientRequestId("pos-req-no-turno");
@@ -103,7 +112,6 @@ class DevicePedidoTurnoPolicyIT extends PostgresTestcontainersConfig {
         req.setItens(List.of(it));
 
         String resp = mockMvc.perform(post("/device/pedidos")
-                        .with(authentication(auth))
                         .header("Idempotency-Key", "idem-nt")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
@@ -128,6 +136,16 @@ class DevicePedidoTurnoPolicyIT extends PostgresTestcontainersConfig {
         d.setTipo(DispositivoTipo.POS);
         d.setStatus(DispositivoStatus.ATIVO);
         return dispositivoOperacionalRepository.saveAndFlush(d);
+    }
+
+    private void ensureCentralCozinha() {
+        if (!cozinhaRepository.findByAtivaAndTipo(true, TipoCozinha.CENTRAL).isEmpty()) return;
+        Cozinha c = new Cozinha();
+        c.setNome("Cozinha Central (IT)");
+        c.setTipo(TipoCozinha.CENTRAL);
+        c.setAtiva(true);
+        c.setDescricao("Fixture IT");
+        cozinhaRepository.saveAndFlush(c);
     }
 
     private Produto criarProdutoBasico(Long tenantId) {
@@ -181,4 +199,3 @@ class DevicePedidoTurnoPolicyIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

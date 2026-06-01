@@ -43,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DeviceOfflineSyncCapabilitiesIT extends PostgresTestcontainersConfig {
 
@@ -130,4 +130,3 @@ class DeviceOfflineSyncCapabilitiesIT extends PostgresTestcontainersConfig {
         return dispositivoOperacionalRepository.saveAndFlush(d);
     }
 }
-

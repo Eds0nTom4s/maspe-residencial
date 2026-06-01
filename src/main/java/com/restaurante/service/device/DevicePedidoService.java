@@ -55,6 +55,8 @@ import com.restaurante.service.SubPedidoService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import com.restaurante.service.producao.RotaProducaoService;
 import com.restaurante.service.producao.UnidadeProducaoService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -78,6 +80,9 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class DevicePedidoService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private final DeviceOrdersProperties deviceOrdersProperties;
     private final OperacaoProperties operacaoProperties;
@@ -484,6 +489,12 @@ public class DevicePedidoService {
             idempotencyRepository.saveAndFlush(rec);
             return new DevicePedidoIdempotencyRecordState(rec, null);
         } catch (DataIntegrityViolationException ex) {
+            // Em corrida de idempotência, a tentativa de INSERT pode falhar com violação de integridade.
+            // Após essa exceção, o PersistenceContext pode conter entidades em estado inválido; limpamos
+            // para evitar auto-flush/AssertionFailure em queries de retry.
+            if (entityManager != null) {
+                entityManager.clear();
+            }
             // corrida: recarrega e aplica regra
             var retry = idempotencyRepository.findByTenantIdAndDispositivoIdAndIdempotencyKey(tenantId, deviceId, idemKey)
                     .or(() -> idempotencyRepository.findByTenantIdAndDispositivoIdAndClientRequestId(tenantId, deviceId, clientRequestId))
@@ -518,6 +529,12 @@ public class DevicePedidoService {
                     true,
                     DeviceErrorResponse.DeviceRecoveryAction.RETRY,
                     null);
+        }
+        if (rec.getStatus() == DevicePedidoIdempotencyStatus.FAILED) {
+            rec.setStatus(DevicePedidoIdempotencyStatus.IN_PROGRESS);
+            rec.setErrorCode(null);
+            idempotencyRepository.saveAndFlush(rec);
+            return new DevicePedidoIdempotencyRecordState(rec, null);
         }
         throw new DeviceApiException(HttpStatus.CONFLICT,
                 DeviceErrorResponse.DeviceErrorCode.DEVICE_ORDER_IDEMPOTENCY_CONFLICT,

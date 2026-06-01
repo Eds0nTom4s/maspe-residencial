@@ -2,21 +2,18 @@ package com.restaurante.financeiro;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.restaurante.dto.request.AbrirTurnoRequest;
 import com.restaurante.dto.request.ChecklistItemRespostaRequest;
 import com.restaurante.dto.request.FecharTurnoRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.OperationalEventLog;
-import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TurnoOperacionalTipo;
 import com.restaurante.repository.OperationalEventLogRepository;
-import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
@@ -42,23 +39,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
-        properties = {
-                "spring.main.web-application-type=servlet",
-                "consuma.financeiro.snapshot-integridade.active-key-id=platform-snapshot-key-v2",
-                "consuma.financeiro.snapshot-integridade.keys.platform-snapshot-key-v1.status=DEPRECATED",
-                "consuma.financeiro.snapshot-integridade.keys.platform-snapshot-key-v1.secret=TEST_SECRET_SNAPSHOT_HMAC_V1_32CHARS_MIN_123456",
-                "consuma.financeiro.snapshot-integridade.keys.platform-snapshot-key-v2.status=ACTIVE",
-                "consuma.financeiro.snapshot-integridade.keys.platform-snapshot-key-v2.secret=TEST_SECRET_SNAPSHOT_HMAC_V2_32CHARS_MIN_abcdef"
-        }
+        properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
-class SnapshotKeyRotationTest extends PostgresTestcontainersConfig {
+class SnapshotEvidenceBundleIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
-    @Autowired TurnoOperacionalRepository turnoOperacionalRepository;
     @Autowired OperationalEventLogRepository operationalEventLogRepository;
 
     @AfterEach
@@ -68,8 +57,8 @@ class SnapshotKeyRotationTest extends PostgresTestcontainersConfig {
 
     @Test
     @WithMockUser(username = "finance")
-    void fecho_assina_com_activeKeyId_v2() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("rot-key-a", "RKA");
+    void evidence_bundle_retorna_snapshot_verificacao_eventos_e_registra_evento_export() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("snap-bundle-a", "SBA");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
@@ -79,77 +68,26 @@ class SnapshotKeyRotationTest extends PostgresTestcontainersConfig {
         long turnoId = abrirTurno(prov);
         fecharTurno(turnoId);
 
-        TurnoOperacional turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
-        ObjectNode root = (ObjectNode) objectMapper.readTree(turno.getResumoJson());
-        assertThat(root.at("/financeiro/integridade/signatureKeyId").asText()).isEqualTo("platform-snapshot-key-v2");
-    }
-
-    @Test
-    @WithMockUser(username = "finance")
-    void keyId_desconhecido_retorna_failureReason_e_registra_evento() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("rot-key-b", "RKB");
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-
-        long turnoId = abrirTurno(prov);
-        fecharTurno(turnoId);
-
-        // adulterar keyId para desconhecido, mantendo hash/signature para forçar falha por KEY_NOT_FOUND
-        TurnoOperacional turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
-        ObjectNode root = (ObjectNode) objectMapper.readTree(turno.getResumoJson());
-        ObjectNode integ = (ObjectNode) root.at("/financeiro/integridade");
-        integ.put("signatureKeyId", "unknown-key");
-        ((ObjectNode) root.get("financeiro")).set("integridade", integ);
-        turno.setResumoJson(objectMapper.writeValueAsString(root));
-        turnoOperacionalRepository.saveAndFlush(turno);
-
-        String resp = mockMvc.perform(get("/tenant/financeiro/turnos/{id}/snapshot/export", turnoId)
+        String resp = mockMvc.perform(get("/tenant/operacao/turnos/{id}/snapshot/evidence-bundle", turnoId)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
         JsonNode json = objectMapper.readTree(resp);
-        assertThat(json.at("/data/verificacao/assinaturaValida").asBoolean()).isFalse();
-        assertThat(json.at("/data/verificacao/assinaturaFailureReason").asText()).isEqualTo("KEY_NOT_FOUND");
+        assertThat(json.at("/data/bundleVersion").asText()).isEqualTo("v1");
+        assertThat(json.at("/data/turno/turnoId").asLong()).isEqualTo(turnoId);
+        assertThat(json.at("/data/snapshotExport/verificacao/valido").asBoolean()).isTrue();
+        assertThat(json.at("/data/eventosOperacionais").isArray()).isTrue();
+        // Prompt 42.1: seção existe (pode ser vazia se não houver caixas)
+        assertThat(json.at("/data/operatorCashEvidence").isMissingNode()).isFalse();
+        // Prompt 42.2: seção de divergências/ajustes existe (pode ser vazia)
+        assertThat(json.at("/data/operatorCashDivergenceEvidence").isMissingNode()).isFalse();
 
         List<OperationalEventLog> events = operationalEventLogRepository.findByTenantIdAndEventType(
                 prov.getTenantId(),
-                OperationalEventType.SNAPSHOT_FINANCEIRO_KEY_ID_DESCONHECIDO
+                OperationalEventType.SNAPSHOT_FINANCEIRO_EVIDENCE_BUNDLE_EXPORTADO
         );
         assertThat(events).isNotEmpty();
-    }
-
-    @Test
-    @WithMockUser(username = "finance")
-    void snapshot_assinado_com_v2_nao_valida_se_keyId_alterado_para_v1_deprecated() throws Exception {
-        // Aqui o objetivo é apenas demonstrar que o export usa o keyId persistido; como a assinatura foi gerada com v2,
-        // trocar keyId para v1 (DEPRECATED) deve resultar em assinatura inválida.
-        ProvisionarTenantResponse prov = provisionTenant("rot-key-c", "RKC");
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-
-        long turnoId = abrirTurno(prov);
-        fecharTurno(turnoId);
-
-        TurnoOperacional turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
-        ObjectNode root = (ObjectNode) objectMapper.readTree(turno.getResumoJson());
-        ObjectNode integ = (ObjectNode) root.at("/financeiro/integridade");
-        integ.put("signatureKeyId", "platform-snapshot-key-v1"); // v1 é DEPRECATED (verifica, mas não corresponde à assinatura v2)
-        ((ObjectNode) root.get("financeiro")).set("integridade", integ);
-        turno.setResumoJson(objectMapper.writeValueAsString(root));
-        turnoOperacionalRepository.saveAndFlush(turno);
-
-        String resp = mockMvc.perform(get("/tenant/financeiro/turnos/{id}/snapshot/export", turnoId))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        JsonNode json = objectMapper.readTree(resp);
-        assertThat(json.at("/data/verificacao/assinaturaFailureReason").asText()).isEqualTo("SIGNATURE_MISMATCH");
     }
 
     private long abrirTurno(ProvisionarTenantResponse prov) throws Exception {
@@ -157,7 +95,7 @@ class SnapshotKeyRotationTest extends PostgresTestcontainersConfig {
         req.setInstituicaoId(prov.getInstituicaoId());
         req.setUnidadeAtendimentoId(prov.getUnidadeAtendimentoId());
         req.setTipo(TurnoOperacionalTipo.DIARIO);
-        req.setNome("Turno rot");
+        req.setNome("Turno bundle");
         req.setObservacao("Abertura");
         req.setChecklist(List.of(
                 boolItem("DEVICE_ONLINE", true),
@@ -224,4 +162,3 @@ class SnapshotKeyRotationTest extends PostgresTestcontainersConfig {
         );
     }
 }
-

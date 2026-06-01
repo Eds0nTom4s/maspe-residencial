@@ -30,8 +30,8 @@ public interface InventoryMovementRepository extends JpaRepository<InventoryMove
     @Query("""
             select m from InventoryMovement m
             where m.tenant.id = :tenantId
-              and (:from is null or m.createdAt >= :from)
-              and (:to is null or m.createdAt <= :to)
+              and (cast(:from as timestamp) is null or m.createdAt >= :from)
+              and (cast(:to as timestamp) is null or m.createdAt <= :to)
             order by m.createdAt asc, m.id asc
             """)
     List<InventoryMovement> findAllForEvidence(@Param("tenantId") Long tenantId,

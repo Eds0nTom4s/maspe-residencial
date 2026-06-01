@@ -105,7 +105,47 @@ public class DeviceSyncVersionService {
     }
 
     private SyncAggProjection safe(SyncAggProjection p) {
-        return p;
+        if (p != null) return p;
+        return new SyncAggProjection() {
+            @Override public Long getCount() { return 0L; }
+            @Override public LocalDateTime getMaxUpdatedAt() { return null; }
+            @Override public LocalDateTime getMaxCreatedAt() { return null; }
+            @Override public Long getNullUpdatedAtCount() { return 0L; }
+        };
+    }
+
+    private QrAggProjection safe(QrAggProjection p) {
+        if (p != null) return p;
+        return new QrAggProjection() {
+            @Override public Long getCount() { return 0L; }
+            @Override public LocalDateTime getMaxUpdatedAt() { return null; }
+            @Override public LocalDateTime getMaxCreatedAt() { return null; }
+            @Override public LocalDateTime getMaxRevogadoEm() { return null; }
+            @Override public Long getNullUpdatedAtCount() { return 0L; }
+        };
+    }
+
+    private SessionOpenAggProjection safe(SessionOpenAggProjection p) {
+        if (p != null) return p;
+        return new SessionOpenAggProjection() {
+            @Override public Long getCount() { return 0L; }
+            @Override public LocalDateTime getMaxAbertaEm() { return null; }
+            @Override public LocalDateTime getMaxUltimaAtividadeEm() { return null; }
+            @Override public LocalDateTime getMaxUpdatedAt() { return null; }
+        };
+    }
+
+    private SubPedidoFilaAggProjection safe(SubPedidoFilaAggProjection p) {
+        if (p != null) return p;
+        return new SubPedidoFilaAggProjection() {
+            @Override public Long getCount() { return 0L; }
+            @Override public LocalDateTime getMaxUpdatedAt() { return null; }
+            @Override public LocalDateTime getMaxCreatedAt() { return null; }
+            @Override public LocalDateTime getMaxIniciadoEm() { return null; }
+            @Override public LocalDateTime getMaxProntoEm() { return null; }
+            @Override public LocalDateTime getMaxEntregueEm() { return null; }
+            @Override public Long getNullUpdatedAtCount() { return 0L; }
+        };
     }
 
     private long nz(Long v) { return v == null ? 0L : v; }
@@ -207,8 +247,8 @@ public class DeviceSyncVersionService {
             warnings.add(warning(SyncEnvelope.SyncWarningCode.FULL_SYNC_RECOMMENDED, "updatedSince muito antigo; recomendado full sync."));
         }
 
-        SyncAggProjection cat = categoriaProdutoRepository.computeSyncAgg(device.tenantId(), includeInactive);
-        SyncAggProjection prod = produtoRepository.computeSyncAgg(device.tenantId(), includeInactive);
+        SyncAggProjection cat = safe(categoriaProdutoRepository.computeSyncAgg(device.tenantId(), includeInactive));
+        SyncAggProjection prod = safe(produtoRepository.computeSyncAgg(device.tenantId(), includeInactive));
 
         boolean reliable = nz(cat.getNullUpdatedAtCount()) == 0 && nz(prod.getNullUpdatedAtCount()) == 0;
         LocalDateTime maxTs = max(cat.getMaxUpdatedAt(), cat.getMaxCreatedAt(), prod.getMaxUpdatedAt(), prod.getMaxCreatedAt());
@@ -260,8 +300,8 @@ public class DeviceSyncVersionService {
         }
 
         Long ua = unidadeAtendimentoId != null ? unidadeAtendimentoId : device.unidadeAtendimentoId();
-        SyncAggProjection mesas = mesaRepository.computeSyncAgg(device.tenantId(), ua);
-        SessionOpenAggProjection open = sessaoConsumoRepository.computeOpenSessionsAgg(device.tenantId(), ua);
+        SyncAggProjection mesas = safe(mesaRepository.computeSyncAgg(device.tenantId(), ua));
+        SessionOpenAggProjection open = safe(sessaoConsumoRepository.computeOpenSessionsAgg(device.tenantId(), ua));
 
         boolean reliable = nz(mesas.getNullUpdatedAtCount()) == 0;
         if (updatedSince != null && !reliable) {
@@ -315,7 +355,7 @@ public class DeviceSyncVersionService {
         }
 
         Long ua = device.unidadeAtendimentoId();
-        QrAggProjection qrs = qrCodeOperacionalRepository.computeSyncAgg(device.tenantId(), ua);
+        QrAggProjection qrs = safe(qrCodeOperacionalRepository.computeSyncAgg(device.tenantId(), ua));
         boolean reliable = nz(qrs.getNullUpdatedAtCount()) == 0;
         if (updatedSince != null && !reliable) {
             full = true;
@@ -358,8 +398,8 @@ public class DeviceSyncVersionService {
             warnings.add(warning(SyncEnvelope.SyncWarningCode.FULL_SYNC_RECOMMENDED, "updatedSince muito antigo; recomendado full sync."));
         }
 
-        SyncAggProjection unidades = unidadeProducaoRepository.computeSyncAgg(device.tenantId());
-        SyncAggProjection rotas = rotaProducaoCategoriaRepository.computeSyncAgg(device.tenantId());
+        SyncAggProjection unidades = safe(unidadeProducaoRepository.computeSyncAgg(device.tenantId()));
+        SyncAggProjection rotas = safe(rotaProducaoCategoriaRepository.computeSyncAgg(device.tenantId()));
         boolean reliable = nz(unidades.getNullUpdatedAtCount()) == 0 && nz(rotas.getNullUpdatedAtCount()) == 0;
         if (updatedSince != null && !reliable) {
             full = true;
@@ -398,7 +438,7 @@ public class DeviceSyncVersionService {
         boolean full = false;
         SyncEnvelope.FullSyncRequiredReason reason = SyncEnvelope.FullSyncRequiredReason.NONE;
 
-        SubPedidoFilaAggProjection agg = subPedidoRepository.computeFilaAgg(device.tenantId(), unidadeProducaoId, status, de, ate, search);
+        SubPedidoFilaAggProjection agg = safe(subPedidoRepository.computeFilaAgg(device.tenantId(), unidadeProducaoId, status, de, ate, search));
         boolean reliable = nz(agg.getNullUpdatedAtCount()) == 0;
 
         LocalDateTime maxEventAt = operationalEventLogRepository.maxCreatedAtByTenantAndUnidadeProducaoAndPeriod(device.tenantId(), unidadeProducaoId, de, ate);

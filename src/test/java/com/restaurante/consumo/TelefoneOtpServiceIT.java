@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         }
 )
 @ActiveProfiles("it-postgres")
-class TelefoneOtpServiceTest extends PostgresTestcontainersConfig {
+class TelefoneOtpServiceIT extends PostgresTestcontainersConfig {
 
     @Autowired TelefoneOtpService otpService;
     @Autowired TenantRepository tenantRepository;
@@ -64,4 +64,3 @@ class TelefoneOtpServiceTest extends PostgresTestcontainersConfig {
         return tenantRepository.saveAndFlush(t);
     }
 }
-

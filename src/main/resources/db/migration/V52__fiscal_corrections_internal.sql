@@ -87,33 +87,39 @@ alter table if exists fiscal_documents add column if not exists fiscal_adjustmen
 
 do $$
 begin
-    if to_regclass('fiscal_documents') is not null
-        and not exists (select 1 from pg_constraint where conname = 'fk_fiscal_doc_original_doc') then
+    if to_regclass('public.fiscal_documents') is not null
+       and not exists (select 1 from pg_constraint where conname = 'fk_fiscal_doc_original_doc')
+    then
         alter table fiscal_documents
             add constraint fk_fiscal_doc_original_doc
                 foreign key (original_fiscal_document_id) references fiscal_documents;
     end if;
-end $$;
+end
+$$;
 
 do $$
 begin
-    if to_regclass('fiscal_documents') is not null
-        and not exists (select 1 from pg_constraint where conname = 'fk_fiscal_doc_caixa_adj') then
+    if to_regclass('public.fiscal_documents') is not null
+       and not exists (select 1 from pg_constraint where conname = 'fk_fiscal_doc_caixa_adj')
+    then
         alter table fiscal_documents
             add constraint fk_fiscal_doc_caixa_adj
                 foreign key (caixa_operador_adjustment_id) references caixa_operador_adjustments;
     end if;
-end $$;
+end
+$$;
 
 do $$
 begin
-    if to_regclass('fiscal_documents') is not null
-        and not exists (select 1 from pg_constraint where conname = 'fk_fiscal_doc_assessment') then
+    if to_regclass('public.fiscal_documents') is not null
+       and not exists (select 1 from pg_constraint where conname = 'fk_fiscal_doc_assessment')
+    then
         alter table fiscal_documents
             add constraint fk_fiscal_doc_assessment
                 foreign key (fiscal_adjustment_assessment_id) references fiscal_adjustment_assessments;
     end if;
-end $$;
+end
+$$;
 
 create index if not exists idx_fiscal_doc_original_doc
     on fiscal_documents (tenant_id, original_fiscal_document_id);

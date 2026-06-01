@@ -52,8 +52,9 @@ class MesaSessaoTenantDirectScopeIT extends PostgresTestcontainersConfig {
 
     @Test
     void mesasAndSessoes_areDirectlyTenantScoped() {
-        ProvisionarTenantResponse a = provisionRestaurant("tenant-a", "TA", "owner-a@a.com");
-        ProvisionarTenantResponse b = provisionRestaurant("tenant-b", "TB", "owner-b@b.com");
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        ProvisionarTenantResponse a = provisionRestaurant("tenant-a-" + suffix, "TA" + suffix, "owner-a-" + suffix + "@a.com");
+        ProvisionarTenantResponse b = provisionRestaurant("tenant-b-" + suffix, "TB" + suffix, "owner-b-" + suffix + "@b.com");
 
         Tenant tenantA = tenantRepository.findById(a.getTenantId()).orElseThrow();
         Tenant tenantB = tenantRepository.findById(b.getTenantId()).orElseThrow();

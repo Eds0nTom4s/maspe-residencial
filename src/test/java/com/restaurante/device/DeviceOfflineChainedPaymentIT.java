@@ -57,7 +57,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DeviceOfflineChainedPaymentIT extends PostgresTestcontainersConfig {
 
@@ -214,7 +214,11 @@ class DeviceOfflineChainedPaymentIT extends PostgresTestcontainersConfig {
                 boolItem("UNIDADE_PRODUCAO_ATIVA", true),
                 boolItem("OPERADOR_CONFIRMOU", true)
         ));
+        var userAuth = new UsernamePasswordAuthenticationToken(
+                prov.getOwnerUserId().toString(), "N/A", List.of(new SimpleGrantedAuthority("ROLE_GERENTE"))
+        );
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .with(authentication(userAuth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated());

@@ -58,7 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class DeviceOfflineSyncIdempotencyIT extends PostgresTestcontainersConfig {
 
@@ -191,7 +191,11 @@ class DeviceOfflineSyncIdempotencyIT extends PostgresTestcontainersConfig {
                 TenantResolutionSource.JWT, false, false
         ));
         AbrirTurnoRequest req = abrirTurnoReq(prov);
+        var userAuth = new UsernamePasswordAuthenticationToken(
+                prov.getOwnerUserId().toString(), "N/A", List.of(new SimpleGrantedAuthority("ROLE_GERENTE"))
+        );
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .with(authentication(userAuth))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated());

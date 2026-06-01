@@ -6,6 +6,8 @@ import com.restaurante.model.enums.PaymentMethodPolicyTemplateStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -51,6 +53,7 @@ public class PaymentMethodPolicyTemplate {
     @Column(name = "version", nullable = false)
     private int version = 1;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata_json", columnDefinition = "jsonb")
     private String metadataJson;
 
@@ -79,4 +82,3 @@ public class PaymentMethodPolicyTemplate {
         updatedAt = Instant.now();
     }
 }
-

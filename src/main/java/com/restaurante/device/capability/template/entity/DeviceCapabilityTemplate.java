@@ -8,6 +8,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(
@@ -53,6 +55,7 @@ public class DeviceCapabilityTemplate {
     @Column(name = "version", nullable = false)
     private int version = 1;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata_json", columnDefinition = "jsonb")
     private String metadataJson;
 

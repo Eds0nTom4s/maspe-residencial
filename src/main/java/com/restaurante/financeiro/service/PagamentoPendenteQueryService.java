@@ -85,7 +85,7 @@ public class PagamentoPendenteQueryService {
                 unidadeAtendimentoId,
                 metodo,
                 pollingStatus,
-                hasError,
+                hasError == null ? null : hasError.toString(),
                 olderThan,
                 from,
                 to,

@@ -53,6 +53,8 @@ public class JwtAuthenticationFactory {
         Instant iat = claims.getIssuedAt() != null ? claims.getIssuedAt().toInstant() : null;
         Instant exp = claims.getExpiration() != null ? claims.getExpiration().toInstant() : null;
 
+        String tenantUserStatus = claims.get("tenantUserStatus", String.class);
+
         return JwtPrincipal.builder()
                 .userId(userId)
                 .username(username)
@@ -62,6 +64,7 @@ public class JwtAuthenticationFactory {
                 .tenantId(tenantId)
                 .tenantCode(tenantCode)
                 .tenantRoles(tenantRoles)
+                .tenantUserStatus(tenantUserStatus)
                 .issuedAt(iat)
                 .expiresAt(exp)
                 .authorities(authorities)

@@ -2,6 +2,8 @@ package com.restaurante.model.entity;
 
 import com.restaurante.model.enums.DeliveryFeePaymentStatus;
 import com.restaurante.model.enums.DeliveryJobStatus;
+import com.restaurante.model.enums.CourierEarningStatus;
+import com.restaurante.model.enums.CourierSettlementStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -78,6 +80,30 @@ public class DeliveryJob extends BaseEntity {
 
     @Column(name = "delivery_fee_currency", length = 10)
     private String deliveryFeeCurrency;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "delivery_fee_quote_id")
+    private DeliveryFeeQuote deliveryFeeQuote;
+
+    @Column(name = "customer_pays_delivery_amount", precision = 19, scale = 2)
+    private BigDecimal customerPaysDeliveryAmount;
+
+    @Column(name = "tenant_subsidy_amount", precision = 19, scale = 2)
+    private BigDecimal tenantSubsidyAmount;
+
+    @Column(name = "courier_earning_amount", precision = 19, scale = 2)
+    private BigDecimal courierEarningAmount;
+
+    @Column(name = "consuma_commission_amount", precision = 19, scale = 2)
+    private BigDecimal consumaCommissionAmount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "earning_status", nullable = false, length = 40)
+    private CourierEarningStatus earningStatus = CourierEarningStatus.NOT_EARNED;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "settlement_status", nullable = false, length = 40)
+    private CourierSettlementStatus settlementStatus = CourierSettlementStatus.NOT_READY;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "delivery_fee_payment_status", nullable = false, length = 40)

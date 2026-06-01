@@ -40,8 +40,8 @@ public interface InventoryReturnRecordRepository extends JpaRepository<Inventory
     @Query("""
             select r from InventoryReturnRecord r
             where r.tenant.id = :tenantId
-              and (:from is null or r.createdAt >= :from)
-              and (:to is null or r.createdAt <= :to)
+              and (cast(:from as timestamp) is null or r.createdAt >= :from)
+              and (cast(:to as timestamp) is null or r.createdAt <= :to)
             order by r.createdAt asc, r.id asc
             """)
     List<InventoryReturnRecord> findAllForEvidence(@Param("tenantId") Long tenantId,

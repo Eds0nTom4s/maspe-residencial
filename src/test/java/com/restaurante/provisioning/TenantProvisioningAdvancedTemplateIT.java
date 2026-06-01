@@ -5,9 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.repository.QrCodeOperacionalRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UserRepository;
-import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
-import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -19,8 +17,6 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Set;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -29,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig {
 
@@ -46,13 +42,8 @@ class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig 
     }
 
     @Test
-    @WithMockUser(username = "platform-admin")
+    @WithMockUser(username = "platform-admin", authorities = "ROLE_ADMIN")
     void restauranteSimples_templateCreatesMesasAndQrPorMesa_withinPilotLimits() throws Exception {
-        TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
-                TenantResolutionSource.JWT, true, false
-        ));
-
         String payload = """
                 {
                   "tenant": {
@@ -91,13 +82,8 @@ class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig 
     }
 
     @Test
-    @WithMockUser(username = "platform-admin")
+    @WithMockUser(username = "platform-admin", authorities = "ROLE_ADMIN")
     void exceedsMaxQrCodes_failsAndRollsBack() throws Exception {
-        TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
-                TenantResolutionSource.JWT, true, false
-        ));
-
         String payload = """
                 {
                   "tenant": {
@@ -119,20 +105,15 @@ class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig 
         mockMvc.perform(post("/platform/tenants/provisionar")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isConflict());
 
         assertThat(tenantRepository.findBySlug("restaurante-limite")).isEmpty();
         assertThat(tenantRepository.findByTenantCode("LIM")).isEmpty();
     }
 
     @Test
-    @WithMockUser(username = "platform-admin")
+    @WithMockUser(username = "platform-admin", authorities = "ROLE_ADMIN")
     void overrideMaxQrCodes_allowsMoreMesasWithQrPorMesa() throws Exception {
-        TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
-                TenantResolutionSource.JWT, true, false
-        ));
-
         String payload = """
                 {
                   "tenant": {
@@ -165,13 +146,8 @@ class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig 
     }
 
     @Test
-    @WithMockUser(username = "platform-admin")
+    @WithMockUser(username = "platform-admin", authorities = "ROLE_ADMIN")
     void overrideMaxUsuarios_zero_blocksProvisioning() throws Exception {
-        TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
-                TenantResolutionSource.JWT, true, false
-        ));
-
         String payload = """
                 {
                   "tenant": { "nome": "NoUsers", "slug": "no-users", "tenantCode": "NUS", "tipo": "VENDEDOR_RUA" },
@@ -186,7 +162,7 @@ class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig 
         mockMvc.perform(post("/platform/tenants/provisionar")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isConflict());
 
         assertThat(tenantRepository.findBySlug("no-users")).isEmpty();
         assertThat(userRepository.findByEmail("nus@email.com")).isEmpty();

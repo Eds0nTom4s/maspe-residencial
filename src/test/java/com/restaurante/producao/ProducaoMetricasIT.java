@@ -57,6 +57,19 @@ class ProducaoMetricasIT extends PostgresTestcontainersConfig {
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired SubPedidoRepository subPedidoRepository;
+    @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUpCozinha() {
+        if (cozinhaRepository.findByAtivaAndTipo(true, com.restaurante.model.enums.TipoCozinha.CENTRAL).isEmpty()) {
+            com.restaurante.model.entity.Cozinha c = com.restaurante.model.entity.Cozinha.builder()
+                    .nome("Cozinha Central Teste")
+                    .tipo(com.restaurante.model.enums.TipoCozinha.CENTRAL)
+                    .ativa(true)
+                    .build();
+            cozinhaRepository.save(c);
+        }
+    }
 
     @AfterEach
     void clear() {
@@ -87,7 +100,9 @@ class ProducaoMetricasIT extends PostgresTestcontainersConfig {
         List<SubPedido> subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoResp.getPedidoId());
         assertThat(subs).isNotEmpty();
 
-        LocalDateTime base = LocalDateTime.now().minusMinutes(20);
+        // O subpedido foi criado agora (createdAt = now()). Ajustamos base para now()
+        // de modo que iniciadoEm (base + 1 min) e prontoEm (base + 6 min) sejam positivos.
+        LocalDateTime base = LocalDateTime.now();
         for (int i = 0; i < subs.size(); i++) {
             SubPedido sp = subs.get(i);
             sp.setIniciadoEm(base.plusMinutes(1));
@@ -134,15 +149,28 @@ class ProducaoMetricasIT extends PostgresTestcontainersConfig {
                         .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst Métricas")
-                                .sigla("IM")
+                                .sigla(uniqueSigla("IM"))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
                                 .email("owner-metricas-" + System.nanoTime() + "@a.com")
                                 .telefone("+244900" + (System.nanoTime() % 1_000_000))
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
         );
+    }
+
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
     }
 
     private Produto criarProdutoBasico(Long tenantId) {
@@ -159,7 +187,7 @@ class ProducaoMetricasIT extends PostgresTestcontainersConfig {
                 .codigo("P-" + (System.nanoTime() % 1_000_000))
                 .nome("Produto Métricas")
                 .preco(new BigDecimal("20.00"))
-                .categoria(CategoriaProdutoLegacy.OUTROS)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .ativo(true)
                 .build();
         prod.setTenant(tenant);

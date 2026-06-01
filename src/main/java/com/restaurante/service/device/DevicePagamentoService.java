@@ -140,85 +140,85 @@ public class DevicePagamentoService {
                     null);
         }
 
-        if (pedido.getTotal() == null || pedido.getTotal().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new DeviceApiException(HttpStatus.CONFLICT,
-                    DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_VALIDATION_FAILED,
-                    "Pedido inválido para pagamento.",
-                    true,
-                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
-                    null);
-        }
-
-        if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PAGO) {
-            throw new DeviceApiException(HttpStatus.CONFLICT,
-                    DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_PEDIDO_ALREADY_PAID,
-                    "Pedido já está pago.",
-                    false,
-                    DeviceErrorResponse.DeviceRecoveryAction.NONE,
-                    null);
-        }
-
-        try {
-            policyResolutionService.validateGatewayStartDevice(
-                    device,
-                    PaymentMethodCode.APPYPAY,
-                    PaymentDestination.PEDIDO,
-                    pedido.getTotal()
-            );
-        } catch (RuntimeException e) {
-            throw new DeviceApiException(HttpStatus.CONFLICT,
-                    DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_VALIDATION_FAILED,
-                    e.getMessage(),
-                    true,
-                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
-                    null);
-        }
-
-        if (pagamentoGatewayRepository.findPagamentoConfirmadoPorPedido(pedido.getId(), TipoPagamentoFinanceiro.POS_PAGO).isPresent()) {
-            throw new DeviceApiException(HttpStatus.CONFLICT,
-                    DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_PEDIDO_ALREADY_PAID,
-                    "Pedido já está pago.",
-                    false,
-                    DeviceErrorResponse.DeviceRecoveryAction.NONE,
-                    null);
-        }
-
-        boolean hasPending = pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(pedido.getId()).stream()
-                .anyMatch(p -> p.getStatus() == StatusPagamentoGateway.PENDENTE);
-        if (hasPending) {
-            throw new DeviceApiException(HttpStatus.CONFLICT,
-                    DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_ALREADY_PENDING,
-                    "Já existe pagamento pendente para este pedido.",
-                    true,
-                    DeviceErrorResponse.DeviceRecoveryAction.RETRY,
-                    null);
-        }
-
-        TurnoOperacional turnoAberto = turnoOperacionalRepository
-                .findOpenByTenantAndInstituicaoAndUnidade(tenantId, device.instituicaoId(), device.unidadeAtendimentoId())
-                .orElse(null);
-        if (turnoAberto == null && operacaoProperties.isRequireOpenTurnoForDevicePayments()) {
-            throw new DeviceApiException(HttpStatus.CONFLICT,
-                    DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_TURNO_REQUIRED,
-                    "Turno operacional aberto é obrigatório para iniciar pagamento no POS.",
-                    true,
-                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
-                    null);
-        }
-        if (pedido.getTurnoOperacional() != null && turnoAberto != null && !pedido.getTurnoOperacional().getId().equals(turnoAberto.getId())) {
-            throw new DeviceApiException(HttpStatus.CONFLICT,
-                    DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_INVALID_STATUS,
-                    "Pedido não pertence ao turno operacional aberto.",
-                    true,
-                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
-                    null);
-        }
-
         String requestHash = computeRequestHash(device, pedidoId, request);
         DevicePagamentoIdempotencyRecordState idem = beginOrReplayIdempotency(tenant, dispositivo, pedido, idempotencyKey.trim(), request.getClientRequestId().trim(), requestHash);
         if (idem.replayResponse != null) return idem.replayResponse;
 
         try {
+            if (pedido.getTotal() == null || pedido.getTotal().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new DeviceApiException(HttpStatus.CONFLICT,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_VALIDATION_FAILED,
+                        "Pedido inválido para pagamento.",
+                        true,
+                        DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
+                        null);
+            }
+
+            if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PAGO) {
+                throw new DeviceApiException(HttpStatus.CONFLICT,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_PEDIDO_ALREADY_PAID,
+                        "Pedido já está pago.",
+                        false,
+                        DeviceErrorResponse.DeviceRecoveryAction.NONE,
+                        null);
+            }
+
+            try {
+                policyResolutionService.validateGatewayStartDevice(
+                        device,
+                        PaymentMethodCode.APPYPAY,
+                        PaymentDestination.PEDIDO,
+                        pedido.getTotal()
+                );
+            } catch (RuntimeException e) {
+                throw new DeviceApiException(HttpStatus.CONFLICT,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_VALIDATION_FAILED,
+                        e.getMessage(),
+                        true,
+                        DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
+                        null);
+            }
+
+            if (pagamentoGatewayRepository.findPagamentoConfirmadoPorPedido(pedido.getId(), TipoPagamentoFinanceiro.POS_PAGO).isPresent()) {
+                throw new DeviceApiException(HttpStatus.CONFLICT,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_PEDIDO_ALREADY_PAID,
+                        "Pedido já está pago.",
+                        false,
+                        DeviceErrorResponse.DeviceRecoveryAction.NONE,
+                        null);
+            }
+
+            boolean hasPending = pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(pedido.getId()).stream()
+                    .anyMatch(p -> p.getStatus() == StatusPagamentoGateway.PENDENTE);
+            if (hasPending) {
+                throw new DeviceApiException(HttpStatus.CONFLICT,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_ALREADY_PENDING,
+                        "Já existe pagamento pendente para este pedido.",
+                        true,
+                        DeviceErrorResponse.DeviceRecoveryAction.RETRY,
+                        null);
+            }
+
+            TurnoOperacional turnoAberto = turnoOperacionalRepository
+                    .findOpenByTenantAndInstituicaoAndUnidade(tenantId, device.instituicaoId(), device.unidadeAtendimentoId())
+                    .orElse(null);
+            if (turnoAberto == null && operacaoProperties.isRequireOpenTurnoForDevicePayments()) {
+                throw new DeviceApiException(HttpStatus.CONFLICT,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_TURNO_REQUIRED,
+                        "Turno operacional aberto é obrigatório para iniciar pagamento no POS.",
+                        true,
+                        DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
+                        null);
+            }
+            if (pedido.getTurnoOperacional() != null && turnoAberto != null && !pedido.getTurnoOperacional().getId().equals(turnoAberto.getId())) {
+                throw new DeviceApiException(HttpStatus.CONFLICT,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_INVALID_STATUS,
+                        "Pedido não pertence ao turno operacional aberto.",
+                        true,
+                        DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
+                        null);
+            }
+
             String externalRef = paymentReferenceService.gerarReferenciaPedidoDevice(tenant);
 
             Pagamento pagamento = Pagamento.builder()
@@ -268,9 +268,9 @@ public class DevicePagamentoService {
 
             completeIdempotency(idem.record, pagamento);
 
-            operationalEventLogService.logTurnoEvent(
+            operationalEventLogService.logPagamentoEvent(
                     OperationalEventType.PAGAMENTO_INICIADO_DEVICE,
-                    turnoAberto != null ? turnoAberto : pedido.getTurnoOperacional(),
+                    pagamento,
                     OperationalOrigem.DEVICE_POS,
                     "Pagamento iniciado pelo POS",
                     Map.of(

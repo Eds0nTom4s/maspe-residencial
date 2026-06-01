@@ -33,6 +33,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -50,8 +51,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
+@WithMockUser(authorities = { "ROLE_GERENTE" })
 class TenantPaymentMethodCrossTenantIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -111,6 +113,10 @@ class TenantPaymentMethodCrossTenantIT extends PostgresTestcontainersConfig {
         bootstrapService.ensureDefaults(a.getTenantId());
         bootstrapService.ensureDefaults(b.getTenantId());
 
+        // abrir turnos em ambos para evitar 409 por turno fechado no device B e permitir carregamentos
+        abrirTurnoOwner(a);
+        abrirTurnoOwner(b);
+
         String mesaQrTokenA = a.getMesas().get(0).getQrToken();
         String consumoJson = mockMvc.perform(post("/public/q/" + mesaQrTokenA + "/consumos/anonimo"))
                 .andExpect(status().isCreated())
@@ -126,10 +132,6 @@ class TenantPaymentMethodCrossTenantIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         Long ordemIdA = objectMapper.readTree(ordemJson).at("/data/ordemPagamentoId").asLong();
-
-        // abrir turnos em ambos para evitar 409 por turno fechado no device B
-        abrirTurnoOwner(a);
-        abrirTurnoOwner(b);
 
         DispositivoOperacional dispB = criarDevicePos(b);
         DevicePrincipal deviceB = new DevicePrincipal(
@@ -216,27 +218,30 @@ class TenantPaymentMethodCrossTenantIT extends PostgresTestcontainersConfig {
     }
 
     private ProvisionarTenantResponse provisionTenant(String nome, String code) {
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        String effectiveCode = (code == null || code.isBlank()) ? ("T" + suffix) : (code + suffix);
+
         TenantContextHolder.set(new TenantContext(
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
-        String phone = "+244900" + Math.abs(nome.hashCode() % 1_000_000);
+        String phone = "+24492" + String.format("%07d", Math.abs(new java.util.Random().nextInt(10000000)));
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + nome)
-                                .slug(nome)
-                                .tenantCode(code)
-                                .tipo(TenantTipo.VENDEDOR_RUA)
+                                .slug(nome + "-" + suffix)
+                                .tenantCode(effectiveCode)
+                                .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
-                        .templateCodigo("VENDEDOR_RUA")
+                        .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + nome)
-                                .sigla(code)
+                                .sigla(effectiveCode)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(nome + "@owner.com")
+                                .email(nome + "+" + suffix + "@owner.com")
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())

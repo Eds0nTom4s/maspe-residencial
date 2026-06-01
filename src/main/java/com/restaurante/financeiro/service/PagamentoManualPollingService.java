@@ -14,6 +14,7 @@ import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -27,6 +28,7 @@ public class PagamentoManualPollingService {
     private final PagamentoGatewayPollingService pollingService;
     private final OperationalEventLogService operationalEventLogService;
 
+    @Transactional
     public PagamentoManualPollResponse forcarPolling(Long pagamentoId, ManualPollRequest request) {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
         TenantContext ctx = tenantGuard.requireContext();
@@ -40,7 +42,7 @@ public class PagamentoManualPollingService {
                 pagamento,
                 origem,
                 "Polling manual solicitado",
-                Map.of("motivo", sanitize(request != null ? request.getMotivo() : null)),
+                buildMotivoMeta(request),
                 null,
                 null
         );
@@ -83,6 +85,12 @@ public class PagamentoManualPollingService {
         String t = s.trim();
         if (t.length() > 500) t = t.substring(0, 500);
         return t;
+    }
+
+    private static Map<String, Object> buildMotivoMeta(ManualPollRequest request) {
+        String motivo = sanitize(request != null ? request.getMotivo() : null);
+        if (motivo == null) return Map.of();
+        return Map.of("motivo", motivo);
     }
 
     private OperationalOrigem origemFromContext(TenantContext ctx) {

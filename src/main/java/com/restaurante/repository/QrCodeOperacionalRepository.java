@@ -48,7 +48,7 @@ public interface QrCodeOperacionalRepository extends JpaRepository<QrCodeOperaci
             where q.tenant.id = :tenantId
               and q.ativo = true
               and q.revogado = false
-              and (:unidadeAtendimentoId is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:unidadeAtendimentoId as string) is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
             """)
     QrAggProjection computeSyncAgg(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
 
@@ -58,7 +58,7 @@ public interface QrCodeOperacionalRepository extends JpaRepository<QrCodeOperaci
             where q.tenant.id = :tenantId
               and q.ativo = true
               and q.revogado = false
-              and (:unidadeAtendimentoId is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:unidadeAtendimentoId as string) is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
             """)
     long countSyncByTenantAndScope(@Param("tenantId") Long tenantId, @Param("unidadeAtendimentoId") Long unidadeAtendimentoId);
 
@@ -68,9 +68,9 @@ public interface QrCodeOperacionalRepository extends JpaRepository<QrCodeOperaci
             where q.tenant.id = :tenantId
               and q.ativo = true
               and q.revogado = false
-              and (:unidadeAtendimentoId is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
-              and (:updatedSince is null or q.updatedAt > :updatedSince)
-              and (:lastId is null or q.id > :lastId)
+              and (cast(:unidadeAtendimentoId as string) is null or q.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:updatedSince as timestamp) is null or q.updatedAt > :updatedSince)
+              and (cast(:lastId as string) is null or q.id > :lastId)
             order by q.id asc
             """)
     List<QrCodeOperacional> syncKeyset(@Param("tenantId") Long tenantId,

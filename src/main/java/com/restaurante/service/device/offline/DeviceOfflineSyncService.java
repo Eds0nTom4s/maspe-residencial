@@ -1144,10 +1144,10 @@ public class DeviceOfflineSyncService {
         if (code == null) return null;
         return switch (code) {
             case PRICE_CHANGED -> DeviceOfflineConflictCode.PRICE_CHANGED.name();
-            case PRODUCT_INACTIVE -> DeviceOfflineConflictCode.PRODUCT_INACTIVE.name();
+            case PRODUCT_INACTIVE, DEVICE_ORDER_PRODUCT_UNAVAILABLE -> DeviceOfflineConflictCode.PRODUCT_INACTIVE.name();
             case SESSION_CLOSED -> DeviceOfflineConflictCode.SESSION_CLOSED.name();
             case PAYMENT_METHOD_NOT_ALLOWED -> DeviceOfflineConflictCode.PAYMENT_METHOD_NOT_ALLOWED.name();
-            case TURNO_NOT_OPEN -> DeviceOfflineConflictCode.TURNO_NOT_OPEN.name();
+            case TURNO_NOT_OPEN, DEVICE_ORDER_TURNO_REQUIRED -> DeviceOfflineConflictCode.TURNO_NOT_OPEN.name();
             case IDEMPOTENCY_CONFLICT -> DeviceOfflineConflictCode.IDEMPOTENCY_CONFLICT.name();
             case OFFLINE_LOCALREF_NOT_FOUND -> DeviceOfflineConflictCode.LOCAL_REF_NOT_FOUND.name();
             case OFFLINE_LOCALREF_NOT_APPLIED -> DeviceOfflineConflictCode.LOCAL_REF_NOT_APPLIED.name();

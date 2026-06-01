@@ -13,6 +13,7 @@ import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.repository.UserRepository;
+import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
@@ -24,7 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -35,145 +35,160 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(
-        webEnvironment = SpringBootTest.WebEnvironment.MOCK,
-        properties = "spring.main.web-application-type=servlet"
+	        webEnvironment = SpringBootTest.WebEnvironment.MOCK,
+	        properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
 class TenantRoleAuthorizationIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
 
-    @Autowired TenantProvisioningService provisioningService;
-    @Autowired UserRepository userRepository;
-    @Autowired TenantUserRepository tenantUserRepository;
-    @Autowired TenantRepository tenantRepository;
+	@Autowired TenantProvisioningService provisioningService;
+	@Autowired UserRepository userRepository;
+	@Autowired TenantUserRepository tenantUserRepository;
+	@Autowired TenantRepository tenantRepository;
+	@Autowired JwtTokenProvider jwtTokenProvider;
 
     @AfterEach
     void clear() {
         TenantContextHolder.clear();
     }
 
-    @Test
-    @WithMockUser(username = "tenant-user")
-    void operator_cannotRevokeQr_butCanListPedidos() throws Exception {
-        ProvisionarTenantResponse prov = provisionarTenant("t-op");
+	@Test
+	void operator_cannotRevokeQr_butCanListPedidos() throws Exception {
+	    ProvisionarTenantResponse prov = provisionarTenant("t-op");
 
-        User operator = createUser("op@t.com", "+244900000001");
-        linkTenantUser(prov.getTenantId(), operator.getId(), TenantUserRole.TENANT_OPERATOR, TenantUserEstado.ATIVO);
+	    User operator = createUser("op@t.com", "+244900000001");
+	    linkTenantUser(prov.getTenantId(), operator.getId(), TenantUserRole.TENANT_OPERATOR, TenantUserEstado.ATIVO);
+	    String token = tenantToken(prov.getTenantId(), operator.getId(), TenantUserRole.TENANT_OPERATOR, TenantUserEstado.ATIVO);
 
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), operator.getId(),
-                Set.of(Role.ROLE_GERENTE.name()), TenantResolutionSource.JWT, false, false
-        ));
+	    // pode listar pedidos
+	    mockMvc.perform(get("/tenant/pedidos")
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isOk());
 
-        // pode listar pedidos
-        mockMvc.perform(get("/tenant/pedidos").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk());
+	    // não pode revogar QR
+	    mockMvc.perform(post("/tenant/qrcodes/" + prov.getQrCodeId() + "/revogar")
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isForbidden());
+	}
 
-        // não pode revogar QR
-        mockMvc.perform(post("/tenant/qrcodes/" + prov.getQrCodeId() + "/revogar")
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden());
-    }
+	@Test
+	void finance_canAccessFinance_butCannotAccessQr() throws Exception {
+	    ProvisionarTenantResponse prov = provisionarTenant("t-fin");
 
-    @Test
-    @WithMockUser(username = "tenant-user")
-    void finance_canAccessFinance_butCannotAccessQr() throws Exception {
-        ProvisionarTenantResponse prov = provisionarTenant("t-fin");
+	    User finance = createUser("fin@t.com", "+244900000002");
+	    linkTenantUser(prov.getTenantId(), finance.getId(), TenantUserRole.TENANT_FINANCE, TenantUserEstado.ATIVO);
+	    String token = tenantToken(prov.getTenantId(), finance.getId(), TenantUserRole.TENANT_FINANCE, TenantUserEstado.ATIVO);
 
-        User finance = createUser("fin@t.com", "+244900000002");
-        linkTenantUser(prov.getTenantId(), finance.getId(), TenantUserRole.TENANT_FINANCE, TenantUserEstado.ATIVO);
+	    mockMvc.perform(get("/tenant/financeiro/resumo")
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isOk());
 
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), finance.getId(),
-                Set.of(Role.ROLE_GERENTE.name()), TenantResolutionSource.JWT, false, false
-        ));
+	    mockMvc.perform(get("/tenant/qrcodes")
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isForbidden());
+	}
 
-        mockMvc.perform(get("/tenant/financeiro/resumo").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk());
+	@Test
+	void cashier_canListQr_butCannotGenerateMesaQr_orAccessFinance() throws Exception {
+	    ProvisionarTenantResponse prov = provisionarTenant("t-cash");
 
-        mockMvc.perform(get("/tenant/qrcodes").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden());
-    }
+	    User cashier = createUser("cash@t.com", "+244900000003");
+	    linkTenantUser(prov.getTenantId(), cashier.getId(), TenantUserRole.TENANT_CASHIER, TenantUserEstado.ATIVO);
+	    String token = tenantToken(prov.getTenantId(), cashier.getId(), TenantUserRole.TENANT_CASHIER, TenantUserEstado.ATIVO);
 
-    @Test
-    @WithMockUser(username = "tenant-user")
-    void cashier_canListQr_butCannotGenerateMesaQr_orAccessFinance() throws Exception {
-        ProvisionarTenantResponse prov = provisionarTenant("t-cash");
-
-        User cashier = createUser("cash@t.com", "+244900000003");
-        linkTenantUser(prov.getTenantId(), cashier.getId(), TenantUserRole.TENANT_CASHIER, TenantUserEstado.ATIVO);
-
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), cashier.getId(),
-                Set.of(Role.ROLE_ATENDENTE.name()), TenantResolutionSource.JWT, false, false
-        ));
-
-        mockMvc.perform(get("/tenant/qrcodes").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk());
+	    mockMvc.perform(get("/tenant/qrcodes")
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isOk());
 
         // gerar QR por mesa exige OWNER/ADMIN
-        Long mesaId = prov.getMesas() != null && !prov.getMesas().isEmpty() ? prov.getMesas().getFirst().getMesaId() : null;
-        if (mesaId != null) {
-            mockMvc.perform(post("/tenant/mesas/" + mesaId + "/qrcode").accept(MediaType.APPLICATION_JSON))
-                    .andExpect(status().isForbidden());
-        }
+	    Long mesaId = prov.getMesas() != null && !prov.getMesas().isEmpty() ? prov.getMesas().getFirst().getMesaId() : null;
+	    if (mesaId != null) {
+	        mockMvc.perform(post("/tenant/mesas/" + mesaId + "/qrcode")
+	                        .header("Authorization", "Bearer " + token)
+	                        .accept(MediaType.APPLICATION_JSON))
+	                .andExpect(status().isForbidden());
+	    }
 
-        mockMvc.perform(get("/tenant/financeiro/pagamentos").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden());
-    }
+	    mockMvc.perform(get("/tenant/financeiro/pagamentos")
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isForbidden());
+	}
 
-    @Test
-    @WithMockUser(username = "tenant-user")
-    void kitchen_onlyMeAllowed_structureBlocked() throws Exception {
-        ProvisionarTenantResponse prov = provisionarTenant("t-kit");
+	@Test
+	void kitchen_onlyMeAllowed_structureBlocked() throws Exception {
+	    ProvisionarTenantResponse prov = provisionarTenant("t-kit");
 
-        User kitchen = createUser("k@t.com", "+244900000004");
-        linkTenantUser(prov.getTenantId(), kitchen.getId(), TenantUserRole.TENANT_KITCHEN, TenantUserEstado.ATIVO);
+	    User kitchen = createUser("k@t.com", "+244900000004");
+	    linkTenantUser(prov.getTenantId(), kitchen.getId(), TenantUserRole.TENANT_KITCHEN, TenantUserEstado.ATIVO);
+	    String token = tenantToken(prov.getTenantId(), kitchen.getId(), TenantUserRole.TENANT_KITCHEN, TenantUserEstado.ATIVO);
 
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), kitchen.getId(),
-                Set.of(Role.ROLE_COZINHA.name()), TenantResolutionSource.JWT, false, false
-        ));
+	    mockMvc.perform(get("/tenant/me")
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isOk());
 
-        mockMvc.perform(get("/tenant/me").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk());
+	    mockMvc.perform(get("/tenant/mesas")
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isForbidden());
+	}
 
-        mockMvc.perform(get("/tenant/mesas").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden());
-    }
+	@Test
+	void suspendedMembership_isBlocked() throws Exception {
+	    ProvisionarTenantResponse prov = provisionarTenant("t-susp");
 
-    @Test
-    @WithMockUser(username = "tenant-user")
-    void suspendedMembership_isBlocked() throws Exception {
-        ProvisionarTenantResponse prov = provisionarTenant("t-susp");
+	    User op = createUser("susp@t.com", "+244900000005");
+	    linkTenantUser(prov.getTenantId(), op.getId(), TenantUserRole.TENANT_OPERATOR, TenantUserEstado.SUSPENSO);
+	    String token = tenantToken(prov.getTenantId(), op.getId(), TenantUserRole.TENANT_OPERATOR, TenantUserEstado.SUSPENSO);
 
-        User op = createUser("susp@t.com", "+244900000005");
-        linkTenantUser(prov.getTenantId(), op.getId(), TenantUserRole.TENANT_OPERATOR, TenantUserEstado.SUSPENSO);
+	    mockMvc.perform(get("/tenant/pedidos")
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isForbidden());
+	}
 
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), op.getId(),
-                Set.of(Role.ROLE_GERENTE.name()), TenantResolutionSource.JWT, false, false
-        ));
+	private String tenantToken(Long tenantId, Long userId, TenantUserRole role, TenantUserEstado estado) {
+	    Tenant tenant = tenantRepository.findById(tenantId).orElseThrow();
+	    User user = userRepository.findById(userId).orElseThrow();
+	    return jwtTokenProvider.generateTenantScopedToken(
+	            user,
+	            tenant,
+	            role,
+	            estado,
+	            1,
+	            null
+	    );
+	}
 
-        mockMvc.perform(get("/tenant/pedidos").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden());
-    }
-
-    private ProvisionarTenantResponse provisionarTenant(String slug) {
-        TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
+	private ProvisionarTenantResponse provisionarTenant(String slugBase) {
+	    String suffix = String.valueOf(Math.abs(System.nanoTime() % 100_000L));
+	    String slug = slugBase + "-" + suffix;
+	    TenantContextHolder.set(new TenantContext(
+	            null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
+
+        String code = slug.replace("-", "").toUpperCase();
+        if (code.length() > 10) {
+            code = code.substring(0, 10);
+        }
 
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + slug)
                                 .slug(slug)
-                                .tenantCode(slug.replace("-", "").toUpperCase())
+                                .tenantCode(code)
                                 .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
@@ -184,7 +199,7 @@ class TenantRoleAuthorizationIT extends PostgresTestcontainersConfig {
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
                                 .email(slug + "@owner.com")
-                                .telefone("+244911111111")
+                                .telefone("+24491" + String.format("%07d", Math.abs(System.nanoTime() % 10_000_000L)))
                                 .criarUsuario(true)
                                 .build())
                         .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder()
@@ -197,11 +212,14 @@ class TenantRoleAuthorizationIT extends PostgresTestcontainersConfig {
     }
 
     private User createUser(String email, String telefone) {
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 100_000L));
+        String uniqueEmail = email.replace("@", "-" + suffix + "@");
+        String uniqueTelefone = "+24492" + String.format("%07d", Math.abs(System.nanoTime() % 10_000_000L));
         User u = new User();
-        u.setUsername(email);
+        u.setUsername(uniqueEmail);
         u.setPassword("x");
-        u.setEmail(email);
-        u.setTelefone(telefone);
+        u.setEmail(uniqueEmail);
+        u.setTelefone(uniqueTelefone);
         u.setRoles(Set.of(Role.ROLE_GERENTE));
         u.setAtivo(true);
         return userRepository.saveAndFlush(u);
@@ -218,4 +236,3 @@ class TenantRoleAuthorizationIT extends PostgresTestcontainersConfig {
         tenantUserRepository.saveAndFlush(tu);
     }
 }
-

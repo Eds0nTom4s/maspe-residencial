@@ -23,6 +23,8 @@ import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.Setter;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 @Entity
@@ -89,6 +91,7 @@ public class DeviceOfflineCommand {
     private String payloadHash;
 
     @Column(name = "payload_json", nullable = false, columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String payloadJson;
 
     @Column(name = "payload_size_bytes")
@@ -111,6 +114,7 @@ public class DeviceOfflineCommand {
     private String serverSyncId;
 
     @Column(name = "result_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String resultJson;
 
     @Column(name = "error_code", length = 100)

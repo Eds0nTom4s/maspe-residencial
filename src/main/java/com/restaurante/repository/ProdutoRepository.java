@@ -87,8 +87,8 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
     @Query("SELECT p FROM Produto p " +
            "WHERE p.tenant.id = :tenantId " +
            "AND (:includeInactive = true OR (p.ativo = true AND p.disponivel = true)) " +
-           "AND (:updatedSince IS NULL OR p.updatedAt > :updatedSince) " +
-           "AND (:lastId IS NULL OR p.id > :lastId) " +
+           "AND (cast(:updatedSince as timestamp) IS NULL OR p.updatedAt > :updatedSince) " +
+           "AND (cast(:lastId as string) IS NULL OR p.id > :lastId) " +
            "ORDER BY p.id ASC")
     List<Produto> syncKeyset(
             @Param("tenantId") Long tenantId,

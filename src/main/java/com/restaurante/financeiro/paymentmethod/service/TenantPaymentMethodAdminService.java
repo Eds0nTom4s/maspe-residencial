@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,7 +41,7 @@ public class TenantPaymentMethodAdminService {
     @Value("${consuma.financeiro.payment-methods.allow-no-active-method:false}")
     private boolean allowNoActiveMethod;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<TenantPaymentMethod> listar() {
         tenantGuard.assertAnyTenantRole(
                 TenantUserRole.TENANT_OWNER,
@@ -52,7 +53,7 @@ public class TenantPaymentMethodAdminService {
         return methodService.listForTenant(ctx.tenantId());
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TenantPaymentMethod buscar(PaymentMethodCode code) {
         tenantGuard.assertAnyTenantRole(
                 TenantUserRole.TENANT_OWNER,
@@ -125,6 +126,16 @@ public class TenantPaymentMethodAdminService {
         TenantPaymentMethod saved = repository.save(m);
 
         Tenant tenant = saved.getTenant();
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("code", saved.getCode() != null ? saved.getCode().name() : null);
+        if (statusAnterior != null) meta.put("statusAnterior", statusAnterior.name());
+        if (saved.getStatus() != null) meta.put("statusNovo", saved.getStatus().name());
+        meta.put("enabledForQr", saved.isEnabledForQr());
+        meta.put("enabledForPos", saved.isEnabledForPos());
+        meta.put("enabledForPedido", saved.isEnabledForPedido());
+        meta.put("enabledForFundoConsumo", saved.isEnabledForFundoConsumo());
+        meta.put("minAmount", saved.getMinAmount());
+        meta.put("maxAmount", saved.getMaxAmount());
         operationalEventLogService.logPublicEvent(
                 tenant,
                 null,
@@ -136,17 +147,7 @@ public class TenantPaymentMethodAdminService {
                 saved.getId(),
                 OperationalOrigem.TENANT_ADMIN,
                 "Método de pagamento atualizado",
-                Map.of(
-                        "code", saved.getCode().name(),
-                        "statusAnterior", statusAnterior != null ? statusAnterior.name() : null,
-                        "statusNovo", saved.getStatus() != null ? saved.getStatus().name() : null,
-                        "enabledForQr", saved.isEnabledForQr(),
-                        "enabledForPos", saved.isEnabledForPos(),
-                        "enabledForPedido", saved.isEnabledForPedido(),
-                        "enabledForFundoConsumo", saved.isEnabledForFundoConsumo(),
-                        "minAmount", saved.getMinAmount(),
-                        "maxAmount", saved.getMaxAmount()
-                ),
+                meta,
                 ip,
                 userAgent
         );
@@ -166,6 +167,9 @@ public class TenantPaymentMethodAdminService {
         }
         m.setStatus(PaymentMethodStatus.ACTIVE);
         TenantPaymentMethod saved = repository.save(m);
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("code", saved.getCode() != null ? saved.getCode().name() : null);
+        if (anterior != null) meta.put("statusAnterior", anterior.name());
         operationalEventLogService.logPublicEvent(
                 saved.getTenant(), null, null, null, null,
                 OperationalEventType.PAYMENT_METHOD_ACTIVATED,
@@ -173,7 +177,7 @@ public class TenantPaymentMethodAdminService {
                 saved.getId(),
                 OperationalOrigem.TENANT_ADMIN,
                 "Método de pagamento ativado",
-                Map.of("code", saved.getCode().name(), "statusAnterior", anterior != null ? anterior.name() : null),
+                meta,
                 ip, userAgent
         );
         return saved;
@@ -200,6 +204,9 @@ public class TenantPaymentMethodAdminService {
         PaymentMethodStatus anterior = m.getStatus();
         m.setStatus(PaymentMethodStatus.INACTIVE);
         TenantPaymentMethod saved = repository.save(m);
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("code", saved.getCode() != null ? saved.getCode().name() : null);
+        if (anterior != null) meta.put("statusAnterior", anterior.name());
         operationalEventLogService.logPublicEvent(
                 saved.getTenant(), null, null, null, null,
                 OperationalEventType.PAYMENT_METHOD_DEACTIVATED,
@@ -207,7 +214,7 @@ public class TenantPaymentMethodAdminService {
                 saved.getId(),
                 OperationalOrigem.TENANT_ADMIN,
                 "Método de pagamento desativado",
-                Map.of("code", saved.getCode().name(), "statusAnterior", anterior != null ? anterior.name() : null),
+                meta,
                 ip, userAgent
         );
         return saved;

@@ -53,6 +53,19 @@ class ProducaoKdsMinhaUnidadeIT extends PostgresTestcontainersConfig {
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired TenantRepository tenantRepository;
+    @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUpCozinha() {
+        if (cozinhaRepository.findByAtivaAndTipo(true, com.restaurante.model.enums.TipoCozinha.CENTRAL).isEmpty()) {
+            com.restaurante.model.entity.Cozinha c = com.restaurante.model.entity.Cozinha.builder()
+                    .nome("Cozinha Central Teste")
+                    .tipo(com.restaurante.model.enums.TipoCozinha.CENTRAL)
+                    .ativa(true)
+                    .build();
+            cozinhaRepository.save(c);
+        }
+    }
 
     @AfterEach
     void clear() {
@@ -98,27 +111,41 @@ class ProducaoKdsMinhaUnidadeIT extends PostgresTestcontainersConfig {
         ));
 
         String slug = "tenant-kds-" + System.nanoTime();
+        String tenantCode = "TK" + (System.nanoTime() % 1000);
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant KDS")
                                 .slug(slug)
-                                .tenantCode("TK" + (System.nanoTime() % 1000))
+                                .tenantCode(tenantCode)
                                 .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst KDS")
-                                .sigla("IK")
+                                .sigla(uniqueSigla("IK"))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
                                 .email("owner-kds-" + System.nanoTime() + "@a.com")
                                 .telefone("+244900" + (System.nanoTime() % 1_000_000))
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
         );
+    }
+
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
     }
 
     private Produto criarProdutoBasico(Long tenantId) {
@@ -135,7 +162,7 @@ class ProducaoKdsMinhaUnidadeIT extends PostgresTestcontainersConfig {
                 .codigo("P-" + (System.nanoTime() % 1_000_000))
                 .nome("Produto KDS")
                 .preco(new BigDecimal("10.00"))
-                .categoria(CategoriaProdutoLegacy.OUTROS)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .ativo(true)
                 .build();
         prod.setTenant(tenant);

@@ -1,9 +1,11 @@
 package com.restaurante.financeiro;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.PaymentPolicyRolloutRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyRolloutWorkerService;
 import com.restaurante.model.enums.*;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
@@ -21,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -31,18 +34,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
-class PaymentPolicyRolloutRerunHardeningTest extends PostgresTestcontainersConfig {
+class PaymentPolicyRolloutProgressAuditIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
+    @Autowired PaymentMethodPolicyRolloutWorkerService workerService;
 
     @AfterEach
     void clear() { TenantContextHolder.clear(); }
 
     @Test
-    void rerun_is_blocked_for_pending_rollout() throws Exception {
-        ProvisionarTenantResponse prov = provisionTenant("pm-rerun-hard-a", "RH1");
+    void status_exposes_progress_percent_and_worker_updates_it() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("pm-progress-a", "PP1");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
@@ -53,7 +57,7 @@ class PaymentPolicyRolloutRerunHardeningTest extends PostgresTestcontainersConfi
         PaymentPolicyRolloutRequest req = new PaymentPolicyRolloutRequest();
         req.setUnidadeId(prov.getUnidadeAtendimentoId());
         req.setRolloutMode(PaymentMethodPolicyRolloutMode.UNIT_ALL_DEVICES);
-        req.setOverwriteMode(PaymentMethodPolicyOverwriteMode.SKIP_EXISTING);
+        req.setOverwriteMode(PaymentMethodPolicyOverwriteMode.OVERWRITE_EXISTING);
 
         String submit = mockMvc.perform(post("/tenant/payment-policy-templates/{templateId}/rollout/submit", tpl)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -62,10 +66,13 @@ class PaymentPolicyRolloutRerunHardeningTest extends PostgresTestcontainersConfi
                 .andReturn().getResponse().getContentAsString();
         long rolloutId = objectMapper.readTree(submit).at("/data/rolloutId").asLong();
 
-        mockMvc.perform(post("/tenant/payment-policy-rollouts/{rolloutId}/rerun", rolloutId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isBadRequest());
+        workerService.processOneEligibleRollout();
+
+        String statusResp = mockMvc.perform(get("/tenant/payment-policy-rollouts/{rolloutId}", rolloutId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode statusData = objectMapper.readTree(statusResp).at("/data");
+        assertThat(statusData.at("/progressPercent").asInt()).isBetween(0, 100);
     }
 
     private Long templateIdByCode(String code) throws Exception {
@@ -91,4 +98,3 @@ class PaymentPolicyRolloutRerunHardeningTest extends PostgresTestcontainersConfi
         );
     }
 }
-

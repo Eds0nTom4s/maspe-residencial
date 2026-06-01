@@ -10,7 +10,7 @@
 -- ============================================================================
 -- TABELA: sessao_owner_action_tokens
 -- ============================================================================
-CREATE TABLE sessao_owner_action_tokens (
+CREATE TABLE IF NOT EXISTS sessao_owner_action_tokens (
     id                    BIGSERIAL PRIMARY KEY,
     tenant_id             BIGINT    NOT NULL,
     sessao_consumo_id     BIGINT    NOT NULL,
@@ -48,24 +48,40 @@ CREATE TABLE sessao_owner_action_tokens (
 );
 
 -- Token hash deve ser único (um token = um hash)
-ALTER TABLE sessao_owner_action_tokens
-    ADD CONSTRAINT uk_owner_action_token_hash UNIQUE (token_hash);
+DO $$
+BEGIN
+    IF to_regclass('public.sessao_owner_action_tokens') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'uk_owner_action_token_hash'
+             AND n.nspname = 'public'
+             AND t.relname = 'sessao_owner_action_tokens'
+       )
+    THEN
+        ALTER TABLE sessao_owner_action_tokens
+            ADD CONSTRAINT uk_owner_action_token_hash UNIQUE (token_hash);
+    END IF;
+END
+$$;
 
 -- Índices operacionais
-CREATE INDEX idx_owner_action_tokens_tenant_sessao
+CREATE INDEX IF NOT EXISTS idx_owner_action_tokens_tenant_sessao
     ON sessao_owner_action_tokens (tenant_id, sessao_consumo_id, status);
 
-CREATE INDEX idx_owner_action_tokens_owner_status
+CREATE INDEX IF NOT EXISTS idx_owner_action_tokens_owner_status
     ON sessao_owner_action_tokens (tenant_id, owner_participante_id, status, expires_at);
 
-CREATE INDEX idx_owner_action_tokens_expires_at
+CREATE INDEX IF NOT EXISTS idx_owner_action_tokens_expires_at
     ON sessao_owner_action_tokens (expires_at, status)
     WHERE status = 'ACTIVE';
 
 -- ============================================================================
 -- TABELA: sessao_participante_lifecycle_job_runs
 -- ============================================================================
-CREATE TABLE sessao_participante_lifecycle_job_runs (
+CREATE TABLE IF NOT EXISTS sessao_participante_lifecycle_job_runs (
     id             BIGSERIAL PRIMARY KEY,
     tenant_id      BIGINT    NULL,    -- NULL = run global/multi-tenant
     job_name       VARCHAR(100) NOT NULL,
@@ -87,13 +103,29 @@ CREATE TABLE sessao_participante_lifecycle_job_runs (
 );
 
 -- batch_id único por job_name
-ALTER TABLE sessao_participante_lifecycle_job_runs
-    ADD CONSTRAINT uk_job_run_batch UNIQUE (job_name, batch_id);
+DO $$
+BEGIN
+    IF to_regclass('public.sessao_participante_lifecycle_job_runs') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.conname = 'uk_job_run_batch'
+             AND n.nspname = 'public'
+             AND t.relname = 'sessao_participante_lifecycle_job_runs'
+       )
+    THEN
+        ALTER TABLE sessao_participante_lifecycle_job_runs
+            ADD CONSTRAINT uk_job_run_batch UNIQUE (job_name, batch_id);
+    END IF;
+END
+$$;
 
 -- Índice para health check
-CREATE INDEX idx_job_runs_job_name_started
+CREATE INDEX IF NOT EXISTS idx_job_runs_job_name_started
     ON sessao_participante_lifecycle_job_runs (job_name, started_at DESC);
 
 -- Índice para limpeza de runs antigos
-CREATE INDEX idx_job_runs_created_at
+CREATE INDEX IF NOT EXISTS idx_job_runs_created_at
     ON sessao_participante_lifecycle_job_runs (created_at);

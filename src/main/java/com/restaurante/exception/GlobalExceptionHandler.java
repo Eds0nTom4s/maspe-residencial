@@ -7,12 +7,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import jakarta.validation.ConstraintViolationException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -217,6 +219,59 @@ public class GlobalExceptionHandler {
                 .error("Parâmetro inválido")
                 .message(mensagem)
                 .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
+     * Trata parâmetros obrigatórios ausentes (400) — evita 500 em erros do cliente.
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingServletRequestParameterException(
+            MissingServletRequestParameterException ex, WebRequest request
+    ) {
+        String path = request.getDescription(false).replace("uri=", "");
+        String msg = "Parâmetro obrigatório ausente: " + ex.getParameterName();
+
+        log.warn("Parâmetro obrigatório ausente: {} (path={})", ex.getParameterName(), path);
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Parâmetro obrigatório ausente")
+                .code("MISSING_PARAMETER")
+                .message(msg)
+                .path(path)
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
+     * Trata ConstraintViolationException (400) — validação em query params/path vars.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolationException(
+            ConstraintViolationException ex, WebRequest request
+    ) {
+        Map<String, String> errors = new HashMap<>();
+        if (ex.getConstraintViolations() != null) {
+            ex.getConstraintViolations().forEach(v -> {
+                String key = v.getPropertyPath() != null ? v.getPropertyPath().toString() : "param";
+                errors.put(key, v.getMessage());
+            });
+        }
+
+        log.warn("Violação de constraint (query/path): {}", errors);
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Parâmetros inválidos")
+                .message("Parâmetros inválidos fornecidos")
+                .path(request.getDescription(false).replace("uri=", ""))
+                .validationErrors(errors.isEmpty() ? null : errors)
                 .build();
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);

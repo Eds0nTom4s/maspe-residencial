@@ -119,7 +119,7 @@ public class PagamentoGatewayPollingService {
                     .build();
         }
 
-        Pagamento snapshot = markInProgress(pagamentoId);
+        Pagamento snapshot = markInProgressForManual(pagamentoId);
         if (snapshot == null) {
             Pagamento cur = pagamentoRepository.findById(pagamentoId).orElse(before);
             return PagamentoPollingResult.builder()
@@ -221,6 +221,63 @@ public class PagamentoGatewayPollingService {
                 null
         );
         metrics.recordPollingAttempt("OK");
+
+        return pagamento;
+    }
+
+    /**
+     * Versão do markInProgress para polling manual: bypassa o initialDelayMinutes
+     * pois o operador está a forçar explicitamente a consulta.
+     */
+    @Transactional
+    protected Pagamento markInProgressForManual(Long pagamentoId) {
+        Pagamento pagamento = pagamentoRepository.findForUpdateById(pagamentoId).orElse(null);
+        if (pagamento == null) return null;
+
+        if (!pagamento.isPollingEnabled()) return null;
+        if (pagamento.getStatus() == null || pagamento.getStatus().isTerminal()) return null;
+        if (pagamento.getStatus() != StatusPagamentoGateway.PENDENTE) return null;
+
+        LocalDateTime now = LocalDateTime.now();
+        // Polling manual NÃO verifica initialDelayMinutes - o operador força explicitamente
+        if (pagamento.getCreatedAt() != null && now.isAfter(pagamento.getCreatedAt().plusHours(Math.max(1, props.getMaxAgeHours())))) {
+            pagamento.setPollingEnabled(false);
+            pagamento.setPollingStatus(PagamentoPollingStatus.MAX_ATTEMPTS_REACHED);
+            pagamentoRepository.save(pagamento);
+            return null;
+        }
+        if (pagamento.getPollingAttempts() >= props.getMaxAttempts()) {
+            pagamento.setPollingEnabled(false);
+            pagamento.setPollingStatus(PagamentoPollingStatus.MAX_ATTEMPTS_REACHED);
+            pagamentoRepository.save(pagamento);
+            operationalEventLogService.logPagamentoEvent(
+                    OperationalEventType.PAGAMENTO_POLLING_MAX_TENTATIVAS,
+                    pagamento,
+                    OperationalOrigem.SYSTEM,
+                    "Polling max attempts (manual)",
+                    Map.of("attempts", pagamento.getPollingAttempts()),
+                    null,
+                    null
+            );
+            return null;
+        }
+        // Polling manual bypassa nextPollingAttemptAt também
+        pagamento.setPollingStatus(PagamentoPollingStatus.IN_PROGRESS);
+        pagamento.setLastPollingAttemptAt(now);
+        pagamento.setGatewayStatusLastCheckedAt(now);
+        pagamento.setPollingAttempts(pagamento.getPollingAttempts() + 1);
+        pagamentoRepository.save(pagamento);
+
+        operationalEventLogService.logPagamentoEvent(
+                OperationalEventType.PAGAMENTO_POLLING_TENTADO,
+                pagamento,
+                OperationalOrigem.GATEWAY,
+                "Polling manual attempt",
+                Map.of("attempt", pagamento.getPollingAttempts()),
+                null,
+                null
+        );
+        metrics.recordPollingAttempt("MANUAL");
 
         return pagamento;
     }

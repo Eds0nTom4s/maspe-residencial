@@ -29,7 +29,7 @@ public class DeviceCapabilityTemplateBootstrapService {
     private final OperationalEventLogService operationalEventLogService;
     private final ObjectMapper objectMapper;
 
-    @Transactional
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public void ensureDefaults(Tenant tenant) {
         if (tenant == null || tenant.getId() == null) return;
         ensureTemplate(tenant, "CAP_POS_CAIXA_PADRAO", "POS Caixa (Padrão)", "Defaults POS_CAIXA", OperationalDeviceType.POS_CAIXA,

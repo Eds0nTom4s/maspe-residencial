@@ -31,7 +31,7 @@ public class TenantDeviceCapabilityService {
     private final DeviceCapabilityBootstrapService bootstrapService;
     private final OperationalEventLogService operationalEventLogService;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<DeviceOperationalCapabilityEntity> list(Long deviceId) {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE, TenantUserRole.TENANT_CASHIER);
         Long tenantId = TenantContextHolder.get().orElseThrow().tenantId();

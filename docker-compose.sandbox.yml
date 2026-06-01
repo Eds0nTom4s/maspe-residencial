@@ -1,0 +1,54 @@
+services:
+  postgres-sandbox:
+    image: postgres:16-alpine
+    container_name: consuma-postgres-sandbox
+    restart: unless-stopped
+    env_file:
+      - .env.sandbox
+    environment:
+      POSTGRES_DB: ${DB_NAME:-restaurante_sandbox_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - sistema-restauracao-postgres-data-sandbox:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-restaurante_sandbox_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - consuma-sandbox
+
+  api-sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sistema-restauracao-api:sandbox
+    container_name: consuma-api-sandbox
+    restart: unless-stopped
+    depends_on:
+      postgres-sandbox:
+        condition: service_healthy
+    env_file:
+      - .env.sandbox
+    environment:
+      SPRING_PROFILES_ACTIVE: sandbox
+      SERVER_PORT: 8080
+      DB_HOST: postgres-sandbox
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-restaurante_sandbox_db}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${SANDBOX_API_PORT:-8080}:8080"
+    networks:
+      - consuma-sandbox
+
+networks:
+  consuma-sandbox:
+    name: consuma-sandbox
+
+volumes:
+  sistema-restauracao-postgres-data-sandbox:

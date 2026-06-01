@@ -51,6 +51,7 @@ public class ClienteConsumo {
     private Instant ultimoAcessoEm;
 
     @Column(name = "metadata_json", columnDefinition = "jsonb")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     private String metadataJson;
 
     @Column(name = "created_at", nullable = false, updatable = false)

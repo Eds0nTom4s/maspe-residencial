@@ -44,7 +44,7 @@ class ProducaoKdsRbacIT extends PostgresTestcontainersConfig {
     void finance_isBlockedFromMetricasAndSubpedidosTenant() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), 9999L,
                 Set.of("TENANT_FINANCE"), TenantResolutionSource.JWT, false, false
         ));
 
@@ -60,7 +60,7 @@ class ProducaoKdsRbacIT extends PostgresTestcontainersConfig {
     void kitchen_isBlockedFromSubpedidosTenantGeneralEndpoint() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), 9999L,
                 Set.of("TENANT_KITCHEN"), TenantResolutionSource.JWT, false, false
         ));
 
@@ -102,14 +102,27 @@ class ProducaoKdsRbacIT extends PostgresTestcontainersConfig {
                         .templateCodigo("RESTAURANTE_SIMPLES")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst KDS RBAC")
-                                .sigla("IR")
+                                .sigla(uniqueSigla("IR"))
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
                                 .email("owner-kds-rbac-" + System.nanoTime() + "@a.com")
                                 .telefone("+244900" + (System.nanoTime() % 1_000_000))
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
         );
+    }
+
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
     }
 }

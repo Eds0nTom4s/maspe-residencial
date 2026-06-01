@@ -93,12 +93,15 @@ ALTER TABLE sub_pedidos
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sub_pedidos_unidade_producao') THEN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_sub_pedidos_unidade_producao'
+    ) THEN
         ALTER TABLE sub_pedidos
             ADD CONSTRAINT fk_sub_pedidos_unidade_producao
                 FOREIGN KEY (unidade_producao_id) REFERENCES unidades_producao (id);
     END IF;
-END $$;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_subpedido_tenant_unidade_producao
     ON sub_pedidos (tenant_id, unidade_producao_id);
@@ -125,15 +128,22 @@ WHERE ua.instituicao_id IS NOT NULL
 ON CONFLICT DO NOTHING;
 
 -- Vincula subpedidos antigos à unidade "GERAL" do seu (tenant, instituicao)
+WITH subpedido_unidade_producao AS (
+    SELECT
+        sp.id AS sub_pedido_id,
+        up.id AS unidade_producao_id
+    FROM sub_pedidos sp
+    JOIN unidades_atendimento ua ON ua.id = sp.unidade_atendimento_id
+    JOIN unidades_producao up
+      ON up.tenant_id = sp.tenant_id
+     AND up.instituicao_id = ua.instituicao_id
+     AND up.codigo = 'GERAL'
+    WHERE sp.unidade_producao_id IS NULL
+)
 UPDATE sub_pedidos sp
-SET unidade_producao_id = up.id
-FROM unidades_atendimento ua,
-     unidades_producao up
-WHERE sp.unidade_producao_id IS NULL
-  AND sp.unidade_atendimento_id = ua.id
-  AND up.tenant_id = sp.tenant_id
-  AND up.instituicao_id = ua.instituicao_id
-  AND up.codigo = 'GERAL';
+SET unidade_producao_id = m.unidade_producao_id
+FROM subpedido_unidade_producao m
+WHERE sp.id = m.sub_pedido_id;
 
 -- Se ainda restar subpedido sem unidade_producao_id, mantemos nullable por compatibilidade.
 -- Novos fluxos tenant-aware devem preencher via service/rota.

@@ -199,7 +199,7 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
     @Query("SELECT sp FROM SubPedido sp " +
            "WHERE sp.tenant.id = :tenantId " +
            "AND sp.unidadeProducao.id = :unidadeProducaoId " +
-           "AND (:status IS NULL OR sp.status = :status) " +
+           "AND (cast(:status as string) IS NULL OR sp.status = :status) " +
            "ORDER BY sp.createdAt DESC")
     List<SubPedido> findByTenantIdAndUnidadeProducaoIdAndStatusOrderByCreatedAtDesc(
             @Param("tenantId") Long tenantId,
@@ -215,11 +215,11 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
               join sp.pedido p
             where sp.tenant.id = :tenantId
               and sp.unidadeProducao.id = :unidadeProducaoId
-              and (:status is null or sp.status = :status)
-              and (:de is null or sp.createdAt >= :de)
-              and (:ate is null or sp.createdAt <= :ate)
+              and (cast(:status as string) is null or sp.status = :status)
+              and (cast(:de as timestamp) is null or sp.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
               and (
-                    :search is null or :search = '' or
+                    cast(:search as string) is null or :search = '' or
                     lower(p.numero) like lower(concat('%', :search, '%')) or
                     lower(sp.numero) like lower(concat('%', :search, '%'))
                   )
@@ -251,11 +251,11 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
             select sp.id from SubPedido sp
               join sp.pedido p
             where sp.tenant.id = :tenantId
-              and (:unidadeProducaoId is null or sp.unidadeProducao.id = :unidadeProducaoId)
-              and (:status is null or sp.status = :status)
-              and (:de is null or sp.createdAt >= :de)
-              and (:ate is null or sp.createdAt <= :ate)
-              and (:pedidoNumero is null or :pedidoNumero = '' or lower(p.numero) like lower(concat('%', :pedidoNumero, '%')))
+              and (cast(:unidadeProducaoId as string) is null or sp.unidadeProducao.id = :unidadeProducaoId)
+              and (cast(:status as string) is null or sp.status = :status)
+              and (cast(:de as timestamp) is null or sp.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
+              and (cast(:pedidoNumero as string) is null or :pedidoNumero = '' or lower(p.numero) like lower(concat('%', :pedidoNumero, '%')))
             order by sp.createdAt asc
             """)
     Page<Long> findKdsIdsByTenantAndFilters(
@@ -290,9 +290,9 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
             from SubPedido sp
               left join sp.unidadeProducao up
             where sp.tenant.id = :tenantId
-              and (:unidadeProducaoId is null or up.id = :unidadeProducaoId)
-              and (:de is null or sp.createdAt >= :de)
-              and (:ate is null or sp.createdAt <= :ate)
+              and (cast(:unidadeProducaoId as string) is null or up.id = :unidadeProducaoId)
+              and (cast(:de as timestamp) is null or sp.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
             """)
     List<SubPedidoMetricRow> findMetricRowsByTenantAndPeriod(
             @Param("tenantId") Long tenantId,
@@ -313,11 +313,11 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
               join sp.pedido p
             where sp.tenant.id = :tenantId
               and sp.unidadeProducao.id = :unidadeProducaoId
-              and (:status is null or sp.status = :status)
-              and (:de is null or sp.createdAt >= :de)
-              and (:ate is null or sp.createdAt <= :ate)
+              and (cast(:status as string) is null or sp.status = :status)
+              and (cast(:de as timestamp) is null or sp.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
               and (
-                    :search is null or :search = '' or
+                    cast(:search as string) is null or :search = '' or
                     lower(p.numero) like lower(concat('%', :search, '%')) or
                     lower(sp.numero) like lower(concat('%', :search, '%'))
                   )

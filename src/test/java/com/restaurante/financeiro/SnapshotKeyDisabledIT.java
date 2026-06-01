@@ -53,7 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
-class SnapshotKeyDisabledTest extends PostgresTestcontainersConfig {
+class SnapshotKeyDisabledIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -175,4 +175,3 @@ class SnapshotKeyDisabledTest extends PostgresTestcontainersConfig {
         );
     }
 }
-

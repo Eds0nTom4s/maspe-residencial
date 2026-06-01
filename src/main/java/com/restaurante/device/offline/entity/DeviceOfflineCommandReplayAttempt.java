@@ -17,6 +17,8 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 @Entity
@@ -92,6 +94,7 @@ public class DeviceOfflineCommandReplayAttempt {
     private String resultStatus;
 
     @Column(name = "result_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String resultJson;
 
     @Column(name = "error_code", length = 100)

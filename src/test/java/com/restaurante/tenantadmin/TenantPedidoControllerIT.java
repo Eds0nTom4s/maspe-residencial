@@ -40,6 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
+@org.springframework.transaction.annotation.Transactional
 class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
@@ -48,6 +49,8 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
     @Autowired ProdutoService produtoService;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
+    @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
+    @Autowired com.restaurante.repository.UnidadeAtendimentoRepository unidadeAtendimentoRepository;
 
     @AfterEach
     void clear() {
@@ -59,21 +62,30 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
     void tenant_canListAndGetPedido_andCannotAccessOtherTenantPedido() throws Exception {
         // provisiona tenant A com QR principal
         TenantContextHolder.set(new TenantContext(null, null, 1L, Set.of("ROLE_ADMIN"), TenantResolutionSource.JWT, true, false));
+        String suffixA = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
         ProvisionarTenantResponse a = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("A")
-                                .slug("tenant-a")
-                                .tenantCode("TA")
+                                .slug("tenant-a-" + suffixA)
+                                .tenantCode("TA" + suffixA)
                                 .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("RESTAURANTE_SIMPLES")
-                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("A").sigla("TA").build())
-                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("a@a.com").criarUsuario(true).build())
+                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("A").sigla(uniqueSigla("TA")).build())
+                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("a-" + suffixA + "@a.com").telefone("+24490" + String.format("%06d", Integer.parseInt(suffixA))).criarUsuario(true).build())
                         .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder().criarMesas(false).criarQrPorMesa(false).criarQrPrincipal(true).build())
                         .build()
         );
+        var uaA = unidadeAtendimentoRepository.findById(a.getUnidadeAtendimentoId()).orElseThrow();
+        com.restaurante.model.entity.Cozinha cozinhaA = new com.restaurante.model.entity.Cozinha();
+        cozinhaA.setNome("Cozinha A");
+        cozinhaA.setTipo(com.restaurante.model.enums.TipoCozinha.CENTRAL);
+        cozinhaA.setAtiva(true);
+        cozinhaA = cozinhaRepository.saveAndFlush(cozinhaA);
+        uaA.adicionarCozinha(cozinhaA);
+        unidadeAtendimentoRepository.saveAndFlush(uaA);
 
         // cria produto no tenant A
         TenantContextHolder.set(new TenantContext(a.getTenantId(), a.getTenantCode(), a.getOwnerUserId(), Set.of("ROLE_GERENTE"), TenantResolutionSource.JWT, false, false));
@@ -82,6 +94,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                 .codigo("AGUA-500")
                 .nome("Água 500ml")
                 .preco(new BigDecimal("500.00"))
+                .categoria(com.restaurante.model.enums.CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA)
                 .categoriaProdutoId(geralA.getId())
                 .disponivel(true)
                 .build());
@@ -96,7 +109,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                 """.formatted(prodA.getId());
 
         String respPublic = mockMvc.perform(post("/public/q/" + a.getQrToken() + "/pedidos")
-                        .header("Idempotency-Key", "k-1")
+                        .header("Idempotency-Key", "key-idempotente-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payloadPedido))
                 .andExpect(status().isCreated())
@@ -121,27 +134,38 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
 
         // provisiona tenant B e cria pedido, tenant A não acessa
         TenantContextHolder.set(new TenantContext(null, null, 1L, Set.of("ROLE_ADMIN"), TenantResolutionSource.JWT, true, false));
+        String suffixB = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
         ProvisionarTenantResponse b = provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("B")
-                                .slug("tenant-b")
-                                .tenantCode("TB")
+                                .slug("tenant-b-" + suffixB)
+                                .tenantCode("TB" + suffixB)
                                 .tipo(TenantTipo.RESTAURANTE)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("RESTAURANTE_SIMPLES")
-                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("B").sigla("TB").build())
-                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("b@b.com").criarUsuario(true).build())
+                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("B").sigla(uniqueSigla("TB")).build())
+                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email("b-" + suffixB + "@b.com").telefone("+24490" + String.format("%06d", Integer.parseInt(suffixB))).criarUsuario(true).build())
                         .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder().criarMesas(false).criarQrPorMesa(false).criarQrPrincipal(true).build())
                         .build()
         );
+        var uaB = unidadeAtendimentoRepository.findById(b.getUnidadeAtendimentoId()).orElseThrow();
+        com.restaurante.model.entity.Cozinha cozinhaB = new com.restaurante.model.entity.Cozinha();
+        cozinhaB.setNome("Cozinha B");
+        cozinhaB.setTipo(com.restaurante.model.enums.TipoCozinha.CENTRAL);
+        cozinhaB.setAtiva(true);
+        cozinhaB = cozinhaRepository.saveAndFlush(cozinhaB);
+        uaB.adicionarCozinha(cozinhaB);
+        unidadeAtendimentoRepository.saveAndFlush(uaB);
+
         TenantContextHolder.set(new TenantContext(b.getTenantId(), b.getTenantCode(), b.getOwnerUserId(), Set.of("ROLE_GERENTE"), TenantResolutionSource.JWT, false, false));
         CategoriaProduto geralB = categoriaProdutoRepository.findBySlugAndTenantId("geral", b.getTenantId()).orElseThrow();
         produtoService.criarTenantAware(ProdutoRequest.builder()
                 .codigo("AGUA-500")
                 .nome("Água 500ml")
                 .preco(new BigDecimal("600.00"))
+                .categoria(com.restaurante.model.enums.CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA)
                 .categoriaProdutoId(geralB.getId())
                 .disponivel(true)
                 .build());
@@ -153,7 +177,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                 }
                 """.formatted(prodB.getId());
         String respPublicB = mockMvc.perform(post("/public/q/" + b.getQrToken() + "/pedidos")
-                        .header("Idempotency-Key", "k-2")
+                        .header("Idempotency-Key", "key-idempotente-2")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payloadPedidoB))
                 .andExpect(status().isCreated())
@@ -164,5 +188,18 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
         TenantContextHolder.set(new TenantContext(a.getTenantId(), a.getTenantCode(), a.getOwnerUserId(), Set.of("ROLE_GERENTE"), TenantResolutionSource.JWT, false, false));
         mockMvc.perform(get("/tenant/pedidos/" + pedidoIdB))
                 .andExpect(status().isNotFound());
+    }
+
+    private static String uniqueSigla(String prefix) {
+        String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
+        if (normalizedPrefix.isBlank()) {
+            normalizedPrefix = "I";
+        }
+        if (normalizedPrefix.length() > 3) {
+            normalizedPrefix = normalizedPrefix.substring(0, 3);
+        }
+
+        long suffix = Math.abs(System.nanoTime() % 10_000_000L);
+        return normalizedPrefix + String.format("%07d", suffix);
     }
 }

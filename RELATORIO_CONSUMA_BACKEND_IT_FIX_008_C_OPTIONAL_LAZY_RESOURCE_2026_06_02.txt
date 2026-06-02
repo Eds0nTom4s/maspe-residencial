@@ -8,8 +8,19 @@ A subfase IT-FIX-008-C foi concluida com sucesso preservando PostgreSQL, Testcon
 constraints, regras de turno, regras de pagamento manual e contratos reais de seguranca. O cluster
 de lazy loading, listas vazias, fixture funcional incompleta e numeracao concorrente foi estabilizado
 sem mascarar erros de dominio, sem relaxar assertions relevantes e sem regressao nos lotes 008-A e 008-B.
+A retomada apos travamento/reboot tambem foi concluida com seguranca, sem repetir execucao indefinida
+e sem perda das alteracoes locais ja abertas no worktree.
 
-2. Branch e commit inicial
+2. Observacao do travamento anterior e reboot
+
+- houve travamento previo da maquina durante o sublote consolidado da 008-C;
+- o reboot interrompeu a sessao anterior antes do fechamento formal da subfase;
+- o teste `PedidoNumberServiceConcurrencyIT` ja havia terminado verde isoladamente antes do travamento;
+- a retomada segura passou a usar execucao isolada por classe, validacao incremental e confirmacao de nao-regressao;
+- o travamento nao se reproduziu apos a retomada controlada;
+- o ruido observado depois da retomada ficou restrito a warnings de shutdown do fork/scheduler em lotes grandes, sem impactar `BUILD SUCCESS`.
+
+3. Branch e commit inicial
 
 - Repositorio: Eds0nTom4s/maspe-residencial
 - Branch de trabalho: restauracao-antes-da-loja
@@ -23,7 +34,33 @@ sem mascarar erros de dominio, sem relaxar assertions relevantes e sem regressao
   - 419fb00 Fix IT PostgreSQL queries JSONB and KDS bootstrap
   - 21cf37f Fix IT PostgreSQL queries JSONB and KDS bootstrap
 
-3. Baseline antes
+4. Estado Git pos-reboot
+
+- `git status -sb`: branch alinhada com `origin/restauracao-antes-da-loja`
+- nenhum processo Maven remanescente encontrado em `ps -ef | grep '[m]vn'`
+- nenhum processo Java remanescente de execucao anterior encontrado em `ps -ef | grep '[j]ava'`
+- `docker ps` confirmado com containers principais ativos apos a retomada:
+  - `consuma-api-sandbox`
+  - `consuma-postgres-sandbox`
+  - `sistema-restauracao-api`
+  - `sistema-restauracao-postgres`
+  - `minio`
+- observacao:
+  - o primeiro `docker ps` dentro do sandbox falhou por permissao de API Docker;
+  - a confirmacao final foi feita com permissao ampliada apenas para leitura de estado.
+
+5. Arquivos alterados antes da retomada
+
+- src/main/java/com/restaurante/repository/TenantRepository.java
+- src/main/java/com/restaurante/service/PedidoNumberService.java
+- src/test/java/com/restaurante/catalog/CatalogCategoryConsolidationIT.java
+- src/test/java/com/restaurante/consumo/Prompt36ManualCashTpaIT.java
+- src/test/java/com/restaurante/financeiro/FinanceiroItFixtureSupport.java
+- src/test/java/com/restaurante/financeiro/PaymentMethodPolicyManualPaymentIT.java
+- src/test/java/com/restaurante/operacao/TurnoOperacionalRequireOpenForOrdersIT.java
+- src/test/java/com/restaurante/pedido/PedidoNumberServiceConcurrencyIT.java
+
+6. Baseline antes
 
 - `git status -sb`: branch alinhada com `origin/restauracao-antes-da-loja`
 - arquivo fora do escopo mantido fora:
@@ -36,7 +73,7 @@ sem mascarar erros de dominio, sem relaxar assertions relevantes e sem regressao
   - 008-A: BUILD SUCCESS
   - 008-B: BUILD SUCCESS
 
-4. Resultado inicial do sublote 008-C
+7. Resultado inicial do sublote 008-C
 
 Comando alvo reproduzido:
 
@@ -48,7 +85,7 @@ Resultado inicial:
 - falhas concentradas em lazy loading, listas vazias/setup incompleto e concorrencia real de numeracao
 - `PaymentMethodPolicyAppyPayIT` permaneceu verde, confirmando que a base da 008-A seguia estavel
 
-5. Ranking de falhas
+8. Ranking de falhas
 
 - LazyInitializationException
   - classe: `CatalogCategoryConsolidationIT`
@@ -87,7 +124,7 @@ Resultado inicial:
 - Optional vazio
   - risco identificado no cluster, mas o caso relevante acabou se materializando como fixture/query tenant-safe ausente e corrida de concorrencia
 
-6. Arquivos alterados
+9. Arquivos alterados
 
 - src/main/java/com/restaurante/repository/TenantRepository.java
 - src/main/java/com/restaurante/service/PedidoNumberService.java
@@ -98,7 +135,7 @@ Resultado inicial:
 - src/test/java/com/restaurante/operacao/TurnoOperacionalRequireOpenForOrdersIT.java
 - src/test/java/com/restaurante/pedido/PedidoNumberServiceConcurrencyIT.java
 
-7. Helpers criados/alterados
+10. Helpers criados/alterados
 
 - nenhum novo helper foi criado
 - `FinanceiroItFixtureSupport` foi promovido para reutilizacao cross-package
@@ -111,7 +148,7 @@ Resultado inicial:
   - `createTenantUser(...)`
   - `ensureCentralCozinha(...)`
 
-8. Correc oes por classe
+11. Correc oes por classe
 
 - `CatalogCategoryConsolidationIT`
   - passou a usar `UniqueTestData` para isolar slug/codigo
@@ -147,7 +184,63 @@ Resultado inicial:
 - `PaymentMethodPolicyAppyPayIT`
   - nao exigiu alteracao funcional nova; permaneceu verde e serviu como validacao de nao-regressao do bloco 008-A
 
-9. O que NAO foi alterado
+12. Resultado isolado por classe
+
+- `CatalogCategoryConsolidationIT`
+  - 1 test
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+  - tempo total: 01:06
+
+- `Prompt36ManualCashTpaIT`
+  - 2 tests
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+  - tempo total: 02:58 no rerun limpo final
+
+- `PaymentMethodPolicyAppyPayIT`
+  - 2 tests
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+  - validado isoladamente dentro do bloco de payment methods
+
+- `PaymentMethodPolicyManualPaymentIT`
+  - 2 tests
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+  - validado isoladamente dentro do bloco de payment methods
+
+- `TurnoOperacionalRequireOpenForOrdersIT`
+  - 1 test
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+
+- `PedidoNumberServiceConcurrencyIT`
+  - 2 tests
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+
+13. Identificacao da classe que travou
+
+- nao foi possivel isolar uma unica classe que travasse sozinha apos o reboot;
+- todas as classes do sublote passaram isoladamente com timeout;
+- a evidencia final indica que o travamento anterior nao vinha de `PedidoNumberServiceConcurrencyIT` isolado;
+- o caso mais provavel foi interacao de lote/fork/shutdown da JVM de testes, e nao um teste unitariamente infinito.
+
+14. Causa raiz do travamento
+
+- causa raiz exata nao ficou reproduzivel apos o reboot;
+- a causa mais provavel ficou classificada como combinacao de execucao consolidada longa com ruido de shutdown de fork/scheduler;
+- nao houve reproducao de deadlock persistente nem de polling infinito apos a retomada controlada;
+- como mitigacao permanente, a retomada passou a isolar classes com timeout e so consolidar apos todos os verdes individuais.
+
+15. O que NAO foi alterado
 
 - nao trocou PostgreSQL por H2 nas ITs alvo
 - nao removeu constraints
@@ -159,7 +252,7 @@ Resultado inicial:
 - nao enfraqueceu regra de caixa aberto para confirmacao manual
 - nao mexeu no escopo publicado da 008-A/008-B sem regressao comprovada
 
-10. Resultado dos grupos
+16. Resultado dos grupos
 
 - catalogo
   - comando:
@@ -207,7 +300,7 @@ Resultado inicial:
   - observacao:
     - a falha de concorrencia nao permaneceu apenas documentada para 008-E; ela foi efetivamente resolvida com lock pessimista tenant-safe
 
-11. Resultado consolidado 008-C
+17. Resultado consolidado 008-C
 
 - comando:
   `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="CatalogCategoryConsolidationIT,Prompt36ManualCashTpaIT,PaymentMethodPolicyAppyPayIT,PaymentMethodPolicyManualPaymentIT,TurnoOperacionalRequireOpenForOrdersIT,PedidoNumberServiceConcurrencyIT" test-compile failsafe:integration-test failsafe:verify`
@@ -220,7 +313,7 @@ Resultado inicial:
   - tempo total: 02:30
   - finalizado em: 2026-06-02T15:17:42+01:00
 
-12. Resultado de `mvn clean test`
+18. Resultado de `mvn clean test`
 
 - 331 tests
 - 0 failures
@@ -230,7 +323,7 @@ Resultado inicial:
 - tempo total: 06:01
 - finalizado em: 2026-06-02T15:23:53+01:00
 
-13. Resultado de `DockerAvailabilityIT`
+19. Resultado de `DockerAvailabilityIT`
 
 - comando executado:
   `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test=DockerAvailabilityIT test-compile failsafe:integration-test failsafe:verify`
@@ -243,7 +336,7 @@ Resultado inicial:
   - tempo total: 11.936 s
   - finalizado em: 2026-06-02T15:32:51+01:00
 
-14. Resultado de `TenantCorePersistenceIT`
+20. Resultado de `TenantCorePersistenceIT`
 
 - comando executado:
   `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test=TenantCorePersistenceIT test-compile failsafe:integration-test failsafe:verify`
@@ -256,7 +349,7 @@ Resultado inicial:
   - tempo total: 01:35
   - finalizado em: 2026-06-02T15:34:37+01:00
 
-15. Resultado de reexecucao da 008-A
+21. Resultado de reexecucao da 008-A
 
 - comando:
   `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PaymentMethodPolicyAdminRbacIT,PaymentMethodPolicyAppyPayIT,PaymentMethodPolicyInheritanceIT,PaymentMethodUnitPolicyIT,PaymentPolicyAsyncRolloutIdempotencyIT,PaymentPolicyAsyncRolloutRerunIT,PaymentPolicyAsyncRolloutStatusIT,PaymentPolicyAsyncRolloutSubmitIT,PaymentPolicyAsyncRolloutWorkerIT,PaymentPolicyRolloutApplyIT,PaymentPolicyRolloutBackoffIT,PaymentPolicyRolloutCancelIT,PaymentPolicyRolloutOverwriteModeIT,PaymentPolicyRolloutRerunHardeningIT,PaymentPolicyRolloutStaleLockRecoveryIT,PaymentPolicyTemplateAdminIT,PaymentPolicyTemplateRbacIT,CaixaTurnoRelatorioIT,EvidenceBundleWormTriggerIT,PagamentoGatewayPollingIT,SnapshotEvidenceBundleIT,SnapshotFinanceiroExportSignatureDisabledIT,SnapshotKeyDisabledIT,SnapshotKeyRotationIT" test-compile failsafe:integration-test failsafe:verify`
@@ -271,7 +364,7 @@ Resultado inicial:
   - observacao:
     - surgiu warning de shutdown do fork apos `System.exit(0)`, sem impacto no resultado do build
 
-16. Resultado de reexecucao da 008-B
+22. Resultado de reexecucao da 008-B
 
 - comando:
   `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PlatformBusinessTemplateControllerIT,TenantProvisioningRollbackIT,PaymentPolicyRolloutProgressAuditIT,DeviceConsumoIdentificadoAssistidoIT,PagamentoCallbackTenantAwareIT,PublicQrCardapioIT,PublicQrPagamentoStartIT,PublicQrPedidoIdempotencyIT,PublicOwnerTokenActionControllerIT,PublicQrPedidoSessaoMesaIT,TenantCorePersistenceIT,CatalogTenantIsolationIT" test-compile failsafe:integration-test failsafe:verify`
@@ -286,19 +379,19 @@ Resultado inicial:
   - observacao:
     - reapareceu o ruido conhecido de shutdown do fork/scheduler, mas o build permaneceu verde
 
-17. Pendencias
+23. Pendencias
 
 - IT-FIX-008-D: query PostgreSQL/read-only residual
 - monitorar warnings de shutdown do fork/scheduler em suites mais pesadas
 - decidir depois se o endurecimento de concorrencia em `PedidoNumberService` merece cobertura adicional em 008-E ou se a subfase pode ser reduzida/replanejada
 
-18. Riscos
+24. Riscos
 
 - os warnings de shutdown do fork (`Surefire is going to kill self fork JVM`) continuam aparecendo esporadicamente em lotes grandes, embora sem afetar o status final do build
 - `CatalogCategoryConsolidationIT` ainda exercita um caso proposital de violacao de FK durante a validacao do cenario, mas o teste termina verde e o comportamento ficou explicito
 - o endurecimento com lock pessimista em `PedidoNumberService` resolveu o teste atual; vale acompanhar a rodada ampla futura para confirmar ausencia de impacto lateral em throughput ou deadlock
 
-19. Decisao
+25. Decisao
 
 APROVADO
 
@@ -317,11 +410,12 @@ A subfase IT-FIX-008-C fechou com:
 - 008-A verde novamente
 - 008-B verde novamente
 
-20. Proximo passo recomendado
+26. Proximo passo recomendado
 
 - IT-FIX-008-D Query PostgreSQL/read-only residual
 
-21. Resposta objetiva a pergunta final
+27. Resposta objetiva a pergunta final
 
 Sim. O cluster de Optional/listas vazias/lazy loading/recurso ausente foi estabilizado sem mascarar bugs de dominio,
-sem remover assertions importantes e sem quebrar os lotes ja aprovados.
+sem remover assertions importantes e sem quebrar os lotes ja aprovados. E, complementarmente, a retomada segura apos
+o travamento foi concluida sem repetir execucao indefinida, sem perda de alteracoes locais e sem regressao em 008-A/008-B.

@@ -27,20 +27,17 @@ import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
-import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.DeviceAuthIntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -50,7 +47,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -60,7 +56,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-class DeviceOfflineSyncIdempotencyIT extends PostgresTestcontainersConfig {
+class DeviceOfflineSyncIdempotencyIT extends DeviceAuthIntegrationTestSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -83,20 +79,11 @@ class DeviceOfflineSyncIdempotencyIT extends PostgresTestcontainersConfig {
         openTurno(prov);
         Produto prod = criarProdutoBasico(prov.getTenantId());
         DispositivoOperacional disp = criarDevicePos(prov);
-
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(), disp.getCodigo(),
-                prov.getTenantId(), prov.getTenantCode(),
-                prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
-                DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                List.of(
-                        DeviceCapability.CREATE_ORDER,
-                        DeviceCapability.OFFLINE_SYNC,
-                        DeviceCapability.OFFLINE_CREATE_ORDER
-                ),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
+        String deviceToken = activateDeviceForTest(disp, List.of(
+                DeviceCapability.CREATE_ORDER,
+                DeviceCapability.OFFLINE_SYNC,
+                DeviceCapability.OFFLINE_CREATE_ORDER
+        ));
 
         DeviceOfflineSyncBatchRequest batch1 = new DeviceOfflineSyncBatchRequest();
         DeviceOfflineCommandRequest cmd = new DeviceOfflineCommandRequest();
@@ -110,7 +97,7 @@ class DeviceOfflineSyncIdempotencyIT extends PostgresTestcontainersConfig {
         batch1.setCommands(List.of(cmd));
 
         String resp1 = mockMvc.perform(post("/device/offline-sync/batch")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(batch1)))
                 .andExpect(status().isOk())
@@ -121,7 +108,7 @@ class DeviceOfflineSyncIdempotencyIT extends PostgresTestcontainersConfig {
         assertThat(pedidoId).isPositive();
 
         String resp2 = mockMvc.perform(post("/device/offline-sync/batch")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(batch1)))
                 .andExpect(status().isOk())
@@ -144,7 +131,7 @@ class DeviceOfflineSyncIdempotencyIT extends PostgresTestcontainersConfig {
         batch3.setCommands(List.of(cmd3));
 
         String resp3 = mockMvc.perform(post("/device/offline-sync/batch")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(batch3)))
                 .andExpect(status().isOk())
@@ -185,17 +172,11 @@ class DeviceOfflineSyncIdempotencyIT extends PostgresTestcontainersConfig {
     }
 
     private void openTurno(ProvisionarTenantResponse prov) throws Exception {
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
+        TenantContextHolder.clear();
         AbrirTurnoRequest req = abrirTurnoReq(prov);
-        var userAuth = new UsernamePasswordAuthenticationToken(
-                prov.getOwnerUserId().toString(), "N/A", List.of(new SimpleGrantedAuthority("ROLE_GERENTE"))
-        );
+        String token = issueTenantOwnerToken(prov);
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-                        .with(authentication(userAuth))
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated());
@@ -235,6 +216,7 @@ class DeviceOfflineSyncIdempotencyIT extends PostgresTestcontainersConfig {
         d.setCodigo("POS-OFF-" + (System.nanoTime() % 100000));
         d.setTipo(DispositivoTipo.POS);
         d.setStatus(DispositivoStatus.ATIVO);
+        d.setTokenVersion(1);
         return dispositivoOperacionalRepository.saveAndFlush(d);
     }
 

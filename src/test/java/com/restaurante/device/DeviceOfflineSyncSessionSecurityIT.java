@@ -25,20 +25,17 @@ import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
-import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.DeviceAuthIntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -47,7 +44,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -58,7 +54,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-class DeviceOfflineSyncSessionSecurityIT extends PostgresTestcontainersConfig {
+class DeviceOfflineSyncSessionSecurityIT extends DeviceAuthIntegrationTestSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -81,8 +77,9 @@ class DeviceOfflineSyncSessionSecurityIT extends PostgresTestcontainersConfig {
         Produto prod = criarProdutoBasico(prov.getTenantId());
         DispositivoOperacional deviceA = criarDevicePos(prov, "POS A");
         DispositivoOperacional deviceB = criarDevicePos(prov, "POS B");
+        String deviceAToken = activateDeviceForTest(deviceA, List.of(DeviceCapability.OFFLINE_SYNC, DeviceCapability.OFFLINE_CREATE_ORDER));
+        String deviceBToken = activateDeviceForTest(deviceB, List.of(DeviceCapability.OFFLINE_SYNC));
 
-        UsernamePasswordAuthenticationToken authA = authFor(prov, deviceA, List.of(DeviceCapability.OFFLINE_SYNC, DeviceCapability.OFFLINE_CREATE_ORDER));
         DeviceOfflineSyncBatchRequest batch = new DeviceOfflineSyncBatchRequest();
         batch.setSyncSessionId("sess-A");
         DeviceOfflineCommandRequest cmd = new DeviceOfflineCommandRequest();
@@ -96,7 +93,7 @@ class DeviceOfflineSyncSessionSecurityIT extends PostgresTestcontainersConfig {
         batch.setCommands(List.of(cmd));
 
         String resp = mockMvc.perform(post("/device/offline-sync/batch")
-                        .with(authentication(authA))
+                        .header("Authorization", deviceAuthorization(deviceAToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(batch)))
                 .andExpect(status().isOk())
@@ -104,22 +101,9 @@ class DeviceOfflineSyncSessionSecurityIT extends PostgresTestcontainersConfig {
         JsonNode json = objectMapper.readTree(resp).at("/data");
         String serverSyncId = json.get("serverSyncId").asText();
 
-        UsernamePasswordAuthenticationToken authB = authFor(prov, deviceB, List.of(DeviceCapability.OFFLINE_SYNC));
         mockMvc.perform(get("/device/offline-sync/sessions/{serverSyncId}", serverSyncId)
-                        .with(authentication(authB)))
+                        .header("Authorization", deviceAuthorization(deviceBToken)))
                 .andExpect(status().isNotFound());
-    }
-
-    private UsernamePasswordAuthenticationToken authFor(ProvisionarTenantResponse prov, DispositivoOperacional disp, List<DeviceCapability> caps) {
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(), disp.getCodigo(),
-                prov.getTenantId(), prov.getTenantCode(),
-                prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
-                DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                caps,
-                1
-        );
-        return new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
     }
 
     private Produto criarProdutoBasico(Long tenantId) {

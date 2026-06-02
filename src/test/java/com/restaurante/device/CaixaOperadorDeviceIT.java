@@ -33,20 +33,17 @@ import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
-import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.DeviceAuthIntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -56,7 +53,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -66,7 +62,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
+class CaixaOperadorDeviceIT extends DeviceAuthIntegrationTestSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -92,7 +88,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         Produto prod = criarProdutoBasico(prov.getTenantId());
         DispositivoOperacional disp = criarDevicePos(prov);
 
-        UsernamePasswordAuthenticationToken auth = deviceAuth(prov, disp, List.of(
+        String deviceToken = activateDeviceForTest(disp, List.of(
                 DeviceCapability.CREATE_ORDER,
                 DeviceCapability.CONFIRM_CASH_PAYMENT,
                 DeviceCapability.VIEW_PAYMENT_ORDER,
@@ -104,8 +100,8 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
                 DeviceCapability.OFFLINE_CREATE_MANUAL_PAYMENT_ORDER
         ));
 
-        long pedidoId = criarPedidoOnline(auth, prod.getId());
-        long ordemId = criarOrdemManualOffline(auth, pedidoId, "cmd-ordem-1", MetodoPagamentoManual.CASH);
+        long pedidoId = criarPedidoOnline(deviceToken, prod.getId());
+        long ordemId = criarOrdemManualOffline(deviceToken, pedidoId, "cmd-ordem-1", MetodoPagamentoManual.CASH);
 
         // sem abrir caixa -> conflito
         ConfirmarOrdemManualRequest confirm = new ConfirmarOrdemManualRequest();
@@ -114,7 +110,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         confirm.setValorRecebido(new BigDecimal("10.00"));
 
         mockMvc.perform(post("/device/ordens-pagamento/" + ordemId + "/confirmar-manual")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-confirm-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(confirm)))
@@ -124,7 +120,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         AbrirCaixaOperadorRequest open = new AbrirCaixaOperadorRequest();
         open.setOperadorUserId(prov.getOwnerUserId());
         String openResp = mockMvc.perform(post("/device/caixa-operador/open")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(open)))
                 .andExpect(status().isOk())
@@ -134,7 +130,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         assertThat(caixaId).isPositive();
 
         mockMvc.perform(post("/device/ordens-pagamento/" + ordemId + "/confirmar-manual")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-confirm-2")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(confirm)))
@@ -148,7 +144,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         Produto prod = criarProdutoBasico(prov.getTenantId());
         DispositivoOperacional disp = criarDevicePos(prov);
 
-        UsernamePasswordAuthenticationToken auth = deviceAuth(prov, disp, List.of(
+        String deviceToken = activateDeviceForTest(disp, List.of(
                 DeviceCapability.CREATE_ORDER,
                 DeviceCapability.CONFIRM_CASH_PAYMENT,
                 DeviceCapability.CONFIRM_TPA_PAYMENT,
@@ -164,27 +160,27 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         AbrirCaixaOperadorRequest open = new AbrirCaixaOperadorRequest();
         open.setOperadorUserId(prov.getOwnerUserId());
         String openResp = mockMvc.perform(post("/device/caixa-operador/open")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(open)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         long caixaId = objectMapper.readTree(openResp).at("/data/id").asLong();
 
-        long pedidoCash = criarPedidoOnline(auth, prod.getId());
-        long ordemCash = criarOrdemManualOffline(auth, pedidoCash, "cmd-ordem-cash", MetodoPagamentoManual.CASH);
-        confirmarOrdem(auth, ordemCash, "c-1", MetodoPagamentoManual.CASH, new BigDecimal("10.00"), "idem-conf-cash");
+        long pedidoCash = criarPedidoOnline(deviceToken, prod.getId());
+        long ordemCash = criarOrdemManualOffline(deviceToken, pedidoCash, "cmd-ordem-cash", MetodoPagamentoManual.CASH);
+        confirmarOrdem(deviceToken, ordemCash, "c-1", MetodoPagamentoManual.CASH, new BigDecimal("10.00"), "idem-conf-cash");
 
-        long pedidoTpa = criarPedidoOnline(auth, prod.getId());
-        long ordemTpa = criarOrdemManualOffline(auth, pedidoTpa, "cmd-ordem-tpa", MetodoPagamentoManual.TPA);
-        confirmarOrdem(auth, ordemTpa, "t-1", MetodoPagamentoManual.TPA, new BigDecimal("10.00"), "idem-conf-tpa");
+        long pedidoTpa = criarPedidoOnline(deviceToken, prod.getId());
+        long ordemTpa = criarOrdemManualOffline(deviceToken, pedidoTpa, "cmd-ordem-tpa", MetodoPagamentoManual.TPA);
+        confirmarOrdem(deviceToken, ordemTpa, "t-1", MetodoPagamentoManual.TPA, new BigDecimal("10.00"), "idem-conf-tpa");
 
         FecharCaixaOperadorRequest close = new FecharCaixaOperadorRequest();
         close.setDeclaredCashAmount(new BigDecimal("10.00"));
         close.setDeclaredTpaAmount(new BigDecimal("10.00"));
 
         String closeResp = mockMvc.perform(post("/device/caixa-operador/" + caixaId + "/close")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(close)))
                 .andExpect(status().isOk())
@@ -196,19 +192,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         assertThat(closeJson.at("/data/manualDifferenceAmount").decimalValue()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
-    private UsernamePasswordAuthenticationToken deviceAuth(ProvisionarTenantResponse prov, DispositivoOperacional disp, List<DeviceCapability> caps) {
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(), disp.getCodigo(),
-                prov.getTenantId(), prov.getTenantCode(),
-                prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
-                DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                caps,
-                1
-        );
-        return new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
-    }
-
-    private long criarPedidoOnline(UsernamePasswordAuthenticationToken auth, Long produtoId) throws Exception {
+    private long criarPedidoOnline(String deviceToken, Long produtoId) throws Exception {
         DeviceCriarPedidoRequest pedidoReq = new DeviceCriarPedidoRequest();
         pedidoReq.setClientRequestId("online-" + System.nanoTime());
         DeviceCriarPedidoItemRequest it = new DeviceCriarPedidoItemRequest();
@@ -216,7 +200,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         it.setQuantidade(1);
         pedidoReq.setItens(List.of(it));
         String pedidoResp = mockMvc.perform(post("/device/pedidos")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-" + System.nanoTime())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(pedidoReq)))
@@ -225,7 +209,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         return objectMapper.readTree(pedidoResp).at("/data/pedidoId").asLong();
     }
 
-    private long criarOrdemManualOffline(UsernamePasswordAuthenticationToken auth, long pedidoId, String clientRequestId, MetodoPagamentoManual metodo) throws Exception {
+    private long criarOrdemManualOffline(String deviceToken, long pedidoId, String clientRequestId, MetodoPagamentoManual metodo) throws Exception {
         DeviceOfflineSyncBatchRequest batch = new DeviceOfflineSyncBatchRequest();
         DeviceOfflineCommandRequest cmd = new DeviceOfflineCommandRequest();
         cmd.setClientRequestId(clientRequestId);
@@ -238,7 +222,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         batch.setCommands(List.of(cmd));
 
         String resp = mockMvc.perform(post("/device/offline-sync/batch")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(batch)))
                 .andExpect(status().isOk())
@@ -247,7 +231,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         return j.at("/data/results/0/createdEntityId").asLong();
     }
 
-    private void confirmarOrdem(UsernamePasswordAuthenticationToken auth,
+    private void confirmarOrdem(String deviceToken,
                                long ordemId,
                                String clientRequestId,
                                MetodoPagamentoManual metodo,
@@ -259,7 +243,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
         confirm.setValorRecebido(valorRecebido);
         confirm.setReferenciaOperador("OK");
         mockMvc.perform(post("/device/ordens-pagamento/" + ordemId + "/confirmar-manual")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", idemKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(confirm)))
@@ -296,11 +280,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
     }
 
     private void openTurno(ProvisionarTenantResponse prov) throws Exception {
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
+        TenantContextHolder.clear();
         AbrirTurnoRequest req = new AbrirTurnoRequest();
         req.setInstituicaoId(prov.getInstituicaoId());
         req.setUnidadeAtendimentoId(prov.getUnidadeAtendimentoId());
@@ -313,11 +293,9 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
                 boolItem("UNIDADE_PRODUCAO_ATIVA", true),
                 boolItem("OPERADOR_CONFIRMOU", true)
         ));
-        var userAuth = new UsernamePasswordAuthenticationToken(
-                prov.getOwnerUserId().toString(), "N/A", List.of(new SimpleGrantedAuthority("ROLE_GERENTE"))
-        );
+        String token = issueTenantOwnerToken(prov);
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-                        .with(authentication(userAuth))
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated());
@@ -378,6 +356,7 @@ class CaixaOperadorDeviceIT extends PostgresTestcontainersConfig {
             d.setStatus(DispositivoStatus.ATIVO);
             d.setCodigo("POS-" + (System.nanoTime() % 1_000_000));
             d.setNome("POS Caixa");
+            d.setTokenVersion(1);
             dispArr[0] = dispositivoOperacionalRepository.save(d);
         });
         return dispArr[0];

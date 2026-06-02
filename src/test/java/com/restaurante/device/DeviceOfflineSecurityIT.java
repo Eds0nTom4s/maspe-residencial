@@ -16,20 +16,17 @@ import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
-import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.DeviceAuthIntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -39,7 +36,6 @@ import java.time.Instant;
 import com.restaurante.model.enums.DeviceOfflineCommandType;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,7 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-class DeviceOfflineSecurityIT extends PostgresTestcontainersConfig {
+class DeviceOfflineSecurityIT extends DeviceAuthIntegrationTestSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -68,16 +64,7 @@ class DeviceOfflineSecurityIT extends PostgresTestcontainersConfig {
     void deviceWithoutOfflineSyncCapability_isForbidden() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("offline-sec", "OSC");
         DispositivoOperacional disp = criarDevicePos(prov);
-
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(), disp.getCodigo(),
-                prov.getTenantId(), prov.getTenantCode(),
-                prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
-                DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.CREATE_ORDER),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
+        String deviceToken = activateDeviceForTest(disp, List.of(DeviceCapability.CREATE_ORDER));
 
         DeviceOfflineSyncBatchRequest batch = new DeviceOfflineSyncBatchRequest();
         DeviceOfflineCommandRequest cmd = new DeviceOfflineCommandRequest();
@@ -89,7 +76,7 @@ class DeviceOfflineSecurityIT extends PostgresTestcontainersConfig {
         batch.setCommands(List.of(cmd));
 
         String resp = mockMvc.perform(post("/device/offline-sync/batch")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(batch)))
                 .andExpect(status().isForbidden())
@@ -138,6 +125,7 @@ class DeviceOfflineSecurityIT extends PostgresTestcontainersConfig {
         d.setCodigo("POS-OFF-" + (System.nanoTime() % 100000));
         d.setTipo(DispositivoTipo.POS);
         d.setStatus(DispositivoStatus.ATIVO);
+        d.setTokenVersion(1);
         return dispositivoOperacionalRepository.saveAndFlush(d);
     }
 }

@@ -26,20 +26,17 @@ import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
-import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.DeviceAuthIntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -48,7 +45,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -58,7 +54,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
+class DevicePedidoCreateIT extends DeviceAuthIntegrationTestSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -78,42 +74,15 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
     @Test
     void device_pos_withCreateOrder_canCreatePedido_andIdempotencyReplayWorks() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("dev-pos-order", "DPO");
-
-        // abrir turno (tenant context)
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-        var userAuth = new UsernamePasswordAuthenticationToken(
-                prov.getOwnerUserId().toString(), "N/A", List.of(new SimpleGrantedAuthority("ROLE_GERENTE"))
-        );
-        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-                        .with(authentication(userAuth))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
-                .andExpect(status().isCreated());
-
+        openTurno(prov);
         Produto prod = criarProdutoBasico(prov.getTenantId());
-
         DispositivoOperacional disp = criarDevicePos(prov);
-
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(),
-                disp.getCodigo(),
-                prov.getTenantId(),
-                prov.getTenantCode(),
-                prov.getInstituicaoId(),
-                prov.getUnidadeAtendimentoId(),
-                null,
-                DispositivoTipo.POS,
-                DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.HEARTBEAT, DeviceCapability.SYNC_CATALOG, DeviceCapability.VIEW_ORDERS, DeviceCapability.CREATE_ORDER),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
-        );
+        String deviceToken = activateDeviceForTest(disp, List.of(
+                DeviceCapability.HEARTBEAT,
+                DeviceCapability.SYNC_CATALOG,
+                DeviceCapability.VIEW_ORDERS,
+                DeviceCapability.CREATE_ORDER
+        ));
 
         DeviceCriarPedidoRequest req = new DeviceCriarPedidoRequest();
         req.setClientRequestId("pos-req-1");
@@ -126,7 +95,7 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
         req.setItens(List.of(it));
 
         String resp1 = mockMvc.perform(post("/device/pedidos")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
@@ -139,7 +108,7 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
         assertThat(j1.at("/data/turnoOperacionalId").asLong()).isPositive();
 
         String resp2 = mockMvc.perform(post("/device/pedidos")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
@@ -153,32 +122,10 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
     @Test
     void idempotencyKey_sameButDifferentBody_returns409_withDeviceErrorResponse() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("dev-pos-order2", "DP2");
-
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-        var userAuth = new UsernamePasswordAuthenticationToken(
-                prov.getOwnerUserId().toString(), "N/A", List.of(new SimpleGrantedAuthority("ROLE_GERENTE"))
-        );
-        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-                        .with(authentication(userAuth))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
-                .andExpect(status().isCreated());
-
+        openTurno(prov);
         Produto prod = criarProdutoBasico(prov.getTenantId());
         DispositivoOperacional disp = criarDevicePos(prov);
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(), disp.getCodigo(),
-                prov.getTenantId(), prov.getTenantCode(),
-                prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
-                DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.VIEW_ORDERS, DeviceCapability.CREATE_ORDER),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
+        String deviceToken = activateDeviceForTest(disp, List.of(DeviceCapability.VIEW_ORDERS, DeviceCapability.CREATE_ORDER));
 
         DeviceCriarPedidoRequest req = new DeviceCriarPedidoRequest();
         req.setClientRequestId("pos-req-2");
@@ -188,7 +135,7 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
         req.setItens(List.of(it));
 
         mockMvc.perform(post("/device/pedidos")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-x")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
@@ -197,7 +144,7 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
         // muda quantidade com mesma chave
         it.setQuantidade(2);
         String resp = mockMvc.perform(post("/device/pedidos")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-x")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
@@ -211,15 +158,7 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
     void device_withoutCreateOrder_isForbidden() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("dev-pos-order3", "DP3");
         DispositivoOperacional disp = criarDevicePos(prov);
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(), disp.getCodigo(),
-                prov.getTenantId(), prov.getTenantCode(),
-                prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
-                DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.VIEW_ORDERS),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
+        String deviceToken = activateDeviceForTest(disp, List.of(DeviceCapability.VIEW_ORDERS));
 
         Produto prod = criarProdutoBasico(prov.getTenantId());
         DeviceCriarPedidoRequest req = new DeviceCriarPedidoRequest();
@@ -230,7 +169,7 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
         req.setItens(List.of(it));
 
         String resp = mockMvc.perform(post("/device/pedidos")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-3")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
@@ -261,6 +200,16 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
         return r;
     }
 
+    private void openTurno(ProvisionarTenantResponse prov) throws Exception {
+        TenantContextHolder.clear();
+        String token = issueTenantOwnerToken(prov);
+        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
+                .andExpect(status().isCreated());
+    }
+
     private DispositivoOperacional criarDevicePos(ProvisionarTenantResponse prov) {
         Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
         var inst = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
@@ -273,6 +222,7 @@ class DevicePedidoCreateIT extends PostgresTestcontainersConfig {
         d.setCodigo("POS-" + (System.nanoTime() % 100000));
         d.setTipo(DispositivoTipo.POS);
         d.setStatus(DispositivoStatus.ATIVO);
+        d.setTokenVersion(1);
         return dispositivoOperacionalRepository.saveAndFlush(d);
     }
 

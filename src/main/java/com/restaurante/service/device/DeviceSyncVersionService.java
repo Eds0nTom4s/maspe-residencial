@@ -198,7 +198,18 @@ public class DeviceSyncVersionService {
         LocalDateTime instTs = instituicao != null ? bestTs(instituicao.getUpdatedAt(), instituicao.getCreatedAt()) : null;
         LocalDateTime uaTs = ua != null ? bestTs(ua.getUpdatedAt(), ua.getCreatedAt()) : null;
         LocalDateTime upTs = up != null ? bestTs(up.getUpdatedAt(), up.getCreatedAt()) : null;
-        LocalDateTime dispTs = disp != null ? bestTs(disp.getUpdatedAt(), disp.getCreatedAt()) : null;
+        String deviceBootstrapRevision = disp == null
+                ? "missing"
+                : "createdAt=" + disp.getCreatedAt()
+                + "|activatedAt=" + disp.getAtivadoEm()
+                + "|revokedAt=" + disp.getRevogadoEm()
+                + "|rotatedAt=" + disp.getLastTokenRotationAt()
+                + "|status=" + device.status()
+                + "|tipo=" + device.tipo()
+                + "|tokenV=" + device.tokenVersion()
+                + "|instId=" + device.instituicaoId()
+                + "|uaId=" + device.unidadeAtendimentoId()
+                + "|upId=" + device.unidadeProducaoId();
 
         String caps = capabilitiesSeed(device.capabilities());
         String syncVersion = "bootstrap:"
@@ -206,10 +217,7 @@ public class DeviceSyncVersionService {
                 + "|inst=" + device.instituicaoId() + ":" + instTs
                 + "|ua=" + device.unidadeAtendimentoId() + ":" + uaTs
                 + "|up=" + device.unidadeProducaoId() + ":" + upTs
-                + "|dev=" + device.dispositivoId() + ":" + dispTs
-                + "|status=" + device.status()
-                + "|tipo=" + device.tipo()
-                + "|tokenV=" + device.tokenVersion()
+                + "|dev=" + device.dispositivoId() + ":" + deviceBootstrapRevision
                 + "|caps=" + caps
                 + "|contract=" + bootstrapContractVersion;
 
@@ -224,10 +232,7 @@ public class DeviceSyncVersionService {
                 "upId=" + device.unidadeProducaoId(),
                 "upTs=" + upTs,
                 "devId=" + device.dispositivoId(),
-                "devTs=" + dispTs,
-                "devStatus=" + device.status(),
-                "devTipo=" + device.tipo(),
-                "tokenV=" + device.tokenVersion(),
+                "devRevision=" + deviceBootstrapRevision,
                 "caps=" + caps,
                 "contract=" + bootstrapContractVersion
         ));

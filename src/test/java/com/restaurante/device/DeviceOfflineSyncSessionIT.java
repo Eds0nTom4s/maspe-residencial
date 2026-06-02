@@ -29,17 +29,11 @@ import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.device.offline.repository.DeviceOfflineCommandRepository;
 import com.restaurante.device.offline.repository.DeviceOfflineSyncSessionRepository;
-import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
-import com.restaurante.testsupport.PostgresTestcontainersConfig;
-import com.restaurante.repository.UserRepository;
-import com.restaurante.repository.TenantUserRepository;
-import com.restaurante.security.JwtTokenProvider;
-import com.restaurante.model.enums.TenantUserRole;
-import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.testsupport.DeviceAuthIntegrationTestSupport;
 import com.restaurante.dto.request.AbrirTurnoRequest;
 import com.restaurante.dto.request.ChecklistItemRespostaRequest;
 import com.restaurante.model.enums.TurnoOperacionalTipo;
@@ -49,8 +43,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -60,7 +52,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -71,7 +62,7 @@ import org.springframework.transaction.annotation.Transactional;
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-class DeviceOfflineSyncSessionIT extends PostgresTestcontainersConfig {
+class DeviceOfflineSyncSessionIT extends DeviceAuthIntegrationTestSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -85,9 +76,6 @@ class DeviceOfflineSyncSessionIT extends PostgresTestcontainersConfig {
     @Autowired DeviceOfflineSyncSessionRepository syncSessionRepository;
     @Autowired DeviceOfflineCommandRepository commandRepository;
     @Autowired CozinhaRepository cozinhaRepository;
-    @Autowired UserRepository userRepository;
-    @Autowired TenantUserRepository tenantUserRepository;
-    @Autowired JwtTokenProvider jwtTokenProvider;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @AfterEach
@@ -110,30 +98,19 @@ class DeviceOfflineSyncSessionIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse prov = provArr[0];
         Produto prod = prodArr[0];
         DispositivoOperacional disp = dispArr[0];
-
-        // abrir turno (tenant context)
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
+        String deviceToken = activateDeviceForTest(disp, List.of(
+                DeviceCapability.OFFLINE_SYNC,
+                DeviceCapability.OFFLINE_CREATE_ORDER,
+                DeviceCapability.CREATE_ORDER
         ));
-        String token = tenantToken(prov);
+
+        TenantContextHolder.clear();
+        String token = issueTenantOwnerToken(prov);
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
                 .andExpect(status().isCreated());
-        TenantContextHolder.clear();
-
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(), disp.getCodigo(),
-                prov.getTenantId(), prov.getTenantCode(),
-                prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
-                DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.OFFLINE_SYNC, DeviceCapability.OFFLINE_CREATE_ORDER, DeviceCapability.CREATE_ORDER),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE")));
 
         DeviceOfflineSyncBatchRequest batch = new DeviceOfflineSyncBatchRequest();
         batch.setSyncSessionId("sess-1");
@@ -153,7 +130,7 @@ class DeviceOfflineSyncSessionIT extends PostgresTestcontainersConfig {
         batch.setCommands(List.of(cmd));
 
         String resp = mockMvc.perform(post("/device/offline-sync/batch")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(batch)))
                 .andExpect(status().isOk())
@@ -260,19 +237,6 @@ class DeviceOfflineSyncSessionIT extends PostgresTestcontainersConfig {
         unidadeAtendimentoRepository.saveAndFlush(ua);
 
         return prov;
-    }
-
-    private String tenantToken(ProvisionarTenantResponse prov) {
-        var tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
-        var user = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
-        return jwtTokenProvider.generateTenantScopedToken(
-                user,
-                tenant,
-                TenantUserRole.TENANT_OWNER,
-                TenantUserEstado.ATIVO,
-                1,
-                null
-        );
     }
 
     private AbrirTurnoRequest abrirTurnoReq(ProvisionarTenantResponse prov) {

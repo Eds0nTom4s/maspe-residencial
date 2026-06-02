@@ -5,41 +5,39 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DispositivoStatus;
 import com.restaurante.model.enums.DispositivoTipo;
+import com.restaurante.model.enums.OperationalDeviceType;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.repository.DispositivoOperacionalRepository;
+import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
-import com.restaurante.security.device.DevicePrincipal;
-import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantContext;
+import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
-import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.DeviceAuthIntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.security.test.context.support.WithMockUser;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,7 +47,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
+class DeviceReadOnlySyncIT extends DeviceAuthIntegrationTestSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -57,6 +55,9 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
     @Autowired TenantRepository tenantRepository;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
+    @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
+    @Autowired InstituicaoRepository instituicaoRepository;
+    @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
 
     @AfterEach
     void clear() {
@@ -68,31 +69,16 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse prov = provisionTenant();
         Produto prod1 = criarProdutoBasico(prov.getTenantId());
         Produto prod2 = criarProdutoBasico(prov.getTenantId());
-
-        DevicePrincipal device = new DevicePrincipal(
-                10L,
-                "KDS-01",
-                prov.getTenantId(),
-                prov.getTenantCode(),
-                prov.getInstituicaoId(),
-                prov.getUnidadeAtendimentoId(),
-                null,
-                DispositivoTipo.KDS,
-                DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.SYNC_CATALOG, DeviceCapability.VIEW_PRODUCTION),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
-        );
+        DispositivoOperacional device = criarDevice(prov, "KDS-01", "KDS Sync", DispositivoTipo.KDS, OperationalDeviceType.KDS_COZINHA);
+        String deviceToken = activateDeviceForTest(device, java.util.List.of(DeviceCapability.SYNC_CATALOG, DeviceCapability.VIEW_PRODUCTION));
 
         String boot = mockMvc.perform(get("/device/sync/bootstrap")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         String bootEtag = mockMvc.perform(get("/device/sync/bootstrap")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getHeader("ETag");
@@ -102,36 +88,24 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
 
         // If-None-Match deve retornar 304 quando não há mudanças no principal/escopo
         mockMvc.perform(get("/device/sync/bootstrap")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("If-None-Match", bootEtag)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotModified());
 
         // tokenVersion muda ETag do bootstrap
-        DevicePrincipal deviceV2 = new DevicePrincipal(
-                10L,
-                "KDS-01",
-                prov.getTenantId(),
-                prov.getTenantCode(),
-                prov.getInstituicaoId(),
-                prov.getUnidadeAtendimentoId(),
-                null,
-                DispositivoTipo.KDS,
-                DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.SYNC_CATALOG, DeviceCapability.VIEW_PRODUCTION),
-                2
-        );
-        UsernamePasswordAuthenticationToken authV2 = new UsernamePasswordAuthenticationToken(
-                deviceV2, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
-        );
+        DispositivoOperacional refreshedDevice = dispositivoOperacionalRepository.findById(device.getId())
+                .orElseThrow();
+        refreshedDevice.setTokenVersion(2);
+        dispositivoOperacionalRepository.saveAndFlush(refreshedDevice);
         mockMvc.perform(get("/device/sync/bootstrap")
-                        .with(authentication(authV2))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("If-None-Match", bootEtag)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
 
         var catRes1 = mockMvc.perform(get("/device/sync/catalogo")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .param("limit", "1")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -147,7 +121,7 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
         // próxima página via cursor
         String cursor = catJson.at("/nextCursor").asText();
         String page2 = mockMvc.perform(get("/device/sync/catalogo")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .param("limit", "1")
                         .param("cursor", cursor)
                         .accept(MediaType.APPLICATION_JSON))
@@ -159,7 +133,7 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
         // cursor manipulado deve falhar (assinatura inválida)
         String tampered = cursor.replaceFirst("\\.", "X."); // altera payload mantendo formato
         String err = mockMvc.perform(get("/device/sync/catalogo")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .param("limit", "1")
                         .param("cursor", tampered)
                         .accept(MediaType.APPLICATION_JSON))
@@ -171,7 +145,7 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
         // cursor legacy sem assinatura deve ser rejeitado quando require-signature=true
         String legacy = cursor.split("\\.")[0];
         mockMvc.perform(get("/device/sync/catalogo")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .param("limit", "1")
                         .param("cursor", legacy)
                         .accept(MediaType.APPLICATION_JSON))
@@ -179,7 +153,7 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
 
         // If-None-Match deve retornar 304 quando não há mudanças
         mockMvc.perform(get("/device/sync/catalogo")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("If-None-Match", etag)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotModified());
@@ -188,27 +162,11 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
     @Test
     void device_canPaginateMesas_andCursorDisables304() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
-
-        DevicePrincipal device = new DevicePrincipal(
-                11L,
-                "POS-01",
-                prov.getTenantId(),
-                prov.getTenantCode(),
-                prov.getInstituicaoId(),
-                prov.getUnidadeAtendimentoId(),
-                null,
-                DispositivoTipo.POS,
-                DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.VIEW_ORDERS),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
-        );
-        SecurityContextHolder.getContext().setAuthentication(auth);
+        DispositivoOperacional device = criarDevice(prov, "POS-01", "POS Sync", DispositivoTipo.POS, OperationalDeviceType.POS_CAIXA);
+        String deviceToken = activateDeviceForTest(device, java.util.List.of(DeviceCapability.VIEW_ORDERS));
 
         var res1 = mockMvc.perform(get("/device/sync/mesas")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .param("limit", "1")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -222,7 +180,7 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
         // pagina 2 (mesmo etag), não deve retornar 304 porque cursor exige body
         String cursor = json1.at("/nextCursor").asText();
         mockMvc.perform(get("/device/sync/mesas")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .param("limit", "1")
                         .param("cursor", cursor)
                         .header("If-None-Match", etag)
@@ -233,26 +191,11 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
     @Test
     void device_canPaginateQrCodes_andCursorDisables304() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
-
-        DevicePrincipal device = new DevicePrincipal(
-                12L,
-                "POS-02",
-                prov.getTenantId(),
-                prov.getTenantCode(),
-                prov.getInstituicaoId(),
-                prov.getUnidadeAtendimentoId(),
-                null,
-                DispositivoTipo.POS,
-                DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.SYNC_CATALOG),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
-        );
+        DispositivoOperacional device = criarDevice(prov, "POS-02", "POS QR Sync", DispositivoTipo.POS, OperationalDeviceType.POS_CAIXA);
+        String deviceToken = activateDeviceForTest(device, java.util.List.of(DeviceCapability.SYNC_CATALOG));
 
         var res1 = mockMvc.perform(get("/device/sync/qrcodes")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .param("limit", "1")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -265,7 +208,7 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
 
         String cursor = json1.at("/nextCursor").asText();
         mockMvc.perform(get("/device/sync/qrcodes")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .param("limit", "1")
                         .param("cursor", cursor)
                         .header("If-None-Match", etag)
@@ -274,15 +217,13 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
     }
 
     @Test
-    @WithMockUser(username = "operator-user")
     void jwtUser_cannotAccessDeviceSyncEndpoints() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of("TENANT_OPERATOR"), TenantResolutionSource.JWT, false, false
-        ));
+        String token = issueTenantOwnerToken(prov);
 
-        mockMvc.perform(get("/device/sync/bootstrap").accept(MediaType.APPLICATION_JSON))
+        mockMvc.perform(get("/device/sync/bootstrap")
+                        .header("Authorization", "Bearer " + token)
+                        .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -349,5 +290,26 @@ class DeviceReadOnlySyncIT extends PostgresTestcontainersConfig {
         prod.setTenant(tenant);
         prod.setCategoriaProduto(cat);
         return produtoRepository.save(prod);
+    }
+
+    private DispositivoOperacional criarDevice(ProvisionarTenantResponse prov,
+                                               String codigo,
+                                               String nome,
+                                               DispositivoTipo tipo,
+                                               OperationalDeviceType operationalType) {
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        var inst = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
+        var ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
+        DispositivoOperacional d = new DispositivoOperacional();
+        d.setTenant(tenant);
+        d.setInstituicao(inst);
+        d.setUnidadeAtendimento(ua);
+        d.setCodigo(codigo + "-" + (System.nanoTime() % 100000));
+        d.setNome(nome);
+        d.setTipo(tipo);
+        d.setOperationalDeviceType(operationalType);
+        d.setStatus(DispositivoStatus.ATIVO);
+        d.setTokenVersion(1);
+        return dispositivoOperacionalRepository.saveAndFlush(d);
     }
 }

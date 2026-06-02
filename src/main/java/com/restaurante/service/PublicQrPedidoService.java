@@ -24,14 +24,12 @@ import com.restaurante.config.OperacaoProperties;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
-import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
-import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
@@ -43,18 +41,15 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class PublicQrPedidoService {
 
     private final QrCodeOperacionalService qrCodeOperacionalService;
-    private final SessaoConsumoRepository sessaoConsumoRepository;
     private final PedidoRepository pedidoRepository;
     private final ProdutoRepository produtoRepository;
     private final SubPedidoService subPedidoService;
-    private final FundoConsumoService fundoConsumoService;
     private final SessaoConsumoService sessaoConsumoService;
     private final PedidoNumberService pedidoNumberService;
     private final PublicQrOrderIdempotencyService idempotencyService;
@@ -271,48 +266,14 @@ public class PublicQrPedidoService {
         if (tenantId == null) {
             throw new BusinessException("QR sem tenant válido.");
         }
-        if (qr.getTipo() == QrCodeOperacionalTipo.MESA && mesa != null) {
-            List<SessaoConsumo> abertas = sessaoConsumoRepository.findAllByTenantIdAndMesaIdAndStatus(
-                    tenantId, mesa.getId(), StatusSessaoConsumo.ABERTA
-            );
-            if (abertas.size() > 1) {
-                throw new BusinessException("Mesa possui mais de uma sessão aberta.");
-            }
-            if (abertas.size() == 1) {
-                SessaoConsumo s = abertas.get(0);
-                if (s.getInstituicao() == null || !s.getInstituicao().getId().equals(instituicao.getId())) {
-                    throw new BusinessException("Sessão aberta inválida para a mesa.");
-                }
-                if (s.getTenant() == null || !s.getTenant().getId().equals(tenantId)) {
-                    throw new BusinessException("Sessão aberta inválida para a mesa.");
-                }
-                return s;
-            }
-            return criarSessaoMinima(instituicao, unidadeAtendimento, mesa);
-        }
-        return criarSessaoMinima(instituicao, unidadeAtendimento, mesa);
-    }
-
-    private SessaoConsumo criarSessaoMinima(Instituicao instituicao, UnidadeAtendimento unidadeAtendimento, Mesa mesa) {
-        if (instituicao == null || instituicao.getTenant() == null) {
-            throw new BusinessException("Instituição inválida para criação de sessão.");
-        }
-        if (mesa != null && mesa.getTenant() != null && !mesa.getTenant().getId().equals(instituicao.getTenant().getId())) {
-            throw new BusinessException("Mesa inválida para a instituição/tenant.");
-        }
-        SessaoConsumo sessao = SessaoConsumo.builder()
-                .qrCodeSessao(UUID.randomUUID().toString())
-                .tenant(instituicao.getTenant())
-                .instituicao(instituicao)
-                .unidadeAtendimento(unidadeAtendimento)
-                .mesa(mesa)
-                .modoAnonimo(true)
-                .status(StatusSessaoConsumo.ABERTA)
-                .tipoSessao(TipoSessao.POS_PAGO)
-                .build();
-        SessaoConsumo salva = sessaoConsumoRepository.save(sessao);
-        fundoConsumoService.criarFundoParaSessao(salva);
-        return salva;
+        return sessaoConsumoService.resolveOrCreateSessaoAnonima(
+                tenantId,
+                instituicao,
+                unidadeAtendimento,
+                qr.getTipo() == QrCodeOperacionalTipo.MESA ? mesa : null,
+                TipoSessao.POS_PAGO,
+                false
+        );
     }
 
     private PublicQrPedidoResponse mapPedidoToResponse(Pedido pedido) {

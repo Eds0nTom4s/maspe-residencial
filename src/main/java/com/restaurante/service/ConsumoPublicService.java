@@ -1,12 +1,10 @@
 package com.restaurante.service;
 
-import com.restaurante.dto.request.AbrirSessaoRequest;
 import com.restaurante.dto.request.CriarCarregamentoFundoRequest;
 import com.restaurante.dto.request.PublicCriarOrdemPagamentoManualPedidoRequest;
 import com.restaurante.dto.response.GerirConsumoOptionsResponse;
 import com.restaurante.dto.response.OrdemPagamentoResponse;
 import com.restaurante.dto.response.OrdemPagamentoStatusResponse;
-import com.restaurante.dto.response.QrPublicContext;
 import com.restaurante.dto.response.SessaoConsumoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
@@ -25,7 +23,6 @@ import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.OrdemPagamentoTipo;
 import com.restaurante.model.enums.PaymentDestination;
 import com.restaurante.model.enums.PaymentMethodCode;
-import com.restaurante.model.enums.PaymentUsageContext;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
@@ -63,14 +60,15 @@ public class ConsumoPublicService {
         if (qr.getMesa() == null && qr.getUnidadeAtendimento() == null) {
             throw new BusinessException("QR inválido para consumo (mesa/unidade ausentes).");
         }
-
-        AbrirSessaoRequest req = AbrirSessaoRequest.builder()
-                .mesaId(qr.getMesa() != null ? qr.getMesa().getId() : null)
-                .unidadeAtendimentoId(qr.getUnidadeAtendimento() != null ? qr.getUnidadeAtendimento().getId() : null)
-                .modoAnonimo(true)
-                .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
-                .build();
-        return sessaoConsumoService.abrir(req);
+        SessaoConsumo sessao = sessaoConsumoService.resolveOrCreateSessaoAnonima(
+                qr.getTenant() != null ? qr.getTenant().getId() : null,
+                qr.getInstituicao(),
+                qr.getUnidadeAtendimento(),
+                qr.getMesa(),
+                com.restaurante.model.enums.TipoSessao.PRE_PAGO,
+                true
+        );
+        return sessaoConsumoService.converterParaResponse(sessao);
     }
 
     @Transactional

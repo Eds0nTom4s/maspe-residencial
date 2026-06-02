@@ -151,7 +151,7 @@ public class SessaoConsumoService {
 
         // ── Mesa (OPCIONAL) ────────────────────────────────────────────────
         if (request.getMesaId() != null) {
-            Mesa mesa = mesaRepository.findById(request.getMesaId())
+            Mesa mesa = mesaRepository.findByIdForUpdate(request.getMesaId())
                     .orElseThrow(() -> new ResourceNotFoundException("Mesa não encontrada: " + request.getMesaId()));
 
             if (!mesa.getAtiva()) {
@@ -159,7 +159,15 @@ public class SessaoConsumoService {
             }
 
             // Invariante: apenas UMA sessão ABERTA por mesa
-            if (sessaoConsumoRepository.existsByMesaIdAndStatus(mesa.getId(), StatusSessaoConsumo.ABERTA)) {
+            List<SessaoConsumo> abertas = sessaoConsumoRepository.findAllByTenantIdAndMesaIdAndStatus(
+                    mesa.getTenant() != null ? mesa.getTenant().getId() : null,
+                    mesa.getId(),
+                    StatusSessaoConsumo.ABERTA
+            );
+            if (abertas.size() > 1) {
+                throw new BusinessException("Mesa '" + mesa.getReferencia() + "' possui mais de uma sessão aberta.");
+            }
+            if (!abertas.isEmpty()) {
                 throw new BusinessException(
                         "Mesa '" + mesa.getReferencia() + "' já possui sessão aberta. " +
                         "Encerre a sessão atual antes de abrir uma nova.");
@@ -259,6 +267,68 @@ public class SessaoConsumoService {
         }
 
         return converterParaResponse(sessaoSalva, fundo);
+    }
+
+    @Transactional
+    public SessaoConsumo resolveOrCreateSessaoAnonima(Long tenantId,
+                                                      Instituicao instituicao,
+                                                      UnidadeAtendimento unidadeAtendimento,
+                                                      Mesa mesa,
+                                                      com.restaurante.model.enums.TipoSessao tipoSessao,
+                                                      boolean requireAnonymousSession) {
+        if (instituicao == null || instituicao.getTenant() == null) {
+            throw new BusinessException("Instituição inválida para criação de sessão.");
+        }
+
+        Long effectiveTenantId = tenantId != null ? tenantId : instituicao.getTenant().getId();
+        Mesa mesaLocked = lockMesaIfPresent(mesa);
+        UnidadeAtendimento effectiveUnidade = unidadeAtendimento;
+        Instituicao effectiveInstituicao = instituicao;
+
+        if (mesaLocked != null) {
+            if (mesaLocked.getTenant() == null || !mesaLocked.getTenant().getId().equals(effectiveTenantId)) {
+                throw new BusinessException("Mesa inválida para a instituição/tenant.");
+            }
+            if (!Boolean.TRUE.equals(mesaLocked.getAtiva())) {
+                throw new BusinessException("Mesa '" + mesaLocked.getReferencia() + "' está inativa");
+            }
+            if (mesaLocked.getInstituicao() != null) {
+                effectiveInstituicao = mesaLocked.getInstituicao();
+            }
+            if (mesaLocked.getUnidadeAtendimento() != null) {
+                effectiveUnidade = mesaLocked.getUnidadeAtendimento();
+            }
+
+            List<SessaoConsumo> abertas = sessaoConsumoRepository.findAllByTenantIdAndMesaIdAndStatus(
+                    effectiveTenantId,
+                    mesaLocked.getId(),
+                    StatusSessaoConsumo.ABERTA
+            );
+            if (abertas.size() > 1) {
+                throw new BusinessException("Mesa possui mais de uma sessão aberta.");
+            }
+            if (!abertas.isEmpty()) {
+                SessaoConsumo aberta = abertas.get(0);
+                if (requireAnonymousSession && !Boolean.TRUE.equals(aberta.getModoAnonimo())) {
+                    throw new BusinessException("Esta mesa já possui uma sessão identificada aberta.");
+                }
+                return aberta;
+            }
+        }
+
+        SessaoConsumo sessao = SessaoConsumo.builder()
+                .qrCodeSessao(gerarTokenSessaoUnico())
+                .tenant(effectiveInstituicao.getTenant())
+                .instituicao(effectiveInstituicao)
+                .unidadeAtendimento(effectiveUnidade)
+                .mesa(mesaLocked)
+                .modoAnonimo(true)
+                .status(StatusSessaoConsumo.ABERTA)
+                .tipoSessao(tipoSessao != null ? tipoSessao : com.restaurante.model.enums.TipoSessao.PRE_PAGO)
+                .build();
+        SessaoConsumo salva = sessaoConsumoRepository.save(sessao);
+        fundoConsumoService.criarFundoParaSessao(salva);
+        return salva;
     }
 
     /**
@@ -586,22 +656,15 @@ public class SessaoConsumoService {
         log.info("Iniciando sessão anónima via QR Code {}", qrToken);
 
         Mesa mesaAcesso = resolverMesaPorCodigoAcesso(qrToken);
-
-        var sessaoOpt = sessaoConsumoRepository.findByMesaIdAndStatus(mesaAcesso.getId(), StatusSessaoConsumo.ABERTA);
-        if (sessaoOpt.isPresent()) {
-            SessaoConsumo sessao = sessaoOpt.get();
-            if (sessao.getCliente() != null) {
-                throw new BusinessException("Esta mesa já possui uma sessão identificada aberta.");
-            }
-            return converterParaResponse(sessao);
-        }
-
-        AbrirSessaoRequest req = AbrirSessaoRequest.builder()
-                .mesaId(mesaAcesso.getId())
-                .modoAnonimo(true)
-                .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
-                .build();
-        return abrir(req);
+        SessaoConsumo sessao = resolveOrCreateSessaoAnonima(
+                mesaAcesso.getTenant() != null ? mesaAcesso.getTenant().getId() : null,
+                mesaAcesso.getInstituicao(),
+                mesaAcesso.getUnidadeAtendimento(),
+                mesaAcesso,
+                com.restaurante.model.enums.TipoSessao.PRE_PAGO,
+                true
+        );
+        return converterParaResponse(sessao);
     }
 
     @Transactional(readOnly = true)
@@ -1013,6 +1076,14 @@ public class SessaoConsumoService {
                 .saldoFundo(fundo != null ? fundo.getSaldoAtual() : BigDecimal.ZERO)
                 .totalConsumo(totalConsumo)
                 .build();
+    }
+
+    private Mesa lockMesaIfPresent(Mesa mesa) {
+        if (mesa == null || mesa.getId() == null) {
+            return null;
+        }
+        return mesaRepository.findByIdForUpdate(mesa.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Mesa não encontrada: " + mesa.getId()));
     }
 
     private String formatarMoeda(BigDecimal valor) {

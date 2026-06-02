@@ -8,6 +8,7 @@ import com.restaurante.dto.response.DevicePedidoItemResponse;
 import com.restaurante.dto.response.DevicePedidoResponse;
 import com.restaurante.dto.response.DeviceSubPedidoResponse;
 import com.restaurante.dto.response.DeviceErrorResponse;
+import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.DeviceApiException;
 import com.restaurante.exception.DeviceForbiddenException;
@@ -32,7 +33,6 @@ import com.restaurante.model.enums.DevicePedidoIdempotencyStatus;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
-import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.model.enums.TipoSessao;
@@ -43,14 +43,13 @@ import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.QrCodeOperacionalRepository;
-import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.security.device.DevicePrincipal;
-import com.restaurante.service.FundoConsumoService;
 import com.restaurante.service.PedidoNumberService;
+import com.restaurante.service.SessaoConsumoService;
 import com.restaurante.service.SubPedidoService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import com.restaurante.service.producao.RotaProducaoService;
@@ -74,7 +73,6 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -94,15 +92,14 @@ public class DevicePedidoService {
     private final MesaRepository mesaRepository;
     private final QrCodeOperacionalRepository qrCodeOperacionalRepository;
     private final ProdutoRepository produtoRepository;
-    private final SessaoConsumoRepository sessaoConsumoRepository;
     private final PedidoRepository pedidoRepository;
     private final SubPedidoRepository subPedidoRepository;
     private final DevicePedidoIdempotencyRepository idempotencyRepository;
     private final TurnoOperacionalRepository turnoOperacionalRepository;
 
     private final PedidoNumberService pedidoNumberService;
+    private final SessaoConsumoService sessaoConsumoService;
     private final SubPedidoService subPedidoService;
-    private final FundoConsumoService fundoConsumoService;
     private final RotaProducaoService rotaProducaoService;
     private final UnidadeProducaoService unidadeProducaoService;
     private final OperationalEventLogService operationalEventLogService;
@@ -623,35 +620,23 @@ public class DevicePedidoService {
         Long tenantId = tenant != null ? tenant.getId() : null;
         if (tenantId == null) throw new DeviceApiException(HttpStatus.CONFLICT, DeviceErrorResponse.DeviceErrorCode.DEVICE_INTERNAL_ERROR,
                 "Tenant inválido.", false, DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT, null);
-
-        if (mesa != null) {
-            List<SessaoConsumo> abertas = sessaoConsumoRepository.findAllByTenantIdAndMesaIdAndStatus(
-                    tenantId, mesa.getId(), StatusSessaoConsumo.ABERTA
+        try {
+            return sessaoConsumoService.resolveOrCreateSessaoAnonima(
+                    tenantId,
+                    instituicao,
+                    unidadeAtendimento,
+                    mesa,
+                    TipoSessao.POS_PAGO,
+                    false
             );
-            if (abertas.size() > 1) {
-                throw new DeviceApiException(HttpStatus.CONFLICT,
-                        DeviceErrorResponse.DeviceErrorCode.DEVICE_INTERNAL_ERROR,
-                        "Mesa possui mais de uma sessão aberta.",
-                        true,
-                        DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
-                        null);
-            }
-            if (abertas.size() == 1) return abertas.get(0);
+        } catch (BusinessException ex) {
+            throw new DeviceApiException(HttpStatus.CONFLICT,
+                    DeviceErrorResponse.DeviceErrorCode.DEVICE_INTERNAL_ERROR,
+                    ex.getMessage(),
+                    true,
+                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
+                    null);
         }
-
-        SessaoConsumo sessao = SessaoConsumo.builder()
-                .qrCodeSessao(UUID.randomUUID().toString())
-                .tenant(tenant)
-                .instituicao(instituicao)
-                .unidadeAtendimento(unidadeAtendimento)
-                .mesa(mesa)
-                .modoAnonimo(true)
-                .status(StatusSessaoConsumo.ABERTA)
-                .tipoSessao(TipoSessao.POS_PAGO)
-                .build();
-        SessaoConsumo salva = sessaoConsumoRepository.save(sessao);
-        fundoConsumoService.criarFundoParaSessao(salva);
-        return salva;
     }
 
     private DevicePrincipal requireDevicePrincipal() {

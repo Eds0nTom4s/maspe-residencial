@@ -1,5 +1,7 @@
 package com.restaurante.config;
 
+import com.restaurante.txevidence.key.TransactionEvidenceKeyProvider;
+import com.restaurante.txevidence.properties.TransactionEvidenceProperties;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +20,8 @@ public class SensitiveSecretsValidator {
 
     private final Environment environment;
     private final DeviceProperties deviceProperties;
+    private final TransactionEvidenceProperties transactionEvidenceProperties;
+    private final TransactionEvidenceKeyProvider transactionEvidenceKeyProvider;
 
     @Value("${consuma.sync.cursor.hmac-secret:dev-sync-cursor-secret-change-me}")
     private String syncCursorHmacSecret;
@@ -25,6 +29,7 @@ public class SensitiveSecretsValidator {
     @PostConstruct
     public void validate() {
         boolean prod = Arrays.stream(environment.getActiveProfiles()).anyMatch(p -> p.equalsIgnoreCase("prod"));
+        boolean sandbox = Arrays.stream(environment.getActiveProfiles()).anyMatch(p -> p.equalsIgnoreCase("sandbox") || p.equalsIgnoreCase("sandbox-local"));
 
         // Device token hash secret
         String deviceTokenSecret = deviceProperties.getTokenHashSecret();
@@ -32,6 +37,12 @@ public class SensitiveSecretsValidator {
 
         // Sync cursor HMAC secret
         validateSecret("SYNC_CURSOR_HMAC_SECRET", syncCursorHmacSecret, prod);
+
+        if (transactionEvidenceProperties.isEnabled()) {
+            String keyVersion = transactionEvidenceProperties.getKeyVersion();
+            String secret = transactionEvidenceKeyProvider.hmacSecretForVersion(keyVersion).orElse(null);
+            validateSecret("CONSUMA_TX_EVIDENCE_HMAC_KEY_V" + keyVersion, secret, prod || sandbox);
+        }
     }
 
     private void validateSecret(String name, String value, boolean prod) {
@@ -61,4 +72,3 @@ public class SensitiveSecretsValidator {
         }
     }
 }
-

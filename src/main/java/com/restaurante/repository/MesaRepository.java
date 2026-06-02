@@ -3,15 +3,15 @@ package com.restaurante.repository;
 import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import java.time.LocalDateTime;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import com.restaurante.repository.projection.SyncAggProjection;
 
 /**
@@ -107,6 +107,10 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
 
     @Query("SELECT m FROM Mesa m WHERE m.id = :id AND m.tenant.id = :tenantId")
     Optional<Mesa> findByIdAndTenantId(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT m FROM Mesa m WHERE m.id = :id")
+    Optional<Mesa> findByIdForUpdate(@Param("id") Long id);
 
     List<Mesa> findByTenantId(Long tenantId);
 

@@ -12,6 +12,8 @@ public interface InstituicaoRepository extends JpaRepository<Instituicao, Long> 
 
     Optional<Instituicao> findBySigla(String sigla);
 
+    boolean existsByNif(String nif);
+
     // Método utiizado para encontrar a instituição principal (num modelo single-tenant pseudo escalável)
     Optional<Instituicao> findFirstByAtivaTrue();
 

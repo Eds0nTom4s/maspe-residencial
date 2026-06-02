@@ -261,7 +261,7 @@ public class SessaoParticipanteExtendedListService {
         SessaoParticipanteLifecycleJobRun last = lastRuns.isEmpty() ? null : lastRuns.get(0);
 
         if (tenant != null) {
-            operationalEventLogService.logPublicEvent(
+            operationalEventLogService.logPublicEventRequiresNew(
                     tenant, null, null, null, null,
                     OperationalEventType.SESSAO_PARTICIPANTE_LIFECYCLE_JOB_HEALTH_VIEWED,
                     OperationalEntityType.SESSAO_CONSUMO_PARTICIPANTE,

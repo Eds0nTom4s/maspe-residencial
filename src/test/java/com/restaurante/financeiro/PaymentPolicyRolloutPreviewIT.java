@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -60,6 +61,7 @@ class PaymentPolicyRolloutPreviewIT extends PostgresTestcontainersConfig {
     }
 
     @Test
+    @WithMockUser(username = "owner")
     void preview_does_not_persist_and_filters_devices_by_type() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-roll-prev-a", "RP1");
         DispositivoOperacional posCaixa = criarDevice(prov, "POS CAIXA", DispositivoTipo.CHECKOUT, OperationalDeviceType.POS_CAIXA);
@@ -89,14 +91,19 @@ class PaymentPolicyRolloutPreviewIT extends PostgresTestcontainersConfig {
 
         JsonNode data = objectMapper.readTree(resp).at("/data");
         assertThat(data.at("/totalDevicesTargeted").asInt()).isEqualTo(1);
-        assertThat(data.toString()).contains(String.valueOf(kds.getId()));
-        assertThat(data.toString()).doesNotContain(String.valueOf(posCaixa.getId()));
+        List<Long> deviceIds = new java.util.ArrayList<>();
+        for (JsonNode deviceNode : data.at("/deviceResults")) {
+            deviceIds.add(deviceNode.at("/deviceId").asLong());
+        }
+        assertThat(deviceIds).contains(kds.getId());
+        assertThat(deviceIds).doesNotContain(posCaixa.getId());
 
         long after = devicePolicyRepository.count();
         assertThat(after).isEqualTo(before);
     }
 
     @Test
+    @WithMockUser(username = "owner")
     void preview_rejects_selected_device_from_other_tenant_or_unit() throws Exception {
         ProvisionarTenantResponse a = provisionTenant("pm-roll-prev-b1", "RP2");
         ProvisionarTenantResponse b = provisionTenant("pm-roll-prev-b2", "RP3");
@@ -180,4 +187,3 @@ class PaymentPolicyRolloutPreviewIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

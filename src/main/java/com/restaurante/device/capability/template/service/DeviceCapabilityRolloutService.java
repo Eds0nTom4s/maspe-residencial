@@ -86,7 +86,7 @@ public class DeviceCapabilityRolloutService {
         resp.setWarnings(calc.warnings);
         resp.setDeviceResults(calc.deviceResults);
 
-        operationalEventLogService.logGeneric(
+        operationalEventLogService.logGenericRequiresNew(
                 OperationalEventType.DEVICE_CAPABILITY_ROLLOUT_PREVIEWED,
                 OperationalEntityType.DEVICE_CAPABILITY,
                 0L,

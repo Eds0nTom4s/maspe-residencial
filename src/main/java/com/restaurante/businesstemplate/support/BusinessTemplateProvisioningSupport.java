@@ -267,7 +267,17 @@ public class BusinessTemplateProvisioningSupport {
 
         String nif = request.getTenant() != null ? request.getTenant().getNif() : null;
         if (nif == null || nif.isBlank()) {
-            nif = "NIF-" + tenant.getTenantCode() + "-" + randomCode(4);
+            String nifBase = "NIF-" + tenant.getTenantCode() + "-";
+            nif = nifBase + randomCode(6);
+            int nifAttempt = 0;
+            while (instituicaoRepository.existsByNif(nif)) {
+                nifAttempt++;
+                nif = nifBase + randomCode(6);
+                if (nifAttempt > 30) {
+                    throw new ProvisioningException(HttpStatus.CONFLICT, "INSTITUICAO_NIF_DUPLICADO", "instituicao.nif",
+                            "Não foi possível gerar NIF único.", null, "Informe um NIF explícito ou tente novamente.", null);
+                }
+            }
         }
 
         String telefoneAut = null;

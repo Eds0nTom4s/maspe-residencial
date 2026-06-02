@@ -31,6 +31,7 @@ import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.event.OperationalEventLoggedEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -379,6 +380,35 @@ public class OperationalEventLogService {
     }
 
     /**
+     * Variante para auditoria em fluxos read-only/negações onde o evento precisa sobreviver
+     * sem contaminar a transação principal.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void logGenericRequiresNew(OperationalEventType eventType,
+                                      OperationalEntityType entityType,
+                                      Long entityId,
+                                      OperationalOrigem origem,
+                                      String motivo,
+                                      Map<String, Object> metadata,
+                                      String ip,
+                                      String userAgent) {
+        log(
+                eventType,
+                entityType,
+                entityId,
+                null,
+                null,
+                null,
+                null,
+                origem,
+                motivo,
+                metadata,
+                ip,
+                userAgent
+        );
+    }
+
+    /**
      * Variante explícita para processos em background (jobs/workers) que não têm SecurityContext
      * nem TenantContext resolvido por request.
      */
@@ -545,6 +575,42 @@ public class OperationalEventLogService {
                                Map<String, Object> metadata,
                                String ip,
                                String userAgent) {
+        savePublicEvent(tenant, instituicao, unidadeAtendimento, mesa, turno, eventType, entityType, entityId, origem, motivo, metadata, ip, userAgent);
+    }
+
+    /**
+     * Variante para auditoria em leituras/preview/export sem quebrar transações read-only.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void logPublicEventRequiresNew(Tenant tenant,
+                                          Instituicao instituicao,
+                                          UnidadeAtendimento unidadeAtendimento,
+                                          Mesa mesa,
+                                          TurnoOperacional turno,
+                                          OperationalEventType eventType,
+                                          OperationalEntityType entityType,
+                                          Long entityId,
+                                          OperationalOrigem origem,
+                                          String motivo,
+                                          Map<String, Object> metadata,
+                                          String ip,
+                                          String userAgent) {
+        savePublicEvent(tenant, instituicao, unidadeAtendimento, mesa, turno, eventType, entityType, entityId, origem, motivo, metadata, ip, userAgent);
+    }
+
+    private void savePublicEvent(Tenant tenant,
+                                 Instituicao instituicao,
+                                 UnidadeAtendimento unidadeAtendimento,
+                                 Mesa mesa,
+                                 TurnoOperacional turno,
+                                 OperationalEventType eventType,
+                                 OperationalEntityType entityType,
+                                 Long entityId,
+                                 OperationalOrigem origem,
+                                 String motivo,
+                                 Map<String, Object> metadata,
+                                 String ip,
+                                 String userAgent) {
         if (tenant == null || tenant.getId() == null) throw new ResourceNotFoundException("Recurso não encontrado.");
 
         OperationalEventLog log = new OperationalEventLog();
@@ -564,7 +630,8 @@ public class OperationalEventLogService {
         log.setIp(ip);
         log.setUserAgent(userAgent);
 
-        operationalEventLogRepository.save(log);
+        OperationalEventLog saved = operationalEventLogRepository.save(log);
+        publishLoggedEvent(saved);
     }
 
     private Long resolveTenantId() {

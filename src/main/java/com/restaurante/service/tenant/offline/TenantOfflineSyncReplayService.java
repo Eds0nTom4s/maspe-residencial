@@ -113,7 +113,7 @@ public class TenantOfflineSyncReplayService {
             else notEligibleCount++;
         }
 
-        operationalEventLogService.logPublicEvent(
+        operationalEventLogService.logPublicEventRequiresNew(
                 session.getTenant(), null, session.getUnidadeAtendimento(), null, null,
                 OperationalEventType.DEVICE_OFFLINE_REPLAY_PREVIEWED,
                 OperationalEntityType.DEVICE_OFFLINE_SYNC,
@@ -515,7 +515,7 @@ public class TenantOfflineSyncReplayService {
 
         Page<DeviceOfflineCommandReplayAttempt> attempts = attemptRepository.findByTenantAndServerSyncId(ctx.tenantId(), serverSyncId, PageRequest.of(0, 500));
 
-        operationalEventLogService.logPublicEvent(
+        operationalEventLogService.logPublicEventRequiresNew(
                 session.getTenant(), null, session.getUnidadeAtendimento(), null, null,
                 OperationalEventType.DEVICE_OFFLINE_DIAGNOSTIC_EXPORTED,
                 OperationalEntityType.DEVICE_OFFLINE_SYNC,

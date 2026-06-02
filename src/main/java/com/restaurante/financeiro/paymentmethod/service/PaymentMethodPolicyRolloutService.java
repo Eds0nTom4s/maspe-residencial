@@ -70,7 +70,7 @@ public class PaymentMethodPolicyRolloutService {
         resp.setWarnings(comp.warnings);
         resp.setDeviceResults(comp.deviceResults);
 
-        operationalEventLogService.logPublicEvent(
+        operationalEventLogService.logPublicEventRequiresNew(
                 tenant,
                 null,
                 unidade,

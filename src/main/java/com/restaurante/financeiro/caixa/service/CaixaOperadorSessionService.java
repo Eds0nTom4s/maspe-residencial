@@ -450,7 +450,7 @@ public class CaixaOperadorSessionService {
         CaixaOperadorSession caixa = caixaRepository.findByTenantIdAndDispositivoOperacionalIdAndStatus(device.tenantId(), device.dispositivoId(), CaixaOperadorSessionStatus.OPEN)
                 .orElse(null);
         if (caixa == null) {
-            operationalEventLogService.logGeneric(
+            operationalEventLogService.logGenericRequiresNew(
                     OperationalEventType.CAIXA_OPERADOR_SESSION_REQUIRED_BUT_MISSING,
                     OperationalEntityType.CAIXA_OPERADOR_SESSION,
                     0L,

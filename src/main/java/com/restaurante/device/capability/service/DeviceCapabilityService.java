@@ -53,7 +53,7 @@ public class DeviceCapabilityService {
         if (deviceUnidade.equals(sessaoUnidadeId)) return;
         if (has(device, DeviceCapability.CROSS_UNIT_ASSISTED_IDENTIFICATION)) return;
 
-        operationalEventLogService.logGeneric(
+        operationalEventLogService.logGenericRequiresNew(
                 OperationalEventType.ASSISTED_IDENTIFICATION_CROSS_UNIT_DENIED,
                 OperationalEntityType.DISPOSITIVO_OPERACIONAL,
                 device.dispositivoId(),
@@ -74,7 +74,7 @@ public class DeviceCapabilityService {
     private void auditDenied(DevicePrincipal device, DeviceCapability capability, String reason, String ip, String userAgent) {
         Long tenantId = device != null ? device.tenantId() : null;
         Long deviceId = device != null ? device.dispositivoId() : null;
-        operationalEventLogService.logGeneric(
+        operationalEventLogService.logGenericRequiresNew(
                 OperationalEventType.ASSISTED_IDENTIFICATION_PERMISSION_DENIED,
                 OperationalEntityType.DISPOSITIVO_OPERACIONAL,
                 deviceId != null ? deviceId : 0L,
@@ -92,4 +92,3 @@ public class DeviceCapabilityService {
         );
     }
 }
-

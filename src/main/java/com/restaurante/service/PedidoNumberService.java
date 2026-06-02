@@ -24,7 +24,7 @@ public class PedidoNumberService {
      */
     @Transactional
     public String gerarNumeroPedido(Long tenantId) {
-        String tenantCode = tenantRepository.findById(tenantId)
+        String tenantCode = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant não encontrado: " + tenantId))
                 .getTenantCode();
 
@@ -46,4 +46,3 @@ public class PedidoNumberService {
         return String.format("PED-%s-%s-%06d", tenantCode, data, seq);
     }
 }
-

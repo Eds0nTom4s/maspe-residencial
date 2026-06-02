@@ -22,6 +22,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.service.CategoriaProdutoService;
+import com.restaurante.testsupport.UniqueTestData;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,10 +52,18 @@ class CatalogCategoryConsolidationIT extends PostgresTestcontainersConfig {
 
     @Test
     void categoriaProdutoFkIsMandatory_andDefaultCategoryExistsPerTenant() {
+        String tenantSlug = UniqueTestData.uniqueSlug("tenant-cat-fk");
+        String tenantCode = UniqueTestData.uniqueTenantCode("TCFK");
+        String username = UniqueTestData.uniqueUsername("u-cat-fk");
+        String email = UniqueTestData.uniqueEmail("u-cat-fk");
+        String phone = UniqueTestData.uniqueTelefone();
+        String validProductCode = UniqueTestData.uniqueTenantCode("FKOK");
+        String invalidProductCode = UniqueTestData.uniqueTenantCode("FKNC");
+
         Tenant tenant = new Tenant();
         tenant.setNome("Tenant Cat FK");
-        tenant.setSlug("tenant-cat-fk");
-        tenant.setTenantCode("TCFK");
+        tenant.setSlug(tenantSlug);
+        tenant.setTenantCode(tenantCode);
         tenant.setTipo(TenantTipo.RESTAURANTE);
         tenant.setEstado(TenantEstado.ATIVO);
         tenant = tenantRepository.saveAndFlush(tenant);
@@ -69,10 +78,10 @@ class CatalogCategoryConsolidationIT extends PostgresTestcontainersConfig {
         subscricaoRepository.saveAndFlush(subs);
 
         User user = new User();
-        user.setUsername("u-cat-fk");
+        user.setUsername(username);
         user.setPassword("x");
-        user.setEmail("u-cat-fk@teste.local");
-        user.setTelefone("+244900000090");
+        user.setEmail(email);
+        user.setTelefone(phone);
         user.setRoles(Set.of(Role.ROLE_ADMIN));
         user.setAtivo(true);
         user = userRepository.saveAndFlush(user);
@@ -90,7 +99,7 @@ class CatalogCategoryConsolidationIT extends PostgresTestcontainersConfig {
 
         Produto ok = new Produto();
         ok.setTenant(tenant);
-        ok.setCodigo("FK-OK-001");
+        ok.setCodigo(validProductCode);
         ok.setNome("Produto FK OK");
         ok.setPreco(new BigDecimal("10.00"));
         ok.setCategoria(CategoriaProdutoLegacy.OUTROS);
@@ -101,11 +110,15 @@ class CatalogCategoryConsolidationIT extends PostgresTestcontainersConfig {
 
         Produto loaded = produtoRepository.findByIdAndTenantId(ok.getId(), tenant.getId()).orElseThrow();
         assertThat(loaded.getCategoriaProduto()).isNotNull();
-        assertThat(loaded.getCategoriaProduto().getSlug()).isEqualTo("geral");
+        assertThat(loaded.getCategoriaProduto().getId()).isEqualTo(geral.getId());
+        CategoriaProduto loadedCategory = categoriaProdutoRepository
+                .findByIdAndTenantId(geral.getId(), tenant.getId())
+                .orElseThrow();
+        assertThat(loadedCategory.getSlug()).isEqualTo("geral");
 
         Produto invalid = new Produto();
         invalid.setTenant(tenant);
-        invalid.setCodigo("FK-NO-CAT-001");
+        invalid.setCodigo(invalidProductCode);
         invalid.setNome("Produto FK inválido");
         invalid.setPreco(new BigDecimal("10.00"));
         invalid.setCategoria(CategoriaProdutoLegacy.OUTROS);
@@ -116,4 +129,3 @@ class CatalogCategoryConsolidationIT extends PostgresTestcontainersConfig {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 }
-

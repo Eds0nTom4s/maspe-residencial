@@ -30,6 +30,7 @@ import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +39,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -65,16 +68,25 @@ class PaymentMethodPolicyManualPaymentIT extends PostgresTestcontainersConfig {
     @Autowired TenantRepository tenantRepository;
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
         TenantContextHolder.clear();
+        SecurityContextHolder.clearContext();
     }
 
     @Test
+    @WithMockUser(username = "owner")
     void confirm_manual_cash_is_blocked_if_unidade_policy_blocks_after_order_creation() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-pol-manual-a", "PPMA");
-        String mesaQrToken = prov.getMesas().get(0).getQrToken();
+        String mesaQrToken = fixtureSupport.ensureMesaQrToken(prov);
+
+        setTenantOwnerContext(prov);
+        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
+                .andExpect(status().isCreated());
 
         // cria consumo anónimo
         String consumoJson = mockMvc.perform(post("/public/q/{token}/consumos/anonimo", mesaQrToken))
@@ -93,13 +105,6 @@ class PaymentMethodPolicyManualPaymentIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         Long ordemId = objectMapper.readTree(ordemJson).at("/data/ordemPagamentoId").asLong();
 
-        // abrir turno
-        setTenantOwnerContext(prov);
-        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
-                .andExpect(status().isCreated());
-
         // depois do pedido: unidade bloqueia CASH
         UpdateUnidadePaymentMethodPolicyRequest blockCash = new UpdateUnidadePaymentMethodPolicyRequest();
         blockCash.setInheritFromTenant(false);
@@ -111,6 +116,7 @@ class PaymentMethodPolicyManualPaymentIT extends PostgresTestcontainersConfig {
 
         // device confirma manual => deve falhar por policy
         UsernamePasswordAuthenticationToken auth = deviceAuth(prov, List.of(DeviceCapability.CONFIRM_CASH_PAYMENT, DeviceCapability.VIEW_PAYMENTS));
+        SecurityContextHolder.getContext().setAuthentication(auth);
         ConfirmarOrdemManualRequest confirm = new ConfirmarOrdemManualRequest();
         confirm.setClientRequestId("confirm-pol-1");
         confirm.setMetodoConfirmado(MetodoPagamentoManual.CASH);
@@ -126,9 +132,16 @@ class PaymentMethodPolicyManualPaymentIT extends PostgresTestcontainersConfig {
     }
 
     @Test
+    @WithMockUser(username = "owner")
     void confirm_manual_cash_is_blocked_if_device_canConfirmManual_false() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-pol-manual-b", "PPMB");
-        String mesaQrToken = prov.getMesas().get(0).getQrToken();
+        String mesaQrToken = fixtureSupport.ensureMesaQrToken(prov);
+
+        setTenantOwnerContext(prov);
+        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
+                .andExpect(status().isCreated());
 
         String consumoJson = mockMvc.perform(post("/public/q/{token}/consumos/anonimo", mesaQrToken))
                 .andExpect(status().isCreated())
@@ -144,12 +157,6 @@ class PaymentMethodPolicyManualPaymentIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         Long ordemId = objectMapper.readTree(ordemJson).at("/data/ordemPagamentoId").asLong();
-
-        setTenantOwnerContext(prov);
-        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
-                .andExpect(status().isCreated());
 
         DispositivoOperacional disp = criarDevicePos(prov);
 
@@ -179,6 +186,7 @@ class PaymentMethodPolicyManualPaymentIT extends PostgresTestcontainersConfig {
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                 principal, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
         );
+        SecurityContextHolder.getContext().setAuthentication(auth);
 
         ConfirmarOrdemManualRequest confirm = new ConfirmarOrdemManualRequest();
         confirm.setClientRequestId("confirm-pol-2");
@@ -264,27 +272,32 @@ class PaymentMethodPolicyManualPaymentIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
-        String phone = "+244900" + Math.abs(nome.hashCode() % 1_000_000);
+        String tenantSlug = UniqueTestData.uniqueSlug(nome);
+        String tenantCode = UniqueTestData.uniqueTenantCode(code);
+        String instituicaoSigla = UniqueTestData.uniqueInstituicaoSigla(code);
+        String ownerEmail = UniqueTestData.uniqueEmail(nome + "-owner");
+        String phone = UniqueTestData.uniqueTelefone();
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + nome)
-                                .slug(nome)
-                                .tenantCode(code)
+                                .slug(tenantSlug)
+                                .tenantCode(tenantCode)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + nome)
-                                .sigla(code)
+                                .sigla(instituicaoSigla)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(nome + "@owner.com")
+                                .email(ownerEmail)
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
                         .build()
         );
     }
+
 }

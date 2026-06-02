@@ -6,6 +6,7 @@ import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.service.PedidoNumberService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -44,7 +45,7 @@ class PedidoNumberServiceConcurrencyIT extends PostgresTestcontainersConfig {
                 numeros.add(f.get());
             }
             assertThat(numeros).hasSize(threads);
-            assertThat(numeros.iterator().next()).contains("PED-SEQ-");
+            assertThat(numeros.iterator().next()).contains("PED-" + tenant.getTenantCode() + "-");
         } finally {
             pool.shutdownNow();
         }
@@ -58,18 +59,17 @@ class PedidoNumberServiceConcurrencyIT extends PostgresTestcontainersConfig {
         String n1 = pedidoNumberService.gerarNumeroPedido(a.getId());
         String n2 = pedidoNumberService.gerarNumeroPedido(b.getId());
 
-        assertThat(n1).contains("PED-A-");
-        assertThat(n2).contains("PED-B-");
+        assertThat(n1).contains("PED-" + a.getTenantCode() + "-");
+        assertThat(n2).contains("PED-" + b.getTenantCode() + "-");
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
-        t.setSlug(slug);
-        t.setTenantCode(tenantCode);
+        t.setSlug(UniqueTestData.uniqueSlug(slug));
+        t.setTenantCode(UniqueTestData.uniqueTenantCode(tenantCode));
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
     }
 }
-

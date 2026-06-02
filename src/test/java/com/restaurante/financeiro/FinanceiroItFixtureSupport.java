@@ -31,7 +31,7 @@ import com.restaurante.repository.UserRepository;
 import org.springframework.stereotype.Component;
 
 @Component
-class FinanceiroItFixtureSupport {
+public class FinanceiroItFixtureSupport {
 
     private final TenantRepository tenantRepository;
     private final InstituicaoRepository instituicaoRepository;
@@ -65,19 +65,19 @@ class FinanceiroItFixtureSupport {
         this.tenantUserRepository = tenantUserRepository;
     }
 
-    DispositivoOperacional createPosCaixaDevice(ProvisionarTenantResponse prov, String nome) {
+    public DispositivoOperacional createPosCaixaDevice(ProvisionarTenantResponse prov, String nome) {
         return createOperationalDevice(prov, nome, DispositivoTipo.CHECKOUT, OperationalDeviceType.POS_CAIXA);
     }
 
-    DispositivoOperacional createKdsDevice(ProvisionarTenantResponse prov, String nome) {
+    public DispositivoOperacional createKdsDevice(ProvisionarTenantResponse prov, String nome) {
         return createOperationalDevice(prov, nome, DispositivoTipo.KDS, OperationalDeviceType.KDS_COZINHA);
     }
 
-    DispositivoOperacional createPosDevice(ProvisionarTenantResponse prov, String nome) {
+    public DispositivoOperacional createPosDevice(ProvisionarTenantResponse prov, String nome) {
         return createOperationalDevice(prov, nome, DispositivoTipo.POS, OperationalDeviceType.POS_ATENDIMENTO);
     }
 
-    DispositivoOperacional createOperationalDevice(
+    public DispositivoOperacional createOperationalDevice(
             ProvisionarTenantResponse prov,
             String nome,
             DispositivoTipo tipo,
@@ -100,7 +100,7 @@ class FinanceiroItFixtureSupport {
         return dispositivoOperacionalRepository.saveAndFlush(d);
     }
 
-    String ensureMesaQrToken(ProvisionarTenantResponse prov) {
+    public String ensureMesaQrToken(ProvisionarTenantResponse prov) {
         if (prov.getMesas() != null && !prov.getMesas().isEmpty()) {
             String existing = prov.getMesas().get(0).getQrToken();
             if (existing != null && !existing.isBlank()) {
@@ -118,7 +118,7 @@ class FinanceiroItFixtureSupport {
                 .orElseGet(() -> createMesaQr(prov, mesa).getToken());
     }
 
-    Long createTenantUser(ProvisionarTenantResponse prov, TenantUserRole role) {
+    public Long createTenantUser(ProvisionarTenantResponse prov, TenantUserRole role) {
         Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
 
         String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
@@ -139,7 +139,7 @@ class FinanceiroItFixtureSupport {
         return user.getId();
     }
 
-    void ensureCentralCozinha(ProvisionarTenantResponse prov) {
+    public void ensureCentralCozinha(ProvisionarTenantResponse prov) {
         boolean alreadyLinked = !cozinhaRepository.findByUnidadeAtendimentoIdAndTipoAndAtiva(
                 prov.getUnidadeAtendimentoId(),
                 TipoCozinha.CENTRAL,

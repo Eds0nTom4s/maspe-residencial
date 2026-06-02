@@ -3,11 +3,13 @@ package com.restaurante.consumo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.AbrirTurnoRequest;
+import com.restaurante.dto.request.AbrirCaixaOperadorRequest;
 import com.restaurante.dto.request.ChecklistItemRespostaRequest;
 import com.restaurante.dto.request.ConfirmarOrdemManualRequest;
 import com.restaurante.dto.request.CriarCarregamentoFundoRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
+import com.restaurante.financeiro.FinanceiroItFixtureSupport;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DispositivoStatus;
@@ -26,6 +28,7 @@ import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +37,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -62,16 +67,19 @@ class Prompt36ManualCashTpaIT extends PostgresTestcontainersConfig {
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
         TenantContextHolder.clear();
+        SecurityContextHolder.clearContext();
     }
 
     @Test
+    @WithMockUser(username = "owner")
     void public_canCreateConsumoAnonimo_andCreateOrdemCarregamento_cash_andDeviceConfirms_idempotent() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("p36-cash", "P36C");
-        String mesaQrToken = prov.getMesas().get(0).getQrToken();
+        String mesaQrToken = fixtureSupport.ensureMesaQrToken(prov);
 
         // cria consumo anónimo
         String consumoJson = mockMvc.perform(post("/public/q/" + mesaQrToken + "/consumos/anonimo"))
@@ -80,6 +88,17 @@ class Prompt36ManualCashTpaIT extends PostgresTestcontainersConfig {
         JsonNode consumoNode = objectMapper.readTree(consumoJson).get("data");
         String codigoConsumo = consumoNode.get("qrCodeSessao").asText();
         assertThat(codigoConsumo).isNotBlank();
+
+        // abrir turno antes do carregamento manual
+        TenantContextHolder.set(new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
+                .andExpect(status().isCreated());
 
         // cria ordem de carregamento cash
         CriarCarregamentoFundoRequest criar = new CriarCarregamentoFundoRequest();
@@ -103,17 +122,6 @@ class Prompt36ManualCashTpaIT extends PostgresTestcontainersConfig {
         assertThat(objectMapper.readTree(statusPendJson).get("data").get("status").asText())
                 .isEqualTo("AGUARDANDO_CONFIRMACAO");
 
-        // abrir turno (tenant context)
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-        mockMvc.perform(post("/tenant/operacao/turnos/abrir")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
-                .andExpect(status().isCreated());
-
         // device pos com capabilities
         DispositivoOperacional disp = criarDevicePos(prov);
         DevicePrincipal device = new DevicePrincipal(
@@ -129,6 +137,7 @@ class Prompt36ManualCashTpaIT extends PostgresTestcontainersConfig {
                 List.of(
                         DeviceCapability.VIEW_PAYMENT_ORDER,
                         DeviceCapability.CONFIRM_CASH_PAYMENT,
+                        DeviceCapability.OPEN_OPERATOR_CASH_SESSION,
                         DeviceCapability.REPRINT_CONSUMPTION_DOCUMENTS
                 ),
                 1
@@ -136,6 +145,15 @@ class Prompt36ManualCashTpaIT extends PostgresTestcontainersConfig {
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                 device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
         );
+        SecurityContextHolder.getContext().setAuthentication(auth);
+
+        AbrirCaixaOperadorRequest abrirCaixa = new AbrirCaixaOperadorRequest();
+        abrirCaixa.setOperadorUserId(prov.getOwnerUserId());
+        mockMvc.perform(post("/device/caixa-operador/open")
+                        .with(authentication(auth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(abrirCaixa)))
+                .andExpect(status().isOk());
 
         // escanear
         String scanJson = mockMvc.perform(get("/device/ordens-pagamento/" + ordemToken).with(authentication(auth)))
@@ -182,9 +200,9 @@ class Prompt36ManualCashTpaIT extends PostgresTestcontainersConfig {
     }
 
     @Test
-    void device_confirmManual_withoutOpenTurno_returns409() throws Exception {
+    void public_createCarregamento_withoutOpenTurno_returns400() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("p36-no-turno", "P36N");
-        String mesaQrToken = prov.getMesas().get(0).getQrToken();
+        String mesaQrToken = fixtureSupport.ensureMesaQrToken(prov);
 
         String consumoJson = mockMvc.perform(post("/public/q/" + mesaQrToken + "/consumos/anonimo"))
                 .andExpect(status().isCreated())
@@ -194,42 +212,10 @@ class Prompt36ManualCashTpaIT extends PostgresTestcontainersConfig {
         CriarCarregamentoFundoRequest criar = new CriarCarregamentoFundoRequest();
         criar.setValor(new BigDecimal("5000.00"));
         criar.setMetodoPagamento(MetodoPagamentoManual.CASH);
-        String ordemJson = mockMvc.perform(post("/public/q/" + mesaQrToken + "/consumos/" + codigoConsumo + "/carregamentos")
+        mockMvc.perform(post("/public/q/" + mesaQrToken + "/consumos/" + codigoConsumo + "/carregamentos")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(criar)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        Long ordemId = objectMapper.readTree(ordemJson).get("data").get("ordemPagamentoId").asLong();
-
-        DispositivoOperacional disp = criarDevicePos(prov);
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(),
-                disp.getCodigo(),
-                prov.getTenantId(),
-                prov.getTenantCode(),
-                prov.getInstituicaoId(),
-                prov.getUnidadeAtendimentoId(),
-                null,
-                DispositivoTipo.POS,
-                DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.VIEW_PAYMENT_ORDER, DeviceCapability.CONFIRM_CASH_PAYMENT),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
-        );
-
-        ConfirmarOrdemManualRequest conf = new ConfirmarOrdemManualRequest();
-        conf.setClientRequestId("pos-conf-no-turno");
-        conf.setMetodoConfirmado(MetodoPagamentoManual.CASH);
-        conf.setValorRecebido(new BigDecimal("5000.00"));
-
-        mockMvc.perform(post("/device/ordens-pagamento/" + ordemId + "/confirmar-manual")
-                        .with(authentication(auth))
-                        .header("Idempotency-Key", "idem-x")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(conf)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isBadRequest());
     }
 
     private ProvisionarTenantResponse provisionTenant(String slug, String code) {
@@ -237,23 +223,27 @@ class Prompt36ManualCashTpaIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
-        String phone = "+244900" + Math.abs(slug.hashCode() % 1_000_000);
+        String tenantSlug = UniqueTestData.uniqueSlug(slug);
+        String tenantCode = UniqueTestData.uniqueTenantCode(code);
+        String instituicaoSigla = UniqueTestData.uniqueInstituicaoSigla(code);
+        String ownerEmail = UniqueTestData.uniqueEmail(slug + "-owner");
+        String phone = UniqueTestData.uniqueTelefone();
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                                 .nome("Tenant " + slug)
-                                .slug(slug)
-                                .tenantCode(code)
+                                .slug(tenantSlug)
+                                .tenantCode(tenantCode)
                                 .tipo(com.restaurante.model.enums.TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                                 .nome("Inst " + slug)
-                                .sigla(code)
+                                .sigla(instituicaoSigla)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(slug + "@owner.com")
+                                .email(ownerEmail)
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
@@ -300,4 +290,5 @@ class Prompt36ManualCashTpaIT extends PostgresTestcontainersConfig {
         d.setTokenVersion(1);
         return dispositivoOperacionalRepository.saveAndFlush(d);
     }
+
 }

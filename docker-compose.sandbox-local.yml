@@ -1,0 +1,54 @@
+services:
+  postgres-local:
+    image: postgres:16-alpine
+    container_name: consuma-postgres-local
+    restart: unless-stopped
+    env_file:
+      - .env.sandbox.local
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-consuma_sandbox}
+      POSTGRES_USER: ${POSTGRES_USER:-consuma}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local}
+    volumes:
+      - consuma-postgres-local-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-consuma} -d ${POSTGRES_DB:-consuma_sandbox}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - consuma-sandbox-local
+
+  api-local:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sistema-restauracao-api:sandbox-local
+    container_name: consuma-api-local
+    restart: unless-stopped
+    depends_on:
+      postgres-local:
+        condition: service_healthy
+    env_file:
+      - .env.sandbox.local
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-sandbox-local}
+      SERVER_PORT: 8080
+      DB_HOST: ${DB_HOST:-postgres-local}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-consuma_sandbox}
+      DB_USER: ${DB_USER:-consuma}
+      DB_PASSWORD: ${DB_PASSWORD:-change_me_local}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${SANDBOX_LOCAL_API_PORT:-8081}:8080"
+    networks:
+      - consuma-sandbox-local
+
+networks:
+  consuma-sandbox-local:
+    name: consuma-sandbox-local
+
+volumes:
+  consuma-postgres-local-data:

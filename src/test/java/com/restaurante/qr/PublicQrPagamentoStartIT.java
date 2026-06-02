@@ -31,6 +31,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -109,11 +110,11 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
         HttpEntity<String> entity = new HttpEntity<>(payPayload, headers);
 
         ResponseEntity<String> r1 = restTemplate.postForEntity(
-                "/api/public/q/{token}/pedidos/{pedidoId}/pagamentos",
+                "/public/q/{token}/pedidos/{pedidoId}/pagamentos",
                 entity, String.class, qrA.getToken(), pedidoId
         );
         ResponseEntity<String> r2 = restTemplate.postForEntity(
-                "/api/public/q/{token}/pedidos/{pedidoId}/pagamentos",
+                "/public/q/{token}/pedidos/{pedidoId}/pagamentos",
                 entity, String.class, qrA.getToken(), pedidoId
         );
 
@@ -183,7 +184,7 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
         HttpEntity<String> entity = new HttpEntity<>(payPayload, headers);
 
         ResponseEntity<String> resp = restTemplate.postForEntity(
-                "/api/public/q/{token}/pedidos/{pedidoId}/pagamentos",
+                "/public/q/{token}/pedidos/{pedidoId}/pagamentos",
                 entity, String.class, qrA.getToken(), pedidoB
         );
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -196,7 +197,7 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.add("Idempotency-Key", idemKey);
-        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", new HttpEntity<>(payload, headers), String.class, token);
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", new HttpEntity<>(payload, headers), String.class, token);
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode json = objectMapper.readTree(resp.getBody());
         return json.at("/data/pedidoId").asLong();
@@ -205,8 +206,8 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
-        t.setSlug(slug);
-        t.setTenantCode(tenantCode);
+        t.setSlug(UniqueTestData.uniqueSlug(slug));
+        t.setTenantCode(UniqueTestData.uniqueTenantCode(tenantCode));
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
@@ -216,9 +217,9 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
         Instituicao i = new Instituicao();
         i.setTenant(tenant);
         i.setNome(nome);
-        i.setSigla(sigla);
-        i.setNif(nif);
-        i.setTelefoneAutorizacao(telefoneAutorizacao);
+        i.setSigla(UniqueTestData.uniqueInstituicaoSigla(sigla));
+        i.setNif(UniqueTestData.uniqueNif(nif));
+        i.setTelefoneAutorizacao(UniqueTestData.uniqueTelefone());
         i.setAtiva(true);
         return instituicaoRepository.saveAndFlush(i);
     }
@@ -246,7 +247,7 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
         CategoriaProduto c = new CategoriaProduto();
         c.setTenant(tenant);
         c.setNome(nome);
-        c.setSlug(slug);
+        c.setSlug(UniqueTestData.uniqueSlug(slug));
         c.setOrdem(0);
         c.setAtivo(true);
         return categoriaProdutoRepository.saveAndFlush(c);
@@ -266,4 +267,3 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
         return produtoRepository.saveAndFlush(p);
     }
 }
-

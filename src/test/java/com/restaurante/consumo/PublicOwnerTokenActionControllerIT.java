@@ -1,7 +1,5 @@
 package com.restaurante.consumo;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.consumo.identificacao.entity.ClienteConsumo;
 import com.restaurante.consumo.identificacao.repository.ClienteConsumoRepository;
 import com.restaurante.consumo.participante.entity.SessaoConsumoParticipante;
@@ -11,6 +9,7 @@ import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.*;
 import com.restaurante.repository.*;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,7 +22,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -43,8 +41,6 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
 
     @Autowired
     MockMvc mockMvc;
-    @Autowired
-    ObjectMapper objectMapper;
 
     @Autowired
     TenantRepository tenantRepository;
@@ -78,30 +74,25 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
 
     @BeforeEach
     void setupData() {
-        // Limpar dados anteriores para evitar poluição
-        participanteRepository.deleteAllInBatch();
-        sessaoConsumoRepository.deleteAllInBatch();
-        qrCodeOperacionalRepository.deleteAllInBatch();
-        mesaRepository.deleteAllInBatch();
-        unidadeAtendimentoRepository.deleteAllInBatch();
-        instituicaoRepository.deleteAllInBatch();
-        tenantRepository.deleteAllInBatch();
+        String suffix = UniqueTestData.uniqueSuffix();
+        String ownerPhone = UniqueTestData.uniqueTelefone();
+        String memberPhone = UniqueTestData.uniqueTelefone();
 
         // 1. Setup Base
         tenant = new Tenant();
-        tenant.setNome("Consuma Test Tenant");
-        tenant.setSlug("consuma-test-tenant");
-        tenant.setTenantCode("CTT-" + UUID.randomUUID().toString().substring(0, 5));
+        tenant.setNome("Consuma Test Tenant " + suffix);
+        tenant.setSlug(UniqueTestData.uniqueSlug("consuma-test-tenant"));
+        tenant.setTenantCode(UniqueTestData.uniqueTenantCode("CTT"));
         tenant.setTipo(TenantTipo.RESTAURANTE);
         tenant.setEstado(TenantEstado.ATIVO);
         tenant = tenantRepository.saveAndFlush(tenant);
 
         instituicao = new Instituicao();
         instituicao.setTenant(tenant);
-        instituicao.setNome("Inst Test");
-        instituicao.setSigla("IT");
-        instituicao.setNif("NIF-TEST-1");
-        instituicao.setTelefoneAutorizacao("+244900000000");
+        instituicao.setNome("Inst Test " + suffix);
+        instituicao.setSigla(UniqueTestData.uniqueInstituicaoSigla("IT"));
+        instituicao.setNif(UniqueTestData.uniqueNif("NIF-TEST"));
+        instituicao.setTelefoneAutorizacao(UniqueTestData.uniqueTelefone());
         instituicao.setAtiva(true);
         instituicao = instituicaoRepository.saveAndFlush(instituicao);
 
@@ -113,17 +104,22 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
         unidade = unidadeAtendimentoRepository.saveAndFlush(unidade);
 
         mesa = new Mesa();
+        mesa.setTenant(tenant);
+        mesa.setInstituicao(instituicao);
         mesa.setUnidadeAtendimento(unidade);
+        mesa.setReferencia("Mesa " + suffix);
         mesa.setNumero(10);
+        mesa.setQrCode(UniqueTestData.uniqueQrCode("owner-token"));
         mesa.setAtiva(true);
         mesa = mesaRepository.saveAndFlush(mesa);
 
         qr = new QrCodeOperacional();
         qr.setTenant(tenant);
         qr.setInstituicao(instituicao);
+        qr.setUnidadeAtendimento(unidade);
         qr.setMesa(mesa);
         qr.setTipo(QrCodeOperacionalTipo.MESA);
-        qr.setToken("qr-token-test-" + UUID.randomUUID());
+        qr.setToken("qr-token-test-" + UniqueTestData.uniqueSuffix());
         qr = qrCodeOperacionalRepository.saveAndFlush(qr);
 
         sessao = new SessaoConsumo();
@@ -141,8 +137,8 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
         ClienteConsumo ownerCliente = new ClienteConsumo();
         ownerCliente.setTenant(tenant);
         ownerCliente.setNome("Dono da Sessao");
-        ownerCliente.setTelefone("+244911111111");
-        ownerCliente.setTelefoneNormalizado("+244911111111");
+        ownerCliente.setTelefone(ownerPhone);
+        ownerCliente.setTelefoneNormalizado(ownerPhone);
         ownerCliente.setStatus(ClienteConsumoStatus.ACTIVE);
         ownerCliente = clienteConsumoRepository.saveAndFlush(ownerCliente);
 
@@ -153,6 +149,7 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
         owner.setRole(SessaoParticipanteRole.OWNER);
         owner.setStatus(SessaoParticipanteStatus.ACTIVE);
         owner.setNomeExibicao("Dono");
+        owner.setTelefoneNormalizado(ownerPhone);
         owner = participanteRepository.saveAndFlush(owner);
 
         // Vincular owner à sessão de consumo principal
@@ -167,8 +164,8 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
         ClienteConsumo memberCliente = new ClienteConsumo();
         memberCliente.setTenant(tenant);
         memberCliente.setNome("Membro Pendente");
-        memberCliente.setTelefone("+244922222222");
-        memberCliente.setTelefoneNormalizado("+244922222222");
+        memberCliente.setTelefone(memberPhone);
+        memberCliente.setTelefoneNormalizado(memberPhone);
         memberCliente.setStatus(ClienteConsumoStatus.ACTIVE);
         memberCliente = clienteConsumoRepository.saveAndFlush(memberCliente);
 
@@ -180,6 +177,7 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
         pendingMember.setStatus(SessaoParticipanteStatus.PENDING_APPROVAL);
         pendingMember.setNomeExibicao("Pendente");
         pendingMember.setApprovalRequestedAt(Instant.now());
+        pendingMember.setTelefoneNormalizado(memberPhone);
         pendingMember = participanteRepository.saveAndFlush(pendingMember);
     }
 
@@ -190,15 +188,14 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @Test
     @DisplayName("Aprovar participante usando o token via Header")
     void approve_using_token_in_header() throws Exception {
-        mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
+        mockMvc.perform(post("/public/q/{token}/participantes/{participanteId}/approve-by-token",
                 qr.getToken(), pendingMember.getId())
                 .header("X-Owner-Action-Token", rawToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"Aprovado no header\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.data.approved").value(true));
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.approved").value(true));
 
         var updated = participanteRepository.findById(pendingMember.getId()).orElseThrow();
         assertThat(updated.getStatus()).isEqualTo(SessaoParticipanteStatus.ACTIVE);
@@ -207,36 +204,36 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @Test
     @DisplayName("Aprovar participante usando o token via Body")
     void approve_using_token_in_body() throws Exception {
-        mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
+        mockMvc.perform(post("/public/q/{token}/participantes/{participanteId}/approve-by-token",
                 qr.getToken(), pendingMember.getId())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ownerActionToken\":\"" + rawToken + "\", \"reason\":\"Aprovado no body\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.approved").value(true));
     }
 
     @Test
     @DisplayName("Prioriza Header quando ambos Header e Body são informados")
     void header_takes_precedence_over_body() throws Exception {
-        mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
+        mockMvc.perform(post("/public/q/{token}/participantes/{participanteId}/approve-by-token",
                 qr.getToken(), pendingMember.getId())
                 .header("X-Owner-Action-Token", rawToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ownerActionToken\":\"TOKEN-INVALIDO\", \"reason\":\"Prioridade\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.approved").value(true));
     }
 
     @Test
     @DisplayName("Erro se token não for enviado no header nem no body")
     void error_when_token_is_missing() throws Exception {
-        mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
+        mockMvc.perform(post("/public/q/{token}/participantes/{participanteId}/approve-by-token",
                 qr.getToken(), pendingMember.getId())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"Sem token\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("OWNER_ACTION_TOKEN_REQUIRED"));
     }
 
@@ -248,12 +245,11 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @DisplayName("Rejeita requisição se o token for enviado via Query Param")
     void error_when_token_is_sent_in_query_param() throws Exception {
         mockMvc.perform(post(
-                "/api/public/q/{token}/participantes/{participanteId}/approve-by-token?ownerActionToken=" + rawToken,
+                "/public/q/{token}/participantes/{participanteId}/approve-by-token?ownerActionToken=" + rawToken,
                 qr.getToken(), pendingMember.getId())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("OWNER_ACTION_TOKEN_QUERY_PARAM_NOT_ALLOWED"));
     }
 
@@ -264,15 +260,14 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @Test
     @DisplayName("Rejeitar participante com sucesso")
     void reject_participant_success() throws Exception {
-        mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/reject-by-token",
+        mockMvc.perform(post("/public/q/{token}/participantes/{participanteId}/reject-by-token",
                 qr.getToken(), pendingMember.getId())
                 .header("X-Owner-Action-Token", rawToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"Muito barulhento\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("REJECTED"))
-                .andExpect(jsonPath("$.data.rejected").value(true));
+                .andExpect(jsonPath("$.status").value("REJECTED"))
+                .andExpect(jsonPath("$.rejected").value(true));
 
         var updated = participanteRepository.findById(pendingMember.getId()).orElseThrow();
         assertThat(updated.getStatus()).isEqualTo(SessaoParticipanteStatus.REJECTED);
@@ -281,15 +276,14 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @Test
     @DisplayName("Cancelar participante com sucesso")
     void cancel_participant_success() throws Exception {
-        mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/cancel-by-token",
+        mockMvc.perform(post("/public/q/{token}/participantes/{participanteId}/cancel-by-token",
                 qr.getToken(), pendingMember.getId())
                 .header("X-Owner-Action-Token", rawToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"Desistiu\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("CANCELLED"))
-                .andExpect(jsonPath("$.data.wasCancelled").value(true));
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.wasCancelled").value(true));
 
         var updated = participanteRepository.findById(pendingMember.getId()).orElseThrow();
         assertThat(updated.getStatus()).isEqualTo(SessaoParticipanteStatus.CANCELLED);
@@ -305,14 +299,13 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
         pendingMember.setStatus(SessaoParticipanteStatus.ACTIVE);
         participanteRepository.saveAndFlush(pendingMember);
 
-        mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
+        mockMvc.perform(post("/public/q/{token}/participantes/{participanteId}/approve-by-token",
                 qr.getToken(), pendingMember.getId())
                 .header("X-Owner-Action-Token", rawToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.message").value("PARTICIPANTE_ESTADO_INVALIDO"));
+                .andExpect(jsonPath("$.message").value("PARTICIPANT_ALREADY_ACTIVE"));
     }
 
     // =========================================================================
@@ -322,13 +315,12 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @Test
     @DisplayName("Token inválido não resulta em 500")
     void invalid_token_returns_bad_request_not_500() throws Exception {
-        mockMvc.perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
+        mockMvc.perform(post("/public/q/{token}/participantes/{participanteId}/approve-by-token",
                 qr.getToken(), pendingMember.getId())
                 .header("X-Owner-Action-Token", "TOKEN-COMPLETAMENTE-INVALIDO-E-FALSO")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("OWNER_ACTION_TOKEN_INVALID"));
     }
 
@@ -336,7 +328,7 @@ class PublicOwnerTokenActionControllerIT extends PostgresTestcontainersConfig {
     @DisplayName("Resposta da API não expõe dados sensíveis (telefone completo ou tokenHash)")
     void response_does_not_leak_sensitive_data() throws Exception {
         MvcResult mvcResult = mockMvc
-                .perform(post("/api/public/q/{token}/participantes/{participanteId}/approve-by-token",
+                .perform(post("/public/q/{token}/participantes/{participanteId}/approve-by-token",
                         qr.getToken(), pendingMember.getId())
                         .header("X-Owner-Action-Token", rawToken)
                         .contentType(MediaType.APPLICATION_JSON)

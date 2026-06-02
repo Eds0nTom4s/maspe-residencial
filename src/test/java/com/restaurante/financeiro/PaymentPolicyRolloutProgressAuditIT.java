@@ -12,12 +12,14 @@ import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,6 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyRolloutProgressAuditIT extends PostgresTestcontainersConfig {
 
@@ -40,6 +43,7 @@ class PaymentPolicyRolloutProgressAuditIT extends PostgresTestcontainersConfig {
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
     @Autowired PaymentMethodPolicyRolloutWorkerService workerService;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() { TenantContextHolder.clear(); }
@@ -52,6 +56,7 @@ class PaymentPolicyRolloutProgressAuditIT extends PostgresTestcontainersConfig {
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
+        fixtureSupport.createKdsDevice(prov, "KDS Progress Audit");
 
         long tpl = templateIdByCode("KDS_SEM_PAGAMENTO");
         PaymentPolicyRolloutRequest req = new PaymentPolicyRolloutRequest();
@@ -86,14 +91,27 @@ class PaymentPolicyRolloutProgressAuditIT extends PostgresTestcontainersConfig {
 
     private ProvisionarTenantResponse provisionTenant(String nome, String code) {
         TenantContextHolder.set(new TenantContext(null, null, 1L, Set.of(Role.ROLE_ADMIN.name()), TenantResolutionSource.JWT, true, false));
-        String phone = "+244900" + Math.abs(nome.hashCode() % 1_000_000);
+        String tenantSlug = UniqueTestData.uniqueSlug(nome);
+        String tenantCode = UniqueTestData.uniqueTenantCode(code);
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
-                        .tenant(ProvisionarTenantRequest.TenantInfo.builder().nome("Tenant " + nome).slug(nome).tenantCode(code).tipo(TenantTipo.VENDEDOR_RUA).build())
+                        .tenant(ProvisionarTenantRequest.TenantInfo.builder()
+                                .nome("Tenant " + nome)
+                                .slug(tenantSlug)
+                                .tenantCode(tenantCode)
+                                .tipo(TenantTipo.VENDEDOR_RUA)
+                                .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
-                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder().nome("Inst " + nome).sigla(code).build())
-                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder().email(nome + "@owner.com").telefone(phone).criarUsuario(true).build())
+                        .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
+                                .nome("Inst " + nome)
+                                .sigla(UniqueTestData.uniqueInstituicaoSigla(code))
+                                .build())
+                        .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
+                                .email(UniqueTestData.uniqueEmail(nome))
+                                .telefone(UniqueTestData.uniqueTelefone())
+                                .criarUsuario(true)
+                                .build())
                         .build()
         );
     }

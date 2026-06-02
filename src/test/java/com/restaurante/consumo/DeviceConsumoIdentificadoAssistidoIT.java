@@ -16,6 +16,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -136,8 +137,8 @@ class DeviceConsumoIdentificadoAssistidoIT extends PostgresTestcontainersConfig 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
-        t.setSlug(slug);
-        t.setTenantCode(tenantCode);
+        t.setSlug(UniqueTestData.uniqueSlug(slug));
+        t.setTenantCode(UniqueTestData.uniqueTenantCode(tenantCode));
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
@@ -147,9 +148,9 @@ class DeviceConsumoIdentificadoAssistidoIT extends PostgresTestcontainersConfig 
         Instituicao i = new Instituicao();
         i.setTenant(tenant);
         i.setNome(nome);
-        i.setSigla(sigla);
-        i.setNif(nif);
-        i.setTelefoneAutorizacao(telefoneAutorizacao);
+        i.setSigla(UniqueTestData.uniqueInstituicaoSigla(sigla));
+        i.setNif(UniqueTestData.uniqueNif(nif));
+        i.setTelefoneAutorizacao(UniqueTestData.uniqueTelefone());
         i.setAtiva(true);
         return instituicaoRepository.saveAndFlush(i);
     }
@@ -168,7 +169,7 @@ class DeviceConsumoIdentificadoAssistidoIT extends PostgresTestcontainersConfig 
         d.setTenant(tenant);
         d.setInstituicao(inst);
         d.setUnidadeAtendimento(ua);
-        d.setCodigo("POS-ASSIST-" + System.nanoTime());
+        d.setCodigo(UniqueTestData.uniqueDeviceCode("POS-ASSIST"));
         d.setNome("POS Assist");
         d.setTipo(DispositivoTipo.POS);
         d.setStatus(DispositivoStatus.ATIVO);

@@ -33,6 +33,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -247,8 +248,8 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
-        t.setSlug(slug);
-        t.setTenantCode(tenantCode);
+        t.setSlug(UniqueTestData.uniqueSlug(slug));
+        t.setTenantCode(UniqueTestData.uniqueTenantCode(tenantCode));
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
@@ -258,9 +259,9 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         Instituicao i = new Instituicao();
         i.setTenant(tenant);
         i.setNome(nome);
-        i.setSigla(sigla);
-        i.setNif(nif);
-        i.setTelefoneAutorizacao(telefoneAutorizacao);
+        i.setSigla(UniqueTestData.uniqueInstituicaoSigla(sigla));
+        i.setNif(UniqueTestData.uniqueNif(nif));
+        i.setTelefoneAutorizacao(UniqueTestData.uniqueTelefone());
         i.setAtiva(true);
         return instituicaoRepository.saveAndFlush(i);
     }
@@ -288,7 +289,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         CategoriaProduto c = new CategoriaProduto();
         c.setTenant(tenant);
         c.setNome(nome);
-        c.setSlug(slug);
+        c.setSlug(UniqueTestData.uniqueSlug(slug));
         c.setOrdem(0);
         c.setAtivo(true);
         return categoriaProdutoRepository.saveAndFlush(c);

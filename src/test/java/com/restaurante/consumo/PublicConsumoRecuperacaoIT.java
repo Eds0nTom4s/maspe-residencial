@@ -63,7 +63,7 @@ class PublicConsumoRecuperacaoIT extends PostgresTestcontainersConfig {
         // primeiro identifica sessão (reaproveita endpoints)
         String reqIdentify = "{\"telefone\":\"923000000\"}";
         JsonNode chall = objectMapper.readTree(restTemplate.postForEntity(
-                "/api/public/q/{token}/identificacao/otp/request",
+                "/public/q/{token}/identificacao/otp/request",
                 json(reqIdentify),
                 String.class,
                 qr.getToken()
@@ -71,11 +71,11 @@ class PublicConsumoRecuperacaoIT extends PostgresTestcontainersConfig {
         String otp = chall.at("/debugOtp").asText();
         long cid = chall.at("/challengeId").asLong();
         String verifyIdentify = "{\"challengeId\":%d,\"telefone\":\"923000000\",\"otp\":\"%s\"}".formatted(cid, otp);
-        restTemplate.postForEntity("/api/public/q/{token}/identificacao/otp/verify", json(verifyIdentify), String.class, qr.getToken());
+        restTemplate.postForEntity("/public/q/{token}/identificacao/otp/verify", json(verifyIdentify), String.class, qr.getToken());
 
         // agora recovery
         JsonNode challRec = objectMapper.readTree(restTemplate.postForEntity(
-                "/api/public/q/{token}/recuperar/otp/request",
+                "/public/q/{token}/recuperar/otp/request",
                 json(reqIdentify),
                 String.class,
                 qr.getToken()
@@ -85,7 +85,7 @@ class PublicConsumoRecuperacaoIT extends PostgresTestcontainersConfig {
 
         String verifyRec = "{\"challengeId\":%d,\"telefone\":\"923000000\",\"otp\":\"%s\"}".formatted(recChallengeId, recOtp);
         ResponseEntity<String> verifyResp = restTemplate.postForEntity(
-                "/api/public/q/{token}/recuperar/otp/verify",
+                "/public/q/{token}/recuperar/otp/verify",
                 json(verifyRec),
                 String.class,
                 qr.getToken()

@@ -65,7 +65,7 @@ class PublicConsumoIdentificadoIT extends PostgresTestcontainersConfig {
                 {"telefone":"923000000","purpose":"IDENTIFICAR_SESSAO"}
                 """;
         ResponseEntity<String> reqResp = restTemplate.postForEntity(
-                "/api/public/q/{token}/identificacao/otp/request",
+                "/public/q/{token}/identificacao/otp/request",
                 json(reqPayload),
                 String.class,
                 qr.getToken()
@@ -82,7 +82,7 @@ class PublicConsumoIdentificadoIT extends PostgresTestcontainersConfig {
                 {"challengeId":%d,"telefone":"923000000","otp":"%s"}
                 """.formatted(challengeId, debugOtp);
         ResponseEntity<String> verifyResp = restTemplate.postForEntity(
-                "/api/public/q/{token}/identificacao/otp/verify",
+                "/public/q/{token}/identificacao/otp/verify",
                 json(verifyPayload),
                 String.class,
                 qr.getToken()

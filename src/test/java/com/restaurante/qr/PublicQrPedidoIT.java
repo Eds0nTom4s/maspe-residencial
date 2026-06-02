@@ -91,7 +91,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         headers.add("Idempotency-Key", "idem-key-00000001");
         HttpEntity<String> entity = new HttpEntity<>(payload, headers);
 
-        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", entity, String.class, qrA.getToken());
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qrA.getToken());
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
         JsonNode json = objectMapper.readTree(resp.getBody());
@@ -144,7 +144,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         headers.add("Idempotency-Key", "idem-key-00000002");
         HttpEntity<String> entity = new HttpEntity<>(payload, headers);
 
-        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", entity, String.class, qrA.getToken());
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qrA.getToken());
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         JsonNode json = objectMapper.readTree(resp.getBody());
         assertThat(json.path("message").asText()).contains("Produto inválido");
@@ -159,7 +159,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<String> entity = new HttpEntity<>(payload, headers);
 
-        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", entity, String.class, "q_INVALIDO_123");
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, "q_INVALIDO_123");
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 

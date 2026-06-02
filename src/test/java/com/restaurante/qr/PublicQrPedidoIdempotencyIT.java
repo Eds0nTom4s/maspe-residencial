@@ -23,6 +23,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -74,7 +75,7 @@ class PublicQrPedidoIdempotencyIT extends PostgresTestcontainersConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<String> entity = new HttpEntity<>(payload, headers);
 
-        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", entity, String.class, qr.getToken());
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qr.getToken());
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
@@ -97,8 +98,8 @@ class PublicQrPedidoIdempotencyIT extends PostgresTestcontainersConfig {
         headers.add("Idempotency-Key", "idem-key-same-0001");
         HttpEntity<String> entity = new HttpEntity<>(payload, headers);
 
-        ResponseEntity<String> r1 = restTemplate.postForEntity("/api/public/q/{token}/pedidos", entity, String.class, qr.getToken());
-        ResponseEntity<String> r2 = restTemplate.postForEntity("/api/public/q/{token}/pedidos", entity, String.class, qr.getToken());
+        ResponseEntity<String> r1 = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qr.getToken());
+        ResponseEntity<String> r2 = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qr.getToken());
         assertThat(r1.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(r2.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
@@ -130,18 +131,18 @@ class PublicQrPedidoIdempotencyIT extends PostgresTestcontainersConfig {
                 { "itens": [ { "produtoId": %d, "quantidade": 1 } ] }
                 """.formatted(prod2.getId());
 
-        ResponseEntity<String> r1 = restTemplate.postForEntity("/api/public/q/{token}/pedidos", new HttpEntity<>(payload1, headers), String.class, qr.getToken());
+        ResponseEntity<String> r1 = restTemplate.postForEntity("/public/q/{token}/pedidos", new HttpEntity<>(payload1, headers), String.class, qr.getToken());
         assertThat(r1.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
-        ResponseEntity<String> r2 = restTemplate.postForEntity("/api/public/q/{token}/pedidos", new HttpEntity<>(payload2, headers), String.class, qr.getToken());
+        ResponseEntity<String> r2 = restTemplate.postForEntity("/public/q/{token}/pedidos", new HttpEntity<>(payload2, headers), String.class, qr.getToken());
         assertThat(r2.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
-        t.setSlug(slug);
-        t.setTenantCode(tenantCode);
+        t.setSlug(UniqueTestData.uniqueSlug(slug));
+        t.setTenantCode(UniqueTestData.uniqueTenantCode(tenantCode));
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
@@ -151,9 +152,9 @@ class PublicQrPedidoIdempotencyIT extends PostgresTestcontainersConfig {
         Instituicao i = new Instituicao();
         i.setTenant(tenant);
         i.setNome(nome);
-        i.setSigla(sigla);
-        i.setNif(nif);
-        i.setTelefoneAutorizacao(telefoneAutorizacao);
+        i.setSigla(UniqueTestData.uniqueInstituicaoSigla(sigla));
+        i.setNif(UniqueTestData.uniqueNif(nif));
+        i.setTelefoneAutorizacao(UniqueTestData.uniqueTelefone());
         i.setAtiva(true);
         return instituicaoRepository.saveAndFlush(i);
     }
@@ -181,7 +182,7 @@ class PublicQrPedidoIdempotencyIT extends PostgresTestcontainersConfig {
         CategoriaProduto c = new CategoriaProduto();
         c.setTenant(tenant);
         c.setNome(nome);
-        c.setSlug(slug);
+        c.setSlug(UniqueTestData.uniqueSlug(slug));
         c.setOrdem(0);
         c.setAtivo(true);
         return categoriaProdutoRepository.saveAndFlush(c);
@@ -201,4 +202,3 @@ class PublicQrPedidoIdempotencyIT extends PostgresTestcontainersConfig {
         return produtoRepository.saveAndFlush(p);
     }
 }
-

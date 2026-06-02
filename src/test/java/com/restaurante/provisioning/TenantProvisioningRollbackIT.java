@@ -17,6 +17,7 @@ import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -55,8 +56,8 @@ class TenantProvisioningRollbackIT extends PostgresTestcontainersConfig {
         // Pré-cria uma instituição com sigla "DUP" para provocar violação UNIQUE na criação da nova Instituicao.
         Tenant t0 = new Tenant();
         t0.setNome("T0");
-        t0.setSlug("t0");
-        t0.setTenantCode("T0X");
+        t0.setSlug(UniqueTestData.uniqueSlug("t0"));
+        t0.setTenantCode(UniqueTestData.uniqueTenantCode("T0X"));
         t0.setTipo(TenantTipo.RESTAURANTE);
         t0.setEstado(TenantEstado.ATIVO);
         t0 = tenantRepository.saveAndFlush(t0);
@@ -73,16 +74,19 @@ class TenantProvisioningRollbackIT extends PostgresTestcontainersConfig {
         existing.setTenant(t0);
         existing.setNome("Existing");
         existing.setSigla("DUP");
-        existing.setNif("NIF-DUP-0");
-        existing.setTelefoneAutorizacao("+244900111111");
+        existing.setNif(UniqueTestData.uniqueNif("NIF-DUP"));
+        existing.setTelefoneAutorizacao(UniqueTestData.uniqueTelefone());
         existing.setAtiva(true);
         instituicaoRepository.saveAndFlush(existing);
+
+        String rollbackSlug = UniqueTestData.uniqueSlug("tenant-rollback");
+        String rollbackCode = UniqueTestData.uniqueTenantCode("RBK");
 
         ProvisionarTenantRequest req = ProvisionarTenantRequest.builder()
                 .tenant(ProvisionarTenantRequest.TenantInfo.builder()
                         .nome("Tenant Rollback")
-                        .slug("tenant-rollback")
-                        .tenantCode("RBK")
+                        .slug(rollbackSlug)
+                        .tenantCode(rollbackCode)
                         .tipo(TenantTipo.VENDEDOR_RUA)
                         .build())
                 .planoCodigo("PILOTO")
@@ -90,8 +94,8 @@ class TenantProvisioningRollbackIT extends PostgresTestcontainersConfig {
                 .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
                         .nome("Inst Rollback")
                         .sigla("DUP") // força violação UNIQUE
-                        .nif("NIF-RBK-1")
-                        .telefone("+244900222222")
+                        .nif(UniqueTestData.uniqueNif("NIF-RBK"))
+                        .telefone(UniqueTestData.uniqueTelefone())
                         .build())
                 .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder()
                         .ativarTenant(true)
@@ -104,8 +108,7 @@ class TenantProvisioningRollbackIT extends PostgresTestcontainersConfig {
         assertThatThrownBy(() -> provisioningService.provisionar(req))
                 .isInstanceOf(Exception.class);
 
-        assertThat(tenantRepository.findBySlug("tenant-rollback")).isEmpty();
-        assertThat(tenantRepository.findByTenantCode("RBK")).isEmpty();
+        assertThat(tenantRepository.findBySlug(rollbackSlug)).isEmpty();
+        assertThat(tenantRepository.findByTenantCode(rollbackCode)).isEmpty();
     }
 }
-

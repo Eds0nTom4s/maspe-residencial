@@ -143,7 +143,7 @@ class PagamentoCallbackInvalidSignatureIT extends PostgresTestcontainersConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.add("Idempotency-Key", idempotencyKey);
         ResponseEntity<String> resp = restTemplate.postForEntity(
-                "/api/public/q/{token}/pedidos/{pedidoId}/pagamentos",
+                "/public/q/{token}/pedidos/{pedidoId}/pagamentos",
                 new HttpEntity<>(payPayload, headers),
                 String.class,
                 token,
@@ -162,7 +162,7 @@ class PagamentoCallbackInvalidSignatureIT extends PostgresTestcontainersConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.add("Idempotency-Key", idemKey);
         ResponseEntity<String> resp = restTemplate.postForEntity(
-                "/api/public/q/{token}/pedidos",
+                "/public/q/{token}/pedidos",
                 new HttpEntity<>(payload, headers),
                 String.class,
                 token
@@ -244,4 +244,3 @@ class PagamentoCallbackInvalidSignatureIT extends PostgresTestcontainersConfig {
         return amount.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
     }
 }
-

@@ -20,6 +20,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -74,7 +75,7 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
         );
 
         // Tenant A: só vê produto A
-        ResponseEntity<String> respA = restTemplate.getForEntity("/api/public/q/{token}/cardapio", String.class, qrA.getToken());
+        ResponseEntity<String> respA = restTemplate.getForEntity("/public/q/{token}/cardapio", String.class, qrA.getToken());
         assertThat(respA.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode jsonA = objectMapper.readTree(respA.getBody());
         assertThat(jsonA.path("success").asBoolean()).isTrue();
@@ -84,19 +85,19 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
         assertThat(jsonA.at("/data/categorias/0/produtos").toString()).doesNotContain("Água 500ml B");
 
         // Tenant B: só vê produto B
-        ResponseEntity<String> respB = restTemplate.getForEntity("/api/public/q/{token}/cardapio", String.class, qrB.getToken());
+        ResponseEntity<String> respB = restTemplate.getForEntity("/public/q/{token}/cardapio", String.class, qrB.getToken());
         assertThat(respB.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode jsonB = objectMapper.readTree(respB.getBody());
         assertThat(jsonB.at("/data/categorias/0/produtos").toString()).contains("Água 500ml B");
         assertThat(jsonB.at("/data/categorias/0/produtos").toString()).doesNotContain("Água 500ml A");
 
         // Token inválido: 404
-        ResponseEntity<String> invalid = restTemplate.getForEntity("/api/public/q/{token}/cardapio", String.class, "q_INVALIDO_123");
+        ResponseEntity<String> invalid = restTemplate.getForEntity("/public/q/{token}/cardapio", String.class, "q_INVALIDO_123");
         assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 
         // QR revogado: 404 (falha fechada)
         qrCodeOperacionalService.revogar(qrA.getId());
-        ResponseEntity<String> revoked = restTemplate.getForEntity("/api/public/q/{token}/cardapio", String.class, qrA.getToken());
+        ResponseEntity<String> revoked = restTemplate.getForEntity("/public/q/{token}/cardapio", String.class, qrA.getToken());
         assertThat(revoked.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
@@ -110,7 +111,7 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
                 tenantA.getId(), instA.getId(), unidadeA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR META"
         );
 
-        ResponseEntity<String> resp = restTemplate.getForEntity("/api/public/q/{token}", String.class, qr.getToken());
+        ResponseEntity<String> resp = restTemplate.getForEntity("/public/q/{token}", String.class, qr.getToken());
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode json = objectMapper.readTree(resp.getBody());
         assertThat(json.path("success").asBoolean()).isTrue();
@@ -123,8 +124,8 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
-        t.setSlug(slug);
-        t.setTenantCode(tenantCode);
+        t.setSlug(UniqueTestData.uniqueSlug(slug));
+        t.setTenantCode(UniqueTestData.uniqueTenantCode(tenantCode));
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
@@ -134,9 +135,9 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
         Instituicao i = new Instituicao();
         i.setTenant(tenant);
         i.setNome(nome);
-        i.setSigla(sigla);
-        i.setNif(nif);
-        i.setTelefoneAutorizacao(telefoneAutorizacao);
+        i.setSigla(UniqueTestData.uniqueInstituicaoSigla(sigla));
+        i.setNif(UniqueTestData.uniqueNif(nif));
+        i.setTelefoneAutorizacao(UniqueTestData.uniqueTelefone());
         i.setAtiva(true);
         return instituicaoRepository.saveAndFlush(i);
     }
@@ -154,7 +155,7 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
         CategoriaProduto c = new CategoriaProduto();
         c.setTenant(tenant);
         c.setNome(nome);
-        c.setSlug(slug);
+        c.setSlug(UniqueTestData.uniqueSlug(slug));
         c.setOrdem(0);
         c.setAtivo(true);
         return categoriaProdutoRepository.saveAndFlush(c);
@@ -174,4 +175,3 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
         return produtoRepository.saveAndFlush(p);
     }
 }
-

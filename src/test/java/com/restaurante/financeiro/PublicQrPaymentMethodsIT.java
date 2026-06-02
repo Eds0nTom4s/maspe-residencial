@@ -95,7 +95,7 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
         tenantPaymentMethodRepository.saveAndFlush(appy);
 
         ResponseEntity<String> methodsResp = restTemplate.getForEntity(
-                "/api/public/q/{token}/payment-methods?destination=PEDIDO",
+                "/public/q/{token}/payment-methods?destination=PEDIDO",
                 String.class,
                 qr.getToken()
         );
@@ -116,7 +116,7 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
         HttpEntity<String> entity = new HttpEntity<>(payPayload, headers);
 
         ResponseEntity<String> r = restTemplate.postForEntity(
-                "/api/public/q/{token}/pedidos/{pedidoId}/pagamentos",
+                "/public/q/{token}/pedidos/{pedidoId}/pagamentos",
                 entity, String.class, qr.getToken(), pedidoId
         );
         assertThat(r.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -182,7 +182,7 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.add("Idempotency-Key", idempotencyKey);
         ResponseEntity<String> resp = restTemplate.postForEntity(
-                "/api/public/q/{token}/pedidos",
+                "/public/q/{token}/pedidos",
                 new HttpEntity<>(payload, headers),
                 String.class,
                 token

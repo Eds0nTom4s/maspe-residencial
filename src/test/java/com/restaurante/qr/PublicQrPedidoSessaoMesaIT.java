@@ -30,6 +30,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -75,6 +76,7 @@ class PublicQrPedidoSessaoMesaIT extends PostgresTestcontainersConfig {
 
         Mesa mesa = criarMesa(inst, ua, "Mesa 1", 1, "QR-MESA-LEGADO-1");
         SessaoConsumo sessao = new SessaoConsumo();
+        sessao.setTenant(tenant);
         sessao.setMesa(mesa);
         sessao.setUnidadeAtendimento(ua);
         sessao.setInstituicao(inst);
@@ -106,7 +108,7 @@ class PublicQrPedidoSessaoMesaIT extends PostgresTestcontainersConfig {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.add("Idempotency-Key", idemKey);
-        ResponseEntity<String> resp = restTemplate.postForEntity("/api/public/q/{token}/pedidos", new HttpEntity<>(payload, headers), String.class, token);
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", new HttpEntity<>(payload, headers), String.class, token);
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode json = objectMapper.readTree(resp.getBody());
         return json.at("/data/pedidoId").asLong();
@@ -115,8 +117,8 @@ class PublicQrPedidoSessaoMesaIT extends PostgresTestcontainersConfig {
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
-        t.setSlug(slug);
-        t.setTenantCode(tenantCode);
+        t.setSlug(UniqueTestData.uniqueSlug(slug));
+        t.setTenantCode(UniqueTestData.uniqueTenantCode(tenantCode));
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
         return tenantRepository.saveAndFlush(t);
@@ -126,9 +128,9 @@ class PublicQrPedidoSessaoMesaIT extends PostgresTestcontainersConfig {
         Instituicao i = new Instituicao();
         i.setTenant(tenant);
         i.setNome(nome);
-        i.setSigla(sigla);
-        i.setNif(nif);
-        i.setTelefoneAutorizacao(telefoneAutorizacao);
+        i.setSigla(UniqueTestData.uniqueInstituicaoSigla(sigla));
+        i.setNif(UniqueTestData.uniqueNif(nif));
+        i.setTelefoneAutorizacao(UniqueTestData.uniqueTelefone());
         i.setAtiva(true);
         return instituicaoRepository.saveAndFlush(i);
     }
@@ -144,11 +146,12 @@ class PublicQrPedidoSessaoMesaIT extends PostgresTestcontainersConfig {
 
     private Mesa criarMesa(Instituicao instituicao, UnidadeAtendimento ua, String referencia, Integer numero, String qrCode) {
         Mesa m = new Mesa();
+        m.setTenant(instituicao.getTenant());
         m.setInstituicao(instituicao);
         m.setUnidadeAtendimento(ua);
         m.setReferencia(referencia);
         m.setNumero(numero);
-        m.setQrCode(qrCode);
+        m.setQrCode(UniqueTestData.uniqueQrCode(qrCode));
         m.setAtiva(true);
         return mesaRepository.saveAndFlush(m);
     }
@@ -167,7 +170,7 @@ class PublicQrPedidoSessaoMesaIT extends PostgresTestcontainersConfig {
         CategoriaProduto c = new CategoriaProduto();
         c.setTenant(tenant);
         c.setNome(nome);
-        c.setSlug(slug);
+        c.setSlug(UniqueTestData.uniqueSlug(slug));
         c.setOrdem(0);
         c.setAtivo(true);
         return categoriaProdutoRepository.saveAndFlush(c);
@@ -187,4 +190,3 @@ class PublicQrPedidoSessaoMesaIT extends PostgresTestcontainersConfig {
         return produtoRepository.saveAndFlush(p);
     }
 }
-

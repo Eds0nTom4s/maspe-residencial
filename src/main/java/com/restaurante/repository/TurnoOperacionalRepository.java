@@ -70,11 +70,11 @@ public interface TurnoOperacionalRepository extends JpaRepository<TurnoOperacion
             select t
             from TurnoOperacional t
             where t.tenant.id = :tenantId
-              and (:instituicaoId is null or t.instituicao.id = :instituicaoId)
-              and (:unidadeAtendimentoId is null or t.unidadeAtendimento.id = :unidadeAtendimentoId)
-              and (:status is null or t.status = :status)
-              and (:de is null or t.abertoEm >= :de)
-              and (:ate is null or t.abertoEm <= :ate)
+              and (cast(:instituicaoId as long) is null or t.instituicao.id = :instituicaoId)
+              and (cast(:unidadeAtendimentoId as long) is null or t.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:status as string) is null or t.status = :status)
+              and (cast(:de as timestamp) is null or t.abertoEm >= :de)
+              and (cast(:ate as timestamp) is null or t.abertoEm <= :ate)
             """)
     Page<TurnoOperacional> search(
             @Param("tenantId") Long tenantId,
@@ -100,11 +100,11 @@ public interface TurnoOperacionalRepository extends JpaRepository<TurnoOperacion
             select t
             from TurnoOperacional t
             where t.tenant.id = :tenantId
-              and (:status is null or t.status = :status)
-              and (:instituicaoId is null or t.instituicao.id = :instituicaoId)
-              and (:unidadeAtendimentoId is null or t.unidadeAtendimento.id = :unidadeAtendimentoId)
-              and (:de is null or t.abertoEm >= :de)
-              and (:ate is null or t.abertoEm <= :ate)
+              and (cast(:status as string) is null or t.status = :status)
+              and (cast(:instituicaoId as long) is null or t.instituicao.id = :instituicaoId)
+              and (cast(:unidadeAtendimentoId as long) is null or t.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:de as timestamp) is null or t.abertoEm >= :de)
+              and (cast(:ate as timestamp) is null or t.abertoEm <= :ate)
             order by t.abertoEm desc
             """)
     Page<TurnoOperacional> searchPlatformByTenant(

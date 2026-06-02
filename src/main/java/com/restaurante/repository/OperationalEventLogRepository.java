@@ -28,13 +28,13 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
     @Query("""
             select e from OperationalEventLog e
             where e.tenant.id = :tenantId
-              and (:pedidoId is null or e.pedido.id = :pedidoId)
-              and (:subPedidoId is null or e.subPedido.id = :subPedidoId)
-              and (:eventType is null or e.eventType = :eventType)
-              and (:actorUserId is null or e.actorUser.id = :actorUserId)
-              and (:deviceId is null or e.dispositivo.id = :deviceId)
-              and (:de is null or e.createdAt >= :de)
-              and (:ate is null or e.createdAt <= :ate)
+              and (cast(:pedidoId as long) is null or e.pedido.id = :pedidoId)
+              and (cast(:subPedidoId as long) is null or e.subPedido.id = :subPedidoId)
+              and (cast(:eventType as string) is null or e.eventType = :eventType)
+              and (cast(:actorUserId as long) is null or e.actorUser.id = :actorUserId)
+              and (cast(:deviceId as long) is null or e.dispositivo.id = :deviceId)
+              and (cast(:de as timestamp) is null or e.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or e.createdAt <= :ate)
             order by e.createdAt desc
             """)
     Page<OperationalEventLog> searchByTenantAndFilters(
@@ -169,11 +169,11 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
             select e
             from OperationalEventLog e
             where e.tenant.id = :tenantId
-              and (:eventType is null or e.eventType = :eventType)
-              and (:entityType is null or e.entityType = :entityType)
-              and (:actorType is null or e.actorType = :actorType)
-              and (:de is null or e.createdAt >= :de)
-              and (:ate is null or e.createdAt <= :ate)
+              and (cast(:eventType as string) is null or e.eventType = :eventType)
+              and (cast(:entityType as string) is null or e.entityType = :entityType)
+              and (cast(:actorType as string) is null or e.actorType = :actorType)
+              and (cast(:de as timestamp) is null or e.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or e.createdAt <= :ate)
             order by e.createdAt desc
             """)
     Page<OperationalEventLog> searchTenantEventsExtended(

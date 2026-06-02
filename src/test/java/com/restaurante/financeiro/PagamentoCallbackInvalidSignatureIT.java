@@ -16,6 +16,7 @@ import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.CallbackProcessingStatus;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
@@ -57,6 +58,11 @@ import static org.mockito.Mockito.when;
                 "spring.main.web-application-type=servlet",
                 "app.payment.appypay.webhook-signature-required=true",
                 "app.payment.appypay.webhook-secret=TEST_SECRET_123",
+                "app.payment.appypay.base-url=http://localhost/appypay",
+                "app.payment.appypay.token-url=http://localhost/appypay/token",
+                "app.payment.appypay.client-id=TEST_CLIENT",
+                "app.payment.appypay.client-secret=TEST_SECRET",
+                "app.payment.appypay.resource=TEST_RESOURCE",
                 "app.payment.appypay.mock=false"
         }
 )
@@ -119,7 +125,7 @@ class PagamentoCallbackInvalidSignatureIT extends PostgresTestcontainersConfig {
 
         // Sem header X-AppyPay-Signature => deve retornar 401
         ResponseEntity<Void> cb = restTemplate.postForEntity(
-                "/api/pagamentos/callback",
+                "/pagamentos/callback",
                 new HttpEntity<>(callbackJson, jsonHeaders()),
                 Void.class
         );
@@ -234,6 +240,7 @@ class PagamentoCallbackInvalidSignatureIT extends PostgresTestcontainersConfig {
         p.setCodigo(codigo);
         p.setNome(nome);
         p.setPreco(preco);
+        p.setCategoria(CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA);
         p.setDisponivel(true);
         p.setAtivo(true);
         p.setCategoriaProduto(categoriaProduto);

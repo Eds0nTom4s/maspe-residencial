@@ -17,6 +17,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -31,13 +32,23 @@ public class TenantPaymentMethodBootstrapService {
     private final OperationalEventLogService operationalEventLogService;
     private final AppyPayProperties appyPayProperties;
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void ensureDefaults(Long tenantId) {
         if (tenantId == null) throw new ResourceNotFoundException("Recurso não encontrado.");
         if (repository.existsByTenantId(tenantId)) return;
 
         Tenant tenant = tenantRepository.findById(tenantId).orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+        ensureDefaultsInternal(tenant);
+    }
 
+    @Transactional
+    public void ensureDefaultsInCurrentTransaction(Tenant tenant) {
+        if (tenant == null || tenant.getId() == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+        if (repository.existsByTenantId(tenant.getId())) return;
+        ensureDefaultsInternal(tenant);
+    }
+
+    private void ensureDefaultsInternal(Tenant tenant) {
         TenantPaymentMethod cash = new TenantPaymentMethod();
         cash.setTenant(tenant);
         cash.setCode(PaymentMethodCode.CASH);

@@ -64,12 +64,12 @@ public class PagamentoCallbackService {
         this.sessaoConsumoService = sessaoConsumoService;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = InvalidCallbackSignatureException.class)
     public void processarCallback(String rawBody, String signature) {
         processarCallback(rawBody, signature, Map.of());
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = InvalidCallbackSignatureException.class)
     public void processarCallback(String rawBody, String signature, Map<String, String> headers) {
         PagamentoCallbackLog callbackLog = criarLogRecebido(rawBody, headers);
 

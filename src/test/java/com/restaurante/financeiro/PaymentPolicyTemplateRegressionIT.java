@@ -28,6 +28,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -62,6 +63,7 @@ class PaymentPolicyTemplateRegressionIT extends PostgresTestcontainersConfig {
     }
 
     @Test
+    @WithMockUser(username = "owner")
     void applying_kds_sem_pagamento_makes_device_see_no_payment_methods() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-tpl-reg-a", "RG1");
         DispositivoOperacional kds = criarDevice(prov, "KDS", DispositivoTipo.KDS, OperationalDeviceType.KDS_COZINHA);

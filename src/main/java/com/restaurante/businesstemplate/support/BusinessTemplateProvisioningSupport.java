@@ -514,7 +514,7 @@ public class BusinessTemplateProvisioningSupport {
     }
 
     public void bootstrapPaymentAndInventory(Tenant tenant) {
-        paymentMethodBootstrapService.ensureDefaults(tenant.getId());
+        paymentMethodBootstrapService.ensureDefaultsInCurrentTransaction(tenant);
         tenantInventoryPolicyService.getOrCreateDefault(tenant);
     }
 

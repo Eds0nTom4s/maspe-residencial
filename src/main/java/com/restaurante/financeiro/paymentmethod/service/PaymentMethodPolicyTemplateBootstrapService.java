@@ -9,6 +9,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -28,7 +29,7 @@ public class PaymentMethodPolicyTemplateBootstrapService {
     private final TenantPaymentMethodService tenantPaymentMethodService;
     private final OperationalEventLogService operationalEventLogService;
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void ensureDefaults(Long tenantId) {
         if (tenantId == null) return;
         if (templateRepository.existsByTenant_Id(tenantId)) return;
@@ -158,4 +159,3 @@ public class PaymentMethodPolicyTemplateBootstrapService {
         return i;
     }
 }
-

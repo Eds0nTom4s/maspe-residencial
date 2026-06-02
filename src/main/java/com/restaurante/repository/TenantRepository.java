@@ -31,8 +31,8 @@ public interface TenantRepository extends JpaRepository<Tenant, Long> {
     @Query("""
             select t
             from Tenant t
-            where (:estado is null or t.estado = :estado)
-              and (:search is null or :search = '' or lower(t.nome) like lower(concat('%', :search, '%')) or lower(t.tenantCode) like lower(concat('%', :search, '%')))
+            where (cast(:estado as string) is null or t.estado = :estado)
+              and (cast(:search as string) is null or :search = '' or lower(t.nome) like lower(concat('%', :search, '%')) or lower(t.tenantCode) like lower(concat('%', :search, '%')))
             order by t.id asc
             """)
     Page<Tenant> searchPlatform(@Param("estado") TenantEstado estado, @Param("search") String search, Pageable pageable);

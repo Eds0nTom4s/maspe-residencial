@@ -57,10 +57,10 @@ public interface DispositivoOperacionalRepository extends JpaRepository<Disposit
             select d
             from DispositivoOperacional d
             where d.tenant.id = :tenantId
-              and (:status is null or d.status = :status)
-              and (:tipo is null or d.tipo = :tipo)
-              and (:unidadeAtendimentoId is null or d.unidadeAtendimento.id = :unidadeAtendimentoId)
-              and (:unidadeProducaoId is null or d.unidadeProducao.id = :unidadeProducaoId)
+              and (cast(:status as string) is null or d.status = :status)
+              and (cast(:tipo as string) is null or d.tipo = :tipo)
+              and (cast(:unidadeAtendimentoId as long) is null or d.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:unidadeProducaoId as long) is null or d.unidadeProducao.id = :unidadeProducaoId)
             order by d.id desc
             """)
     Page<DispositivoOperacional> searchByTenantAndFilters(
@@ -77,7 +77,7 @@ public interface DispositivoOperacionalRepository extends JpaRepository<Disposit
             from DispositivoOperacional d
             where d.tenant.id = :tenantId
               and d.unidadeAtendimento.id = :unidadeAtendimentoId
-              and (:deviceType is null or d.operationalDeviceType = :deviceType)
+              and (cast(:deviceType as string) is null or d.operationalDeviceType = :deviceType)
             order by d.id asc
             """)
     List<DispositivoOperacional> findByTenantAndUnidadeAtendimentoAndOperationalType(

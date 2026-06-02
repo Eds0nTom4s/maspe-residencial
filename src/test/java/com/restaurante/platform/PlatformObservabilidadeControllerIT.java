@@ -164,7 +164,7 @@ class PlatformObservabilidadeControllerIT extends PostgresTestcontainersConfig {
 
         mockMvc.perform(get("/platform/observabilidade/saude")
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isForbidden());
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {

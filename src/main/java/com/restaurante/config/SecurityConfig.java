@@ -24,15 +24,18 @@ import org.springframework.web.cors.CorsConfigurationSource;
 /**
  * Configuração de segurança do Spring Security
  * 
- * IMPORTANTE: Esta configuração é DESABILITADA em ambiente de teste (profile 'test')
- * para permitir testes E2E sem autenticação. Em testes, usar TestSecurityConfig.
+ * IMPORTANTE: Esta configuração é desabilitada apenas no profile `test`,
+ * usado por testes que optam explicitamente por um setup sem autenticação.
+ *
+ * Os ITs com profile `it-postgres` precisam da cadeia real para validar JWT,
+ * RBAC, CSRF stateless e guards tenant-aware.
  */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 @RequiredArgsConstructor
 @Slf4j
-@org.springframework.context.annotation.Profile("!test & !it-postgres")
+@org.springframework.context.annotation.Profile("!test")
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;

@@ -487,6 +487,6 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
         mockMvc.perform(post("/platform/templates/CONSUMA_PONTO_V1/provision")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isForbidden());
     }
 }

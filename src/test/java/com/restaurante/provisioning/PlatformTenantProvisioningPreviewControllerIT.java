@@ -105,7 +105,7 @@ class PlatformTenantProvisioningPreviewControllerIT extends PostgresTestcontaine
                   "responsavel": { "email": "owner@a.com", "criarUsuario": true },
                   "opcoes": {
                     "criarMesas": true,
-                    "quantidadeMesas": 10,
+                    "quantidadeMesas": 20,
                     "criarQrPorMesa": true,
                     "criarQrPrincipal": true,
                     "criarUnidadeAtendimentoDefault": true,
@@ -125,7 +125,7 @@ class PlatformTenantProvisioningPreviewControllerIT extends PostgresTestcontaine
         assertThat(json.at("/data/permitido").asBoolean()).isFalse();
         String codes = json.at("/data/bloqueios").toString();
         assertThat(codes).contains("MAX_QR_CODES_EXCEDIDO");
-        assertThat(json.at("/data/recursosPlanejados/qrCodesCriados").asInt()).isEqualTo(11);
+        assertThat(json.at("/data/recursosPlanejados/qrCodesCriados").asInt()).isEqualTo(21);
     }
 
     @Test
@@ -145,14 +145,14 @@ class PlatformTenantProvisioningPreviewControllerIT extends PostgresTestcontaine
                   "responsavel": { "email": "owner@b.com", "criarUsuario": true },
                   "opcoes": {
                     "criarMesas": true,
-                    "quantidadeMesas": 10,
+                    "quantidadeMesas": 20,
                     "criarQrPorMesa": true,
                     "criarQrPrincipal": true,
                     "criarUnidadeAtendimentoDefault": true,
                     "criarCategoriaDefault": true,
                     "ativarTenant": true
                   },
-                  "limitesOverride": { "maxQrCodes": 11, "motivo": "piloto", "configuradoPor": "admin" }
+                  "limitesOverride": { "maxQrCodes": 21, "motivo": "piloto", "configuradoPor": "admin" }
                 }
                 """;
 
@@ -164,7 +164,7 @@ class PlatformTenantProvisioningPreviewControllerIT extends PostgresTestcontaine
 
         JsonNode json = objectMapper.readTree(resp);
         assertThat(json.at("/data/permitido").asBoolean()).isTrue();
-        assertThat(json.at("/data/recursosPlanejados/qrCodesCriados").asInt()).isEqualTo(11);
+        assertThat(json.at("/data/recursosPlanejados/qrCodesCriados").asInt()).isEqualTo(21);
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
 import com.restaurante.financeiro.paymentmethod.repository.TenantPaymentMethodRepository;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
 import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
@@ -18,8 +19,10 @@ import com.restaurante.model.enums.PaymentMethodStatus;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
+import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
@@ -57,6 +60,7 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
     @Autowired TenantRepository tenantRepository;
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    @Autowired CozinhaRepository cozinhaRepository;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
@@ -80,6 +84,7 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
         Tenant tenant = criarTenant("Banca2", "banca2", "TI2");
         Instituicao inst = criarInstituicao(tenant, "InstA", "IA2");
         UnidadeAtendimento ua = criarUnidade(inst, "UA", TipoUnidadeAtendimento.RESTAURANTE);
+        criarCozinhaVinculada(ua, "Bar QR", TipoCozinha.BAR_PREP);
         CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
         Produto prod = criarProduto(tenant, cat, "AGUA", "Água", new BigDecimal("10.00"));
 
@@ -128,7 +133,7 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
         t.setSlug(slug);
         t.setTenantCode(code);
         t.setEstado(TenantEstado.ATIVO);
-        t.setTipo(TenantTipo.VENDEDOR_RUA);
+        t.setTipo(TenantTipo.RESTAURANTE);
         return tenantRepository.save(t);
     }
 
@@ -148,6 +153,16 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
         ua.setNome(nome);
         ua.setTipo(tipo);
         return unidadeAtendimentoRepository.save(ua);
+    }
+
+    private void criarCozinhaVinculada(UnidadeAtendimento unidade, String nome, TipoCozinha tipo) {
+        Cozinha cozinha = new Cozinha();
+        cozinha.setNome(nome);
+        cozinha.setTipo(tipo);
+        cozinha.setAtiva(true);
+        Cozinha salva = cozinhaRepository.saveAndFlush(cozinha);
+        unidade.adicionarCozinha(salva);
+        unidadeAtendimentoRepository.saveAndFlush(unidade);
     }
 
     private CategoriaProduto criarCategoria(Tenant tenant, String nome, String slug) {

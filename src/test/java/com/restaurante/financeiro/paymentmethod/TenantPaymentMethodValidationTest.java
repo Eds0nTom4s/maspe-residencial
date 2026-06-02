@@ -13,6 +13,7 @@ import com.restaurante.model.enums.PaymentMethodProvider;
 import com.restaurante.model.enums.PaymentMethodStatus;
 import com.restaurante.model.enums.PaymentMethodType;
 import com.restaurante.model.enums.PaymentUsageContext;
+import com.restaurante.repository.TenantRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -30,9 +31,10 @@ class TenantPaymentMethodValidationTest {
         TenantPaymentMethodRepository repo = mock(TenantPaymentMethodRepository.class);
         TenantPaymentMethodBootstrapService bootstrap = mock(TenantPaymentMethodBootstrapService.class);
         AppyPayProperties appy = mock(AppyPayProperties.class);
+        TenantRepository tenantRepository = mock(TenantRepository.class);
         when(appy.isMock()).thenReturn(true);
 
-        TenantPaymentMethodService service = new TenantPaymentMethodService(repo, bootstrap, appy);
+        TenantPaymentMethodService service = new TenantPaymentMethodService(repo, bootstrap, appy, tenantRepository);
 
         TenantPaymentMethod m = new TenantPaymentMethod();
         m.setCode(PaymentMethodCode.CASH);
@@ -53,9 +55,10 @@ class TenantPaymentMethodValidationTest {
         TenantPaymentMethodRepository repo = mock(TenantPaymentMethodRepository.class);
         TenantPaymentMethodBootstrapService bootstrap = mock(TenantPaymentMethodBootstrapService.class);
         AppyPayProperties appy = mock(AppyPayProperties.class);
+        TenantRepository tenantRepository = mock(TenantRepository.class);
         when(appy.isMock()).thenReturn(true);
 
-        TenantPaymentMethodService service = new TenantPaymentMethodService(repo, bootstrap, appy);
+        TenantPaymentMethodService service = new TenantPaymentMethodService(repo, bootstrap, appy, tenantRepository);
 
         TenantPaymentMethod m = new TenantPaymentMethod();
         m.setCode(PaymentMethodCode.CASH);
@@ -77,4 +80,3 @@ class TenantPaymentMethodValidationTest {
                 .isInstanceOf(BusinessException.class);
     }
 }
-

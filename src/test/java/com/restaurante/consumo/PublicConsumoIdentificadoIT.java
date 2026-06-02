@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
+                "spring.main.web-application-type=servlet",
                 "consuma.otp.enabled=true",
                 "consuma.otp.mock-enabled=true",
                 "consuma.otp.hash-pepper=testpepper"

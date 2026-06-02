@@ -12,6 +12,7 @@ import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.financeiro.enums.MetodoPagamentoAppyPay;
 import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
+import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Cozinha;
@@ -91,7 +92,8 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
 	@Autowired OperationalEventLogRepository operationalEventLogRepository;
 	@Autowired UserRepository userRepository;
 	@Autowired CozinhaRepository cozinhaRepository;
-	@Autowired PagamentoGatewayRepository pagamentoGatewayRepository;
+    @Autowired PagamentoGatewayRepository pagamentoGatewayRepository;
+    @Autowired TenantPaymentMethodBootstrapService paymentMethodBootstrapService;
 
     @MockBean AppyPayClient appyPayClient;
 
@@ -121,6 +123,9 @@ class TenantPagamentosPendentesIT extends PostgresTestcontainersConfig {
                 .build());
 
         ProvisionarTenantResponse prov = provisionTenant("pend-ops-1", "PO1");
+        paymentMethodBootstrapService.ensureDefaultsInCurrentTransaction(
+                tenantRepository.findById(prov.getTenantId()).orElseThrow()
+        );
 
         com.restaurante.model.entity.User owner = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
         UsernamePasswordAuthenticationToken ownerAuth = new UsernamePasswordAuthenticationToken(

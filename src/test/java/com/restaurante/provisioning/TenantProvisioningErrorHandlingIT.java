@@ -46,7 +46,7 @@ class TenantProvisioningErrorHandlingIT extends PostgresTestcontainersConfig {
                   "responsavel": { "email": "owner@c.com", "criarUsuario": true },
                   "opcoes": {
                     "criarMesas": true,
-                    "quantidadeMesas": 10,
+                    "quantidadeMesas": 20,
                     "criarQrPorMesa": true,
                     "criarQrPrincipal": true,
                     "criarUnidadeAtendimentoDefault": true,

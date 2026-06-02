@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -45,6 +46,7 @@ class DeviceCapabilityTemplateBootstrapIT extends PostgresTestcontainersConfig {
     }
 
     @Test
+    @WithMockUser(username = "tenant-manager")
     void tenant_without_templates_gets_defaults_idempotent() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("cap-tpl-boot-a", "CTB");
         TenantContextHolder.set(new TenantContext(

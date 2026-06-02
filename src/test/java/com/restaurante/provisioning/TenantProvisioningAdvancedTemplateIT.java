@@ -73,7 +73,7 @@ class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig 
         int totalMesas = json.at("/data/totalMesasCriadas").asInt();
         int totalQr = json.at("/data/totalQrCodesCriados").asInt();
 
-        // template default: 9 mesas + 1 QR principal = 10 QRs (compatível com PILOTO maxQrCodes=10)
+        // template default: 9 mesas + 1 QR principal = 10 QRs (compatível com PILOTO maxQrCodes=20)
         assertThat(totalMesas).isEqualTo(9);
         assertThat(totalQr).isEqualTo(10);
 
@@ -98,7 +98,7 @@ class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig 
                   "templateCodigo": "RESTAURANTE_SIMPLES",
                   "instituicao": { "nome": "Restaurante Limite", "sigla": "LIM1", "nif": "NIF-LIM1", "telefone": "+244900000222" },
                   "responsavel": { "nome": "Owner", "telefone": "+244900000222", "email": "lim@email.com", "senhaTemporaria": "Alterar@123" },
-                  "opcoes": { "criarMesas": true, "quantidadeMesas": 10, "criarQrPorMesa": true, "ativarTenant": true }
+                  "opcoes": { "criarMesas": true, "quantidadeMesas": 20, "criarQrPorMesa": true, "ativarTenant": true }
                 }
                 """;
 
@@ -128,8 +128,8 @@ class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig 
                   "templateCodigo": "RESTAURANTE_SIMPLES",
                   "instituicao": { "nome": "Restaurante Override", "sigla": "OVR1", "nif": "NIF-OVR1", "telefone": "+244900000333" },
                   "responsavel": { "nome": "Owner", "telefone": "+244900000333", "email": "ovr@email.com", "senhaTemporaria": "Alterar@123" },
-                  "limitesOverride": { "maxQrCodes": 11, "motivo": "Piloto restaurante", "configuradoPor": "PLATFORM_ADMIN" },
-                  "opcoes": { "criarMesas": true, "quantidadeMesas": 10, "criarQrPorMesa": true, "ativarTenant": true }
+                  "limitesOverride": { "maxQrCodes": 21, "motivo": "Piloto restaurante", "configuradoPor": "PLATFORM_ADMIN" },
+                  "opcoes": { "criarMesas": true, "quantidadeMesas": 20, "criarQrPorMesa": true, "ativarTenant": true }
                 }
                 """;
 
@@ -141,8 +141,8 @@ class TenantProvisioningAdvancedTemplateIT extends PostgresTestcontainersConfig 
 
         JsonNode json = objectMapper.readTree(resp);
         long tenantId = json.at("/data/tenantId").asLong();
-        assertThat(json.at("/data/totalMesasCriadas").asInt()).isEqualTo(10);
-        assertThat(qrCodeOperacionalRepository.countByTenantId(tenantId)).isEqualTo(11);
+        assertThat(json.at("/data/totalMesasCriadas").asInt()).isEqualTo(20);
+        assertThat(qrCodeOperacionalRepository.countByTenantId(tenantId)).isEqualTo(21);
     }
 
     @Test

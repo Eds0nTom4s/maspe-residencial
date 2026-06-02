@@ -5,10 +5,12 @@ import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import com.restaurante.financeiro.paymentmethod.entity.TenantPaymentMethod;
 import com.restaurante.financeiro.paymentmethod.repository.TenantPaymentMethodRepository;
+import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.PaymentDestination;
 import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.PaymentMethodStatus;
 import com.restaurante.model.enums.PaymentUsageContext;
+import com.restaurante.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -24,13 +26,19 @@ public class TenantPaymentMethodService {
     private final TenantPaymentMethodRepository repository;
     private final TenantPaymentMethodBootstrapService bootstrapService;
     private final AppyPayProperties appyPayProperties;
+    private final TenantRepository tenantRepository;
 
     @Value("${consuma.financeiro.payment-methods.allow-no-active-method:false}")
     private boolean allowNoActiveMethod;
 
     @Transactional
     public void ensureDefaultsForTenant(Long tenantId) {
-        bootstrapService.ensureDefaults(tenantId);
+        try {
+            bootstrapService.ensureDefaults(tenantId);
+        } catch (ResourceNotFoundException ex) {
+            Tenant tenant = tenantRepository.findById(tenantId).orElseThrow(() -> ex);
+            bootstrapService.ensureDefaultsInCurrentTransaction(tenant);
+        }
     }
 
     @Transactional

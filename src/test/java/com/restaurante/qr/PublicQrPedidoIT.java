@@ -103,7 +103,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(json.at("/data/itens").isArray()).isTrue();
         assertThat(json.at("/data/itens/0/produtoId").asLong()).isEqualTo(prodA.getId());
 
-        Pedido pedido = pedidoRepository.findById(pedidoId).orElseThrow();
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComSessaoConsumo(pedidoId, tenantA.getId()).orElseThrow();
         assertThat(pedido.getTenant().getId()).isEqualTo(tenantA.getId());
         assertThat(pedido.getSessaoConsumo().getInstituicao().getId()).isEqualTo(instA.getId());
         assertThat(pedido.getStatus().name()).isEqualTo("CRIADO");

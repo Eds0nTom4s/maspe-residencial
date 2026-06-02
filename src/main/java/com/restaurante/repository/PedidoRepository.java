@@ -79,6 +79,13 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
            "WHERE p.id = :id AND p.tenant.id = :tenantId")
     Optional<Pedido> findByIdAndTenantIdComItens(@Param("id") Long id, @Param("tenantId") Long tenantId);
 
+    @Query("SELECT DISTINCT p FROM Pedido p " +
+           "LEFT JOIN FETCH p.sessaoConsumo sc " +
+           "LEFT JOIN FETCH sc.instituicao " +
+           "LEFT JOIN FETCH sc.unidadeAtendimento " +
+           "WHERE p.id = :id AND p.tenant.id = :tenantId")
+    Optional<Pedido> findByIdAndTenantIdComSessaoConsumo(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
     @Query("SELECT p FROM Pedido p " +
            "WHERE p.tenant.id = :tenantId " +
            "AND (cast(:statusOperacional as string) IS NULL OR p.status = :statusOperacional) " +

@@ -32,12 +32,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyAsyncRolloutSubmitIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
@@ -47,6 +49,7 @@ class PaymentPolicyAsyncRolloutSubmitIT extends PostgresTestcontainersConfig {
     @Test
     void owner_can_submit_async_rollout_and_it_creates_pending_rollout() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-async-sub-a", "AS1");
+        fixtureSupport.createPosCaixaDevice(prov, "POS CAIXA SUBMIT");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
@@ -73,8 +76,10 @@ class PaymentPolicyAsyncRolloutSubmitIT extends PostgresTestcontainersConfig {
     @Test
     void cashier_cannot_submit_async_rollout() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-async-sub-b", "AS2");
+        fixtureSupport.createPosCaixaDevice(prov, "POS CAIXA CASHIER");
+        Long cashierUserId = fixtureSupport.createTenantUser(prov, TenantUserRole.TENANT_CASHIER);
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), cashierUserId,
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_CASHIER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
@@ -131,4 +136,3 @@ class PaymentPolicyAsyncRolloutSubmitIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

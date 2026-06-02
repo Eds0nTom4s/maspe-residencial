@@ -44,6 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyRolloutOverwriteModeIT extends PostgresTestcontainersConfig {
 
@@ -180,4 +181,3 @@ class PaymentPolicyRolloutOverwriteModeIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

@@ -30,12 +30,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyRolloutRerunHardeningIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() { TenantContextHolder.clear(); }
@@ -43,6 +45,7 @@ class PaymentPolicyRolloutRerunHardeningIT extends PostgresTestcontainersConfig 
     @Test
     void rerun_is_blocked_for_pending_rollout() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-rerun-hard-a", "RH1");
+        fixtureSupport.createKdsDevice(prov, "KDS RERUN HARD");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),

@@ -59,14 +59,10 @@ class SnapshotEvidenceBundleIT extends PostgresTestcontainersConfig {
     @WithMockUser(username = "finance")
     void evidence_bundle_retorna_snapshot_verificacao_eventos_e_registra_evento_export() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("snap-bundle-a", "SBA");
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-
+        TenantContextHolder.set(ownerContext(prov));
         long turnoId = abrirTurno(prov);
         fecharTurno(turnoId);
+        TenantContextHolder.set(financeContext(prov));
 
         String resp = mockMvc.perform(get("/tenant/operacao/turnos/{id}/snapshot/evidence-bundle", turnoId)
                         .accept(MediaType.APPLICATION_JSON))
@@ -158,7 +154,23 @@ class SnapshotEvidenceBundleIT extends PostgresTestcontainersConfig {
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
+        );
+    }
+
+    private TenantContext ownerContext(ProvisionarTenantResponse prov) {
+        return new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT, false, false
+        );
+    }
+
+    private TenantContext financeContext(ProvisionarTenantResponse prov) {
+        return new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
+                TenantResolutionSource.JWT, false, false
         );
     }
 }

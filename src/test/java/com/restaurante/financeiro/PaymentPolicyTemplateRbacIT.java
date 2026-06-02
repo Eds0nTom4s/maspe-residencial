@@ -5,7 +5,13 @@ import com.restaurante.dto.request.PaymentPolicyRolloutRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.request.UpdatePaymentPolicyTemplateRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantUser;
+import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.*;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
@@ -40,6 +46,9 @@ class PaymentPolicyTemplateRbacIT extends PostgresTestcontainersConfig {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
+    @Autowired TenantRepository tenantRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired TenantUserRepository tenantUserRepository;
 
     @AfterEach
     void clear() {
@@ -50,10 +59,13 @@ class PaymentPolicyTemplateRbacIT extends PostgresTestcontainersConfig {
     @WithMockUser(authorities = { "ROLE_GERENTE" })
     void operator_and_kitchen_blocked_and_cashier_cannot_apply_rollout() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pmtpl-rbac-a", "TR1");
+        User operator = createTenantUser(prov, TenantUserRole.TENANT_OPERATOR);
+        User kitchen = createTenantUser(prov, TenantUserRole.TENANT_KITCHEN);
+        User cashier = createTenantUser(prov, TenantUserRole.TENANT_CASHIER);
 
         // OPERATOR bloqueado
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), operator.getId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OPERATOR.name()),
                 TenantResolutionSource.JWT, false, false
         ));
@@ -62,7 +74,7 @@ class PaymentPolicyTemplateRbacIT extends PostgresTestcontainersConfig {
 
         // KITCHEN bloqueado
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), kitchen.getId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_KITCHEN.name()),
                 TenantResolutionSource.JWT, false, false
         ));
@@ -71,7 +83,7 @@ class PaymentPolicyTemplateRbacIT extends PostgresTestcontainersConfig {
 
         // CASHIER pode listar, mas não pode aplicar rollout nem atualizar
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), cashier.getId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_CASHIER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
@@ -122,7 +134,28 @@ class PaymentPolicyTemplateRbacIT extends PostgresTestcontainersConfig {
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
         );
+    }
+
+    private User createTenantUser(ProvisionarTenantResponse prov, TenantUserRole role) {
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        User user = new User();
+        user.setUsername(role.name().toLowerCase() + "-" + suffix);
+        user.setPassword("{noop}x");
+        user.setEmail(role.name().toLowerCase() + "-" + suffix + "@test.local");
+        user.setTelefone("+24491" + String.format("%07d", Math.abs(System.nanoTime() % 10_000_000L)));
+        user.adicionarRole(Role.ROLE_GERENTE);
+        user = userRepository.saveAndFlush(user);
+
+        TenantUser tenantUser = new TenantUser();
+        tenantUser.setTenant(tenant);
+        tenantUser.setUser(user);
+        tenantUser.setRole(role);
+        tenantUser.setEstado(TenantUserEstado.ATIVO);
+        tenantUserRepository.saveAndFlush(tenantUser);
+        return user;
     }
 }

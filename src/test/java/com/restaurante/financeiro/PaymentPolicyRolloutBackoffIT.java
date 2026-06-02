@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.PaymentPolicyRolloutRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
+import com.restaurante.financeiro.paymentmethod.repository.PaymentMethodPolicyRolloutItemRepository;
 import com.restaurante.financeiro.paymentmethod.repository.PaymentMethodPolicyTemplateRepository;
 import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyRolloutWorkerService;
 import com.restaurante.model.enums.*;
@@ -35,6 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyRolloutBackoffIT extends PostgresTestcontainersConfig {
 
@@ -43,6 +45,8 @@ class PaymentPolicyRolloutBackoffIT extends PostgresTestcontainersConfig {
     @Autowired TenantProvisioningService provisioningService;
     @Autowired PaymentMethodPolicyRolloutWorkerService workerService;
     @Autowired PaymentMethodPolicyTemplateRepository templateRepository;
+    @Autowired PaymentMethodPolicyRolloutItemRepository rolloutItemRepository;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
@@ -52,6 +56,7 @@ class PaymentPolicyRolloutBackoffIT extends PostgresTestcontainersConfig {
     @Test
     void item_failure_schedules_backoff_with_nextRetryAt() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-backoff-a", "PB1");
+        fixtureSupport.createKdsDevice(prov, "KDS BACKOFF");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
@@ -59,11 +64,6 @@ class PaymentPolicyRolloutBackoffIT extends PostgresTestcontainersConfig {
         ));
 
         Long tpl = templateIdByCode("KDS_SEM_PAGAMENTO");
-
-        // Tornar template INACTIVE para forçar falha do item
-        var template = templateRepository.findByIdAndTenant_Id(tpl, prov.getTenantId()).orElseThrow();
-        template.setStatus(PaymentMethodPolicyTemplateStatus.INACTIVE);
-        templateRepository.saveAndFlush(template);
 
         PaymentPolicyRolloutRequest req = new PaymentPolicyRolloutRequest();
         req.setUnidadeId(prov.getUnidadeAtendimentoId());
@@ -77,22 +77,35 @@ class PaymentPolicyRolloutBackoffIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         long rolloutId = objectMapper.readTree(submit).at("/data/rolloutId").asLong();
 
-        workerService.processOneEligibleRollout();
+        // Tornar template INACTIVE somente depois do submit, para forçar falha no worker.
+        var template = templateRepository.findByIdAndTenant_Id(tpl, prov.getTenantId()).orElseThrow();
+        template.setStatus(PaymentMethodPolicyTemplateStatus.INACTIVE);
+        templateRepository.saveAndFlush(template);
 
-        String items = mockMvc.perform(get("/tenant/payment-policy-rollouts/{rolloutId}/items", rolloutId)
-                        .param("status", "PENDING")
-                        .param("page", "0")
-                        .param("size", "50"))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        JsonNode content = objectMapper.readTree(items).at("/data/content");
-        // itens podem ter voltado para PENDING por backoff; validar nextRetryAt futuro
-        assertThat(content.isArray()).isTrue();
-        if (content.size() > 0) {
-            JsonNode first = content.get(0);
-            assertThat(first.at("/attempts").asInt()).isGreaterThanOrEqualTo(1);
-            assertThat(first.at("/nextRetryAt").isMissingNode()).isFalse();
+        Instant backoffCheckStartedAt = Instant.now();
+        long backedOffItems = 0;
+        for (int i = 0; i < 25; i++) {
+            workerService.processOneEligibleRollout();
+            backedOffItems = rolloutItemRepository
+                    .countByTenant_IdAndRollout_IdAndStatusAndAttemptsGreaterThanAndNextRetryAtIsNotNull(
+                    prov.getTenantId(),
+                    rolloutId,
+                    PaymentMethodPolicyRolloutItemStatus.PENDING,
+                    0
+            );
+            if (backedOffItems > 0) {
+                break;
+            }
         }
+
+        Instant nextRetryAt = rolloutItemRepository.findMinNextRetryAtByTenant_IdAndRollout_IdAndStatus(
+                prov.getTenantId(),
+                rolloutId,
+                PaymentMethodPolicyRolloutItemStatus.PENDING
+        );
+        assertThat(backedOffItems).isGreaterThan(0);
+        assertThat(nextRetryAt).isNotNull();
+        assertThat(nextRetryAt).isAfter(backoffCheckStartedAt);
 
         // Restaurar template para ACTIVE para não afetar outros testes na mesma suite
         template.setStatus(PaymentMethodPolicyTemplateStatus.ACTIVE);

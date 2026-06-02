@@ -10,11 +10,13 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -42,16 +44,18 @@ public class PaymentMethodPolicyRolloutWorkerService {
         }
 
         Instant now = Instant.now();
-        Optional<PaymentMethodPolicyRollout> opt = rolloutRepository.findNextEligible(
+        Instant lockExpiredAt = now.minus(props.getLockTimeoutSeconds(), ChronoUnit.SECONDS);
+        List<PaymentMethodPolicyRollout> eligible = rolloutRepository.findNextEligible(
                 PaymentMethodPolicyRolloutExecutionMode.ASYNC,
                 List.of(PaymentMethodPolicyRolloutStatus.PENDING, PaymentMethodPolicyRolloutStatus.RUNNING, PaymentMethodPolicyRolloutStatus.CANCEL_REQUESTED),
-                now
+                now,
+                lockExpiredAt,
+                PageRequest.of(0, 1)
         );
-        if (opt.isEmpty()) return;
-        PaymentMethodPolicyRollout rollout = opt.get();
+        if (eligible.isEmpty()) return;
+        PaymentMethodPolicyRollout rollout = eligible.get(0);
         Long tenantId = rollout.getTenant().getId();
 
-        Instant lockExpiredAt = now.minus(props.getLockTimeoutSeconds(), ChronoUnit.SECONDS);
         String lockedBy = workerId();
         int locked = rolloutRepository.tryLock(tenantId, rollout.getId(), now, lockExpiredAt, lockedBy);
         if (locked != 1) return; // outro worker pegou
@@ -311,6 +315,22 @@ public class PaymentMethodPolicyRolloutWorkerService {
                 );
             }
         } else {
+            Instant nextRetryAt = itemRepository.findMinNextRetryAtByTenant_IdAndRollout_IdAndStatus(
+                    tenantId,
+                    rolloutId,
+                    PaymentMethodPolicyRolloutItemStatus.PENDING
+            );
+            if (running == 0) {
+                if (!(rollout.isCancelRequested() || rollout.getStatus() == PaymentMethodPolicyRolloutStatus.CANCEL_REQUESTED)) {
+                    rollout.setStatus(PaymentMethodPolicyRolloutStatus.PENDING);
+                }
+                rollout.setLockedAt(null);
+                rollout.setLockedBy(null);
+                rollout.setNextRetryAt(nextRetryAt);
+            } else {
+                rollout.setStatus(PaymentMethodPolicyRolloutStatus.RUNNING);
+                rollout.setNextRetryAt(null);
+            }
             maybeEmitProgressEvent(tenantId, rollout);
         }
 
@@ -575,7 +595,7 @@ public class PaymentMethodPolicyRolloutWorkerService {
                    and locked_at < ?
                 returning id, tenant_id
                 """;
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, cutoff);
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, Timestamp.from(cutoff));
         for (Map<String, Object> r : rows) {
             Long rolloutId = ((Number) r.get("id")).longValue();
             Long tenantId = ((Number) r.get("tenant_id")).longValue();
@@ -635,7 +655,7 @@ public class PaymentMethodPolicyRolloutWorkerService {
                 props.getMaxBackoffSeconds(),
                 tenantId,
                 rolloutId,
-                cutoff
+                Timestamp.from(cutoff)
         );
     }
 

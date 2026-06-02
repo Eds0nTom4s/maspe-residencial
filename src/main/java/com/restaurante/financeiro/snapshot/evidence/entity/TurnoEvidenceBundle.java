@@ -21,6 +21,8 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -143,9 +145,11 @@ public class TurnoEvidenceBundle extends BaseEntity {
     private boolean wormLocked = true;
 
     @NotNull
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "bundle_json", nullable = false, columnDefinition = "jsonb", updatable = false)
     private String bundleJson;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata_json", columnDefinition = "jsonb", updatable = false)
     private String metadataJson;
 }

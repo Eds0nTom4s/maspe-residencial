@@ -70,14 +70,10 @@ class SnapshotKeyRotationIT extends PostgresTestcontainersConfig {
     @WithMockUser(username = "finance")
     void fecho_assina_com_activeKeyId_v2() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("rot-key-a", "RKA");
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-
+        TenantContextHolder.set(ownerContext(prov));
         long turnoId = abrirTurno(prov);
         fecharTurno(turnoId);
+        TenantContextHolder.set(financeContext(prov));
 
         TurnoOperacional turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
         ObjectNode root = (ObjectNode) objectMapper.readTree(turno.getResumoJson());
@@ -88,14 +84,10 @@ class SnapshotKeyRotationIT extends PostgresTestcontainersConfig {
     @WithMockUser(username = "finance")
     void keyId_desconhecido_retorna_failureReason_e_registra_evento() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("rot-key-b", "RKB");
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-
+        TenantContextHolder.set(ownerContext(prov));
         long turnoId = abrirTurno(prov);
         fecharTurno(turnoId);
+        TenantContextHolder.set(financeContext(prov));
 
         // adulterar keyId para desconhecido, mantendo hash/signature para forçar falha por KEY_NOT_FOUND
         TurnoOperacional turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
@@ -128,14 +120,10 @@ class SnapshotKeyRotationIT extends PostgresTestcontainersConfig {
         // Aqui o objetivo é apenas demonstrar que o export usa o keyId persistido; como a assinatura foi gerada com v2,
         // trocar keyId para v1 (DEPRECATED) deve resultar em assinatura inválida.
         ProvisionarTenantResponse prov = provisionTenant("rot-key-c", "RKC");
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-
+        TenantContextHolder.set(ownerContext(prov));
         long turnoId = abrirTurno(prov);
         fecharTurno(turnoId);
+        TenantContextHolder.set(financeContext(prov));
 
         TurnoOperacional turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
         ObjectNode root = (ObjectNode) objectMapper.readTree(turno.getResumoJson());
@@ -220,7 +208,23 @@ class SnapshotKeyRotationIT extends PostgresTestcontainersConfig {
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
+        );
+    }
+
+    private TenantContext ownerContext(ProvisionarTenantResponse prov) {
+        return new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT, false, false
+        );
+    }
+
+    private TenantContext financeContext(ProvisionarTenantResponse prov) {
+        return new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
+                TenantResolutionSource.JWT, false, false
         );
     }
 }

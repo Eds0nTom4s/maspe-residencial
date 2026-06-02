@@ -32,12 +32,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyAsyncRolloutIdempotencyIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
@@ -47,6 +49,7 @@ class PaymentPolicyAsyncRolloutIdempotencyIT extends PostgresTestcontainersConfi
     @Test
     void same_idempotency_key_returns_same_rollout_and_different_payload_is_rejected() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-async-idem-a", "AI1");
+        fixtureSupport.createPosCaixaDevice(prov, "POS CAIXA IDEM");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
@@ -131,4 +134,3 @@ class PaymentPolicyAsyncRolloutIdempotencyIT extends PostgresTestcontainersConfi
         );
     }
 }
-

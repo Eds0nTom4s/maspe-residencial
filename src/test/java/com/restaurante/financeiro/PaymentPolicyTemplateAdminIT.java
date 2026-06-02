@@ -6,7 +6,13 @@ import com.restaurante.dto.request.PaymentPolicyTemplateItemRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.request.UpdatePaymentPolicyTemplateRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantUser;
+import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.*;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
@@ -41,6 +47,9 @@ class PaymentPolicyTemplateAdminIT extends PostgresTestcontainersConfig {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
+    @Autowired TenantRepository tenantRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired TenantUserRepository tenantUserRepository;
 
     @AfterEach
     void clear() {
@@ -124,8 +133,9 @@ class PaymentPolicyTemplateAdminIT extends PostgresTestcontainersConfig {
     @WithMockUser(username = "cashier")
     void cashier_cannot_create_or_update_templates() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pmtpl-admin-b", "TA2");
+        User cashier = createTenantUser(prov, TenantUserRole.TENANT_CASHIER);
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), cashier.getId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_CASHIER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
@@ -182,7 +192,28 @@ class PaymentPolicyTemplateAdminIT extends PostgresTestcontainersConfig {
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
         );
+    }
+
+    private User createTenantUser(ProvisionarTenantResponse prov, TenantUserRole role) {
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        User user = new User();
+        user.setUsername(role.name().toLowerCase() + "-" + suffix);
+        user.setPassword("{noop}x");
+        user.setEmail(role.name().toLowerCase() + "-" + suffix + "@test.local");
+        user.setTelefone("+24491" + String.format("%07d", Math.abs(System.nanoTime() % 10_000_000L)));
+        user.adicionarRole(Role.ROLE_GERENTE);
+        user = userRepository.saveAndFlush(user);
+
+        TenantUser tenantUser = new TenantUser();
+        tenantUser.setTenant(tenant);
+        tenantUser.setUser(user);
+        tenantUser.setRole(role);
+        tenantUser.setEstado(TenantUserEstado.ATIVO);
+        tenantUserRepository.saveAndFlush(tenantUser);
+        return user;
     }
 }

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.PaymentPolicyRolloutRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
+import com.restaurante.financeiro.paymentmethod.repository.PaymentMethodPolicyRolloutRepository;
 import com.restaurante.financeiro.paymentmethod.repository.DevicePaymentMethodPolicyRepository;
 import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyRolloutWorkerService;
 import com.restaurante.model.enums.*;
@@ -34,6 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyAsyncRolloutWorkerIT extends PostgresTestcontainersConfig {
 
@@ -42,6 +44,8 @@ class PaymentPolicyAsyncRolloutWorkerIT extends PostgresTestcontainersConfig {
     @Autowired TenantProvisioningService provisioningService;
     @Autowired PaymentMethodPolicyRolloutWorkerService workerService;
     @Autowired DevicePaymentMethodPolicyRepository devicePolicyRepository;
+    @Autowired PaymentMethodPolicyRolloutRepository rolloutRepository;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
@@ -51,6 +55,7 @@ class PaymentPolicyAsyncRolloutWorkerIT extends PostgresTestcontainersConfig {
     @Test
     void worker_processes_pending_rollout_to_completion() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-async-worker-a", "AW1");
+        fixtureSupport.createKdsDevice(prov, "KDS WORKER");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
@@ -70,7 +75,19 @@ class PaymentPolicyAsyncRolloutWorkerIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         long rolloutId = objectMapper.readTree(submit).at("/data/rolloutId").asLong();
 
-        for (int i = 0; i < 10; i++) workerService.processOneEligibleRollout();
+        String currentStatus = PaymentMethodPolicyRolloutStatus.PENDING.name();
+        for (int i = 0; i < 25; i++) {
+            workerService.processOneEligibleRollout();
+            currentStatus = rolloutRepository.findByIdAndTenant_Id(rolloutId, prov.getTenantId())
+                    .orElseThrow()
+                    .getStatus()
+                    .name();
+            if (currentStatus.equals(PaymentMethodPolicyRolloutStatus.COMPLETED.name())
+                    || currentStatus.equals(PaymentMethodPolicyRolloutStatus.COMPLETED_WITH_SKIPS.name())
+                    || currentStatus.equals(PaymentMethodPolicyRolloutStatus.PARTIAL_FAILED.name())) {
+                break;
+            }
+        }
 
         String statusResp = mockMvc.perform(get("/tenant/payment-policy-rollouts/{rolloutId}", rolloutId))
                 .andExpect(status().isOk())

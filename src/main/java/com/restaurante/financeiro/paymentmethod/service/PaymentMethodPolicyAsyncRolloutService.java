@@ -376,11 +376,8 @@ public class PaymentMethodPolicyAsyncRolloutService {
     }
 
     private UnidadeAtendimento requireUnidadeOfTenant(Long tenantId, Long unidadeId) {
-        UnidadeAtendimento u = unidadeAtendimentoRepository.findById(unidadeId)
+        return unidadeAtendimentoRepository.findByIdAndTenantId(unidadeId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Unidade não encontrada."));
-        Long tId = u.getInstituicao() != null && u.getInstituicao().getTenant() != null ? u.getInstituicao().getTenant().getId() : null;
-        if (!Objects.equals(tId, tenantId)) throw new ResourceNotFoundException("Unidade não encontrada.");
-        return u;
     }
 
     private List<DispositivoOperacional> resolveTargetDevices(Long tenantId, Long unidadeId, PaymentMethodPolicyTemplate template, PaymentPolicyRolloutRequest req) {

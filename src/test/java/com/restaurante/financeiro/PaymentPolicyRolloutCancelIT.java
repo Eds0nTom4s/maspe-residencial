@@ -33,12 +33,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyRolloutCancelIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
@@ -48,6 +50,7 @@ class PaymentPolicyRolloutCancelIT extends PostgresTestcontainersConfig {
     @Test
     void owner_can_cancel_pending_rollout_and_items_become_cancelled() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-cancel-a", "PC1");
+        fixtureSupport.createKdsDevice(prov, "KDS CANCEL");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
@@ -126,4 +129,3 @@ class PaymentPolicyRolloutCancelIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

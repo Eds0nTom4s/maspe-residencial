@@ -70,14 +70,10 @@ class SnapshotKeyDisabledIT extends PostgresTestcontainersConfig {
     @WithMockUser(username = "finance")
     void key_disabled_retorna_failureReason_KEY_DISABLED_e_registra_evento() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("rot-key-dis", "RKD");
-        TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
-                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
-                TenantResolutionSource.JWT, false, false
-        ));
-
+        TenantContextHolder.set(ownerContext(prov));
         long turnoId = abrirTurno(prov);
         fecharTurno(turnoId);
+        TenantContextHolder.set(financeContext(prov));
 
         // adulterar keyId para v1 (que está DISABLED), mantendo assinatura existente (vai falhar por KEY_DISABLED)
         TurnoOperacional turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
@@ -171,7 +167,23 @@ class SnapshotKeyDisabledIT extends PostgresTestcontainersConfig {
                                 .telefone(phone)
                                 .criarUsuario(true)
                                 .build())
-                        .build()
+                .build()
+        );
+    }
+
+    private TenantContext ownerContext(ProvisionarTenantResponse prov) {
+        return new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT, false, false
+        );
+    }
+
+    private TenantContext financeContext(ProvisionarTenantResponse prov) {
+        return new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
+                TenantResolutionSource.JWT, false, false
         );
     }
 }

@@ -7,8 +7,10 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface PaymentMethodPolicyRolloutRepository extends JpaRepository<PaymentMethodPolicyRollout, Long> {
@@ -38,11 +40,14 @@ public interface PaymentMethodPolicyRolloutRepository extends JpaRepository<Paym
             where r.executionMode = :mode
               and r.status in :statuses
               and (r.nextRetryAt is null or r.nextRetryAt <= :now)
+              and (r.lockedAt is null or r.lockedAt < :lockExpiredAt)
             order by r.id asc
             """)
-    Optional<PaymentMethodPolicyRollout> findNextEligible(
+    List<PaymentMethodPolicyRollout> findNextEligible(
             @Param("mode") PaymentMethodPolicyRolloutExecutionMode mode,
             @Param("statuses") java.util.Collection<PaymentMethodPolicyRolloutStatus> statuses,
-            @Param("now") Instant now
+            @Param("now") Instant now,
+            @Param("lockExpiredAt") Instant lockExpiredAt,
+            Pageable pageable
     );
 }

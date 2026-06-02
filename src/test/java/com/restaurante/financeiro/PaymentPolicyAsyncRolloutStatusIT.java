@@ -32,12 +32,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyAsyncRolloutStatusIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
@@ -47,6 +49,8 @@ class PaymentPolicyAsyncRolloutStatusIT extends PostgresTestcontainersConfig {
     @Test
     void status_and_items_endpoints_work_for_cashier_readonly() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-async-status-a", "AS3");
+        fixtureSupport.createKdsDevice(prov, "KDS STATUS");
+        Long cashierUserId = fixtureSupport.createTenantUser(prov, TenantUserRole.TENANT_CASHIER);
 
         // submit como owner
         TenantContextHolder.set(new TenantContext(
@@ -68,7 +72,7 @@ class PaymentPolicyAsyncRolloutStatusIT extends PostgresTestcontainersConfig {
 
         // consultar como cashier
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), cashierUserId,
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_CASHIER.name()),
                 TenantResolutionSource.JWT, false, false
         ));
@@ -129,4 +133,3 @@ class PaymentPolicyAsyncRolloutStatusIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

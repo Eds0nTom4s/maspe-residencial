@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.time.Instant;
 
 public interface PaymentMethodPolicyRolloutItemRepository extends JpaRepository<PaymentMethodPolicyRolloutItem, Long> {
 
@@ -32,4 +33,25 @@ public interface PaymentMethodPolicyRolloutItemRepository extends JpaRepository<
     long countByTenant_IdAndRollout_Id(Long tenantId, Long rolloutId);
 
     long countByTenant_IdAndRollout_IdAndStatus(Long tenantId, Long rolloutId, PaymentMethodPolicyRolloutItemStatus status);
+
+    long countByTenant_IdAndRollout_IdAndStatusAndAttemptsGreaterThanAndNextRetryAtIsNotNull(
+            Long tenantId,
+            Long rolloutId,
+            PaymentMethodPolicyRolloutItemStatus status,
+            int attempts
+    );
+
+    @Query("""
+            select min(i.nextRetryAt)
+            from PaymentMethodPolicyRolloutItem i
+            where i.tenant.id = :tenantId
+              and i.rollout.id = :rolloutId
+              and i.status = :status
+              and i.nextRetryAt is not null
+            """)
+    Instant findMinNextRetryAtByTenant_IdAndRollout_IdAndStatus(
+            @Param("tenantId") Long tenantId,
+            @Param("rolloutId") Long rolloutId,
+            @Param("status") PaymentMethodPolicyRolloutItemStatus status
+    );
 }

@@ -2,6 +2,7 @@ package com.restaurante.financeiro;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaurante.dto.request.AbrirCaixaOperadorRequest;
 import com.restaurante.dto.request.AbrirTurnoRequest;
 import com.restaurante.dto.request.ChecklistItemRespostaRequest;
 import com.restaurante.dto.request.ConfirmarOrdemManualRequest;
@@ -10,8 +11,6 @@ import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.enums.DeviceCapability;
-import com.restaurante.model.enums.DispositivoStatus;
-import com.restaurante.model.enums.DispositivoTipo;
 import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantTipo;
@@ -21,12 +20,11 @@ import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
-import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.DeviceAuthIntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,9 +50,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet"
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-class CaixaTurnoRelatorioIT extends PostgresTestcontainersConfig {
+class CaixaTurnoRelatorioIT extends DeviceAuthIntegrationTestSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -63,6 +61,7 @@ class CaixaTurnoRelatorioIT extends PostgresTestcontainersConfig {
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
@@ -72,7 +71,7 @@ class CaixaTurnoRelatorioIT extends PostgresTestcontainersConfig {
     @Test
     void finance_canReadRelatorioCaixa_andCashIsCounted() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("p37-caixa", "P37C");
-        String mesaQrToken = prov.getMesas().get(0).getQrToken();
+        String mesaQrToken = fixtureSupport.ensureMesaQrToken(prov);
 
         // Abrir turno como OWNER
         TenantContextHolder.set(new TenantContext(
@@ -81,6 +80,7 @@ class CaixaTurnoRelatorioIT extends PostgresTestcontainersConfig {
                 TenantResolutionSource.JWT, false, false
         ));
         String abrirJson = mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .with(authentication(tenantAuth(prov.getOwnerUserId(), TenantUserRole.TENANT_OWNER)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
                 .andExpect(status().isCreated())
@@ -106,25 +106,26 @@ class CaixaTurnoRelatorioIT extends PostgresTestcontainersConfig {
         String ordemToken = ordemNode.get("ordemToken").asText();
 
         // device confirma
-        DispositivoOperacional disp = criarDevicePos(prov);
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(),
-                disp.getCodigo(),
-                prov.getTenantId(),
-                prov.getTenantCode(),
-                prov.getInstituicaoId(),
-                prov.getUnidadeAtendimentoId(),
-                null,
-                DispositivoTipo.POS,
-                DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.VIEW_PAYMENT_ORDER, DeviceCapability.CONFIRM_CASH_PAYMENT),
-                1
+        DispositivoOperacional disp = fixtureSupport.createPosDevice(prov, "POS 1");
+        String deviceToken = activateDeviceForTest(
+                disp,
+                List.of(
+                        DeviceCapability.VIEW_PAYMENT_ORDER,
+                        DeviceCapability.CONFIRM_CASH_PAYMENT,
+                        DeviceCapability.OPEN_OPERATOR_CASH_SESSION
+                )
         );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
-        );
+        AbrirCaixaOperadorRequest abrirCaixa = new AbrirCaixaOperadorRequest();
+        abrirCaixa.setOperadorUserId(prov.getOwnerUserId());
+        mockMvc.perform(post("/device/caixa-operador/open")
+                        .header("Authorization", deviceAuthorization(deviceToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(abrirCaixa)))
+                .andExpect(status().isOk());
+
         // scan ok
-        mockMvc.perform(get("/device/ordens-pagamento/" + ordemToken).with(authentication(auth)))
+        mockMvc.perform(get("/device/ordens-pagamento/" + ordemToken)
+                        .header("Authorization", deviceAuthorization(deviceToken)))
                 .andExpect(status().isOk());
 
         ConfirmarOrdemManualRequest conf = new ConfirmarOrdemManualRequest();
@@ -132,7 +133,7 @@ class CaixaTurnoRelatorioIT extends PostgresTestcontainersConfig {
         conf.setMetodoConfirmado(MetodoPagamentoManual.CASH);
         conf.setValorRecebido(new BigDecimal("10000.00"));
         mockMvc.perform(post("/device/ordens-pagamento/" + ordemId + "/confirmar-manual")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-p37")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(conf)))
@@ -144,7 +145,8 @@ class CaixaTurnoRelatorioIT extends PostgresTestcontainersConfig {
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_FINANCE.name()),
                 TenantResolutionSource.JWT, false, false
         ));
-        String relJson = mockMvc.perform(get("/tenant/financeiro/turnos/" + turnoId + "/relatorio-caixa"))
+        String relJson = mockMvc.perform(get("/tenant/financeiro/turnos/" + turnoId + "/relatorio-caixa")
+                        .with(authentication(tenantAuth(prov.getOwnerUserId(), TenantUserRole.TENANT_FINANCE))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode rel = objectMapper.readTree(relJson).get("data");
@@ -154,15 +156,28 @@ class CaixaTurnoRelatorioIT extends PostgresTestcontainersConfig {
     @Test
     void kitchen_cannotReadRelatorioCaixa() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("p37-kitchen", "P37K");
+        Long kitchenUserId = fixtureSupport.createTenantUser(prov, TenantUserRole.TENANT_KITCHEN);
 
         TenantContextHolder.set(new TenantContext(
-                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                prov.getTenantId(), prov.getTenantCode(), kitchenUserId,
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_KITCHEN.name()),
                 TenantResolutionSource.JWT, false, false
         ));
 
-        mockMvc.perform(get("/tenant/financeiro/turnos/999/relatorio-caixa"))
+        mockMvc.perform(get("/tenant/financeiro/turnos/999/relatorio-caixa")
+                        .with(authentication(tenantAuth(kitchenUserId, TenantUserRole.TENANT_KITCHEN))))
                 .andExpect(status().is4xxClientError());
+    }
+
+    private UsernamePasswordAuthenticationToken tenantAuth(Long userId, TenantUserRole role) {
+        return new UsernamePasswordAuthenticationToken(
+                String.valueOf(userId),
+                "N/A",
+                List.of(
+                        new SimpleGrantedAuthority(Role.ROLE_GERENTE.name()),
+                        new SimpleGrantedAuthority(role.name())
+                )
+        );
     }
 
     private ProvisionarTenantResponse provisionTenant(String slug, String tenantCode) {
@@ -218,19 +233,4 @@ class CaixaTurnoRelatorioIT extends PostgresTestcontainersConfig {
         return i;
     }
 
-    private DispositivoOperacional criarDevicePos(ProvisionarTenantResponse prov) {
-        var tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
-        var inst = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
-        var ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
-        DispositivoOperacional d = new DispositivoOperacional();
-        d.setTenant(tenant);
-        d.setInstituicao(inst);
-        d.setUnidadeAtendimento(ua);
-        d.setNome("POS 1");
-        d.setCodigo("POS-" + (System.nanoTime() % 100000));
-        d.setTipo(DispositivoTipo.POS);
-        d.setStatus(DispositivoStatus.ATIVO);
-        return dispositivoOperacionalRepository.saveAndFlush(d);
-    }
 }
-

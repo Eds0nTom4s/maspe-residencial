@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyAsyncRolloutRerunIT extends PostgresTestcontainersConfig {
 
@@ -40,6 +41,7 @@ class PaymentPolicyAsyncRolloutRerunIT extends PostgresTestcontainersConfig {
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
     @Autowired PaymentMethodPolicyRolloutWorkerService workerService;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
@@ -49,6 +51,7 @@ class PaymentPolicyAsyncRolloutRerunIT extends PostgresTestcontainersConfig {
     @Test
     void rerun_sets_rollout_back_to_pending() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-async-rerun-a", "AR1");
+        fixtureSupport.createKdsDevice(prov, "KDS RERUN");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
@@ -121,4 +124,3 @@ class PaymentPolicyAsyncRolloutRerunIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

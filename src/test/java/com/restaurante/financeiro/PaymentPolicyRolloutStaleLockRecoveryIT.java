@@ -34,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = "spring.main.web-application-type=servlet"
 )
 @AutoConfigureMockMvc(addFilters = false)
+@org.springframework.security.test.context.support.WithMockUser(username = "tenant-user")
 @ActiveProfiles("it-postgres")
 class PaymentPolicyRolloutStaleLockRecoveryIT extends PostgresTestcontainersConfig {
 
@@ -42,6 +43,7 @@ class PaymentPolicyRolloutStaleLockRecoveryIT extends PostgresTestcontainersConf
     @Autowired TenantProvisioningService provisioningService;
     @Autowired PaymentMethodPolicyRolloutWorkerService workerService;
     @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
     void clear() {
@@ -51,6 +53,7 @@ class PaymentPolicyRolloutStaleLockRecoveryIT extends PostgresTestcontainersConf
     @Test
     void stale_running_item_is_recovered_back_to_pending_or_failed() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("pm-stale-a", "PS1");
+        fixtureSupport.createKdsDevice(prov, "KDS STALE");
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
                 Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),

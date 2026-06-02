@@ -30,15 +30,15 @@ import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.OperationalEventLogRepository;
+import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
-import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
-import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.DeviceAuthIntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +50,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -73,9 +75,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 "consuma.payment.polling.fixed-delay-ms=9999999"
         }
 )
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 @ActiveProfiles("it-postgres")
-class PagamentoGatewayPollingIT extends PostgresTestcontainersConfig {
+class PagamentoGatewayPollingIT extends DeviceAuthIntegrationTestSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -88,7 +90,10 @@ class PagamentoGatewayPollingIT extends PostgresTestcontainersConfig {
     @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
     @Autowired PagamentoGatewayRepository pagamentoGatewayRepository;
     @Autowired OperationalEventLogRepository operationalEventLogRepository;
+    @Autowired PedidoRepository pedidoRepository;
     @Autowired PagamentoGatewayPollingService pollingService;
+    @Autowired FinanceiroItFixtureSupport fixtureSupport;
+    @Autowired PlatformTransactionManager transactionManager;
 
     @MockBean AppyPayClient appyPayClient;
 
@@ -123,32 +128,27 @@ class PagamentoGatewayPollingIT extends PostgresTestcontainersConfig {
                 TenantResolutionSource.JWT, false, false
         ));
         mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .with(authentication(tenantAuth(prov.getOwnerUserId(), TenantUserRole.TENANT_OWNER)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(abrirTurnoReq(prov))))
                 .andExpect(status().isCreated());
 
+        fixtureSupport.ensureCentralCozinha(prov);
         Produto prod = criarProdutoBasico(prov.getTenantId());
-        DispositivoOperacional disp = criarDevicePos(prov);
-        DevicePrincipal device = new DevicePrincipal(
-                disp.getId(), disp.getCodigo(),
-                prov.getTenantId(), prov.getTenantCode(),
-                prov.getInstituicaoId(), prov.getUnidadeAtendimentoId(), null,
-                DispositivoTipo.POS, DispositivoStatus.ATIVO,
-                List.of(DeviceCapability.CREATE_ORDER, DeviceCapability.INITIATE_PAYMENT, DeviceCapability.VIEW_PAYMENTS, DeviceCapability.VIEW_ORDERS),
-                1
-        );
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                device, "N/A", List.of(new SimpleGrantedAuthority("ROLE_DEVICE"))
+        DispositivoOperacional disp = fixtureSupport.createPosDevice(prov, "POS POLL 1");
+        String deviceToken = activateDeviceForTest(
+                disp,
+                List.of(DeviceCapability.CREATE_ORDER, DeviceCapability.INITIATE_PAYMENT, DeviceCapability.VIEW_PAYMENTS, DeviceCapability.VIEW_ORDERS)
         );
 
-        Long pedidoId = criarPedidoViaDevice(auth, prov, prod.getId());
+        Long pedidoId = criarPedidoViaDevice(deviceToken, prov, prod.getId());
 
         DeviceIniciarPagamentoRequest payReq = new DeviceIniciarPagamentoRequest();
         payReq.setClientRequestId("poll-pay-req-1");
         payReq.setMetodoPagamento(MetodoPagamentoAppyPay.REF);
 
         String resp = mockMvc.perform(post("/device/pedidos/{id}/pagamentos", pedidoId)
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-pay-poll-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payReq)))
@@ -160,14 +160,14 @@ class PagamentoGatewayPollingIT extends PostgresTestcontainersConfig {
         assertThat(pgBefore.getStatus().name()).isEqualTo("PENDENTE");
         assertThat(pgBefore.getGatewayChargeId()).isEqualTo("ch_poll_1");
 
-        pollingService.pollPagamento(pagamentoId);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> pollingService.pollPagamento(pagamentoId));
 
         Pagamento pgAfter = pagamentoGatewayRepository.findById(pagamentoId).orElseThrow();
         assertThat(pgAfter.getStatus().name()).isEqualTo("CONFIRMADO");
-        assertThat(pgAfter.getPedido().getStatusFinanceiro().name()).isEqualTo("PAGO");
+        assertThat(pedidoRepository.findById(pedidoId).orElseThrow().getStatusFinanceiro().name()).isEqualTo("PAGO");
 
         // polling novamente não duplica
-        pollingService.pollPagamento(pagamentoId);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> pollingService.pollPagamento(pagamentoId));
         Pagamento pgAfter2 = pagamentoGatewayRepository.findById(pagamentoId).orElseThrow();
         assertThat(pgAfter2.getStatus().name()).isEqualTo("CONFIRMADO");
 
@@ -178,7 +178,7 @@ class PagamentoGatewayPollingIT extends PostgresTestcontainersConfig {
         assertThat(events).isNotEmpty();
     }
 
-    private Long criarPedidoViaDevice(UsernamePasswordAuthenticationToken auth, ProvisionarTenantResponse prov, Long produtoId) throws Exception {
+    private Long criarPedidoViaDevice(String deviceToken, ProvisionarTenantResponse prov, Long produtoId) throws Exception {
         DeviceCriarPedidoRequest req = new DeviceCriarPedidoRequest();
         req.setClientRequestId("poll-order-" + System.nanoTime());
         req.setMesaId(prov.getMesas() != null && !prov.getMesas().isEmpty() ? prov.getMesas().get(0).getMesaId() : null);
@@ -188,7 +188,7 @@ class PagamentoGatewayPollingIT extends PostgresTestcontainersConfig {
         req.setItens(List.of(it));
 
         String resp = mockMvc.perform(post("/device/pedidos")
-                        .with(authentication(auth))
+                        .header("Authorization", deviceAuthorization(deviceToken))
                         .header("Idempotency-Key", "idem-order-" + System.nanoTime())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
@@ -203,27 +203,21 @@ class PagamentoGatewayPollingIT extends PostgresTestcontainersConfig {
         req.setUnidadeAtendimentoId(prov.getUnidadeAtendimentoId());
         req.setTipo(TurnoOperacionalTipo.DIARIO);
         req.setNome("Turno Polling");
-        ChecklistItemRespostaRequest it = new ChecklistItemRespostaRequest();
-        it.setCodigo("DEVICE_ONLINE");
-        it.setValorBoolean(true);
-        req.setChecklist(List.of(it));
+        req.setChecklist(List.of(
+                item("DEVICE_ONLINE", true),
+                item("QR_VISIVEL", true),
+                item("CATALOGO_ATUALIZADO", true),
+                item("UNIDADE_PRODUCAO_ATIVA", true),
+                item("OPERADOR_CONFIRMOU", true)
+        ));
         return req;
     }
 
-    private DispositivoOperacional criarDevicePos(ProvisionarTenantResponse prov) {
-        var tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
-        var inst = instituicaoRepository.findByIdAndTenantId(prov.getInstituicaoId(), prov.getTenantId()).orElseThrow();
-        var ua = unidadeAtendimentoRepository.findByIdAndTenantId(prov.getUnidadeAtendimentoId(), prov.getTenantId()).orElseThrow();
-
-        DispositivoOperacional d = new DispositivoOperacional();
-        d.setTenant(tenant);
-        d.setInstituicao(inst);
-        d.setUnidadeAtendimento(ua);
-        d.setNome("POS POLL 1");
-        d.setCodigo("POS-POLL-" + (System.nanoTime() % 100000));
-        d.setTipo(DispositivoTipo.POS);
-        d.setStatus(DispositivoStatus.ATIVO);
-        return dispositivoOperacionalRepository.saveAndFlush(d);
+    private ChecklistItemRespostaRequest item(String codigo, boolean valor) {
+        ChecklistItemRespostaRequest item = new ChecklistItemRespostaRequest();
+        item.setCodigo(codigo);
+        item.setValorBoolean(valor);
+        return item;
     }
 
     private Produto criarProdutoBasico(Long tenantId) {
@@ -246,6 +240,17 @@ class PagamentoGatewayPollingIT extends PostgresTestcontainersConfig {
         prod.setTenant(tenant);
         prod.setCategoriaProduto(cat);
         return produtoRepository.save(prod);
+    }
+
+    private UsernamePasswordAuthenticationToken tenantAuth(Long userId, TenantUserRole role) {
+        return new UsernamePasswordAuthenticationToken(
+                String.valueOf(userId),
+                "N/A",
+                List.of(
+                        new SimpleGrantedAuthority(Role.ROLE_GERENTE.name()),
+                        new SimpleGrantedAuthority(role.name())
+                )
+        );
     }
 
     private ProvisionarTenantResponse provisionTenant(String slug, String tenantCode) {
@@ -277,4 +282,3 @@ class PagamentoGatewayPollingIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

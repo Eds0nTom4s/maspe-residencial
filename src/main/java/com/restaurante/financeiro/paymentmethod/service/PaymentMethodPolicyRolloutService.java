@@ -81,17 +81,17 @@ public class PaymentMethodPolicyRolloutService {
                 template.getId(),
                 OperationalOrigem.TENANT_ADMIN,
                 "Preview de rollout de template de policy",
-                Map.of(
-                        "templateId", template.getId(),
-                        "templateCode", template.getCode(),
-                        "unidadeId", unidade.getId(),
-                        "rolloutMode", req.getRolloutMode().name(),
-                        "overwriteMode", req.getOverwriteMode().name(),
-                        "targetDeviceType", comp.targetDeviceType != null ? comp.targetDeviceType.name() : null,
-                        "totalDevicesTargeted", comp.totalDevicesTargeted,
-                        "totalPoliciesToCreate", comp.totalPoliciesToCreate,
-                        "totalPoliciesToUpdate", comp.totalPoliciesToUpdate,
-                        "totalPoliciesToSkip", comp.totalPoliciesToSkip
+                previewMetadata(
+                        template.getId(),
+                        template.getCode(),
+                        unidade.getId(),
+                        req.getRolloutMode() != null ? req.getRolloutMode().name() : null,
+                        req.getOverwriteMode() != null ? req.getOverwriteMode().name() : null,
+                        comp.targetDeviceType != null ? comp.targetDeviceType.name() : null,
+                        comp.totalDevicesTargeted,
+                        comp.totalPoliciesToCreate,
+                        comp.totalPoliciesToUpdate,
+                        comp.totalPoliciesToSkip
                 ),
                 ip,
                 userAgent
@@ -190,17 +190,17 @@ public class PaymentMethodPolicyRolloutService {
         rollout.setTotalErrors(0);
         rollout.setFinishedAt(Instant.now());
         rollout.setLastProgressAt(Instant.now());
-        rollout.setResultJson(writeJson(Map.of(
-                "templateId", template.getId(),
-                "templateCode", template.getCode(),
-                "unidadeId", unidade.getId(),
-                "rolloutMode", req.getRolloutMode().name(),
-                "overwriteMode", req.getOverwriteMode().name(),
-                "targetDeviceType", comp.targetDeviceType != null ? comp.targetDeviceType.name() : null,
-                "totalDevicesTargeted", comp.totalDevicesTargeted,
-                "totalPoliciesCreated", created,
-                "totalPoliciesUpdated", updated,
-                "totalPoliciesSkipped", skipped
+        rollout.setResultJson(writeJson(resultMetadata(
+                template.getId(),
+                template.getCode(),
+                unidade.getId(),
+                req.getRolloutMode() != null ? req.getRolloutMode().name() : null,
+                req.getOverwriteMode() != null ? req.getOverwriteMode().name() : null,
+                comp.targetDeviceType != null ? comp.targetDeviceType.name() : null,
+                comp.totalDevicesTargeted,
+                created,
+                updated,
+                skipped
         )));
         rolloutRepository.save(rollout);
 
@@ -215,18 +215,18 @@ public class PaymentMethodPolicyRolloutService {
                 rollout.getId(),
                 OperationalOrigem.TENANT_ADMIN,
                 "Rollout de template de policy aplicado",
-                Map.ofEntries(
-                        Map.entry("rolloutId", rollout.getId()),
-                        Map.entry("templateId", template.getId()),
-                        Map.entry("templateCode", template.getCode()),
-                        Map.entry("unidadeId", unidade.getId()),
-                        Map.entry("rolloutMode", req.getRolloutMode().name()),
-                        Map.entry("overwriteMode", req.getOverwriteMode().name()),
-                        Map.entry("targetDeviceType", comp.targetDeviceType != null ? comp.targetDeviceType.name() : null),
-                        Map.entry("totalDevicesTargeted", comp.totalDevicesTargeted),
-                        Map.entry("totalPoliciesCreated", created),
-                        Map.entry("totalPoliciesUpdated", updated),
-                        Map.entry("totalPoliciesSkipped", skipped)
+                rolloutAppliedMetadata(
+                        rollout.getId(),
+                        template.getId(),
+                        template.getCode(),
+                        unidade.getId(),
+                        req.getRolloutMode() != null ? req.getRolloutMode().name() : null,
+                        req.getOverwriteMode() != null ? req.getOverwriteMode().name() : null,
+                        comp.targetDeviceType != null ? comp.targetDeviceType.name() : null,
+                        comp.totalDevicesTargeted,
+                        created,
+                        updated,
+                        skipped
                 ),
                 ip,
                 userAgent
@@ -266,12 +266,12 @@ public class PaymentMethodPolicyRolloutService {
         failed.setStatus(PaymentMethodPolicyRolloutStatus.FAILED);
         failed.setCreatedBy(actorUserId);
         failed.setTotalErrors(1);
-        failed.setResultJson(writeJson(Map.of(
-                "error", errorMessage,
-                "templateId", templateId,
-                "unidadeId", req.getUnidadeId(),
-                "rolloutMode", req.getRolloutMode() != null ? req.getRolloutMode().name() : null,
-                "overwriteMode", req.getOverwriteMode() != null ? req.getOverwriteMode().name() : null
+        failed.setResultJson(writeJson(failedRolloutMetadata(
+                errorMessage,
+                templateId,
+                req.getUnidadeId(),
+                req.getRolloutMode() != null ? req.getRolloutMode().name() : null,
+                req.getOverwriteMode() != null ? req.getOverwriteMode().name() : null
         )));
         rolloutRepository.save(failed);
 
@@ -286,16 +286,128 @@ public class PaymentMethodPolicyRolloutService {
                 failed.getId(),
                 OperationalOrigem.TENANT_ADMIN,
                 "Rollout de template de policy falhou",
-                Map.of(
-                        "rolloutId", failed.getId(),
-                        "templateId", templateId,
-                        "unidadeId", req.getUnidadeId(),
-                        "rolloutMode", req.getRolloutMode() != null ? req.getRolloutMode().name() : null,
-                        "overwriteMode", req.getOverwriteMode() != null ? req.getOverwriteMode().name() : null
+                failedRolloutEventMetadata(
+                        failed.getId(),
+                        templateId,
+                        req.getUnidadeId(),
+                        req.getRolloutMode() != null ? req.getRolloutMode().name() : null,
+                        req.getOverwriteMode() != null ? req.getOverwriteMode().name() : null
                 ),
                 null,
                 null
         );
+    }
+
+    private Map<String, Object> previewMetadata(
+            Long templateId,
+            String templateCode,
+            Long unidadeId,
+            String rolloutMode,
+            String overwriteMode,
+            String targetDeviceType,
+            int totalDevicesTargeted,
+            int firstCount,
+            int secondCount,
+            int thirdCount
+    ) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("templateId", templateId);
+        metadata.put("templateCode", templateCode);
+        metadata.put("unidadeId", unidadeId);
+        metadata.put("rolloutMode", rolloutMode);
+        metadata.put("overwriteMode", overwriteMode);
+        metadata.put("targetDeviceType", targetDeviceType);
+        metadata.put("totalDevicesTargeted", totalDevicesTargeted);
+        metadata.put("totalPoliciesToCreate", firstCount);
+        metadata.put("totalPoliciesToUpdate", secondCount);
+        metadata.put("totalPoliciesToSkip", thirdCount);
+        return metadata;
+    }
+
+    private Map<String, Object> resultMetadata(
+            Long templateId,
+            String templateCode,
+            Long unidadeId,
+            String rolloutMode,
+            String overwriteMode,
+            String targetDeviceType,
+            int totalDevicesTargeted,
+            int created,
+            int updated,
+            int skipped
+    ) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("templateId", templateId);
+        metadata.put("templateCode", templateCode);
+        metadata.put("unidadeId", unidadeId);
+        metadata.put("rolloutMode", rolloutMode);
+        metadata.put("overwriteMode", overwriteMode);
+        metadata.put("targetDeviceType", targetDeviceType);
+        metadata.put("totalDevicesTargeted", totalDevicesTargeted);
+        metadata.put("totalPoliciesCreated", created);
+        metadata.put("totalPoliciesUpdated", updated);
+        metadata.put("totalPoliciesSkipped", skipped);
+        return metadata;
+    }
+
+    private Map<String, Object> rolloutAppliedMetadata(
+            Long rolloutId,
+            Long templateId,
+            String templateCode,
+            Long unidadeId,
+            String rolloutMode,
+            String overwriteMode,
+            String targetDeviceType,
+            int totalDevicesTargeted,
+            int created,
+            int updated,
+            int skipped
+    ) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("rolloutId", rolloutId);
+        metadata.put("templateId", templateId);
+        metadata.put("templateCode", templateCode);
+        metadata.put("unidadeId", unidadeId);
+        metadata.put("rolloutMode", rolloutMode);
+        metadata.put("overwriteMode", overwriteMode);
+        metadata.put("targetDeviceType", targetDeviceType);
+        metadata.put("totalDevicesTargeted", totalDevicesTargeted);
+        metadata.put("totalPoliciesCreated", created);
+        metadata.put("totalPoliciesUpdated", updated);
+        metadata.put("totalPoliciesSkipped", skipped);
+        return metadata;
+    }
+
+    private Map<String, Object> failedRolloutMetadata(
+            String error,
+            Long templateId,
+            Long unidadeId,
+            String rolloutMode,
+            String overwriteMode
+    ) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("error", error);
+        metadata.put("templateId", templateId);
+        metadata.put("unidadeId", unidadeId);
+        metadata.put("rolloutMode", rolloutMode);
+        metadata.put("overwriteMode", overwriteMode);
+        return metadata;
+    }
+
+    private Map<String, Object> failedRolloutEventMetadata(
+            Long rolloutId,
+            Long templateId,
+            Long unidadeId,
+            String rolloutMode,
+            String overwriteMode
+    ) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("rolloutId", rolloutId);
+        metadata.put("templateId", templateId);
+        metadata.put("unidadeId", unidadeId);
+        metadata.put("rolloutMode", rolloutMode);
+        metadata.put("overwriteMode", overwriteMode);
+        return metadata;
     }
 
     private PaymentMethodPolicyTemplate requireTemplateWithItems(Long tenantId, Long templateId) {
@@ -310,11 +422,8 @@ public class PaymentMethodPolicyRolloutService {
     }
 
     private UnidadeAtendimento requireUnidadeOfTenant(Long tenantId, Long unidadeId) {
-        UnidadeAtendimento u = unidadeAtendimentoRepository.findById(unidadeId)
+        return unidadeAtendimentoRepository.findByIdAndTenantId(unidadeId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Unidade não encontrada."));
-        Long tId = u.getInstituicao() != null && u.getInstituicao().getTenant() != null ? u.getInstituicao().getTenant().getId() : null;
-        if (!Objects.equals(tId, tenantId)) throw new ResourceNotFoundException("Unidade não encontrada.");
-        return u;
     }
 
     private RolloutComputation compute(Long tenantId, PaymentMethodPolicyTemplate template, UnidadeAtendimento unidade, PaymentPolicyRolloutRequest req) {

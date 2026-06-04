@@ -76,7 +76,8 @@ public class CorsConfig implements WebMvcConfigurer {
             "Content-Type",
             "Accept",
             "Origin",
-            "X-Requested-With"
+            "X-Requested-With",
+            "Idempotency-Key"
         ));
         config.setExposedHeaders(List.of("Authorization"));
         config.setAllowCredentials(true);
@@ -94,7 +95,7 @@ public class CorsConfig implements WebMvcConfigurer {
         registry.addMapping("/api/**")
                 .allowedOrigins(origins.toArray(new String[0]))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
-                .allowedHeaders("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With")
+                .allowedHeaders("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "Idempotency-Key")
                 .exposedHeaders("Authorization")
                 .allowCredentials(true)
                 .maxAge(3600);

@@ -276,6 +276,39 @@ public class PublicQrPedidoService {
         );
     }
 
+    /**
+     * Busca pedido público pelo QR token e ID do pedido.
+     *
+     * <p>Segurança:
+     * <ul>
+     *   <li>Valida o QR token — 404 se inválido.</li>
+     *   <li>Resolve o tenant a partir do QR — tenant isolation garantido.</li>
+     *   <li>Busca pedido apenas dentro do mesmo tenant — outro tenant → 404.</li>
+     *   <li>Não exige JWT.</li>
+     *   <li>Retorna DTO público mínimo sem dados sensíveis (sem evidências, custos, tokens internos).</li>
+     * </ul>
+     *
+     * @param token     token público do QR (não enumerável)
+     * @param pedidoId  ID do pedido retornado no POST de criação
+     * @return DTO público com estado mínimo do pedido
+     * @throws ResourceNotFoundException se token inválido ou pedido não pertence ao tenant
+     */
+    @Transactional(readOnly = true)
+    public PublicQrPedidoResponse buscarPedidoPublicoPorQrToken(String token, Long pedidoId) {
+        // 1. Validar QR e resolver tenant
+        QrCodeOperacional qr = qrCodeOperacionalService.resolverOperacionalAtivoParaOperacao(token);
+        Tenant tenant = qr.getTenant();
+
+        // 2. Buscar pedido com tenant isolation
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, tenant.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Pedido", "id", pedidoId));
+
+        // 3. Mapear para DTO público seguro (reutiliza mapPedidoToResponse existente)
+        PublicQrPedidoResponse resp = mapPedidoToResponse(pedido);
+        resp.setMensagem("Pedido encontrado");
+        return resp;
+    }
+
     private PublicQrPedidoResponse mapPedidoToResponse(Pedido pedido) {
         if (pedido == null) {
             throw new ResourceNotFoundException("Pedido", "id", null);

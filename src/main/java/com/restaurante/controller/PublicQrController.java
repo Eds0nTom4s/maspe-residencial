@@ -81,6 +81,20 @@ public class PublicQrController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Pedido criado", resp));
     }
 
+    @GetMapping("/{token}/pedidos/{pedidoId}")
+    @Operation(
+        summary = "Consultar pedido público por QR",
+        description = "Retorna estado mínimo de um pedido criado via QR público. Não exige JWT. " +
+                      "O tenant é isolado pelo token de QR — um token de outro tenant retorna 404."
+    )
+    public ResponseEntity<ApiResponse<PublicQrPedidoResponse>> consultarPedido(
+            @PathVariable String token,
+            @PathVariable Long pedidoId
+    ) {
+        PublicQrPedidoResponse resp = publicQrPedidoService.buscarPedidoPublicoPorQrToken(token, pedidoId);
+        return ResponseEntity.ok(ApiResponse.success("Pedido encontrado", resp));
+    }
+
     @PostMapping("/{token}/pedidos/{pedidoId}/pagamentos")
     @Operation(summary = "Iniciar pagamento de pedido por QR", description = "Inicia pagamento digital para um pedido já criado no fluxo público por QR. Não confirma pagamento nesta fase.")
     public ResponseEntity<ApiResponse<PublicQrPagamentoResponse>> iniciarPagamento(

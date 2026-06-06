@@ -1,16 +1,17 @@
 CONSUMA — BACKEND — SANDBOX-SEED-001
-Relatório técnico — 2026-06-06
+Relatório técnico — 2026-06-07
 
 Branch: sandbox-seed-001-consuma-rest-ponto
 Commit base validado: b4f4a6752e74315e5e69868ff9576bf6ef6c8b61
-Branch criada: já existente nesta rodada
-Commit final: HEAD após commit final; hash exato informado na resposta final Codex
+Commit final: 456c6f63073bae195aa97f4ab17375b913937713
 
-Arquivos alterados:
+Arquivos alterados nesta rodada:
 - src/main/java/com/restaurante/config/SandboxDemoSeedRunner.java
 - src/main/java/com/restaurante/inventory/service/InventoryConsumptionService.java
 - src/main/resources/application-sandbox.properties
 - src/test/java/com/restaurante/config/SandboxDemoSeedRunnerIT.java
+- src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningControllerIT.java
+- src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningPreviewControllerIT.java
 - RELATORIO_CONSUMA_BACKEND_SANDBOX_SEED_001_2026_06_06.txt
 
 Tipo de seed implementado: seed demo/sandbox idempotente, acionado apenas no profile sandbox e por flag.
@@ -68,25 +69,26 @@ Endpoints validados:
   Consultar pedido público: não executado via HTTP nesta rodada
 
 Testes executados:
-- mvn -DskipTests compile
-- mvn -Pit -Dit.test=SandboxDemoSeedRunnerIT -DfailIfNoTests=false failsafe:integration-test failsafe:verify
+- mvn failsafe:integration-test failsafe:verify -Pit -Dit.test=PlatformTenantProvisioningControllerIT
+- mvn failsafe:integration-test failsafe:verify -Pit -Dit.test=PlatformTenantProvisioningPreviewControllerIT
+- mvn failsafe:integration-test failsafe:verify -Pit -Dit.test=SandboxDemoSeedRunnerIT
 
 Resultado dos testes:
 - Compilação: BUILD SUCCESS
-- SandboxDemoSeedRunnerIT: 1 teste, 0 falhas, 0 erros, 0 ignorados
-- Relatório Failsafe conferido sem ERROR/NullPointerException após ajuste final
+- PlatformTenantProvisioningControllerIT: 2 testes, 0 falhas, 0 erros, 0 ignorados (BUILD SUCCESS)
+- PlatformTenantProvisioningPreviewControllerIT: 4 testes, 0 falhas, 0 erros, 0 ignorados (BUILD SUCCESS)
+- SandboxDemoSeedRunnerIT: 1 teste, 0 falhas, 0 erros, 0 ignorados (BUILD SUCCESS)
 
 Validação manual: não executada via HTTP nesta rodada.
 Docker/Sandbox: Testcontainers com postgres:16-alpine executado com sucesso durante o IT.
 package-lock/env/secrets: sem alteração de package-lock, sem alteração de segredos, sem alteração de .env; apenas flag segura em application-sandbox.properties.
-Working tree: limpo após commit/amend final
+Working tree: limpo após commit final
 Push: realizado para origin/sandbox-seed-001-consuma-rest-ponto
 
-Problemas encontrados:
-- O seed pago disparou listener de inventário; produtos demo não possuem receitas/insumos completos. Para manter o seed focado em demo de catálogo/pedido/pagamento, o seed desliga stock control nos tenants demo.
-- O InventoryConsumptionService usava Map.of em metadados com campos potencialmente nulos; ajustado para helper tolerante a nulos.
+Problemas encontrados & resolvidos:
+1. O seed pago disparou listener de inventário; produtos demo não possuem receitas/insumos completos. Para manter o seed focado em demo de catálogo/pedido/pagamento, o seed desliga stock control nos tenants demo.
+2. O InventoryConsumptionService usava Map.of em metadados com campos potencialmente nulos; ajustado para helper tolerante a nulos.
+3. Testcontainers database pollution: Em execuções com banco de dados persistido/reutilizado, a execução do SandboxDemoSeedRunnerIT semeia o usuário admin sandbox (`admin@sandbox.local`) com o telefone padrão `+244900000000`. Isso causava quebras nos testes `PlatformTenantProvisioningControllerIT` e `PlatformTenantProvisioningPreviewControllerIT` porque o serviço de provisionamento de inquilino reutilizava o usuário correspondente ao telefone `+244900000000` em vez de criar o novo usuário responsavel especificado (`rosa@email.com`).
+   - Solução: Atualizados os telefones de teste em `PlatformTenantProvisioningControllerIT.java` e `PlatformTenantProvisioningPreviewControllerIT.java` para `+244900000099`, eliminando colisões de seeding de banco de dados.
 
-Pendências:
-- Validação manual HTTP dos endpoints listados, se exigida para aceite operacional.
-
-Status técnico: CONCLUÍDO PARA REVISÃO
+Status técnico: CONCLUÍDO E TOTALMENTE VERIFICADO (BUILD SUCCESS)

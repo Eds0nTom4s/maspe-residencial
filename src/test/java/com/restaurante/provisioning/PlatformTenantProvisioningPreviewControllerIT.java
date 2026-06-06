@@ -61,7 +61,7 @@ class PlatformTenantProvisioningPreviewControllerIT extends PostgresTestcontaine
                   "instituicao": { "nome": "Banca da Tia Rosa", "sigla": "ROSA" },
                   "responsavel": {
                     "nome": "Rosa Manuel",
-                    "telefone": "+244900000000",
+                    "telefone": "+244900000099",
                     "email": "rosa@email.com",
                     "criarUsuario": true
                   },

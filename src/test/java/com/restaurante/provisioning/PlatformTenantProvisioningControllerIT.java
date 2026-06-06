@@ -74,7 +74,7 @@ class PlatformTenantProvisioningControllerIT extends PostgresTestcontainersConfi
                     "slug": "banca-tia-rosa",
                     "tenantCode": "ROSA",
                     "nif": "0000000000",
-                    "telefone": "+244900000000",
+                    "telefone": "+244900000099",
                     "email": "rosa@email.com",
                     "tipo": "VENDEDOR_RUA"
                   },
@@ -89,7 +89,7 @@ class PlatformTenantProvisioningControllerIT extends PostgresTestcontainersConfi
                   },
                   "responsavel": {
                     "nome": "Rosa Manuel",
-                    "telefone": "+244900000000",
+                    "telefone": "+244900000099",
                     "email": "rosa@email.com",
                     "senhaTemporaria": "Alterar@123",
                     "criarUsuario": true

@@ -80,7 +80,7 @@ Validação manual: não executada via HTTP nesta rodada.
 Docker/Sandbox: Testcontainers com postgres:16-alpine executado com sucesso durante o IT.
 package-lock/env/secrets: sem alteração de package-lock, sem alteração de segredos, sem alteração de .env; apenas flag segura em application-sandbox.properties.
 Working tree: limpo após commit/amend final
-Push: pendente no momento da geração do relatório; executar git push origin sandbox-seed-001-consuma-rest-ponto
+Push: realizado para origin/sandbox-seed-001-consuma-rest-ponto
 
 Problemas encontrados:
 - O seed pago disparou listener de inventário; produtos demo não possuem receitas/insumos completos. Para manter o seed focado em demo de catálogo/pedido/pagamento, o seed desliga stock control nos tenants demo.

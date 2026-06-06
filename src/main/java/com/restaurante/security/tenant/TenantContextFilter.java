@@ -17,6 +17,14 @@ import java.io.IOException;
  *
  * Observação (Prompt 4):
  * - Não aplica enforcement global. Apenas resolve e coloca no holder quando possível.
+ *
+ * Endpoints pré-tenant (SANDBOX-LOCAL-004-B):
+ * - /auth/tenants e /api/auth/tenants são endpoints de descoberta de tenant.
+ * - Exigem JWT global válido, mas NÃO devem ter TenantContext resolvido.
+ * - São usados justamente antes da seleção de tenant — o TenantContext ainda
+ *   não existe para o utilizador autenticado neste ponto do fluxo.
+ * - O skip aqui é cirúrgico: apenas estes dois paths. Nenhum outro endpoint
+ *   de /auth/** é excluído da resolução de TenantContext.
  */
 @Component
 @RequiredArgsConstructor
@@ -25,6 +33,26 @@ import java.io.IOException;
 public class TenantContextFilter extends OncePerRequestFilter {
 
     private final TenantResolver tenantResolver;
+
+    /**
+     * Endpoints pré-tenant: exigem JWT mas NÃO devem ter TenantContext resolvido.
+     *
+     * /auth/tenants e /api/auth/tenants são usados para listar tenants disponíveis
+     * ANTES da seleção de tenant — não há tenantId no contexto ainda.
+     *
+     * O skip é exacto e deliberado. Não é um skip genérico de /auth/**.
+     * JWT continua a ser processado pelo JwtAuthenticationFilter.
+     * SecurityConfig continua a exigir autenticação nestes paths.
+     */
+    private boolean isPreTenantDiscoveryEndpoint(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/auth/tenants".equals(path) || "/api/auth/tenants".equals(path);
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return isPreTenantDiscoveryEndpoint(request);
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)

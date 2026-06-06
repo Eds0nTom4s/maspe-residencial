@@ -51,4 +51,23 @@ public interface TenantUserRepository extends JpaRepository<TenantUser, Long> {
             where tu.tenant.id = :tenantId
             """)
     List<TenantUser> findByTenantIdWithUser(@Param("tenantId") Long tenantId);
+
+    /**
+     * Busca todos os vínculos ativos de um usuário com seus tenants ativos,
+     * fazendo fetch join no Tenant para evitar N+1 e LazyInitializationException.
+     * Garante que somente tenants com estado ATIVO sejam retornados.
+     */
+    @Query("""
+            select tu from TenantUser tu
+            join fetch tu.tenant t
+            where tu.user.id = :userId
+              and tu.estado = :memberEstado
+              and t.estado = :tenantEstado
+            order by tu.id asc
+            """)
+    List<TenantUser> findActiveTenantOptionsByUserId(
+            @Param("userId") Long userId,
+            @Param("memberEstado") TenantUserEstado memberEstado,
+            @Param("tenantEstado") com.restaurante.model.enums.TenantEstado tenantEstado
+    );
 }

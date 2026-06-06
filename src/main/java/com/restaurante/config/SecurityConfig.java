@@ -61,6 +61,8 @@ public class SecurityConfig {
                         // Hardening: registro de staff via JWT deve ser restrito a ADMIN autenticado.
                         .requestMatchers(HttpMethod.POST, "/api/auth/jwt/register", "/auth/jwt/register").hasRole("ADMIN")
                         .requestMatchers("/api/auth/tenant/select", "/auth/tenant/select").authenticated()
+                        // Listagem de tenants do usuário autenticado: exige JWT — proteção em 2 camadas (URL + @PreAuthorize)
+                        .requestMatchers(HttpMethod.GET, "/api/auth/tenants", "/auth/tenants").authenticated()
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
                         .requestMatchers("/api/public/**", "/public/**").permitAll()
                         .requestMatchers("/api/device/**", "/device/**").permitAll()

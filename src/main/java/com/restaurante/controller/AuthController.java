@@ -6,6 +6,7 @@ import com.restaurante.dto.request.SolicitarOtpRequest;
 import com.restaurante.dto.request.ValidarOtpRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.AuthResponse;
+import com.restaurante.dto.response.AuthTenantOptionResponse;
 import com.restaurante.dto.response.ClienteResponse;
 import com.restaurante.dto.response.LoginAtendenteResponse;
 import com.restaurante.dto.response.SelectTenantResponse;
@@ -15,13 +16,17 @@ import com.restaurante.service.InstituicaoService;
 import com.restaurante.service.TenantTokenService;
 import com.restaurante.security.JwtTokenProvider;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * Controller REST para operações de autenticação
@@ -118,5 +123,31 @@ public class AuthController {
     public ResponseEntity<ApiResponse<SelectTenantResponse>> selectTenant(@Valid @RequestBody SelectTenantRequest request) {
         SelectTenantResponse resp = tenantTokenService.selectTenant(request);
         return ResponseEntity.ok(ApiResponse.success("Tenant selecionado", resp));
+    }
+
+    /**
+     * Lista os tenants acessíveis ao usuário autenticado.
+     *
+     * GET /api/auth/tenants
+     *
+     * Segurança:
+     * - Exige JWT global válido (não é endpoint público).
+     * - Retorna SOMENTE tenants aos quais o usuário tem vínculo ativo.
+     * - Sem token: 401. Token inválido/expirado: 401.
+     * - Usuário sem tenants: 200 com lista vazia.
+     * - Tenants inativos são filtrados pelo service.
+     */
+    @GetMapping("/tenants")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(
+            summary = "Listar tenants acessíveis",
+            description = "Retorna os tenants ativos aos quais o usuário autenticado tem acesso. Exige JWT global.",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    public ResponseEntity<ApiResponse<List<AuthTenantOptionResponse>>> listarTenantsAcessiveis() {
+        log.info("GET /auth/tenants - listando tenants do usuário autenticado");
+        List<AuthTenantOptionResponse> tenants = tenantTokenService.listarTenantsAcessiveis();
+        log.info("GET /auth/tenants - retornando {} tenants", tenants.size());
+        return ResponseEntity.ok(ApiResponse.success("Tenants disponíveis", tenants));
     }
 }

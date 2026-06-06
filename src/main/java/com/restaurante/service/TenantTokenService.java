@@ -1,6 +1,7 @@
 package com.restaurante.service;
 
 import com.restaurante.dto.request.SelectTenantRequest;
+import com.restaurante.dto.response.AuthTenantOptionResponse;
 import com.restaurante.dto.response.SelectTenantResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.Tenant;
@@ -14,12 +15,15 @@ import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.security.JwtPrincipal;
 import com.restaurante.service.security.TenantUserAccessVersionService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -28,6 +32,8 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class TenantTokenService {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantTokenService.class);
 
     private final TenantRepository tenantRepository;
     private final TenantUserRepository tenantUserRepository;
@@ -82,6 +88,55 @@ public class TenantTokenService {
                 .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
                 .roles(roles)
                 .build();
+    }
+
+    /**
+     * Lista todos os tenants acessíveis ao usuário autenticado via SecurityContext.
+     *
+     * Segurança:
+     * - Exige usuário autenticado (token global JWT válido).
+     * - Filtra exclusivamente por userId — nunca retorna tenants de outros usuários.
+     * - Retorna apenas tenants ATIVOS com vínculo ATIVO.
+     * - Retorna lista vazia se o usuário não tiver vínculos.
+     * - Não expõe secrets, configurações internas ou outros usuários.
+     *
+     * @return lista de opções de tenant acessíveis ao usuário autenticado.
+     */
+    @Transactional(readOnly = true)
+    public List<AuthTenantOptionResponse> listarTenantsAcessiveis() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new AccessDeniedException("Usuário não autenticado.");
+        }
+        User user = resolveUserFromPrincipal(auth.getPrincipal());
+        log.info("[AUTH-TENANTS] Listando tenants acessíveis para userId={}", user.getId());
+
+        List<TenantUser> memberships = tenantUserRepository.findActiveTenantOptionsByUserId(
+                user.getId(),
+                TenantUserEstado.ATIVO,
+                TenantEstado.ATIVO
+        );
+
+        log.info("[AUTH-TENANTS] Encontrados {} vínculos ativos para userId={}", memberships.size(), user.getId());
+
+        boolean first = true;
+        List<AuthTenantOptionResponse> result = new java.util.ArrayList<>();
+        for (TenantUser tu : memberships) {
+            Tenant t = tu.getTenant();
+            AuthTenantOptionResponse opt = AuthTenantOptionResponse.builder()
+                    .tenantId(t.getId())
+                    .tenantCode(t.getTenantCode())
+                    .slug(t.getSlug())
+                    .nome(t.getNome())
+                    .estado(t.getEstado().name())
+                    .ativo(t.getEstado() == TenantEstado.ATIVO)
+                    .roles(List.of(tu.getRole().name()))
+                    .principal(first)
+                    .build();
+            result.add(opt);
+            first = false;
+        }
+        return result;
     }
 
     private User resolveUserFromPrincipal(Object principal) {

@@ -45,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -133,7 +134,7 @@ public class InventoryConsumptionService {
                 record.getId(),
                 OperationalOrigem.SYSTEM,
                 "payment-confirmed",
-                Map.of("tenantId", tenantId, "pedidoId", pedidoId, "pagamentoId", pagamentoId, "recordId", record.getId(), "source", source != null ? source.name() : "SYSTEM"),
+                consumptionMetadata(tenantId, pedidoId, pagamentoId, record.getId(), source, null),
                 null,
                 null
         );
@@ -150,7 +151,7 @@ public class InventoryConsumptionService {
                     record.getId(),
                     OperationalOrigem.SYSTEM,
                     "consumed",
-                    Map.of("tenantId", tenantId, "pedidoId", pedidoId, "recordId", record.getId(), "warnings", record.getWarningCount()),
+                    consumptionMetadata(tenantId, pedidoId, pagamentoId, record.getId(), source, null),
                     null,
                     null
             );
@@ -166,7 +167,7 @@ public class InventoryConsumptionService {
                     record.getId(),
                     OperationalOrigem.SYSTEM,
                     "failed",
-                    Map.of("tenantId", tenantId, "pedidoId", pedidoId, "recordId", record.getId(), "error", e.getClass().getSimpleName()),
+                    consumptionMetadata(tenantId, pedidoId, pagamentoId, record.getId(), source, e.getClass().getSimpleName()),
                     null,
                     null
             );
@@ -209,11 +210,29 @@ public class InventoryConsumptionService {
                 record.getId(),
                 OperationalOrigem.SYSTEM,
                 reason,
-                Map.of("tenantId", tenant.getId(), "pedidoId", pedido.getId(), "recordId", record.getId(), "pagamentoId", pagamentoId),
+                consumptionMetadata(tenant.getId(), pedido.getId(), pagamentoId, record.getId(), null, null),
                 null,
                 null
         );
         return record;
+    }
+
+    private Map<String, Object> consumptionMetadata(Long tenantId,
+                                                    Long pedidoId,
+                                                    Long pagamentoId,
+                                                    Long recordId,
+                                                    InventoryMovementSource source,
+                                                    String reason) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("tenantId", tenantId);
+        metadata.put("pedidoId", pedidoId);
+        metadata.put("pagamentoId", pagamentoId);
+        metadata.put("recordId", recordId);
+        metadata.put("source", source != null ? source.name() : "SYSTEM");
+        if (reason != null) {
+            metadata.put("reason", reason);
+        }
+        return metadata;
     }
 
     private void doConsume(InventoryConsumptionRecord record,

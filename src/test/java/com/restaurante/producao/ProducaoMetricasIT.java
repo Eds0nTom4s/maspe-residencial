@@ -81,6 +81,7 @@ class ProducaoMetricasIT extends PostgresTestcontainersConfig {
     void metricas_calculatesAverages_andIgnoresNullTimestamps() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
         Produto prod = criarProdutoBasico(prov.getTenantId());
+        publicarCardapioForTest(prov.getTenantId());
 
         var pedidoResp = publicQrPedidoService.criarPedidoPublicoPorQrToken(
                 prov.getQrToken(),

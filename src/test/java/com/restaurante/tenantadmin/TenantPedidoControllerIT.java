@@ -99,6 +99,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                 .disponivel(true)
                 .build());
         Produto prodA = produtoRepository.findByCodigoAndTenantId("AGUA-500", a.getTenantId()).orElseThrow();
+        publicarCardapioForTest(a.getTenantId());
 
         // cria pedido público por QR
         String payloadPedido = """
@@ -170,6 +171,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                 .disponivel(true)
                 .build());
         Produto prodB = produtoRepository.findByCodigoAndTenantId("AGUA-500", b.getTenantId()).orElseThrow();
+        publicarCardapioForTest(b.getTenantId());
         String payloadPedidoB = """
                 {
                   "clienteNome": "Cliente",

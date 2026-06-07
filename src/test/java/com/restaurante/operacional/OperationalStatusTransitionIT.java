@@ -266,6 +266,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
 
         CategoriaProduto cat = criarCategoria(tenant, "Geral", "geral");
         Produto prod = criarProduto(tenant, cat, "P1-" + tenantCode, "Produto " + tenantCode, new BigDecimal("10.00"));
+        publicarCardapioForTest(tenant.getId());
 
         QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
                 tenant.getId(), inst.getId(), unidade.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR " + slug

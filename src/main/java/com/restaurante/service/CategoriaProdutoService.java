@@ -6,15 +6,20 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.enums.OperationalEntityType;
+import com.restaurante.model.enums.OperationalEventType;
+import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +28,8 @@ public class CategoriaProdutoService {
     private final CategoriaProdutoRepository categoriaProdutoRepository;
     private final TenantRepository tenantRepository;
     private final TenantGuard tenantGuard;
+    private final TenantLimitService tenantLimitService;
+    private final OperationalEventLogService operationalEventLogService;
 
     private static final String DEFAULT_SLUG = "geral";
 
@@ -38,6 +45,7 @@ public class CategoriaProdutoService {
         if (categoriaProdutoRepository.existsBySlugAndTenantId(request.getSlug(), tenantId)) {
             throw new BusinessException("Já existe uma categoria com o slug: " + request.getSlug() + " neste tenant.");
         }
+        tenantLimitService.assertCanCreateCategoriaProduto(tenantId);
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException("Tenant não encontrado: " + tenantId));
@@ -50,7 +58,19 @@ public class CategoriaProdutoService {
         cp.setOrdem(request.getOrdem() != null ? request.getOrdem() : 0);
         cp.setAtivo(true);
 
-        return mapToResponse(categoriaProdutoRepository.save(cp));
+        CategoriaProduto saved = categoriaProdutoRepository.save(cp);
+        operationalEventLogService.logGenericForTenant(
+                tenantId,
+                OperationalEventType.CATEGORIA_CRIADA,
+                OperationalEntityType.CATEGORIA_PRODUTO,
+                saved.getId(),
+                OperationalOrigem.TENANT_ADMIN,
+                "Categoria de produto criada",
+                Map.of("slug", saved.getSlug(), "nome", saved.getNome()),
+                null,
+                null
+        );
+        return mapToResponse(saved);
     }
 
     @Transactional(readOnly = true)

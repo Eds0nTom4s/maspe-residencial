@@ -48,6 +48,7 @@ public class QrCodeOperacionalService {
     private final MesaRepository mesaRepository;
     private final CategoriaProdutoRepository categoriaProdutoRepository;
     private final ProdutoRepository produtoRepository;
+    private final TenantCardapioConfigService tenantCardapioConfigService;
 
     @Transactional
     public QrCodeOperacional criarQr(
@@ -188,6 +189,18 @@ public class QrCodeOperacionalService {
     public PublicCardapioResponse carregarCardapioPublicoPorQrToken(String token) {
         QrPublicContext ctx = resolverPublico(token);
         Long tenantId = ctx.getTenantId();
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", tenantId));
+
+        if (!tenantCardapioConfigService.isPublicado(tenantId)) {
+            PublicCardapioResponse resp = new PublicCardapioResponse();
+            resp.setQr(ctx);
+            resp.setPublicado(false);
+            resp.setTelefoneContato(tenant.getTelefone());
+            resp.setMensagem(tenantCardapioConfigService.mensagemPublicaIndisponivel(tenant.getTelefone()));
+            resp.setCategorias(List.of());
+            return resp;
+        }
 
         List<CategoriaProduto> categorias = categoriaProdutoRepository.findByTenantIdAndAtivoTrueOrderByOrdemAsc(tenantId);
         List<Produto> produtos = produtoRepository.findByTenantIdAndDisponivelTrueAndAtivoTrue(tenantId);
@@ -221,6 +234,8 @@ public class QrCodeOperacionalService {
 
         PublicCardapioResponse resp = new PublicCardapioResponse();
         resp.setQr(ctx);
+        resp.setPublicado(true);
+        resp.setTelefoneContato(tenant.getTelefone());
         resp.setCategorias(categoriaResponses);
         return resp;
     }

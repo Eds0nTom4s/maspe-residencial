@@ -128,6 +128,7 @@ class TurnoPreFechoFinanceiroAlertasIT extends PostgresTestcontainersConfig {
         createProdutoMinimo(prov.getTenantId(), "pre-fecho");
         var prod = produtoRepository.findByTenantIdAndDisponivelTrueAndAtivoTrue(prov.getTenantId(), org.springframework.data.domain.PageRequest.of(0, 1))
                 .getContent().get(0);
+        publicarCardapioForTest(prov.getTenantId());
         PublicQrPedidoRequest qrReq = new PublicQrPedidoRequest();
         PublicQrPedidoItemRequest it = new PublicQrPedidoItemRequest();
         it.setProdutoId(prod.getId());
@@ -297,4 +298,3 @@ class TurnoPreFechoFinanceiroAlertasIT extends PostgresTestcontainersConfig {
         cozinhaRepository.saveAndFlush(cozinha);
     }
 }
-

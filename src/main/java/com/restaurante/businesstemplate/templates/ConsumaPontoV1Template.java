@@ -16,6 +16,7 @@ import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantOperacaoPolicy;
 import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.LogisticsMode;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.TenantUserRole;
@@ -99,7 +100,7 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
         int users = 1;
         int qr = 1;
         int dispositivos = 0;
-        int categorias = 3;
+        int categorias = 5;
 
         return previewWithLimits(bloqueios, avisos, plano, unidades, users, qr, dispositivos, categorias,
                 false, false, entregaManual, allowPickup);
@@ -142,8 +143,16 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
         UnidadeAtendimento ua = support.criarUnidadeAtendimentoPrincipal(inst, "Unidade Principal", TipoUnidadeAtendimento.CAFETERIA);
 
         List<CategoriaProduto> categorias = support.criarCategorias(tenant,
-                List.of("Geral", "Destaques", "Promoções"),
-                List.of("geral", "destaques", "promocoes"));
+                List.of("Bebidas", "Lanches", "Produtos rápidos", "Serviços", "Outros"),
+                List.of("bebidas", "lanches", "produtos-rapidos", "servicos", "outros"));
+        support.criarProdutos(tenant, List.of(
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("bebidas", "PONTO-AGUA-500", "Água", "Água 500ml", "500", CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, 2),
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("bebidas", "PONTO-REFRI", "Refrigerante", "Refrigerante", "800", CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, 2),
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("lanches", "PONTO-CACHORRO-QUENTE", "Cachorro quente", "Cachorro quente simples", "1200", CategoriaProdutoLegacy.LANCHE, 8),
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("lanches", "PONTO-SANDES-SIMPLES", "Sandes simples", "Sandes simples", "1000", CategoriaProdutoLegacy.LANCHE, 6),
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("servicos", "PONTO-SERVICO-RAPIDO", "Serviço rápido", "Serviço rápido", "1000", CategoriaProdutoLegacy.OUTROS, 5)
+        ));
+        support.configurarCardapioInicial(tenant, 5, 20);
 
         var ownerUser = support.criarOuReusarOwnerUser(request.getOwner(), ua);
         TenantUser ownerLink = support.criarTenantUser(tenant, ownerUser, TenantUserRole.TENANT_OWNER, ua);

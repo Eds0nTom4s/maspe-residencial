@@ -79,6 +79,7 @@ class ProducaoKdsCrossTenantIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse tenantB = provisionTenant("TB");
 
         Produto prodB = criarProdutoBasico(tenantB.getTenantId(), "Produto B");
+        publicarCardapioForTest(tenantB.getTenantId());
         criarPedidoViaQr(tenantB.getQrToken(), prodB.getId());
 
         TenantContextHolder.set(new TenantContext(

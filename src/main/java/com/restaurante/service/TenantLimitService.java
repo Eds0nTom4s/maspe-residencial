@@ -8,7 +8,9 @@ import com.restaurante.model.entity.TenantLimiteOverride;
 import com.restaurante.model.enums.SubscricaoEstado;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.DispositivoOperacionalRepository;
+import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.QrCodeOperacionalRepository;
 import com.restaurante.repository.SubscricaoRepository;
 import com.restaurante.repository.TenantLimiteOverrideRepository;
@@ -41,6 +43,8 @@ public class TenantLimitService {
     private final TenantLimiteOverrideRepository tenantLimiteOverrideRepository;
     private final InstituicaoRepository instituicaoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    private final CategoriaProdutoRepository categoriaProdutoRepository;
+    private final ProdutoRepository produtoRepository;
     private final TenantUserRepository tenantUserRepository;
     private final QrCodeOperacionalRepository qrCodeOperacionalRepository;
     private final DispositivoOperacionalRepository dispositivoOperacionalRepository;
@@ -72,6 +76,10 @@ public class TenantLimitService {
                 override != null ? override.getMaxProdutos() : null,
                 plano.getMaxProdutos()
         );
+        Integer maxCategorias = pickOverrideOrPlano(
+                override != null ? override.getMaxCategorias() : null,
+                plano.getMaxCategorias()
+        );
         Integer maxUsuarios = pickOverrideOrPlano(
                 override != null ? override.getMaxUsuarios() : null,
                 plano.getMaxUsuarios()
@@ -90,6 +98,7 @@ public class TenantLimitService {
                 maxInstituicoes,
                 maxUnidadesAtendimento,
                 maxProdutos,
+                maxCategorias,
                 maxUsuarios,
                 maxQrCodes,
                 maxDispositivos
@@ -137,8 +146,23 @@ public class TenantLimitService {
         }
     }
 
-    // Placeholders para fases futuras (não usados ainda)
-    public void assertCanCreateProduto(Long tenantId) { /* Fase futura */ }
+    @Transactional(readOnly = true)
+    public void assertCanCreateCategoriaProduto(Long tenantId) {
+        EffectiveTenantLimits limits = getEffectiveLimits(tenantId);
+        long current = categoriaProdutoRepository.countByTenantIdAndAtivoTrue(tenantId);
+        if (limits.maxCategorias() != null && current >= limits.maxCategorias()) {
+            throw new BusinessException("Limite de categorias atingido para este plano.");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanCreateProduto(Long tenantId) {
+        EffectiveTenantLimits limits = getEffectiveLimits(tenantId);
+        long current = produtoRepository.countByTenantIdAndAtivoTrue(tenantId);
+        if (limits.maxProdutos() != null && current >= limits.maxProdutos()) {
+            throw new BusinessException("Limite de produtos atingido para este plano.");
+        }
+    }
 
     @Transactional(readOnly = true)
     public void assertCanCreateDispositivo(Long tenantId, int quantidadeNova) {
@@ -159,6 +183,7 @@ public class TenantLimitService {
             Integer maxInstituicoes,
             Integer maxUnidadesAtendimento,
             Integer maxProdutos,
+            Integer maxCategorias,
             Integer maxUsuarios,
             Integer maxQrCodes,
             Integer maxDispositivos

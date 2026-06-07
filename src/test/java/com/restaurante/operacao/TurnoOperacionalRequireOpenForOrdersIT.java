@@ -65,6 +65,7 @@ class TurnoOperacionalRequireOpenForOrdersIT extends PostgresTestcontainersConfi
     void public_qr_order_is_blocked_when_turno_required_and_none_open() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("op-turno-req", "OTR");
         Produto prod = createProdutoMinimo(prov.getTenantId(), "turno-required");
+        publicarCardapioForTest(prov.getTenantId());
 
         PublicQrPedidoRequest qrReq = new PublicQrPedidoRequest();
         PublicQrPedidoItemRequest it = new PublicQrPedidoItemRequest();

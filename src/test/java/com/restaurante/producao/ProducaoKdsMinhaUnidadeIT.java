@@ -77,6 +77,7 @@ class ProducaoKdsMinhaUnidadeIT extends PostgresTestcontainersConfig {
     void kitchen_canResolveMinhaUnidade_andListSubpedidos() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
         Produto prod = criarProdutoBasico(prov.getTenantId());
+        publicarCardapioForTest(prov.getTenantId());
         criarPedidoViaQr(prov.getQrToken(), prod.getId());
 
         TenantContextHolder.set(new TenantContext(

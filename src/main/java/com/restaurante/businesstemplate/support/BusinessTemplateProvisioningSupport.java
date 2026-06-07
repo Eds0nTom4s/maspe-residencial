@@ -12,6 +12,7 @@ import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.Plano;
+import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Subscricao;
 import com.restaurante.model.entity.Tenant;
@@ -23,6 +24,7 @@ import com.restaurante.model.entity.UnidadeProducao;
 import com.restaurante.model.enums.ChecklistEscopo;
 import com.restaurante.model.enums.ChecklistTipo;
 import com.restaurante.model.enums.ChecklistTipoResposta;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.DeliveryMode;
 import com.restaurante.model.enums.DispositivoStatus;
 import com.restaurante.model.enums.DispositivoTipo;
@@ -47,6 +49,7 @@ import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.PlanoRepository;
+import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.SubscricaoRepository;
 import com.restaurante.delivery.repository.TenantDeliveryPolicyRepository;
 import com.restaurante.repository.TenantOperacaoPolicyRepository;
@@ -58,6 +61,7 @@ import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.service.QrCodeOperacionalService;
+import com.restaurante.service.TenantCardapioConfigService;
 import com.restaurante.service.TenantLimitService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
@@ -68,6 +72,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -90,6 +95,7 @@ public class BusinessTemplateProvisioningSupport {
     private final InstituicaoRepository instituicaoRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final CategoriaProdutoRepository categoriaProdutoRepository;
+    private final ProdutoRepository produtoRepository;
     private final UserRepository userRepository;
     private final TenantUserRepository tenantUserRepository;
     private final MesaRepository mesaRepository;
@@ -105,6 +111,7 @@ public class BusinessTemplateProvisioningSupport {
     private final TenantInventoryPolicyService tenantInventoryPolicyService;
     private final PasswordEncoder passwordEncoder;
     private final OperationalEventLogService operationalEventLogService;
+    private final TenantCardapioConfigService tenantCardapioConfigService;
 
     @Value("${consuma.public-base-url:http://localhost:8080}")
     private String publicBaseUrl;
@@ -324,6 +331,54 @@ public class BusinessTemplateProvisioningSupport {
             out.add(categoriaProdutoRepository.saveAndFlush(c));
         }
         return out;
+    }
+
+    public List<Produto> criarProdutos(Tenant tenant, List<ProdutoTemplateSeed> seeds) {
+        List<Produto> out = new ArrayList<>();
+        for (ProdutoTemplateSeed seed : seeds) {
+            Optional<Produto> existing = produtoRepository.findByCodigoAndTenantId(seed.codigo(), tenant.getId());
+            if (existing.isPresent()) {
+                out.add(existing.get());
+                continue;
+            }
+            CategoriaProduto categoria = categoriaProdutoRepository
+                    .findBySlugAndTenantId(normalizeSlug(seed.categoriaSlug()), tenant.getId())
+                    .orElseThrow(() -> new ProvisioningException(HttpStatus.INTERNAL_SERVER_ERROR,
+                            "CATEGORIA_TEMPLATE_NAO_ENCONTRADA",
+                            "categoriaSlug",
+                            "Categoria de template não encontrada: " + seed.categoriaSlug(),
+                            null,
+                            "Revise seeds do template.",
+                            null));
+            Produto produto = new Produto();
+            produto.setTenant(tenant);
+            produto.setCategoriaProduto(categoria);
+            produto.setCategoria(seed.legacyCategoria() != null ? seed.legacyCategoria() : CategoriaProdutoLegacy.OUTROS);
+            produto.setCodigo(seed.codigo());
+            produto.setNome(seed.nome());
+            produto.setDescricao(seed.descricao());
+            produto.setPreco(new BigDecimal(seed.preco()));
+            produto.setTempoPreparoMinutos(seed.tempoPreparoMinutos());
+            produto.setDisponivel(true);
+            produto.setAtivo(true);
+            out.add(produtoRepository.saveAndFlush(produto));
+        }
+        return out;
+    }
+
+    public void configurarCardapioInicial(Tenant tenant, int maxCategorias, int maxProdutos) {
+        tenantCardapioConfigService.ensureTemplateDefaults(tenant, maxCategorias, maxProdutos);
+    }
+
+    public record ProdutoTemplateSeed(
+            String categoriaSlug,
+            String codigo,
+            String nome,
+            String descricao,
+            String preco,
+            CategoriaProdutoLegacy legacyCategoria,
+            Integer tempoPreparoMinutos
+    ) {
     }
 
     public com.restaurante.model.entity.User criarOuReusarOwnerUser(BusinessTemplateProvisionRequest.OwnerInfo owner, UnidadeAtendimento unidadeDefault) {

@@ -1,0 +1,124 @@
+RELATORIO - CONSUMA BACKEND - CARDAPIO-LIMITS-PUBLISH-001
+
+Status da fase:
+CONCLUIDO PARA REVISAO COM VALIDACAO DE TESTES/RUNTIME
+
+Resumo:
+Foi implementada a camada backend para limites de categorias/produtos de cardapio, estado de publicacao por tenant, endpoints tenant para publicar/despublicar/status, endpoint platform para alterar limites, bloqueio de cardapio/pedido publico enquanto nao publicado, seeds iniciais de categorias/produtos nos templates CONSUMA_REST e CONSUMA_PONTO, auditoria operacional e testes unitarios das regras principais.
+
+Alteracao pre-existente:
+src/main/resources/application-sandbox-local.properties
+
+Tratamento:
+Guardada com stash "WIP local sandbox properties before cardapio-limits-publish-001"
+
+Incluida na fase:
+Nao
+
+Motivo:
+Arquivo de configuracao local fora do escopo funcional da fase.
+
+Arquivos principais alterados:
+- src/main/java/com/restaurante/model/entity/Plano.java
+- src/main/java/com/restaurante/model/entity/TenantLimiteOverride.java
+- src/main/java/com/restaurante/model/entity/TenantCardapioConfig.java
+- src/main/java/com/restaurante/repository/TenantCardapioConfigRepository.java
+- src/main/java/com/restaurante/service/TenantCardapioConfigService.java
+- src/main/java/com/restaurante/service/TenantLimitService.java
+- src/main/java/com/restaurante/service/CategoriaProdutoService.java
+- src/main/java/com/restaurante/service/ProdutoService.java
+- src/main/java/com/restaurante/service/QrCodeOperacionalService.java
+- src/main/java/com/restaurante/service/PublicQrPedidoService.java
+- src/main/java/com/restaurante/controller/TenantCardapioController.java
+- src/main/java/com/restaurante/controller/PlatformTenantCardapioLimitsController.java
+- src/main/java/com/restaurante/businesstemplate/support/BusinessTemplateProvisioningSupport.java
+- src/main/java/com/restaurante/businesstemplate/templates/ConsumaRestV1Template.java
+- src/main/java/com/restaurante/businesstemplate/templates/ConsumaPontoV1Template.java
+- src/main/resources/db/migration/V69__cardapio_limits_publish.sql
+
+Funcionalidades implementadas:
+- Novo campo max_categorias em planos e tenant_limite_overrides.
+- Novo estado persistido tenant_cardapio_configs com cardapio_publicado=false por padrao.
+- GET /tenant/cardapio/status.
+- POST /tenant/cardapio/publicar.
+- POST /tenant/cardapio/despublicar.
+- PATCH /platform/tenants/{tenantId}/limites-cardapio.
+- Validacao de limite ao criar categoria tenant-aware.
+- Validacao de limite ao criar produto tenant-aware.
+- Auditoria para CARDAPIO_PUBLICADO, CARDAPIO_DESPUBLICADO, LIMITE_CARDAPIO_ALTERADO, CATEGORIA_CRIADA e PRODUTO_CRIADO.
+- Bloqueio de /public/q/{token}/cardapio enquanto nao publicado, retornando publicado=false, mensagem amigavel, telefoneContato e categorias=[].
+- Bloqueio de /public/q/{token}/pedidos enquanto nao publicado.
+- Validacao de que produto publico pertence ao tenant, esta ativo/disponivel e possui categoria ativa do mesmo tenant.
+
+Templates:
+CONSUMA_REST:
+- Categorias iniciais: Hamburgueres, Bebidas, Acompanhamentos, Sobremesas.
+- Produtos iniciais: Hamburguer Classico, Hamburguer Duplo, Batata Frita, Sumol, Agua, Pudim.
+- Limites iniciais: maxCategorias=8, maxProdutos=40.
+- Publicacao inicial: false.
+
+CONSUMA_PONTO:
+- Categorias iniciais: Bebidas, Lanches, Produtos rapidos, Servicos, Outros.
+- Produtos iniciais: Agua, Refrigerante, Cachorro quente, Sandes simples, Servico rapido.
+- Limites iniciais: maxCategorias=5, maxProdutos=20.
+- Publicacao inicial: false.
+
+Banco de dados:
+- Migration adicionada: V69__cardapio_limits_publish.sql.
+- Tenants existentes recebem tenant_cardapio_configs com cardapio_publicado=false.
+
+Testes executados:
+- mvn -Dtest=TenantCardapioConfigServiceTest,TenantLimitCardapioTest test
+  Resultado: BUILD SUCCESS, 5 testes executados, 0 falhas, 0 erros.
+- mvn clean test
+  Resultado: BUILD SUCCESS.
+  Surefire: 338 testes executados, 0 falhas, 0 erros, 3 ignorados.
+  Finalizado em 2026-06-07T18:05:54+01:00.
+- mvn -Pit verify
+  Resultado: BUILD SUCCESS.
+  Surefire: 338 testes executados, 0 falhas, 0 erros, 3 ignorados.
+  Failsafe: 251 testes executados, 0 falhas, 0 erros, 0 ignorados.
+  Finalizado em 2026-06-07T18:17:39+01:00.
+- mvn -Pit -Dit.test=TurnoOperacionalRequireOpenForOrdersIT,TurnoPreFechoFinanceiroAlertasIT,DeviceFilaDiffSyncIT,ProducaoKdsDeviceScopeIT,ProducaoKdsMinhaUnidadeIT,ProducaoKdsCrossTenantIT,ProducaoMetricasIT,OperationalStatusTransitionIT,TenantPedidoControllerIT,PublicQrPaymentMethodsIT,PagamentoCallbackTenantAwareIT,PagamentoCallbackInvalidSignatureIT,PublicQrPedidoIT,PublicQrPedidoIdempotencyIT,PublicQrPedidoConsultaIT,PublicQrPedidoSessaoMesaIT,PublicQrPagamentoStartIT,PublicQrSessaoConcorrenciaIT,PublicQrCardapioIT,PlatformBusinessTemplateControllerIT,SandboxDemoSeedRunnerIT verify
+  Resultado: BUILD SUCCESS.
+  Failsafe: 46 testes executados, 0 falhas, 0 erros, 0 ignorados.
+
+Cobertura adicionada:
+- TenantCardapioConfigServiceTest
+  - status bloqueia publicacao sem categoria/produto disponivel.
+  - platform nao reduz limite abaixo do uso atual.
+  - platform atualiza override e audita.
+- TenantLimitCardapioTest
+  - bloqueia criacao de categoria ao atingir limite.
+  - bloqueia criacao de produto ao atingir limite.
+
+Validacao manual sandbox:
+- Stack usada: docker-compose.sandbox.yml, banco sandbox recriado limpo por divergencia antiga de checksums Flyway no volume pre-existente.
+- API validada dentro do container consuma-api-sandbox: /api/actuator/health retornou UP.
+- Evidencias: /tmp/cardapio-limits-publish-001-sandbox-20260607T174122Z
+- Provisionado CONSUMA_REST_V1: tenantId=12, QR publico gerado.
+- Confirmado cardapioPublicado=false inicial em GET /tenant/cardapio/status.
+- Confirmado GET /public/q/{token}/cardapio com publicado=false, mensagem amigavel e categorias vazias.
+- Tentativa de criar pedido publico antes da publicacao retornou HTTP 400 com bloqueio por cardapio nao publicado.
+- Publicado cardapio via POST /tenant/cardapio/publicar.
+- Confirmado GET /public/q/{token}/cardapio com publicado=true e produtos iniciais do template visiveis.
+- Criado pedido publico com produto seed REST: pedidoId=2.
+- Confirmado pedido em GET /tenant/pedidos.
+- Despublicado cardapio via POST /tenant/cardapio/despublicar.
+- Confirmado novo bloqueio de pedido publico apos despublicacao.
+
+Observacao runtime sandbox:
+- Para o pedido publico REST, foram vinculadas cozinhas legadas ativas CENTRAL, BAR_PREP e CONFEITARIA na sandbox, pois o servico legado de subpedidos ainda consulta a entidade Cozinha. Essa configuracao foi feita apenas no banco sandbox da validacao e nao altera codigo nem commit.
+
+Working tree final:
+- Limpo apos commit final; git status --short sem saidas antes do push.
+
+Push:
+- Confirmado para origin/cardapio-limits-publish-001.
+
+Riscos / pendencias:
+- Sem pendencias bloqueantes de teste automatizado ou validacao sandbox para o escopo CARDAPIO-LIMITS-PUBLISH-001.
+- Observado acoplamento runtime legado: pedido publico ainda depende de cozinhas legadas ativas mesmo quando o template cria UnidadesProducao/rotas novas.
+
+Conclusao:
+A fase foi implementada no backend, passou na suite unitaria completa, passou na suite de integracao do perfil -Pit e teve validacao manual sandbox concluida para publicacao/despublicacao do cardapio e bloqueio/criacao de pedido publico.

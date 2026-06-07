@@ -168,6 +168,7 @@ class DeviceFilaDiffSyncIT extends PostgresTestcontainersConfig {
 
         CategoriaProduto cat = criarCategoria(tenant, "Geral", "geral-" + (System.nanoTime() % 100_000));
         Produto prod = criarProduto(tenant, cat, "P1-" + tenantCode + (System.nanoTime() % 100_000), "Produto " + tenantCode, new BigDecimal("10.00"));
+        publicarCardapioForTest(tenant.getId());
 
         var qr = qrCodeOperacionalService.criarQr(
                 tenant.getId(), inst.getId(), unidade.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR " + slug

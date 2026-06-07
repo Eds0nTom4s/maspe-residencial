@@ -102,6 +102,7 @@ class PagamentoCallbackInvalidSignatureIT extends PostgresTestcontainersConfig {
         criarCozinhaVinculada(uaA, "Bar", TipoCozinha.BAR_PREP);
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
         Produto prodA = criarProduto(tenantA, catA, "AGUA", "Água", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenantA.getId());
 
         QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
                 tenantA.getId(), instA.getId(), uaA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR"

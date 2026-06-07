@@ -8,11 +8,15 @@ import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
+import com.restaurante.model.enums.OperationalEntityType;
+import com.restaurante.model.enums.OperationalEventType;
+import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.restaurante.service.storage.StorageService;
@@ -23,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -40,6 +45,8 @@ public class ProdutoService {
     private final TenantRepository tenantRepository;
     private final TenantGuard tenantGuard;
     private final StorageService storageService;
+    private final TenantLimitService tenantLimitService;
+    private final OperationalEventLogService operationalEventLogService;
 
     private static final String LEGACY_TENANT_CODE = "LEGACY";
 
@@ -59,6 +66,7 @@ public class ProdutoService {
         if (produtoRepository.existsByCodigoAndTenantId(request.getCodigo(), tenantId)) {
             throw new BusinessException("Já existe um produto com o código: " + request.getCodigo() + " neste tenant.");
         }
+        tenantLimitService.assertCanCreateProduto(tenantId);
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException("Tenant não encontrado: " + tenantId));
@@ -77,7 +85,19 @@ public class ProdutoService {
         produto.setDisponivel(request.getDisponivel() != null ? request.getDisponivel() : true);
         produto.setAtivo(true);
 
-        return mapToResponse(produtoRepository.save(produto));
+        Produto saved = produtoRepository.save(produto);
+        operationalEventLogService.logGenericForTenant(
+                tenantId,
+                OperationalEventType.PRODUTO_CRIADO,
+                OperationalEntityType.PRODUTO,
+                saved.getId(),
+                OperationalOrigem.TENANT_ADMIN,
+                "Produto criado",
+                Map.of("codigo", saved.getCodigo(), "nome", saved.getNome()),
+                null,
+                null
+        );
+        return mapToResponse(saved);
     }
 
     /**

@@ -14,6 +14,7 @@ import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantCardapioConfig;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.MetodoPagamentoManual;
@@ -26,6 +27,7 @@ import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.QrCodeOperacionalRepository;
+import com.restaurante.repository.TenantCardapioConfigRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.security.tenant.TenantContext;
@@ -44,6 +46,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -76,6 +79,7 @@ public class SandboxDemoSeedRunner {
     private final OrdemPagamentoService ordemPagamentoService;
     private final PedidoRepository pedidoRepository;
     private final TenantInventoryPolicyService tenantInventoryPolicyService;
+    private final TenantCardapioConfigRepository tenantCardapioConfigRepository;
 
     @EventListener(ApplicationReadyEvent.class)
     @Transactional
@@ -97,12 +101,36 @@ public class SandboxDemoSeedRunner {
         List<Produto> restProducts = ensureRestCatalog(rest);
         List<Produto> pontoProducts = ensurePontoCatalog(ponto);
 
+        setCardapioPublicado(rest, true);
+        setCardapioPublicado(ponto, true);
         seedOrder(rest, restProducts, "demo-rest-pago", true, MetodoPagamentoManual.TPA);
         seedOrder(rest, restProducts, "demo-rest-aberto", false, null);
         seedOrder(ponto, pontoProducts, "demo-ponto-pago", true, MetodoPagamentoManual.CASH);
         seedOrder(ponto, pontoProducts, "demo-ponto-aberto", false, null);
+        setCardapioPublicado(rest, false);
+        setCardapioPublicado(ponto, false);
 
         log.info("[sandbox-demo-seed] tenants demo garantidos: restSlug={}, pontoSlug={}", REST_SLUG, PONTO_SLUG);
+    }
+
+    private void setCardapioPublicado(Tenant tenant, boolean publicado) {
+        TenantCardapioConfig config = tenantCardapioConfigRepository.findByTenantId(tenant.getId())
+                .orElseGet(() -> {
+                    TenantCardapioConfig created = new TenantCardapioConfig();
+                    created.setTenant(tenant);
+                    return created;
+                });
+        LocalDateTime now = LocalDateTime.now();
+        config.setCardapioPublicado(publicado);
+        config.setCardapioAtualizadoEm(now);
+        if (publicado) {
+            config.setCardapioPublicadoEm(now);
+            config.setCardapioMotivoDespublicacao(null);
+        } else {
+            config.setCardapioDespublicadoEm(now);
+            config.setCardapioMotivoDespublicacao("Seed demo sandbox finalizado: cardápio inicia despublicado.");
+        }
+        tenantCardapioConfigRepository.saveAndFlush(config);
     }
 
     private Tenant ensureTenant(String templateCode, BusinessTemplateProvisionRequest request, String slug) {

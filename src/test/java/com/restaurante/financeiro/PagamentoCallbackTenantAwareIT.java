@@ -96,6 +96,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         criarCozinhaVinculada(uaA, "Cozinha Central", TipoCozinha.CENTRAL);
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
         Produto prodA = criarProduto(tenantA, catA, "AGUA", "Água", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenantA.getId());
 
         QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
                 tenantA.getId(), instA.getId(), uaA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR"
@@ -165,6 +166,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         criarCozinhaVinculada(uaA, "Cozinha Central 2", TipoCozinha.CENTRAL);
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
         Produto prodA = criarProduto(tenantA, catA, "CERVEJA", "Cerveja", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenantA.getId());
 
         QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
                 tenantA.getId(), instA.getId(), uaA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR2"

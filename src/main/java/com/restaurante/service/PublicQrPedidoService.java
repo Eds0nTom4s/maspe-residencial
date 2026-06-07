@@ -58,6 +58,7 @@ public class PublicQrPedidoService {
     private final TurnoOperacionalRepository turnoOperacionalRepository;
     private final OperacaoProperties operacaoProperties;
     private final OperationalEventLogService operationalEventLogService;
+    private final TenantCardapioConfigService tenantCardapioConfigService;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -67,6 +68,10 @@ public class PublicQrPedidoService {
         Instituicao instituicao = qr.getInstituicao();
         UnidadeAtendimento unidadeAtendimento = unidadeAtendimentoEfetiva(qr);
         Mesa mesa = qr.getMesa();
+
+        if (!tenantCardapioConfigService.isPublicado(tenant.getId())) {
+            throw new BusinessException("Cardápio indisponível no momento. Tente novamente mais tarde.");
+        }
 
         String idemKey = idempotencyService.requireKey(idempotencyKeyHeader, request.getIdempotencyKey());
         String requestHash = idempotencyService.computeRequestHash(request);
@@ -228,6 +233,12 @@ public class PublicQrPedidoService {
             Produto produto = produtoRepository.findByIdAndTenantId(item.getProdutoId(), tenantId)
                     .orElseThrow(() -> new BusinessException("Produto inválido ou indisponível."));
             if (!Boolean.TRUE.equals(produto.getAtivo()) || !Boolean.TRUE.equals(produto.getDisponivel())) {
+                throw new BusinessException("Produto inválido ou indisponível.");
+            }
+            if (produto.getCategoriaProduto() == null
+                    || produto.getCategoriaProduto().getTenant() == null
+                    || !tenantId.equals(produto.getCategoriaProduto().getTenant().getId())
+                    || !Boolean.TRUE.equals(produto.getCategoriaProduto().getAtivo())) {
                 throw new BusinessException("Produto inválido ou indisponível.");
             }
             produtos.add(produto);

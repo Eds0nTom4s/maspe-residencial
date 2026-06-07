@@ -70,6 +70,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
 
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
         Produto prodA = criarProduto(tenantA, catA, "AGUA-500", "Água 500ml A", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenantA.getId());
 
         QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
                 tenantA.getId(), instA.getId(), unidadeA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR A"
@@ -130,6 +131,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
         CategoriaProduto catB = criarCategoria(tenantB, "Bebidas", "bebidas");
         Produto prodB = criarProduto(tenantB, catB, "AGUA-500", "Água 500ml B", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenantA.getId());
 
         QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
                 tenantA.getId(), instA.getId(), unidadeA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR A"

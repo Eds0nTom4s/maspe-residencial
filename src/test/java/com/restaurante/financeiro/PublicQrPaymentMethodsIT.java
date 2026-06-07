@@ -87,6 +87,7 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
         criarCozinhaVinculada(ua, "Bar QR", TipoCozinha.BAR_PREP);
         CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
         Produto prod = criarProduto(tenant, cat, "AGUA", "Água", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenant.getId());
 
         QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
                 tenant.getId(), inst.getId(), ua.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR"

@@ -22,6 +22,8 @@ public interface CategoriaProdutoRepository extends JpaRepository<CategoriaProdu
 
     List<CategoriaProduto> findByTenantIdAndAtivoTrueOrderByOrdemAsc(Long tenantId);
 
+    long countByTenantIdAndAtivoTrue(Long tenantId);
+
     List<CategoriaProduto> findByTenantIdAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);
 
     @Query("""

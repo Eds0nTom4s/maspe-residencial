@@ -35,6 +35,9 @@ public class Plano extends BaseEntity {
     @Column(name = "max_produtos", nullable = false)
     private Integer maxProdutos;
 
+    @Column(name = "max_categorias", nullable = false)
+    private Integer maxCategorias = 20;
+
     @Column(name = "max_usuarios", nullable = false)
     private Integer maxUsuarios;
 
@@ -118,6 +121,14 @@ public class Plano extends BaseEntity {
         this.maxProdutos = maxProdutos;
     }
 
+    public Integer getMaxCategorias() {
+        return maxCategorias;
+    }
+
+    public void setMaxCategorias(Integer maxCategorias) {
+        this.maxCategorias = maxCategorias;
+    }
+
     public Integer getMaxUsuarios() {
         return maxUsuarios;
     }
@@ -182,4 +193,3 @@ public class Plano extends BaseEntity {
         this.ativo = ativo;
     }
 }
-

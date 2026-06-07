@@ -29,6 +29,9 @@ public class TenantLimiteOverride extends BaseEntity {
     @Column(name = "max_produtos")
     private Integer maxProdutos;
 
+    @Column(name = "max_categorias")
+    private Integer maxCategorias;
+
     @Column(name = "max_usuarios")
     private Integer maxUsuarios;
 
@@ -83,6 +86,14 @@ public class TenantLimiteOverride extends BaseEntity {
 
     public void setMaxProdutos(Integer maxProdutos) {
         this.maxProdutos = maxProdutos;
+    }
+
+    public Integer getMaxCategorias() {
+        return maxCategorias;
+    }
+
+    public void setMaxCategorias(Integer maxCategorias) {
+        this.maxCategorias = maxCategorias;
     }
 
     public Integer getMaxUsuarios() {
@@ -141,4 +152,3 @@ public class TenantLimiteOverride extends BaseEntity {
         this.ativo = ativo;
     }
 }
-

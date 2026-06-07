@@ -66,6 +66,8 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
 
         criarProduto(tenantA, catA, "AGUA-500", "Água 500ml A");
         criarProduto(tenantB, catB, "AGUA-500", "Água 500ml B");
+        publicarCardapioForTest(tenantA.getId());
+        publicarCardapioForTest(tenantB.getId());
 
         QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
                 tenantA.getId(), instA.getId(), unidadeA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR A"

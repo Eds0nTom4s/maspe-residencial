@@ -231,7 +231,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
 
         assertThat(categoriaProdutoRepository.findByTenantIdAndAtivoTrueOrderByOrdemAsc(t.getId()))
                 .extracting("slug")
-                .contains("geral", "destaques", "promocoes");
+                .contains("bebidas", "lanches", "produtos-rapidos", "servicos", "outros");
 
         var owner = userRepository.findByEmail(ownerEmail).orElseThrow();
         assertThat(tenantUserRepository.findByTenantIdAndUserId(t.getId(), owner.getId())).isPresent();

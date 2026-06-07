@@ -86,6 +86,7 @@ class PublicQrSessaoConcorrenciaIT extends PostgresTestcontainersConfig {
         Mesa mesa = criarMesa(inst, ua, "Mesa Conc", 1, "QR-MESA-CONC-1");
         CategoriaProduto cat = criarCategoria(tenant, "Pratos", "pratos-conc");
         Produto prod = criarProduto(tenant, cat, "PRATO-CONC", "Prato Conc", new BigDecimal("25.00"));
+        publicarCardapioForTest(tenant.getId());
         QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
                 tenant.getId(), inst.getId(), ua.getId(), mesa.getId(), QrCodeOperacionalTipo.MESA, "QR Mesa Conc"
         );

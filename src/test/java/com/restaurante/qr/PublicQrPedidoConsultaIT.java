@@ -85,6 +85,7 @@ class PublicQrPedidoConsultaIT extends PostgresTestcontainersConfig {
         criarCozinhaVinculada(ua, "Bar CPO", TipoCozinha.BAR_PREP);
         CategoriaProduto cat = criarCategoria(tenant, "Bebidas CPO", "bebidas-cpo");
         Produto prod = criarProduto(tenant, cat, "AGUA-CPO", "Água CPO", new BigDecimal("15.00"));
+        publicarCardapioForTest(tenant.getId());
 
         QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
                 tenant.getId(), inst.getId(), ua.getId(), null,
@@ -136,6 +137,7 @@ class PublicQrPedidoConsultaIT extends PostgresTestcontainersConfig {
         criarCozinhaVinculada(uaA, "Bar A Cross", TipoCozinha.BAR_PREP);
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas A Cross", "bebidas-a-cross");
         Produto prodA = criarProduto(tenantA, catA, "AGUA-CROSA", "Água A Cross", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenantA.getId());
         QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
                 tenantA.getId(), instA.getId(), uaA.getId(), null,
                 QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR A Cross"
@@ -201,6 +203,7 @@ class PublicQrPedidoConsultaIT extends PostgresTestcontainersConfig {
         criarCozinhaVinculada(ua, "Bar SemJWT", TipoCozinha.BAR_PREP);
         CategoriaProduto cat = criarCategoria(tenant, "Bebidas SemJWT", "bebidas-semjwt");
         Produto prod = criarProduto(tenant, cat, "AGUA-SJ", "Água SemJWT", new BigDecimal("8.00"));
+        publicarCardapioForTest(tenant.getId());
         QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
                 tenant.getId(), inst.getId(), ua.getId(), null,
                 QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR SemJWT"

@@ -87,6 +87,7 @@ class PublicQrPedidoIdempotencyIT extends PostgresTestcontainersConfig {
         criarCozinhaVinculada(ua, "Bar2", TipoCozinha.BAR_PREP);
         CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
         Produto prod = criarProduto(tenant, cat, "AGUA", "Água", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenant.getId());
         QrCodeOperacional qr = qrCodeOperacionalService.criarQr(tenant.getId(), inst.getId(), ua.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR");
 
         String payload = """
@@ -118,6 +119,7 @@ class PublicQrPedidoIdempotencyIT extends PostgresTestcontainersConfig {
         CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
         Produto prod = criarProduto(tenant, cat, "AGUA", "Água", new BigDecimal("10.00"));
         Produto prod2 = criarProduto(tenant, cat, "AGUA2", "Água 2", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenant.getId());
         QrCodeOperacional qr = qrCodeOperacionalService.criarQr(tenant.getId(), inst.getId(), ua.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR");
 
         HttpHeaders headers = new HttpHeaders();

@@ -77,6 +77,7 @@ class ProducaoKdsDeviceScopeIT extends PostgresTestcontainersConfig {
     void deviceKds_withViewProduction_canResolveMinhaUnidade_andListSubpedidos() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant();
         Produto prod = criarProdutoBasico(prov.getTenantId());
+        publicarCardapioForTest(prov.getTenantId());
         criarPedidoViaQr(prov.getQrToken(), prod.getId());
 
         DevicePrincipal device = new DevicePrincipal(

@@ -74,6 +74,10 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
 
     List<Produto> findByTenantIdAndDisponivelTrueAndAtivoTrue(Long tenantId);
 
+    long countByTenantIdAndAtivoTrue(Long tenantId);
+
+    long countByTenantIdAndDisponivelTrueAndAtivoTrue(Long tenantId);
+
     List<Produto> findByTenantIdAndAtivoTrueAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);
 
     List<Produto> findByTenantIdAndDisponivelTrueAndAtivoTrueAndUpdatedAtAfterOrderByUpdatedAtAsc(Long tenantId, LocalDateTime updatedSince);

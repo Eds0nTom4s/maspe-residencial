@@ -20,6 +20,7 @@ import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantOperacaoPolicy;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.UnidadeProducao;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.DispositivoTipo;
 import com.restaurante.model.enums.LogisticsMode;
 import com.restaurante.model.enums.OperationalDeviceType;
@@ -275,8 +276,17 @@ public class ConsumaRestV1Template implements BusinessTemplate {
         UnidadeAtendimento ua = support.criarUnidadeAtendimentoPrincipal(inst, "Unidade Principal", uaTipo);
 
         List<CategoriaProduto> categorias = support.criarCategorias(tenant,
-                List.of("Comidas", "Bebidas", "Sobremesas", "Promoções"),
-                List.of("comidas", "bebidas", "sobremesas", "promocoes"));
+                List.of("Hambúrgueres", "Bebidas", "Acompanhamentos", "Sobremesas"),
+                List.of("hamburgueres", "bebidas", "acompanhamentos", "sobremesas"));
+        support.criarProdutos(tenant, List.of(
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("hamburgueres", "REST-HAMB-CLASSICO", "Hambúrguer Clássico", "Hambúrguer clássico", "3500", CategoriaProdutoLegacy.PRATO_PRINCIPAL, 15),
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("hamburgueres", "REST-HAMB-DUPLO", "Hambúrguer Duplo", "Hambúrguer duplo", "5000", CategoriaProdutoLegacy.PRATO_PRINCIPAL, 18),
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("acompanhamentos", "REST-BATATA-FRITA", "Batata Frita", "Batata frita", "1500", CategoriaProdutoLegacy.ACOMPANHAMENTO, 10),
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("bebidas", "REST-SUMOL", "Sumol", "Sumol", "800", CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, 2),
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("bebidas", "REST-AGUA", "Água", "Água", "500", CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, 2),
+                new BusinessTemplateProvisioningSupport.ProdutoTemplateSeed("sobremesas", "REST-PUDIM", "Pudim", "Pudim", "1200", CategoriaProdutoLegacy.SOBREMESA, 5)
+        ));
+        support.configurarCardapioInicial(tenant, 8, 40);
 
         var ownerUser = support.criarOuReusarOwnerUser(request.getOwner(), ua);
         support.criarTenantUser(tenant, ownerUser, TenantUserRole.TENANT_OWNER, ua);
@@ -312,7 +322,7 @@ public class ConsumaRestV1Template implements BusinessTemplate {
         UnidadeProducao cozinha = unidadesProducao.stream().filter(u -> "COZINHA".equals(u.getCodigo())).findFirst().orElse(unidadesProducao.getFirst());
         UnidadeProducao bar = unidadesProducao.stream().filter(u -> "BAR".equals(u.getCodigo())).findFirst().orElse(null);
 
-        // Rotas padrão: comidas->cozinha, bebidas->bar|cozinha, sobremesas->cozinha, promocoes->geral
+        // Rotas padrão: bebidas->bar|cozinha, demais categorias->cozinha
         List<BusinessTemplateProvisionResponse.RotaProducaoProvisionada> rotasResp = new ArrayList<>();
         for (CategoriaProduto c : categorias) {
             UnidadeProducao target;

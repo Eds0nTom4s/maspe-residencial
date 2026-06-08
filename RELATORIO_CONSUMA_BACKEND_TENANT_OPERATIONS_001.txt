@@ -220,7 +220,8 @@ Arquivos modificados/adicionados:
 5. Confirmacao de push
 
 Push inicial executado anteriormente para origin/tenant-operations-001.
-Push final apos validacao manual/correcao KDS sera executado depois deste relatorio atualizado.
+Push final apos validacao manual/correcao KDS executado para origin/tenant-operations-001.
+Commit da correcao/validacao: 0dd8c05 Validate tenant operations sandbox flow.
 
 6. Limitacoes e observacoes tecnicas
 
@@ -238,4 +239,4 @@ Resposta: SIM. A validacao manual sandbox confirmou que o tenant consegue config
 
 8. Status da fase
 
-CONCLUIDO PARA REVISAO - validacao automatizada e validacao manual sandbox executadas; commit e push finais pendentes no momento da escrita deste relatorio.
+CONCLUIDO PARA REVISAO - validacao automatizada, validacao manual sandbox, commit e push executados.

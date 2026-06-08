@@ -119,6 +119,26 @@ public class JwtTokenProvider {
             Integer tenantAccessVersion,
             String tenantPermissionsUpdatedAt
     ) {
+        return generateTenantScopedToken(
+                user,
+                tenant,
+                tenantRole,
+                tenantUserEstado,
+                tenantAccessVersion,
+                tenantPermissionsUpdatedAt,
+                false
+        );
+    }
+
+    public String generateTenantScopedToken(
+            com.restaurante.model.entity.User user,
+            com.restaurante.model.entity.Tenant tenant,
+            com.restaurante.model.enums.TenantUserRole tenantRole,
+            com.restaurante.model.enums.TenantUserEstado tenantUserEstado,
+            Integer tenantAccessVersion,
+            String tenantPermissionsUpdatedAt,
+            boolean platformAdmin
+    ) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpiration);
         String roles = user.getAuthorities().stream().map(GrantedAuthority::getAuthority).collect(Collectors.joining(","));
@@ -136,7 +156,7 @@ public class JwtTokenProvider {
                 .claim("tenantCode", tenant.getTenantCode())
                 .claim("tenantRoles", tenantRoles)
                 .claim("tenantUserStatus", tenantUserEstado != null ? tenantUserEstado.name() : null)
-                .claim("platformAdmin", false)
+                .claim("platformAdmin", platformAdmin)
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256);
 
         if (tenantAccessVersion != null) {

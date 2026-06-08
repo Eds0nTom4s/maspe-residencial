@@ -11,12 +11,15 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
+import java.util.List;
 
 public interface TenantRepository extends JpaRepository<Tenant, Long> {
 
     Optional<Tenant> findBySlug(String slug);
 
     Optional<Tenant> findByTenantCode(String tenantCode);
+
+    List<Tenant> findByEstadoOrderByIdAsc(TenantEstado estado);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Tenant t where t.id = :id")

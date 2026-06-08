@@ -1,6 +1,7 @@
 package com.restaurante.model.enums;
 
 public enum OperationalEntityType {
+    TENANT,
     PEDIDO,
     SUBPEDIDO,
     ITEM_PEDIDO,

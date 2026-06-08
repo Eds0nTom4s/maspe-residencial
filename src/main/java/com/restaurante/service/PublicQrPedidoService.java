@@ -22,6 +22,7 @@ import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.config.OperacaoProperties;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
+import com.restaurante.model.enums.ComportamentoPedidoNaoPago;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -59,6 +60,7 @@ public class PublicQrPedidoService {
     private final OperacaoProperties operacaoProperties;
     private final OperationalEventLogService operationalEventLogService;
     private final TenantCardapioConfigService tenantCardapioConfigService;
+    private final TenantPagamentoPolicyService tenantPagamentoPolicyService;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -82,6 +84,11 @@ public class PublicQrPedidoService {
         }
 
         List<Produto> produtos = validarECarregarProdutosDoTenant(tenant.getId(), request.getItens());
+        var pagamentoPolicy = tenantPagamentoPolicyService.obterParaTenant(tenant.getId());
+        boolean deveAguardarPagamento = deveAguardarPagamentoAntesDaOperacao(pagamentoPolicy);
+        if (deveAguardarPagamento && pagamentoPolicy.getComportamentoPedidoNaoPago() == ComportamentoPedidoNaoPago.BLOQUEAR) {
+            throw new BusinessException("Pagamento obrigatório antes do pedido. Inicie o pagamento para continuar.");
+        }
 
         SessaoConsumo sessao = resolverOuCriarSessaoMinima(qr, instituicao, unidadeAtendimento, mesa);
 
@@ -100,8 +107,8 @@ public class PublicQrPedidoService {
             pedido.setSessaoConsumo(sessao);
             pedido.setTurnoOperacional(turnoAberto);
             pedido.setStatus(StatusPedido.CRIADO);
-            pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
-            pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
+            pedido.setStatusFinanceiro(deveAguardarPagamento ? StatusFinanceiroPedido.PENDENTE_PAGAMENTO : StatusFinanceiroPedido.NAO_PAGO);
+            pedido.setTipoPagamento(deveAguardarPagamento ? TipoPagamentoPedido.PRE_PAGO : TipoPagamentoPedido.POS_PAGO);
             pedido.setObservacoes(request.getObservacao());
 
             Map<Cozinha, List<PublicQrPedidoItemRequest>> requestsPorCozinha = agruparItensPorCozinha(unidadeAtendimento.getId(), request.getItens(), produtos);
@@ -211,7 +218,7 @@ public class PublicQrPedidoService {
                     .mesaNumero(mesa != null ? mesa.getNumero() : null)
                     .total(pedido.getTotal())
                     .itens(itensResponse)
-                    .mensagem("Pedido criado com sucesso")
+                    .mensagem(deveAguardarPagamento ? "Pedido criado e aguardando pagamento" : "Pedido criado com sucesso")
                     .build();
         } catch (ConflictException e) {
             throw e;
@@ -244,6 +251,19 @@ public class PublicQrPedidoService {
             produtos.add(produto);
         }
         return produtos;
+    }
+
+    private boolean deveAguardarPagamentoAntesDaOperacao(com.restaurante.model.entity.TenantOperacaoPolicy policy) {
+        if (policy == null) {
+            return true;
+        }
+        if (!policy.isPagamentoObrigatorioAntesDoPedido()) {
+            return false;
+        }
+        if (policy.isPermitirPedidoSemPagamento() || policy.isPermitirPosPago() || policy.isPermitirPagamentoNaEntrega()) {
+            return false;
+        }
+        return true;
     }
 
     private Map<Cozinha, List<PublicQrPedidoItemRequest>> agruparItensPorCozinha(

@@ -99,7 +99,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(json.path("success").asBoolean()).isTrue();
         Long pedidoId = json.at("/data/pedidoId").asLong();
         assertThat(pedidoId).isPositive();
-        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
+        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
         assertThat(json.at("/data/total").asText()).isNotBlank();
         assertThat(json.at("/data/itens").isArray()).isTrue();
         assertThat(json.at("/data/itens/0/produtoId").asLong()).isEqualTo(prodA.getId());

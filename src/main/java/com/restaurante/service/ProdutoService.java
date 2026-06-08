@@ -105,37 +105,142 @@ public class ProdutoService {
      */
     @Transactional(readOnly = true)
     public Page<ProdutoResponse> listarDisponiveisDoTenant(Pageable pageable) {
-        Long tenantId = TenantContextHolder.require().tenantId();
-        if (tenantId == null) {
-            throw new BusinessException("TenantContext ausente para listagem de produtos.");
-        }
-        tenantGuard.assertTenantActive(tenantId);
-        tenantGuard.assertCurrentUserBelongsToTenant(tenantId);
+        Long tenantId = requireTenantId("listagem de produtos");
         return produtoRepository.findByTenantIdAndDisponivelTrueAndAtivoTrue(tenantId, pageable)
                 .map(this::mapToResponse);
     }
 
     @Transactional(readOnly = true)
+    public Page<ProdutoResponse> listarTodosDoTenant(Pageable pageable) {
+        Long tenantId = requireTenantId("listagem de produtos");
+        return produtoRepository.findByTenantId(tenantId, pageable)
+                .map(this::mapToResponse);
+    }
+
+    @Transactional(readOnly = true)
     public Page<ProdutoResponse> listarDisponiveisDoTenantPorCategoriaProduto(Long categoriaProdutoId, Pageable pageable) {
-        Long tenantId = TenantContextHolder.require().tenantId();
-        if (tenantId == null) {
-            throw new BusinessException("TenantContext ausente para listagem de produtos.");
-        }
-        tenantGuard.assertTenantActive(tenantId);
-        tenantGuard.assertCurrentUserBelongsToTenant(tenantId);
+        Long tenantId = requireTenantId("listagem de produtos");
         return produtoRepository.findByTenantIdAndCategoriaProdutoIdAndDisponivelTrueAndAtivoTrue(tenantId, categoriaProdutoId, pageable)
                 .map(this::mapToResponse);
     }
 
     @Transactional(readOnly = true)
     public ProdutoResponse buscarPorIdDoTenant(Long id) {
-        Long tenantId = TenantContextHolder.require().tenantId();
-        if (tenantId == null) {
-            throw new BusinessException("TenantContext ausente para leitura de produto.");
-        }
-        tenantGuard.assertTenantActive(tenantId);
-        tenantGuard.assertCurrentUserBelongsToTenant(tenantId);
+        Long tenantId = requireTenantId("leitura de produto");
         return mapToResponse(buscarPorIdTenantAware(id, tenantId));
+    }
+
+    @Transactional
+    public ProdutoResponse atualizarTenantAware(Long id, ProdutoRequest request) {
+        Long tenantId = requireTenantId("atualização de produto");
+        Produto produto = buscarPorIdTenantAware(id, tenantId);
+
+        produtoRepository.findByCodigoAndTenantId(request.getCodigo(), tenantId)
+                .ifPresent(p -> {
+                    if (!p.getId().equals(id)) {
+                        throw new BusinessException("Já existe outro produto com o código: " + request.getCodigo() + " neste tenant.");
+                    }
+                });
+
+        CategoriaProduto categoriaProduto = resolveCategoriaProdutoTenantAware(tenantId, request);
+        produto.setCodigo(request.getCodigo());
+        produto.setNome(request.getNome());
+        produto.setDescricao(request.getDescricao());
+        produto.setPreco(request.getPreco());
+        produto.setCategoriaProduto(categoriaProduto);
+        produto.setCategoria(resolveLegacyEnumForCompat(request.getCategoria(), categoriaProduto));
+        produto.setUrlImagem(request.getUrlImagem());
+        produto.setTempoPreparoMinutos(request.getTempoPreparoMinutos());
+        if (request.getDisponivel() != null) {
+            produto.setDisponivel(request.getDisponivel());
+        }
+
+        Produto saved = produtoRepository.save(produto);
+        operationalEventLogService.logGenericForTenant(
+                tenantId,
+                OperationalEventType.PRODUTO_ATUALIZADO,
+                OperationalEntityType.PRODUTO,
+                saved.getId(),
+                OperationalOrigem.TENANT_ADMIN,
+                "Produto atualizado",
+                Map.of("codigo", saved.getCodigo(), "nome", saved.getNome()),
+                null,
+                null
+        );
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public ProdutoResponse alterarDisponibilidadeTenantAware(Long id, Boolean disponivel) {
+        Long tenantId = requireTenantId("alteração de disponibilidade de produto");
+        Produto produto = buscarPorIdTenantAware(id, tenantId);
+        produto.setDisponivel(Boolean.TRUE.equals(disponivel));
+        Produto saved = produtoRepository.save(produto);
+        operationalEventLogService.logGenericForTenant(
+                tenantId,
+                OperationalEventType.PRODUTO_DISPONIBILIDADE_ALTERADA,
+                OperationalEntityType.PRODUTO,
+                saved.getId(),
+                OperationalOrigem.TENANT_ADMIN,
+                "Disponibilidade do produto alterada",
+                Map.of("codigo", saved.getCodigo(), "disponivel", saved.getDisponivel()),
+                null,
+                null
+        );
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public ProdutoResponse alterarAtivoTenantAware(Long id, Boolean ativo) {
+        Long tenantId = requireTenantId("alteração de estado de produto");
+        Produto produto = buscarPorIdTenantAware(id, tenantId);
+        boolean novoAtivo = Boolean.TRUE.equals(ativo);
+        produto.setAtivo(novoAtivo);
+        if (!novoAtivo) {
+            produto.setDisponivel(false);
+        }
+        Produto saved = produtoRepository.save(produto);
+        operationalEventLogService.logGenericForTenant(
+                tenantId,
+                novoAtivo ? OperationalEventType.PRODUTO_ATIVADO : OperationalEventType.PRODUTO_DESATIVADO,
+                OperationalEntityType.PRODUTO,
+                saved.getId(),
+                OperationalOrigem.TENANT_ADMIN,
+                novoAtivo ? "Produto ativado" : "Produto desativado",
+                Map.of("codigo", saved.getCodigo(), "ativo", saved.getAtivo(), "disponivel", saved.getDisponivel()),
+                null,
+                null
+        );
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public void desativarTenantAware(Long id) {
+        alterarAtivoTenantAware(id, false);
+    }
+
+    @Transactional
+    public ProdutoResponse atualizarImagemTenantAware(Long id, MultipartFile file) {
+        Long tenantId = requireTenantId("atualização de imagem de produto");
+        Produto produto = buscarPorIdTenantAware(id, tenantId);
+        if (produto.getUrlImagem() != null && !produto.getUrlImagem().isEmpty()) {
+            storageService.deleteFile(produto.getUrlImagem());
+        }
+        String urlImagem = storageService.uploadFile(file, "produtos");
+        produto.setUrlImagem(urlImagem);
+        Produto saved = produtoRepository.save(produto);
+        operationalEventLogService.logGenericForTenant(
+                tenantId,
+                OperationalEventType.PRODUTO_IMAGEM_ATUALIZADA,
+                OperationalEntityType.PRODUTO,
+                saved.getId(),
+                OperationalOrigem.TENANT_ADMIN,
+                "Imagem do produto atualizada",
+                Map.of("codigo", saved.getCodigo(), "urlImagem", saved.getUrlImagem()),
+                null,
+                null
+        );
+        return mapToResponse(saved);
     }
 
     /**
@@ -416,6 +521,16 @@ public class ProdutoService {
     private Produto buscarPorIdTenantAware(Long id, Long tenantId) {
         return produtoRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Produto", "id", id));
+    }
+
+    private Long requireTenantId(String operacao) {
+        Long tenantId = TenantContextHolder.require().tenantId();
+        if (tenantId == null) {
+            throw new BusinessException("TenantContext ausente para " + operacao + ".");
+        }
+        tenantGuard.assertTenantActive(tenantId);
+        tenantGuard.assertCurrentUserBelongsToTenant(tenantId);
+        return tenantId;
     }
 
     private java.util.Optional<Long> resolveTenantIdForRead() {

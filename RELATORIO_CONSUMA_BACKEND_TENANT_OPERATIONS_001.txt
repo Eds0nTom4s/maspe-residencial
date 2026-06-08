@@ -1,0 +1,155 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - TENANT-OPERATIONS-001
+
+Data: 2026-06-08
+Branch: tenant-operations-001
+Base validada: 45b13a3a3b2c23f040cd2cf0026ad4ef00cb7568
+
+1. Escopo implementado
+
+- Operacoes tenant para produtos:
+  - Listar, criar, consultar, editar, alterar disponibilidade, ativar, desativar e atualizar imagem.
+  - Controller: src/main/java/com/restaurante/controller/TenantProdutoController.java
+  - Service: src/main/java/com/restaurante/service/ProdutoService.java
+
+- Operacoes tenant para categorias:
+  - Listar, criar, consultar, editar, ativar e desativar.
+  - Desativacao bloqueada quando houver produtos ativos vinculados.
+  - Controller: src/main/java/com/restaurante/controller/TenantCategoriaProdutoController.java
+  - Service: src/main/java/com/restaurante/service/CategoriaProdutoService.java
+
+- Operacoes tenant para mesas:
+  - Listar, consultar, criar, editar, ativar, desativar e gerar QR.
+  - Implementado em TenantEstruturaController para evitar conflito com o GET /tenant/mesas ja existente.
+  - Controller: src/main/java/com/restaurante/controller/TenantEstruturaController.java
+  - Service: src/main/java/com/restaurante/service/MesaService.java
+
+- Operacoes tenant para metodos de pagamento:
+  - Alias em portugues para listar, configurar em lote, ativar e desativar metodos.
+  - Controller: src/main/java/com/restaurante/financeiro/controller/TenantMetodoPagamentoController.java
+  - DTOs:
+    - TenantMetodoPagamentoUpdateRequest
+    - TenantMetodoPagamentoResponse
+
+- Politica tenant de pagamento/pedido:
+  - GET /tenant/configuracoes/pagamento
+  - PUT /tenant/configuracoes/pagamento
+  - Campos adicionados a TenantOperacaoPolicy:
+    - pagamentoObrigatorioAntesDoPedido
+    - permitirPedidoSemPagamento
+    - permitirPosPago
+    - permitirCash
+    - permitirPagamentoNaEntrega
+    - tempoExpiracaoPedidoPendentePagamentoMinutos
+    - comportamentoPedidoNaoPago
+  - Migration: src/main/resources/db/migration/V70__tenant_payment_order_policy.sql
+
+- Pedido publico por QR:
+  - PublicQrPedidoService passou a respeitar a politica de pagamento/pedido do tenant.
+  - Quando o pagamento previo e obrigatorio e pedido sem pagamento nao e permitido, a criacao pode ser bloqueada ou criada como PENDENTE_PAGAMENTO conforme politica.
+
+- QR Codes:
+  - Endpoints adicionados para gerar principal, gerar por mesa, regenerar e baixar QR em PNG, SVG ou PDF.
+  - Controller: src/main/java/com/restaurante/controller/TenantQrCodeController.java
+  - Service: src/main/java/com/restaurante/service/tenantadmin/TenantAdminQrService.java
+
+- Auditoria operacional:
+  - Eventos adicionados para produtos, categorias, mesas e politica de pagamento.
+  - Entity type adicionada para TENANT_PAYMENT_POLICY.
+
+2. Testes executados
+
+- mvn -DskipTests compile
+  Resultado: BUILD SUCCESS
+
+- mvn test -Dtest=EvidenceBundlePersistenceTest
+  Resultado: BUILD SUCCESS
+  Testes: 2 executados, 0 falhas, 0 erros.
+
+- mvn -Pit -Dit.test=TenantAdminEstruturaQrIT,TenantPaymentMethodAdminIT,PublicQrPedidoIT failsafe:integration-test failsafe:verify
+  Resultado final: BUILD SUCCESS
+  Testes: 5 executados, 0 falhas, 0 erros.
+
+- mvn clean test
+  Resultado: BUILD SUCCESS
+  Testes: 338 executados, 0 falhas, 0 erros, 3 ignorados.
+
+- mvn -Pit -Dit.test=OperationalStatusTransitionIT failsafe:integration-test failsafe:verify
+  Resultado: BUILD SUCCESS
+  Testes: 6 executados, 0 falhas, 0 erros.
+
+- mvn -Pit verify
+  Resultado final: BUILD SUCCESS
+  Surefire: 338 executados, 0 falhas, 0 erros, 3 ignorados.
+  Failsafe: 255 executados, 0 falhas, 0 erros, 0 ignorados.
+
+Observacao:
+- A primeira execucao completa de mvn -Pit verify falhou em OperationalStatusTransitionIT porque os testes esperavam NAO_PAGO e o novo comportamento gera PENDENTE_PAGAMENTO. Os testes foram ajustados para o novo contrato e a suite completa foi reexecutada com sucesso.
+
+3. Validacao manual sandbox
+
+Nao executada nesta etapa.
+
+Checklist pendente:
+- Provisionar CONSUMA_PONTO ou CONSUMA_REST.
+- Confirmar cardapioPublicado=false.
+- Abrir /public/q/{token}/cardapio e validar mensagem amigavel.
+- Tentar criar pedido publico e confirmar bloqueio conforme politica.
+- Publicar cardapio.
+- Confirmar produtos no publico.
+- Criar pedido publico.
+- Confirmar pedido em /tenant/pedidos.
+- Despublicar.
+- Confirmar bloqueio novamente.
+
+4. Working tree final
+
+Ainda nao limpo porque as alteracoes da fase estao pendentes de commit.
+
+Arquivos modificados/adicionados:
+- src/main/java/com/restaurante/controller/TenantCategoriaProdutoController.java
+- src/main/java/com/restaurante/controller/TenantEstruturaController.java
+- src/main/java/com/restaurante/controller/TenantProdutoController.java
+- src/main/java/com/restaurante/controller/TenantQrCodeController.java
+- src/main/java/com/restaurante/controller/TenantPagamentoPolicyController.java
+- src/main/java/com/restaurante/dto/request/TenantMetodoPagamentoUpdateRequest.java
+- src/main/java/com/restaurante/dto/request/TenantPagamentoPolicyRequest.java
+- src/main/java/com/restaurante/dto/response/TenantMetodoPagamentoResponse.java
+- src/main/java/com/restaurante/dto/response/TenantPagamentoPolicyResponse.java
+- src/main/java/com/restaurante/financeiro/controller/TenantMetodoPagamentoController.java
+- src/main/java/com/restaurante/model/entity/TenantOperacaoPolicy.java
+- src/main/java/com/restaurante/model/enums/ComportamentoPedidoNaoPago.java
+- src/main/java/com/restaurante/model/enums/OperationalEntityType.java
+- src/main/java/com/restaurante/model/enums/OperationalEventType.java
+- src/main/java/com/restaurante/repository/ProdutoRepository.java
+- src/main/java/com/restaurante/service/CategoriaProdutoService.java
+- src/main/java/com/restaurante/service/MesaService.java
+- src/main/java/com/restaurante/service/ProdutoService.java
+- src/main/java/com/restaurante/service/PublicQrPedidoService.java
+- src/main/java/com/restaurante/service/TenantPagamentoPolicyService.java
+- src/main/java/com/restaurante/service/tenantadmin/TenantAdminQrService.java
+- src/main/resources/db/migration/V70__tenant_payment_order_policy.sql
+- src/test/java/com/restaurante/operacional/OperationalStatusTransitionIT.java
+- src/test/java/com/restaurante/qr/PublicQrPedidoIT.java
+- RELATORIO_CONSUMA_BACKEND_TENANT_OPERATIONS_001.txt
+
+5. Confirmacao de push
+
+Push ainda nao executado nesta etapa.
+
+6. Limitacoes e observacoes tecnicas
+
+- Nao foram criadas classes de IT com todos os nomes exatos sugeridos no prompt. A validacao foi feita pela suite completa e por ITs existentes/ajustadas.
+- Os metodos de pagamento seguem o enum atual do dominio: CASH, TPA e APPYPAY. Nao foram adicionados REF, GPO ou POS_MANUAL.
+- O download PNG gera QR scaneavel. SVG e PDF retornam representacoes simples contendo URL/token, sem matriz QR vetorial/renderizacao PDF completa.
+- A politica de pedido publico usa PENDENTE_PAGAMENTO como status financeiro. Nao foi criado novo status operacional AGUARDANDO_PAGAMENTO.
+
+7. Pergunta final obrigatoria
+
+O tenant consegue, sem intervencao manual do Platform, configurar produtos, categorias, metodos de pagamento, mesas, QR codes e politica minima de pedido/pagamento?
+
+Resposta: SIM, tecnicamente no backend implementado, com limitacao de validacao manual sandbox, commit e push ainda pendentes.
+
+8. Status da fase
+
+CONCLUIDO COM LIMITACAO - validacao manual sandbox, commit e push pendentes.

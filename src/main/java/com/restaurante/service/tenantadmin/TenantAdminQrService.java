@@ -6,14 +6,18 @@ import com.restaurante.dto.response.TenantQrPrincipalResponse;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.QrCodeOperacional;
+import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.QrCodeOperacionalRepository;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.service.TenantLimitService;
+import com.restaurante.util.QrCodeGenerator;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +33,8 @@ public class TenantAdminQrService {
     private final QrCodeOperacionalRepository qrCodeOperacionalRepository;
     private final QrCodeOperacionalService qrCodeOperacionalService;
     private final MesaRepository mesaRepository;
+    private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    private final QrCodeGenerator qrCodeGenerator;
 
     @Value("${consuma.public-base-url:http://localhost:8080}")
     private String publicBaseUrl;
@@ -114,6 +120,86 @@ public class TenantAdminQrService {
     }
 
     @Transactional
+    public TenantQrCodeResponse gerarQrPrincipal() {
+        TenantContext ctx = requireTenantContext();
+        List<QrCodeOperacional> qrs = qrCodeOperacionalRepository.findByTenantIdAndAtivoTrueAndRevogadoFalse(ctx.tenantId());
+        QrCodeOperacional existing = qrs.stream()
+                .filter(q -> q.getTipo() == QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO && q.getUnidadeAtendimento() != null)
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            return toDto(existing);
+        }
+        UnidadeAtendimento unidade = unidadeAtendimentoRepository.findByTenantId(ctx.tenantId()).stream()
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Unidade de atendimento não encontrada."));
+        tenantLimitService.assertCanCreateQrCode(ctx.tenantId(), 1);
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                ctx.tenantId(),
+                unidade.getInstituicao().getId(),
+                unidade.getId(),
+                null,
+                QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO,
+                "QR principal"
+        );
+        return toDto(qr);
+    }
+
+    @Transactional
+    public TenantQrCodeResponse gerarQrGenerico() {
+        return gerarQrPrincipal();
+    }
+
+    @Transactional
+    public TenantQrCodeResponse regenerar(Long id) {
+        TenantContext ctx = requireTenantContext();
+        QrCodeOperacional qr = qrCodeOperacionalRepository.findByIdAndTenantId(id, ctx.tenantId())
+                .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+        if (qr.getMesa() != null) {
+            revogar(id);
+            return gerarQrParaMesa(qr.getMesa().getId());
+        }
+        revogar(id);
+        tenantLimitService.assertCanCreateQrCode(ctx.tenantId(), 1);
+        QrCodeOperacional novo = qrCodeOperacionalService.criarQr(
+                ctx.tenantId(),
+                qr.getInstituicao().getId(),
+                qr.getUnidadeAtendimento() != null ? qr.getUnidadeAtendimento().getId() : null,
+                null,
+                qr.getTipo(),
+                qr.getNome() != null ? qr.getNome() : "QR regenerado"
+        );
+        return toDto(novo);
+    }
+
+    @Transactional(readOnly = true)
+    public QrDownload baixar(Long id, String formato) {
+        TenantContext ctx = requireTenantContext();
+        QrCodeOperacional qr = qrCodeOperacionalRepository.findByIdAndTenantId(id, ctx.tenantId())
+                .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+        String normalized = formato == null || formato.isBlank() ? "PNG" : formato.trim().toUpperCase();
+        String url = buildPublicQrUrl(qr.getToken());
+        try {
+            if ("SVG".equals(normalized)) {
+                String svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"640\" height=\"240\" viewBox=\"0 0 640 240\">"
+                        + "<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>"
+                        + "<text x=\"32\" y=\"64\" font-family=\"Arial\" font-size=\"24\" fill=\"#111\">CONSUMA QR</text>"
+                        + "<text x=\"32\" y=\"116\" font-family=\"monospace\" font-size=\"18\" fill=\"#111\">" + escapeXml(url) + "</text>"
+                        + "<text x=\"32\" y=\"168\" font-family=\"Arial\" font-size=\"14\" fill=\"#444\">Token: " + escapeXml(qr.getToken()) + "</text>"
+                        + "</svg>";
+                return new QrDownload(svg.getBytes(java.nio.charset.StandardCharsets.UTF_8), MediaType.valueOf("image/svg+xml"), "qr-" + qr.getId() + ".svg");
+            }
+            if ("PDF".equals(normalized)) {
+                String pdf = "%PDF-1.4\n1 0 obj<<>>endobj\n2 0 obj<</Length 44>>stream\nBT /F1 12 Tf 72 720 Td (CONSUMA QR: " + url + ") Tj ET\nendstream endobj\ntrailer<<>>\n%%EOF\n";
+                return new QrDownload(pdf.getBytes(java.nio.charset.StandardCharsets.UTF_8), MediaType.APPLICATION_PDF, "qr-" + qr.getId() + ".pdf");
+            }
+            return new QrDownload(qrCodeGenerator.generateQrCodePrint(url), MediaType.IMAGE_PNG, "qr-" + qr.getId() + ".png");
+        } catch (Exception e) {
+            throw new com.restaurante.exception.BusinessException("Falha ao gerar download do QR.");
+        }
+    }
+
+    @Transactional
     public TenantQrCodeResponse gerarQrParaMesa(Long mesaId) {
         TenantContext ctx = requireTenantContext();
         Mesa mesa = mesaRepository.findByIdAndTenantId(mesaId, ctx.tenantId())
@@ -178,5 +264,18 @@ public class TenantAdminQrService {
         if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
         return base + "/q/" + token;
     }
-}
 
+    private String escapeXml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;");
+    }
+
+    public record QrDownload(byte[] bytes, MediaType mediaType, String filename) {
+    }
+}

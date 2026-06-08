@@ -215,6 +215,7 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
               join sp.pedido p
             where sp.tenant.id = :tenantId
               and sp.unidadeProducao.id = :unidadeProducaoId
+              and p.statusFinanceiro <> com.restaurante.model.enums.StatusFinanceiroPedido.PENDENTE_PAGAMENTO
               and (cast(:status as string) is null or sp.status = :status)
               and (cast(:de as timestamp) is null or sp.createdAt >= :de)
               and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
@@ -251,6 +252,7 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
             select sp.id from SubPedido sp
               join sp.pedido p
             where sp.tenant.id = :tenantId
+              and p.statusFinanceiro <> com.restaurante.model.enums.StatusFinanceiroPedido.PENDENTE_PAGAMENTO
               and (cast(:unidadeProducaoId as string) is null or sp.unidadeProducao.id = :unidadeProducaoId)
               and (cast(:status as string) is null or sp.status = :status)
               and (cast(:de as timestamp) is null or sp.createdAt >= :de)
@@ -288,8 +290,10 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
               sp.prontoEm as prontoEm,
               sp.entregueEm as entregueEm
             from SubPedido sp
+              join sp.pedido p
               left join sp.unidadeProducao up
             where sp.tenant.id = :tenantId
+              and p.statusFinanceiro <> com.restaurante.model.enums.StatusFinanceiroPedido.PENDENTE_PAGAMENTO
               and (cast(:unidadeProducaoId as string) is null or up.id = :unidadeProducaoId)
               and (cast(:de as timestamp) is null or sp.createdAt >= :de)
               and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
@@ -313,6 +317,7 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
               join sp.pedido p
             where sp.tenant.id = :tenantId
               and sp.unidadeProducao.id = :unidadeProducaoId
+              and p.statusFinanceiro <> com.restaurante.model.enums.StatusFinanceiroPedido.PENDENTE_PAGAMENTO
               and (cast(:status as string) is null or sp.status = :status)
               and (cast(:de as timestamp) is null or sp.createdAt >= :de)
               and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)

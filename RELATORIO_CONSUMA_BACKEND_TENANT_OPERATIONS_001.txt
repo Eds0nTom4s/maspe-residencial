@@ -47,6 +47,7 @@ Base validada: 45b13a3a3b2c23f040cd2cf0026ad4ef00cb7568
 - Pedido publico por QR:
   - PublicQrPedidoService passou a respeitar a politica de pagamento/pedido do tenant.
   - Quando o pagamento previo e obrigatorio e pedido sem pagamento nao e permitido, a criacao pode ser bloqueada ou criada como PENDENTE_PAGAMENTO conforme politica.
+  - Pedidos com status financeiro PENDENTE_PAGAMENTO foram bloqueados na fila KDS/producao ate confirmacao de pagamento.
 
 - QR Codes:
   - Endpoints adicionados para gerar principal, gerar por mesa, regenerar e baixar QR em PNG, SVG ou PDF.
@@ -83,28 +84,110 @@ Base validada: 45b13a3a3b2c23f040cd2cf0026ad4ef00cb7568
   Surefire: 338 executados, 0 falhas, 0 erros, 3 ignorados.
   Failsafe: 255 executados, 0 falhas, 0 erros, 0 ignorados.
 
+- mvn -Pit -Dit.test=PublicQrPedidoIT failsafe:integration-test failsafe:verify
+  Resultado apos correcao KDS: BUILD SUCCESS
+  Testes: 3 executados, 0 falhas, 0 erros, 0 ignorados.
+
+- mvn -DskipTests package
+  Resultado: BUILD SUCCESS
+  Motivo: gerar novo target/*.jar para rebuild Docker sandbox local apos correcao KDS.
+
 Observacao:
 - A primeira execucao completa de mvn -Pit verify falhou em OperationalStatusTransitionIT porque os testes esperavam NAO_PAGO e o novo comportamento gera PENDENTE_PAGAMENTO. Os testes foram ajustados para o novo contrato e a suite completa foi reexecutada com sucesso.
+- Durante a validacao manual sandbox foi encontrado que pedido publico com status financeiro PENDENTE_PAGAMENTO aparecia na fila KDS/producao. Foi corrigido em SubPedidoRepository e coberto por PublicQrPedidoIT.
 
 3. Validacao manual sandbox
 
-Nao executada nesta etapa.
+Executada em sandbox local Docker.
 
-Checklist pendente:
-- Provisionar CONSUMA_PONTO ou CONSUMA_REST.
-- Confirmar cardapioPublicado=false.
-- Abrir /public/q/{token}/cardapio e validar mensagem amigavel.
-- Tentar criar pedido publico e confirmar bloqueio conforme politica.
-- Publicar cardapio.
-- Confirmar produtos no publico.
-- Criar pedido publico.
-- Confirmar pedido em /tenant/pedidos.
-- Despublicar.
-- Confirmar bloqueio novamente.
+Ambiente:
+- Branch: tenant-operations-001
+- Compose: docker-compose.sandbox-local.yml
+- API: http://127.0.0.1:8080/api
+- Tenant validado: CONSUMA Rest Demo, tenantId=2
+- QR validado: q_JPPkgWZk8Mb3ucgtxTkr8A
+
+Comandos/acoes principais:
+- docker compose --env-file .env.sandbox.local -f docker-compose.sandbox-local.yml down -v
+- docker compose --env-file .env.sandbox.local -f docker-compose.sandbox-local.yml up -d --build
+- mvn -DskipTests package
+- docker compose --env-file .env.sandbox.local -f docker-compose.sandbox-local.yml up -d --build --force-recreate api-local
+
+Resultado do checklist:
+- Subir sandbox limpo com a branch tenant-operations-001: OK.
+- Login Platform Admin: OK, usuario admin.
+- Selecionar tenant CONSUMA_REST: OK, tenant CONSUMA Rest Demo.
+- Confirmar politica de pagamento inicial: OK.
+  - pagamentoObrigatorioAntesDoPedido=true
+  - permitirPedidoSemPagamento=false
+  - permitirPosPago=false
+  - comportamentoPedidoNaoPago=CRIAR_PENDENTE
+- Confirmar metodos de pagamento: OK.
+  - CASH ativo
+  - TPA ativo
+  - APPYPAY ativo
+- Criar/editar/desativar categoria: OK.
+  - Categoria criada: id=24
+  - Editada, desativada e reativada.
+- Criar/editar/desativar produto: OK.
+  - Produto criado: id=19
+  - Editado, disponibilidade alterada, desativado, reativado e marcado disponivel=true.
+- Criar/editar/desativar mesa: OK.
+  - Mesa criada: id=7
+  - Editada, desativada e reativada.
+  - Observacao: payload com tipo=MESA retornou erro porque o enum correto do dominio e MESA_FISICA.
+- Gerar QR principal e QR por mesa: OK.
+  - QR mesa criado: id=9, token=q_JPPkgWZk8Mb3ucgtxTkr8A.
+- Baixar QR em PNG, SVG e PDF: OK.
+  - PNG: HTTP 200, 1028 bytes.
+  - SVG: HTTP 200, 456 bytes.
+  - PDF: HTTP 200, 182 bytes.
+- Publicar cardapio: OK.
+  - publicado=true.
+- Abrir /public/q/{token}/cardapio: OK.
+  - HTTP 200.
+  - publicado=true.
+  - Produto de validacao apareceu no publico.
+- Tentar criar pedido publico com pagamento obrigatorio ativo: OK.
+  - Pedido criado conforme politica como PENDENTE_PAGAMENTO.
+  - pedidoId=5.
+  - statusFinanceiro=PENDENTE_PAGAMENTO.
+  - mensagem="Pedido criado e aguardando pagamento".
+- Confirmar bloqueio ou PENDENTE_PAGAMENTO conforme politica: OK.
+  - Politica inicial gerou PENDENTE_PAGAMENTO.
+- Confirmar se pedido nao entra indevidamente em producao/KDS: OK apos correcao.
+  - Antes da correcao, pedidoId=5 apareceu no KDS.
+  - Correcao aplicada: SubPedidoRepository filtra pedidos PENDENTE_PAGAMENTO nas consultas KDS/producao.
+  - Rebuild Docker executado.
+  - Revalidacao: pedidoId=5 nao aparece em /tenant/producao/subpedidos.
+- Alterar politica para permitir pedido sem pagamento/pos-pago: OK.
+  - pagamentoObrigatorioAntesDoPedido=false
+  - permitirPedidoSemPagamento=true
+  - permitirPosPago=true
+  - permitirCash=true
+  - permitirPagamentoNaEntrega=true
+- Criar pedido publico novamente: OK.
+  - pedidoId=6.
+  - statusFinanceiro=NAO_PAGO.
+- Confirmar pedido em /tenant/pedidos: OK.
+  - GET /tenant/pedidos/6 retornou HTTP 200.
+  - statusFinanceiro=NAO_PAGO.
+- Confirmar status financeiro coerente: OK.
+  - Politica permissiva gerou NAO_PAGO.
+- Despublicar cardapio e confirmar bloqueio: OK.
+  - /public/q/{token}/cardapio retornou publicado=false e mensagem amigavel.
+  - POST /public/q/{token}/pedidos retornou HTTP 400 com mensagem "Cardapio indisponivel no momento. Tente novamente mais tarde."
 
 4. Working tree final
 
-Ainda nao limpo porque as alteracoes da fase estao pendentes de commit.
+Antes do commit final, working tree contem:
+- Alteracoes da fase a commitar:
+  - src/main/java/com/restaurante/repository/SubPedidoRepository.java
+  - src/test/java/com/restaurante/qr/PublicQrPedidoIT.java
+  - RELATORIO_CONSUMA_BACKEND_TENANT_OPERATIONS_001.txt
+- Alteracao local fora do escopo e nao incluida:
+  - src/main/java/com/restaurante/SistemaRestauracaoApplication.java
+  - Tratamento: guardada com stash "WIP local application banner before tenant-operations-001 final commit"
 
 Arquivos modificados/adicionados:
 - src/main/java/com/restaurante/controller/TenantCategoriaProdutoController.java
@@ -122,6 +205,7 @@ Arquivos modificados/adicionados:
 - src/main/java/com/restaurante/model/enums/OperationalEntityType.java
 - src/main/java/com/restaurante/model/enums/OperationalEventType.java
 - src/main/java/com/restaurante/repository/ProdutoRepository.java
+- src/main/java/com/restaurante/repository/SubPedidoRepository.java
 - src/main/java/com/restaurante/service/CategoriaProdutoService.java
 - src/main/java/com/restaurante/service/MesaService.java
 - src/main/java/com/restaurante/service/ProdutoService.java
@@ -135,7 +219,8 @@ Arquivos modificados/adicionados:
 
 5. Confirmacao de push
 
-Push ainda nao executado nesta etapa.
+Push inicial executado anteriormente para origin/tenant-operations-001.
+Push final apos validacao manual/correcao KDS sera executado depois deste relatorio atualizado.
 
 6. Limitacoes e observacoes tecnicas
 
@@ -143,13 +228,14 @@ Push ainda nao executado nesta etapa.
 - Os metodos de pagamento seguem o enum atual do dominio: CASH, TPA e APPYPAY. Nao foram adicionados REF, GPO ou POS_MANUAL.
 - O download PNG gera QR scaneavel. SVG e PDF retornam representacoes simples contendo URL/token, sem matriz QR vetorial/renderizacao PDF completa.
 - A politica de pedido publico usa PENDENTE_PAGAMENTO como status financeiro. Nao foi criado novo status operacional AGUARDANDO_PAGAMENTO.
+- Existia alteracao local fora do escopo em SistemaRestauracaoApplication.java. Ela nao pertence a TENANT-OPERATIONS-001, nao sera incluida no commit final e foi guardada em stash nomeado.
 
 7. Pergunta final obrigatoria
 
 O tenant consegue, sem intervencao manual do Platform, configurar produtos, categorias, metodos de pagamento, mesas, QR codes e politica minima de pedido/pagamento?
 
-Resposta: SIM, tecnicamente no backend implementado, com limitacao de validacao manual sandbox, commit e push ainda pendentes.
+Resposta: SIM. A validacao manual sandbox confirmou que o tenant consegue configurar produtos, categorias, metodos de pagamento, mesas, QR codes e politica minima de pedido/pagamento sem intervencao manual do Platform.
 
 8. Status da fase
 
-CONCLUIDO COM LIMITACAO - validacao manual sandbox, commit e push pendentes.
+CONCLUIDO PARA REVISAO - validacao automatizada e validacao manual sandbox executadas; commit e push finais pendentes no momento da escrita deste relatorio.

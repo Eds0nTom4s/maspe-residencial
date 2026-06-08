@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -113,6 +114,11 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         var subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedido.getId());
         assertThat(subs).isNotEmpty();
         assertThat(subs).allMatch(sp -> sp.getUnidadeProducao() != null);
+
+        var kdsIds = subPedidoRepository.findKdsIdsByTenantAndFilters(
+                tenantA.getId(), null, null, null, null, pedido.getNumero(), PageRequest.of(0, 10)
+        );
+        assertThat(kdsIds.getContent()).isEmpty();
     }
 
     @Test

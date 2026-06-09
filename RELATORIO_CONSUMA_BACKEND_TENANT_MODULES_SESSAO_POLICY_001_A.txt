@@ -1,0 +1,272 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - TENANT-MODULES-SESSAO-POLICY-001-A
+
+Data: 2026-06-09
+Branch: tenant-modules-sessao-policy-001
+Commit base validado: 3ec7a5f747af0341cb07809040bebfe9c2424fa0
+Commit final: gerado no commit deste relatorio; hash informado na resposta final.
+Branch remota: origin/tenant-modules-sessao-policy-001
+
+1. Objetivo da subfase
+
+Executar validacao manual sandbox runtime da fase TENANT-MODULES-SESSAO-POLICY-001,
+registrando evidencias sobre modulos operacionais do tenant, politica de sessao de
+consumo, politica de pedido/pagamento, QR publico, isolamento multi-tenant e entrada
+em KDS/producao.
+
+Nao foram implementadas novas funcionalidades nesta subfase. A subfase teve carater
+de validacao, com commit apenas deste relatorio.
+
+2. Ambiente sandbox
+
+- API validada: http://127.0.0.1:8080/api
+- Docker compose: docker compose --env-file .env.sandbox.local -f docker-compose.sandbox-local.yml
+- Containers usados: consuma-api-local e consuma-postgres-local
+- Banco limpo: sim, executado down -v antes da validacao oficial
+- Build Docker: imagem sistema-restauracao-api:sandbox-local reconstruida com sucesso
+- Healthcheck: GET /api/actuator/health retornou HTTP 200 e status UP
+- Login Platform Admin: executado com sucesso via POST /api/auth/jwt/login
+- Migration V71: aplicada com sucesso no startup; Flyway validou 71 migrations e migrou o schema para v71
+
+3. Validacao CONSUMA_REST
+
+Tenant CONSUMA_REST provisionado no sandbox limpo.
+
+Resultado dos endpoints principais:
+- Provisionamento REST: HTTP 201
+- Selecao do tenant REST: HTTP 200
+- Consulta Platform de modulos operacionais: HTTP 200
+- Consulta tenant de modulos operacionais: HTTP 200
+- Consulta configuracao de sessao de consumo: HTTP 200
+- Consulta politica de pagamento/pedido: HTTP 200
+- Publicacao do cardapio: HTTP 200
+- Cardapio publico sem Authorization: HTTP 200
+
+Modulos REST confirmados:
+- sessaoConsumoEnabled=true
+- pedidoDiretoEnabled=true
+- mesasEnabled=true
+- qrMesaEnabled=true
+- caixaEnabled=true
+- kdsEnabled=true
+
+Configuracao inicial de sessao REST confirmada:
+- enabled=true
+- permitirPrePago=true
+- permitirPosPago=true
+- tipoSessaoPadrao=POS_PAGO
+- exigirSaldoParaPedido=false
+- permitirSessaoSemMesa=true
+- permitirSessaoComMesa=true
+
+Politica inicial REST confirmada:
+- pagamentoObrigatorioAntesDoPedido=true
+- permitirPedidoSemPagamento=false
+- permitirPosPago=false
+- comportamentoPedidoNaoPago=CRIAR_PENDENTE
+
+4. REST com POS_PAGO desabilitado
+
+Foi criado pedido publico via QR com sessao de consumo ativa e politica exigindo
+pagamento previo.
+
+Resultado:
+- Criacao do pedido publico: HTTP 201
+- statusOperacional=CRIADO
+- statusFinanceiro=PENDENTE_PAGAMENTO
+- mensagem="Pedido criado e aguardando pagamento"
+- Banco confirmou sessao_consumo_id preenchido
+
+Foi criado novo pedido REST no mesmo cenario para validar PENDENTE_PAGAMENTO.
+
+Resultado:
+- Criacao do pedido publico: HTTP 201
+- statusFinanceiro=PENDENTE_PAGAMENTO
+- Banco confirmou sessao_consumo_id preenchido
+
+Validacao KDS/producao:
+- Consulta KDS apos pedidos PENDENTE_PAGAMENTO retornou total 0
+- Pedidos PENDENTE_PAGAMENTO nao entraram indevidamente em producao/KDS
+
+5. REST com POS_PAGO habilitado
+
+A configuracao REST foi alterada para permitir POS_PAGO e a politica foi alterada
+para permitir pedido sem pagamento/pedido pos-pago.
+
+Resultado:
+- Atualizacao configuracao de sessao REST: HTTP 200
+- Atualizacao politica de pagamento REST: HTTP 200
+- Criacao de pedido publico REST: HTTP 201
+- statusFinanceiro=NAO_PAGO
+- mensagem="Pedido criado com sucesso"
+- Banco confirmou sessao_consumo_id preenchido
+
+Validacao KDS/producao:
+- Consulta KDS apos pedido NAO_PAGO retornou total 1
+- Pedido NAO_PAGO entrou em KDS/producao conforme politica habilitada
+
+6. Validacao CONSUMA_PONTO
+
+Tenant CONSUMA_PONTO provisionado no sandbox limpo.
+
+Resultado dos endpoints principais:
+- Provisionamento PONTO: HTTP 201
+- Selecao do tenant PONTO: HTTP 200
+- Consulta Platform de modulos operacionais: HTTP 200
+- Consulta tenant de modulos operacionais: HTTP 200
+- Consulta configuracao de sessao de consumo: HTTP 200
+- Consulta politica de pagamento/pedido: HTTP 200
+- Publicacao do cardapio: HTTP 200
+- Cardapio publico sem Authorization: HTTP 200
+
+Modulos PONTO confirmados:
+- sessaoConsumoEnabled=false
+- pedidoDiretoEnabled=true
+- mesasEnabled=false
+- qrMesaEnabled=false
+- caixaEnabled=true
+- kdsEnabled=false
+
+Configuracao inicial de sessao PONTO confirmada:
+- enabled=false
+- permitirPrePago=false
+- permitirPosPago=false
+- tipoSessaoPadrao=PRE_PAGO
+- exigirSaldoParaPedido=true
+- permitirSessaoSemMesa=true
+- permitirSessaoComMesa=false
+
+Pedido publico direto PONTO:
+- Criacao do pedido publico: HTTP 201
+- statusFinanceiro=PENDENTE_PAGAMENTO
+- Banco confirmou sessao_consumo_id=NULL
+- Resultado coerente com pedido direto habilitado e sessao desabilitada
+
+7. PONTO bloqueio de mesas/QR por mesa
+
+Com modulos de mesas e QR por mesa desabilitados no PONTO:
+
+- Tentativa de criar mesa: HTTP 400
+- Mensagem: "O modulo de mesas esta desativado para este tenant."
+- Tentativa de gerar QR por mesa: HTTP 400
+- Mensagem: "O modulo de QR por mesa esta desativado para este tenant."
+
+Resultado: bloqueio confirmado conforme modulos do tenant.
+
+8. Platform habilita sessao no PONTO
+
+A Platform habilitou sessao de consumo, mesas e QR por mesa para o tenant PONTO.
+
+Resultado:
+- Atualizacao Platform de modulos PONTO: HTTP 200
+- Consulta dos modulos apos habilitar: HTTP 200
+- Consulta configuracao de sessao apos habilitar: HTTP 200
+- Configuracao tenant de sessao PONTO: HTTP 200
+- Criacao de pedido publico PONTO apos habilitar sessao: HTTP 201
+- Banco confirmou sessao_consumo_id preenchido
+- statusFinanceiro=PENDENTE_PAGAMENTO
+
+Resultado: pedido PONTO passou a usar SessaoConsumo quando o modulo foi habilitado
+pela Platform e configurado no tenant.
+
+9. Desabilitar sessao novamente
+
+A Platform desabilitou novamente sessao de consumo, mesas e QR por mesa para o PONTO.
+
+Resultado:
+- Atualizacao Platform para desabilitar modulos: HTTP 200
+- Tentativa tenant de reativar sessao apos bloqueio Platform: HTTP 400
+- Mensagem: "Sessao de consumo esta desativada pela Platform para este tenant."
+- Criacao de pedido publico PONTO apos desabilitar sessao: HTTP 201
+- Banco confirmou sessao_consumo_id=NULL
+- statusFinanceiro=PENDENTE_PAGAMENTO
+
+Resultado: o tenant nao conseguiu reativar sessao bloqueada pela Platform e o pedido
+voltou ao fluxo direto.
+
+10. Public QR sem Authorization
+
+Foram validados acessos publicos sem Authorization:
+
+- REST /public/q/{token}/cardapio: HTTP 200
+- PONTO /public/q/{token}/cardapio: HTTP 200
+- Criacao de pedido publico por QR: HTTP 201 nos cenarios validos
+
+Resultado: endpoints publicos de QR funcionaram sem cabecalho Authorization.
+
+11. Tenant isolation
+
+Foi validado isolamento multi-tenant tentando acessar recurso REST usando contexto do
+tenant PONTO.
+
+Resultado:
+- Acesso cruzado PONTO -> mesa REST: HTTP 404
+
+Resultado: recurso de outro tenant nao ficou acessivel indevidamente.
+
+12. Bugs encontrados
+
+Nenhum bug de codigo foi encontrado na validacao oficial corrigida.
+
+Observacao operacional:
+- Uma primeira tentativa de validacao usou payloads invalidos de enum e tipo de unidade
+  de consumo. Os payloads foram corrigidos antes da validacao oficial, o sandbox foi
+  reiniciado com banco limpo e a validacao oficial foi reexecutada com sucesso.
+- Essa ocorrencia foi tratada como erro de payload de validacao, sem alteracao de codigo.
+
+13. Testes executados
+
+- mvn clean test
+  Resultado: BUILD SUCCESS
+  Testes: 338 executados, 0 falhas, 0 erros, 3 ignorados.
+  Finalizado em: 2026-06-09T03:20:12+01:00
+
+- mvn -Pit verify
+  Resultado: BUILD SUCCESS
+  Surefire: suite completa executada antes dos ITs.
+  Failsafe: 256 executados, 0 falhas, 0 erros, 0 ignorados.
+  Finalizado em: 2026-06-09T03:33:07+01:00
+
+Observacao:
+- Durante o encerramento do fork JVM do Failsafe houve mensagem "Surefire is going to
+  kill self fork JVM" apos System.exit(0), mas o Maven finalizou com BUILD SUCCESS e
+  sem falhas ou erros de testes.
+
+14. Working tree
+
+Antes da criacao deste relatorio:
+- git status --short retornou working tree limpo.
+
+Alteracoes desta subfase:
+- RELATORIO_CONSUMA_BACKEND_TENANT_MODULES_SESSAO_POLICY_001_A.txt
+
+Arquivos de codigo alterados nesta subfase:
+- Nenhum.
+
+15. Push
+
+Push pendente no momento da escrita inicial deste relatorio.
+O hash final do commit e a confirmacao de push serao informados na resposta final.
+
+16. Pergunta final obrigatoria
+
+Pergunta:
+A validacao manual sandbox confirma que o backend decide corretamente entre
+SessaoConsumo, pedido direto, bloqueio, PENDENTE_PAGAMENTO, NAO_PAGO e KDS/producao
+conforme modulos e politicas do tenant?
+
+Resposta: SIM.
+
+Justificativa:
+- CONSUMA_REST criou pedidos com SessaoConsumo quando sessao estava habilitada.
+- CONSUMA_PONTO criou pedido direto sem SessaoConsumo quando sessao estava desabilitada.
+- Mesas e QR por mesa foram bloqueados quando os modulos estavam desabilitados.
+- PENDENTE_PAGAMENTO nao entrou em KDS/producao.
+- NAO_PAGO entrou em KDS/producao quando POS_PAGO/pedido sem pagamento foi permitido.
+- Tenant nao reativou sessao quando a Platform desabilitou o modulo.
+- Endpoints publicos de QR funcionaram sem Authorization.
+- Isolamento multi-tenant retornou 404 no acesso cruzado.
+
+17. Status tecnico
+
+CONCLUIDO PARA REVISAO

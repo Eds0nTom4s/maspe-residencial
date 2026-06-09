@@ -6,14 +6,39 @@ import com.restaurante.dto.request.ProdutoRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.entity.Cozinha;
+import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Produto;
+import com.restaurante.model.entity.QrCodeOperacional;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantOperationalModulesConfig;
+import com.restaurante.model.entity.TenantSessaoConsumoConfig;
+import com.restaurante.model.entity.TenantUser;
+import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.User;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
+import com.restaurante.model.enums.QrCodeOperacionalTipo;
+import com.restaurante.model.enums.Role;
+import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
+import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TipoCozinha;
+import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.TenantOperationalModulesConfigRepository;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantSessaoConsumoConfigRepository;
+import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.ProdutoService;
+import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -47,10 +72,17 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
     @Autowired ProdutoService produtoService;
+    @Autowired TenantRepository tenantRepository;
+    @Autowired InstituicaoRepository instituicaoRepository;
+    @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired com.restaurante.repository.CozinhaRepository cozinhaRepository;
-    @Autowired com.restaurante.repository.UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    @Autowired QrCodeOperacionalService qrCodeOperacionalService;
+    @Autowired TenantOperationalModulesConfigRepository modulesConfigRepository;
+    @Autowired TenantSessaoConsumoConfigRepository sessaoConfigRepository;
+    @Autowired UserRepository userRepository;
+    @Autowired TenantUserRepository tenantUserRepository;
 
     @AfterEach
     void clear() {
@@ -192,6 +224,79 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    @WithMockUser(username = "tenant-owner")
+    void tenantPedidos_listsDirectPontoPedidoWithoutSessaoConsumo() throws Exception {
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        Tenant tenant = criarTenantDireto("Ponto Tenant", "ponto-tenant-" + suffix, "PONTO" + suffix);
+        Instituicao instituicao = criarInstituicaoDireta(
+                tenant,
+                "Ponto Tenant",
+                uniqueSigla("PNT"),
+                "NIF-PONTO-" + suffix,
+                "+24491" + String.format("%06d", Integer.parseInt(suffix))
+        );
+        UnidadeAtendimento unidade = criarUnidadeDireta(instituicao, "Balcao Ponto", TipoUnidadeAtendimento.CAFETERIA);
+        criarCozinhaVinculada(unidade, "Bar Ponto Tenant", TipoCozinha.BAR_PREP);
+        User owner = criarUsuarioTenantDireto(unidade, suffix);
+        vincularTenantUser(tenant, owner, unidade, TenantUserRole.TENANT_OWNER);
+
+        CategoriaProduto categoria = criarCategoriaDireta(tenant, "Bebidas Ponto", "bebidas-ponto");
+        Produto produto = criarProdutoDireto(tenant, categoria, "PONTO-SUMO-" + suffix, "Sumo Ponto", new BigDecimal("12.50"));
+        publicarCardapioForTest(tenant.getId());
+        configurarPedidoDiretoSemSessao(tenant);
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(),
+                instituicao.getId(),
+                unidade.getId(),
+                null,
+                QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO,
+                "QR Ponto Tenant"
+        );
+
+        String payloadPedido = """
+                {
+                  "clienteNome": "Cliente Ponto",
+                  "itens": [ { "produtoId": %d, "quantidade": 1 } ]
+                }
+                """.formatted(produto.getId());
+
+        String respPublic = mockMvc.perform(post("/public/q/" + qr.getToken() + "/pedidos")
+                        .header("Idempotency-Key", "tenant-ponto-direto-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payloadPedido))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long pedidoId = objectMapper.readTree(respPublic).at("/data/pedidoId").asLong();
+
+        TenantContextHolder.set(new TenantContext(
+                tenant.getId(),
+                tenant.getTenantCode(),
+                owner.getId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT,
+                false,
+                false
+        ));
+
+        String respList = mockMvc.perform(get("/tenant/pedidos").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode listJson = objectMapper.readTree(respList);
+        assertThat(listJson.at("/data/content").toString()).contains("\"id\":" + pedidoId);
+        assertThat(listJson.at("/data/content").toString()).contains("PENDENTE_PAGAMENTO");
+
+        String respDet = mockMvc.perform(get("/tenant/pedidos/" + pedidoId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode detJson = objectMapper.readTree(respDet);
+        assertThat(detJson.at("/data/id").asLong()).isEqualTo(pedidoId);
+        assertThat(detJson.at("/data/contexto/mesaId").isMissingNode()
+                || detJson.at("/data/contexto/mesaId").isNull()).isTrue();
+        assertThat(detJson.at("/data/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
+    }
+
     private static String uniqueSigla(String prefix) {
         String normalizedPrefix = prefix == null ? "I" : prefix.replaceAll("[^A-Z0-9]", "");
         if (normalizedPrefix.isBlank()) {
@@ -203,5 +308,115 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
 
         long suffix = Math.abs(System.nanoTime() % 10_000_000L);
         return normalizedPrefix + String.format("%07d", suffix);
+    }
+
+    private Tenant criarTenantDireto(String nome, String slug, String tenantCode) {
+        Tenant tenant = new Tenant();
+        tenant.setNome(nome);
+        tenant.setSlug(slug);
+        tenant.setTenantCode(tenantCode);
+        tenant.setTipo(TenantTipo.VENDEDOR_RUA);
+        tenant.setTemplateCode("CONSUMA_PONTO");
+        tenant.setEstado(TenantEstado.ATIVO);
+        return tenantRepository.saveAndFlush(tenant);
+    }
+
+    private Instituicao criarInstituicaoDireta(Tenant tenant, String nome, String sigla, String nif, String telefoneAutorizacao) {
+        Instituicao instituicao = new Instituicao();
+        instituicao.setTenant(tenant);
+        instituicao.setNome(nome);
+        instituicao.setSigla(sigla);
+        instituicao.setNif(nif);
+        instituicao.setTelefoneAutorizacao(telefoneAutorizacao);
+        instituicao.setAtiva(true);
+        return instituicaoRepository.saveAndFlush(instituicao);
+    }
+
+    private UnidadeAtendimento criarUnidadeDireta(Instituicao instituicao, String nome, TipoUnidadeAtendimento tipo) {
+        UnidadeAtendimento unidade = new UnidadeAtendimento();
+        unidade.setNome(nome);
+        unidade.setTipo(tipo);
+        unidade.setAtiva(true);
+        unidade.setInstituicao(instituicao);
+        return unidadeAtendimentoRepository.saveAndFlush(unidade);
+    }
+
+    private void criarCozinhaVinculada(UnidadeAtendimento unidade, String nome, TipoCozinha tipo) {
+        Cozinha cozinha = new Cozinha();
+        cozinha.setNome(nome);
+        cozinha.setTipo(tipo);
+        cozinha.setAtiva(true);
+        Cozinha salva = cozinhaRepository.saveAndFlush(cozinha);
+        unidade.adicionarCozinha(salva);
+        unidadeAtendimentoRepository.saveAndFlush(unidade);
+    }
+
+    private CategoriaProduto criarCategoriaDireta(Tenant tenant, String nome, String slug) {
+        CategoriaProduto categoria = new CategoriaProduto();
+        categoria.setTenant(tenant);
+        categoria.setNome(nome);
+        categoria.setSlug(slug);
+        categoria.setOrdem(0);
+        categoria.setAtivo(true);
+        return categoriaProdutoRepository.saveAndFlush(categoria);
+    }
+
+    private Produto criarProdutoDireto(Tenant tenant, CategoriaProduto categoria, String codigo, String nome, BigDecimal preco) {
+        Produto produto = new Produto();
+        produto.setTenant(tenant);
+        produto.setCodigo(codigo);
+        produto.setNome(nome);
+        produto.setPreco(preco);
+        produto.setCategoria(CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA);
+        produto.setCategoriaProduto(categoria);
+        produto.setDisponivel(true);
+        produto.setAtivo(true);
+        return produtoRepository.saveAndFlush(produto);
+    }
+
+    private User criarUsuarioTenantDireto(UnidadeAtendimento unidade, String suffix) {
+        User user = User.builder()
+                .username("owner-ponto-" + suffix)
+                .password("{noop}test")
+                .email("owner-ponto-" + suffix + "@test.local")
+                .nomeCompleto("Owner Ponto " + suffix)
+                .telefone("+24492" + String.format("%06d", Integer.parseInt(suffix)))
+                .unidadeAtendimento(unidade)
+                .roles(Set.of(Role.ROLE_GERENTE))
+                .ativo(true)
+                .build();
+        return userRepository.saveAndFlush(user);
+    }
+
+    private void vincularTenantUser(Tenant tenant, User user, UnidadeAtendimento unidade, TenantUserRole role) {
+        TenantUser membership = new TenantUser();
+        membership.setTenant(tenant);
+        membership.setUser(user);
+        membership.setRole(role);
+        membership.setEstado(TenantUserEstado.ATIVO);
+        membership.setUnidadeAtendimentoDefault(unidade);
+        tenantUserRepository.saveAndFlush(membership);
+    }
+
+    private void configurarPedidoDiretoSemSessao(Tenant tenant) {
+        TenantOperationalModulesConfig modules = new TenantOperationalModulesConfig();
+        modules.setTenant(tenant);
+        modules.setSessaoConsumoEnabled(false);
+        modules.setPedidoDiretoEnabled(true);
+        modules.setMesasEnabled(false);
+        modules.setQrMesaEnabled(false);
+        modules.setCaixaEnabled(true);
+        modules.setKdsEnabled(false);
+        modulesConfigRepository.saveAndFlush(modules);
+
+        TenantSessaoConsumoConfig sessaoConfig = new TenantSessaoConsumoConfig();
+        sessaoConfig.setTenant(tenant);
+        sessaoConfig.setEnabled(false);
+        sessaoConfig.setPermitirPrePago(false);
+        sessaoConfig.setPermitirPosPago(false);
+        sessaoConfig.setPermitirModoAnonimo(true);
+        sessaoConfig.setPermitirSessaoSemMesa(true);
+        sessaoConfig.setPermitirSessaoComMesa(false);
+        sessaoConfigRepository.saveAndFlush(sessaoConfig);
     }
 }

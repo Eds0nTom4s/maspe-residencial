@@ -28,6 +28,7 @@ public class TenantPagamentoPolicyService {
     private final TenantRepository tenantRepository;
     private final TenantOperacaoPolicyRepository repository;
     private final OperationalEventLogService operationalEventLogService;
+    private final TenantSessaoConsumoConfigService sessaoConsumoConfigService;
 
     @Transactional
     public TenantPagamentoPolicyResponse obterDoTenantAtual() {
@@ -39,6 +40,7 @@ public class TenantPagamentoPolicyService {
     public TenantPagamentoPolicyResponse atualizarDoTenantAtual(TenantPagamentoPolicyRequest request) {
         Long tenantId = requireTenantId("atualização de política de pagamento");
         TenantOperacaoPolicy policy = getOrCreatePolicy(tenantId);
+        validarCompatibilidadeOperacional(tenantId, request);
         apply(policy, request);
         TenantOperacaoPolicy saved = repository.save(policy);
         operationalEventLogService.logGenericForTenant(
@@ -96,6 +98,12 @@ public class TenantPagamentoPolicyService {
         policy.setPermitirPagamentoNaEntrega(Boolean.TRUE.equals(request.getPermitirPagamentoNaEntrega()));
         policy.setTempoExpiracaoPedidoPendentePagamentoMinutos(request.getTempoExpiracaoPedidoPendentePagamentoMinutos());
         policy.setComportamentoPedidoNaoPago(request.getComportamentoPedidoNaoPago());
+    }
+
+    private void validarCompatibilidadeOperacional(Long tenantId, TenantPagamentoPolicyRequest request) {
+        if (Boolean.TRUE.equals(request.getPermitirPosPago())) {
+            sessaoConsumoConfigService.assertPosPagoPermitido(tenantId);
+        }
     }
 
     private TenantPagamentoPolicyResponse toResponse(TenantOperacaoPolicy p) {

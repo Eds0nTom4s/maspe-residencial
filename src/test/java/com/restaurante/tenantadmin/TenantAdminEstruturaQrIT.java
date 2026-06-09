@@ -49,7 +49,7 @@ class TenantAdminEstruturaQrIT extends PostgresTestcontainersConfig {
     @Test
     @WithMockUser(username = "tenant-owner")
     void tenant_canListMesas_andGenerateMesaQr() throws Exception {
-        // provisionar com 1 mesa, sem QR por mesa
+        // provisionar com 1 mesa e QR por mesa habilitado
         TenantContextHolder.set(new TenantContext(
                 null, null, 1L, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
@@ -78,7 +78,7 @@ class TenantAdminEstruturaQrIT extends PostgresTestcontainersConfig {
                         .opcoes(ProvisionarTenantRequest.OpcoesProvisionamento.builder()
                                 .criarMesas(true)
                                 .quantidadeMesas(1)
-                                .criarQrPorMesa(false)
+                                .criarQrPorMesa(true)
                                 .build())
                         .build()
         );

@@ -9,6 +9,8 @@ import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantOperationalModulesConfig;
+import com.restaurante.model.entity.TenantSessaoConsumoConfig;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
@@ -21,7 +23,9 @@ import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.TenantOperationalModulesConfigRepository;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantSessaoConsumoConfigRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
@@ -61,6 +65,8 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
     @Autowired PedidoRepository pedidoRepository;
     @Autowired SubPedidoRepository subPedidoRepository;
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
+    @Autowired TenantOperationalModulesConfigRepository modulesConfigRepository;
+    @Autowired TenantSessaoConsumoConfigRepository sessaoConfigRepository;
 
     @Test
     void publicQr_canCreatePedido_withoutPayment_andPedidoIsTenantScoped() throws Exception {
@@ -169,6 +175,63 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
 
         ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, "q_INVALIDO_123");
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void publicQr_withSessaoDisabled_createsDirectPedidoWithoutSessao() throws Exception {
+        Tenant tenant = criarTenant("Ponto Direct", "ponto-direct", "PONTO-DIRECT");
+        tenant.setTemplateCode("CONSUMA_PONTO");
+        tenantRepository.saveAndFlush(tenant);
+        Instituicao inst = criarInstituicao(tenant, "Ponto Direct", "PD", "NIF-PD-301", "+244900000301");
+        UnidadeAtendimento unidade = criarUnidade(inst, "Unidade Ponto", TipoUnidadeAtendimento.CAFETERIA);
+        criarCozinhaVinculada(unidade, "Bar Ponto", TipoCozinha.BAR_PREP);
+
+        CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
+        Produto prod = criarProduto(tenant, cat, "PONTO-AGUA", "Água Ponto", new BigDecimal("5.00"));
+        publicarCardapioForTest(tenant.getId());
+
+        TenantOperationalModulesConfig modules = new TenantOperationalModulesConfig();
+        modules.setTenant(tenant);
+        modules.setSessaoConsumoEnabled(false);
+        modules.setPedidoDiretoEnabled(true);
+        modules.setMesasEnabled(false);
+        modules.setQrMesaEnabled(false);
+        modules.setCaixaEnabled(true);
+        modules.setKdsEnabled(false);
+        modulesConfigRepository.saveAndFlush(modules);
+
+        TenantSessaoConsumoConfig sessaoConfig = new TenantSessaoConsumoConfig();
+        sessaoConfig.setTenant(tenant);
+        sessaoConfig.setEnabled(false);
+        sessaoConfig.setPermitirPrePago(false);
+        sessaoConfig.setPermitirPosPago(false);
+        sessaoConfig.setPermitirModoAnonimo(true);
+        sessaoConfig.setPermitirSessaoSemMesa(true);
+        sessaoConfig.setPermitirSessaoComMesa(false);
+        sessaoConfigRepository.saveAndFlush(sessaoConfig);
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), unidade.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Ponto"
+        );
+
+        String payload = """
+                { "itens": [ { "produtoId": %d, "quantidade": 1 } ] }
+                """.formatted(prod.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("Idempotency-Key", "idem-key-direct-0001");
+        HttpEntity<String> entity = new HttpEntity<>(payload, headers);
+
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qr.getToken());
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        JsonNode json = objectMapper.readTree(resp.getBody());
+        Long pedidoId = json.at("/data/pedidoId").asLong();
+        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
+
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, tenant.getId()).orElseThrow();
+        assertThat(pedido.getSessaoConsumo()).isNull();
+        assertThat(pedido.getTenant().getId()).isEqualTo(tenant.getId());
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {

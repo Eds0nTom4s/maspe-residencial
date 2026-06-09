@@ -41,6 +41,7 @@ import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
+import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.UnidadeProducaoTipo;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.ChecklistOperacionalItemTemplateRepository;
@@ -63,6 +64,8 @@ import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.service.TenantCardapioConfigService;
 import com.restaurante.service.TenantLimitService;
+import com.restaurante.service.TenantOperationalModulesService;
+import com.restaurante.service.TenantSessaoConsumoConfigService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -112,6 +115,8 @@ public class BusinessTemplateProvisioningSupport {
     private final PasswordEncoder passwordEncoder;
     private final OperationalEventLogService operationalEventLogService;
     private final TenantCardapioConfigService tenantCardapioConfigService;
+    private final TenantOperationalModulesService tenantOperationalModulesService;
+    private final TenantSessaoConsumoConfigService tenantSessaoConsumoConfigService;
 
     @Value("${consuma.public-base-url:http://localhost:8080}")
     private String publicBaseUrl;
@@ -528,6 +533,48 @@ public class BusinessTemplateProvisioningSupport {
         p.setSnapshotFinanceiroEnabled(snapshotFinanceiroEnabled);
         p.setPreFechoEnabled(preFechoEnabled);
         return tenantOperacaoPolicyRepository.saveAndFlush(p);
+    }
+
+    public void upsertOperationalModules(Tenant tenant,
+                                         boolean sessaoConsumoEnabled,
+                                         boolean pedidoDiretoEnabled,
+                                         boolean mesasEnabled,
+                                         boolean qrMesaEnabled,
+                                         boolean caixaEnabled,
+                                         boolean kdsEnabled) {
+        tenantOperationalModulesService.upsertForTemplate(
+                tenant,
+                sessaoConsumoEnabled,
+                pedidoDiretoEnabled,
+                mesasEnabled,
+                qrMesaEnabled,
+                caixaEnabled,
+                kdsEnabled
+        );
+    }
+
+    public void upsertSessaoConsumoConfig(Tenant tenant,
+                                          boolean enabled,
+                                          boolean permitirPrePago,
+                                          boolean permitirPosPago,
+                                          TipoSessao tipoSessaoPadrao,
+                                          boolean exigirSaldoParaPedido,
+                                          boolean permitirModoAnonimo,
+                                          boolean permitirSessaoSemMesa,
+                                          boolean permitirSessaoComMesa,
+                                          Integer expiracaoHoras) {
+        tenantSessaoConsumoConfigService.upsertForTemplate(
+                tenant,
+                enabled,
+                permitirPrePago,
+                permitirPosPago,
+                tipoSessaoPadrao,
+                exigirSaldoParaPedido,
+                permitirModoAnonimo,
+                permitirSessaoSemMesa,
+                permitirSessaoComMesa,
+                expiracaoHoras
+        );
     }
 
     public void assertPlanLimitsOrThrow(Long tenantId,

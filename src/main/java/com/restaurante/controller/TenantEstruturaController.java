@@ -9,6 +9,7 @@ import com.restaurante.dto.response.TenantUnidadeAtendimentoResponse;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.MesaService;
+import com.restaurante.service.TenantOperationalModulesService;
 import com.restaurante.service.tenantadmin.TenantAdminEstruturaService;
 import com.restaurante.service.tenantadmin.TenantAdminQrService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,6 +41,7 @@ public class TenantEstruturaController {
     private final TenantAdminEstruturaService estruturaService;
     private final MesaService mesaService;
     private final TenantAdminQrService qrService;
+    private final TenantOperationalModulesService modulesService;
 
     @GetMapping("/instituicoes")
     @PreAuthorize("isAuthenticated()")
@@ -168,5 +170,6 @@ public class TenantEstruturaController {
 
     private void assertCanWrite() {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
+        modulesService.assertMesasEnabled(tenantGuard.requireContext().tenantId());
     }
 }

@@ -20,6 +20,7 @@ import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.LogisticsMode;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -177,6 +178,9 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
                 false,
                 false
         );
+        support.upsertOperationalModules(tenant, false, true, false, false, true, false);
+        support.upsertSessaoConsumoConfig(tenant, false, false, false, TipoSessao.PRE_PAGO,
+                true, true, true, false, 12);
 
         support.logTemplateProvisioned(tenant, CODE, VERSION, plano.getCodigo());
 

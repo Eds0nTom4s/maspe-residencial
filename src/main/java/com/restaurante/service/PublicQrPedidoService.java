@@ -18,6 +18,8 @@ import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantOperationalModulesConfig;
+import com.restaurante.model.entity.TenantSessaoConsumoConfig;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.config.OperacaoProperties;
@@ -61,6 +63,8 @@ public class PublicQrPedidoService {
     private final OperationalEventLogService operationalEventLogService;
     private final TenantCardapioConfigService tenantCardapioConfigService;
     private final TenantPagamentoPolicyService tenantPagamentoPolicyService;
+    private final TenantOperationalModulesService tenantOperationalModulesService;
+    private final TenantSessaoConsumoConfigService tenantSessaoConsumoConfigService;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -84,13 +88,20 @@ public class PublicQrPedidoService {
         }
 
         List<Produto> produtos = validarECarregarProdutosDoTenant(tenant.getId(), request.getItens());
+        TenantOperationalModulesConfig modules = tenantOperationalModulesService.obterParaTenant(tenant.getId());
+        if (qr.getTipo() == QrCodeOperacionalTipo.MESA && !modules.isQrMesaEnabled()) {
+            throw new BusinessException("QR por mesa está indisponível para este negócio.");
+        }
         var pagamentoPolicy = tenantPagamentoPolicyService.obterParaTenant(tenant.getId());
-        boolean deveAguardarPagamento = deveAguardarPagamentoAntesDaOperacao(pagamentoPolicy);
-        if (deveAguardarPagamento && pagamentoPolicy.getComportamentoPedidoNaoPago() == ComportamentoPedidoNaoPago.BLOQUEAR) {
+        TenantSessaoConsumoConfig sessaoConfig = tenantSessaoConsumoConfigService.obterParaTenant(tenant.getId());
+        DecisaoPedidoPublico decisao = decidirFluxoPedidoPublico(qr, modules, sessaoConfig, pagamentoPolicy, mesa);
+        if (decisao.deveAguardarPagamento() && pagamentoPolicy.getComportamentoPedidoNaoPago() == ComportamentoPedidoNaoPago.BLOQUEAR) {
             throw new BusinessException("Pagamento obrigatório antes do pedido. Inicie o pagamento para continuar.");
         }
 
-        SessaoConsumo sessao = resolverOuCriarSessaoMinima(qr, instituicao, unidadeAtendimento, mesa);
+        SessaoConsumo sessao = decisao.usarSessao()
+                ? resolverOuCriarSessaoMinima(qr, instituicao, unidadeAtendimento, mesa, decisao.tipoSessao())
+                : null;
 
         PublicQrOrderRequest idemReq = start.request();
         try {
@@ -107,8 +118,8 @@ public class PublicQrPedidoService {
             pedido.setSessaoConsumo(sessao);
             pedido.setTurnoOperacional(turnoAberto);
             pedido.setStatus(StatusPedido.CRIADO);
-            pedido.setStatusFinanceiro(deveAguardarPagamento ? StatusFinanceiroPedido.PENDENTE_PAGAMENTO : StatusFinanceiroPedido.NAO_PAGO);
-            pedido.setTipoPagamento(deveAguardarPagamento ? TipoPagamentoPedido.PRE_PAGO : TipoPagamentoPedido.POS_PAGO);
+            pedido.setStatusFinanceiro(decisao.statusFinanceiro());
+            pedido.setTipoPagamento(decisao.tipoPagamento());
             pedido.setObservacoes(request.getObservacao());
 
             Map<Cozinha, List<PublicQrPedidoItemRequest>> requestsPorCozinha = agruparItensPorCozinha(unidadeAtendimento.getId(), request.getItens(), produtos);
@@ -203,7 +214,9 @@ public class PublicQrPedidoService {
             pedido.calcularTotal();
             pedidoRepository.save(pedido);
 
-            sessaoConsumoService.registrarAtividade(sessao, "Pedido público por QR criado: " + pedido.getNumero());
+            if (sessao != null) {
+                sessaoConsumoService.registrarAtividade(sessao, "Pedido público por QR criado: " + pedido.getNumero());
+            }
             idempotencyService.markCompleted(idemReq, pedido);
 
             return PublicQrPedidoResponse.builder()
@@ -218,7 +231,7 @@ public class PublicQrPedidoService {
                     .mesaNumero(mesa != null ? mesa.getNumero() : null)
                     .total(pedido.getTotal())
                     .itens(itensResponse)
-                    .mensagem(deveAguardarPagamento ? "Pedido criado e aguardando pagamento" : "Pedido criado com sucesso")
+                    .mensagem(decisao.deveAguardarPagamento() ? "Pedido criado e aguardando pagamento" : "Pedido criado com sucesso")
                     .build();
         } catch (ConflictException e) {
             throw e;
@@ -266,6 +279,68 @@ public class PublicQrPedidoService {
         return true;
     }
 
+    private DecisaoPedidoPublico decidirFluxoPedidoPublico(
+            QrCodeOperacional qr,
+            TenantOperationalModulesConfig modules,
+            TenantSessaoConsumoConfig sessaoConfig,
+            com.restaurante.model.entity.TenantOperacaoPolicy policy,
+            Mesa mesa
+    ) {
+        boolean deveAguardarPagamento = deveAguardarPagamentoAntesDaOperacao(policy);
+        boolean usarSessao = modules.isSessaoConsumoEnabled();
+
+        if (!usarSessao) {
+            tenantOperationalModulesService.assertPedidoDiretoEnabled(qr.getTenant().getId());
+            return new DecisaoPedidoPublico(
+                    false,
+                    null,
+                    deveAguardarPagamento ? StatusFinanceiroPedido.PENDENTE_PAGAMENTO : StatusFinanceiroPedido.NAO_PAGO,
+                    deveAguardarPagamento ? TipoPagamentoPedido.PRE_PAGO : TipoPagamentoPedido.POS_PAGO,
+                    deveAguardarPagamento
+            );
+        }
+
+        if (!sessaoConfig.isEnabled()) {
+            throw new BusinessException("Sessão de consumo está indisponível para este negócio.");
+        }
+        if (!sessaoConfig.isPermitirModoAnonimo()) {
+            throw new BusinessException("Pedido público anônimo não está permitido para este negócio.");
+        }
+        if (mesa != null && !sessaoConfig.isPermitirSessaoComMesa()) {
+            throw new BusinessException("Sessão com mesa não está permitida para este negócio.");
+        }
+        if (mesa == null && !sessaoConfig.isPermitirSessaoSemMesa()) {
+            throw new BusinessException("Sessão sem mesa não está permitida para este negócio.");
+        }
+
+        TipoSessao tipoSessao = sessaoConfig.getTipoSessaoPadrao() != null ? sessaoConfig.getTipoSessaoPadrao() : TipoSessao.POS_PAGO;
+        if (tipoSessao == TipoSessao.POS_PAGO && !sessaoConfig.isPermitirPosPago()) {
+            throw new BusinessException("Sessão pós-paga não está permitida para este negócio.");
+        }
+        if (tipoSessao == TipoSessao.PRE_PAGO && !sessaoConfig.isPermitirPrePago()) {
+            throw new BusinessException("Sessão pré-paga não está permitida para este negócio.");
+        }
+        if (tipoSessao == TipoSessao.PRE_PAGO && sessaoConfig.isExigirSaldoParaPedido()) {
+            deveAguardarPagamento = true;
+        }
+        if (tipoSessao == TipoSessao.POS_PAGO
+                && policy != null
+                && policy.isPagamentoObrigatorioAntesDoPedido()
+                && !policy.isPermitirPosPago()
+                && !policy.isPermitirPedidoSemPagamento()
+                && !policy.isPermitirPagamentoNaEntrega()) {
+            deveAguardarPagamento = true;
+        }
+
+        return new DecisaoPedidoPublico(
+                true,
+                tipoSessao,
+                deveAguardarPagamento ? StatusFinanceiroPedido.PENDENTE_PAGAMENTO : StatusFinanceiroPedido.NAO_PAGO,
+                deveAguardarPagamento ? TipoPagamentoPedido.PRE_PAGO : TipoPagamentoPedido.POS_PAGO,
+                deveAguardarPagamento
+        );
+    }
+
     private Map<Cozinha, List<PublicQrPedidoItemRequest>> agruparItensPorCozinha(
             Long unidadeAtendimentoId,
             List<PublicQrPedidoItemRequest> itens,
@@ -291,7 +366,8 @@ public class PublicQrPedidoService {
             QrCodeOperacional qr,
             Instituicao instituicao,
             UnidadeAtendimento unidadeAtendimento,
-            Mesa mesa
+            Mesa mesa,
+            TipoSessao tipoSessao
     ) {
         Long tenantId = qr.getTenant() != null ? qr.getTenant().getId() : null;
         if (tenantId == null) {
@@ -302,7 +378,7 @@ public class PublicQrPedidoService {
                 instituicao,
                 unidadeAtendimento,
                 qr.getTipo() == QrCodeOperacionalTipo.MESA ? mesa : null,
-                TipoSessao.POS_PAGO,
+                tipoSessao != null ? tipoSessao : TipoSessao.POS_PAGO,
                 false
         );
     }
@@ -350,6 +426,10 @@ public class PublicQrPedidoService {
         UnidadeAtendimento ua = sessao != null ? (sessao.getUnidadeAtendimento() != null ? sessao.getUnidadeAtendimento()
                 : (sessao.getMesa() != null ? sessao.getMesa().getUnidadeAtendimento() : null)) : null;
         Mesa mesa = sessao != null ? sessao.getMesa() : null;
+        if (ua == null && pedido.getSubPedidos() != null && !pedido.getSubPedidos().isEmpty()) {
+            ua = pedido.getSubPedidos().get(0).getUnidadeAtendimento();
+            inst = ua != null ? ua.getInstituicao() : null;
+        }
 
         List<PublicQrPedidoItemResponse> itens = pedido.getItens() != null
                 ? pedido.getItens().stream()
@@ -377,5 +457,14 @@ public class PublicQrPedidoService {
                 .itens(itens)
                 .mensagem("Pedido já criado anteriormente")
                 .build();
+    }
+
+    private record DecisaoPedidoPublico(
+            boolean usarSessao,
+            TipoSessao tipoSessao,
+            StatusFinanceiroPedido statusFinanceiro,
+            TipoPagamentoPedido tipoPagamento,
+            boolean deveAguardarPagamento
+    ) {
     }
 }

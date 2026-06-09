@@ -15,6 +15,7 @@ import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.service.TenantLimitService;
+import com.restaurante.service.TenantOperationalModulesService;
 import com.restaurante.util.QrCodeGenerator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -35,6 +36,7 @@ public class TenantAdminQrService {
     private final MesaRepository mesaRepository;
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final QrCodeGenerator qrCodeGenerator;
+    private final TenantOperationalModulesService modulesService;
 
     @Value("${consuma.public-base-url:http://localhost:8080}")
     private String publicBaseUrl;
@@ -122,6 +124,7 @@ public class TenantAdminQrService {
     @Transactional
     public TenantQrCodeResponse gerarQrPrincipal() {
         TenantContext ctx = requireTenantContext();
+        modulesService.assertPedidoDiretoEnabled(ctx.tenantId());
         List<QrCodeOperacional> qrs = qrCodeOperacionalRepository.findByTenantIdAndAtivoTrueAndRevogadoFalse(ctx.tenantId());
         QrCodeOperacional existing = qrs.stream()
                 .filter(q -> q.getTipo() == QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO && q.getUnidadeAtendimento() != null)
@@ -156,6 +159,7 @@ public class TenantAdminQrService {
         QrCodeOperacional qr = qrCodeOperacionalRepository.findByIdAndTenantId(id, ctx.tenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
         if (qr.getMesa() != null) {
+            modulesService.assertQrMesaEnabled(ctx.tenantId());
             revogar(id);
             return gerarQrParaMesa(qr.getMesa().getId());
         }
@@ -202,6 +206,8 @@ public class TenantAdminQrService {
     @Transactional
     public TenantQrCodeResponse gerarQrParaMesa(Long mesaId) {
         TenantContext ctx = requireTenantContext();
+        modulesService.assertQrMesaEnabled(ctx.tenantId());
+        modulesService.assertMesasEnabled(ctx.tenantId());
         Mesa mesa = mesaRepository.findByIdAndTenantId(mesaId, ctx.tenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
 

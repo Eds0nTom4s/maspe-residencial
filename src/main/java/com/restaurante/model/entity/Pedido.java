@@ -32,10 +32,8 @@ public class Pedido extends BaseEntity {
     @Column(nullable = false, unique = true)
     private String numero; // Ex: PED-20260208-001
 
-    // Relacionamento OBRIGATÓRIO com SessaoConsumo
-    // Pedidos são vinculados à sessão, não diretamente à mesa.
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "sessao_consumo_id", nullable = false)
+    @JoinColumn(name = "sessao_consumo_id")
     private SessaoConsumo sessaoConsumo;
 
     @ManyToOne(fetch = FetchType.LAZY)

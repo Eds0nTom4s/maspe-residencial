@@ -1,0 +1,124 @@
+RELATORIO DE AUDITORIA TECNICA - CONSUMA BACKEND
+CAMADA DE CONTA EMPRESARIAL / BUSINESS ACCOUNT
+
+Identificacao da Auditoria:
+---------------------------
+ID do Requisito: CONSUMA — BACKEND — BUSINESS-ACCOUNT-AUDIT-001
+Branch de Trabalho: backend/business-account-audit-001
+Commit Base: 23fba6fd8504c1c4099dbc16b1b6f2ed75a4f190
+Data de Execucao: 2026-06-10
+Escopo: Auditoria estatica da arquitetura multi-tenant, mapeamento de entidades e identificacao de gaps para a camada de Conta Empresarial (Business Account / Business Owner).
+
+--------------------------------------------------------------------------------
+1. RESUMO EXECUTIVO DO DIAGNOSTICO
+--------------------------------------------------------------------------------
+Apos inspecao estatica do codigo-fonte do backend da CONSUMA, conclui-se que o sistema NAO possui uma camada formal de "Business Account" (Conta Empresarial / Organizacao Cliente). 
+
+O modelo multi-tenant atual esta centrado unicamente na entidade `Tenant`, que desempenha simultaneamente o papel de:
+1. Isolador de dados e limite operacional (cardapio, pedidos, KDS, mesas, logs).
+2. Unidade de cobranca e faturamento (associada diretamente a `TenantSubscription` e `BillingPlan`).
+3. Unidade de propriedade empresarial.
+
+O conceito de "Dono do Negocio" (Business Owner) esta diluido no relacionamento `TenantUser` atraves da role `TENANT_OWNER`. Esta associacao e puramente operacional e de escopo interno ao `Tenant`. Nao existe uma representacao global que permita a um unico dono gerenciar multiplos `Tenants` de forma unificada ou consolidar a sua fatura sob um único cadastro juridico/financeiro (Business Account).
+
+--------------------------------------------------------------------------------
+2. MAPEAMENTO DE ENTIDADES EXISTENTES E FLUXOS
+--------------------------------------------------------------------------------
+A estrutura atual de dados e governanca de acessos baseia-se nas seguintes entidades:
+
+* User (com.restaurante.model.entity.User)
+  - Identidade global no sistema (username, email, telefone, senha).
+  - Nao possui qualquer vinculo direto ou chave estrangeira (FK) com `Tenant`.
+  - Atua apenas como credencial para autenticacao e possui roles globais no Spring Security (`ROLE_CLIENTE`, `ROLE_ATENDENTE`, `ROLE_ADMIN`, etc.).
+
+* Tenant (com.restaurante.model.entity.Tenant)
+  - A raiz de isolamento operacional do sistema.
+  - Campos principais: nome, slug, tenant_code, nif, telefone, email, tipo (TenantTipo), estado (TenantEstado).
+  - Estado do Tenant (`TenantEstado`): RASCUNHO, ATIVO, SUSPENSO, BLOQUEADO, CANCELADO.
+
+* TenantUser (com.restaurante.model.entity.TenantUser)
+  - Entidade associativa (tabela pivot `tenant_users`) que vincula `User` e `Tenant`.
+  - Define o papel operacional do usuario dentro daquele Tenant (`TenantUserRole`: TENANT_OWNER, TENANT_ADMIN, TENANT_OPERATOR, etc.).
+  - Define o estado da membership (`TenantUserEstado`): ATIVO, PENDENTE, SUSPENSO, REMOVIDO.
+  - Restricao: Um usuario pode estar associado a multiplos Tenants atraves de multiplos registros `TenantUser`, mas estas associacoes sao independentes e operam em isolamento.
+
+* Instituicao (com.restaurante.model.entity.Instituicao)
+  - Representa uma unidade ou filial fisica e operacional pertencente a um `Tenant` (relacionamento ManyToOne `tenant_id`).
+  - Cada `Tenant` pode ter multiplas `Instituicoes`, porem o plano de subscricao (`Plano.max_instituicoes` e `permite_multi_instituicao`) restringe essa capacidade operacional.
+
+* TenantSubscription (com.restaurante.model.entity.TenantSubscription)
+  - Vincula o `Tenant` a um `BillingPlan` (plano de cobranca comercial).
+  - Controla o status financeiro (`TenantSubscriptionStatus`: TRIALING, ACTIVE, PAST_DUE, CANCELED, unpaid).
+  - Nota: Existe tambem a entidade legada `Subscricao` (ligada a `Plano` / V2) que coexistiu com a estruturacao recente do modulo de billing.
+
+* Fluxo de Autenticacao e Token Scoped:
+  - O usuario realiza o login primario (/auth/admin/login) com telefone/senha, recebendo um JWT global.
+  - Para operar, ele deve listar seus tenants associados (/auth/tenants) e selecionar um deles (/auth/tenant/select), recebendo um token tenant-scoped contendo claims de `tenantId`, `tenantCode` e `tenantRoles`.
+  - O `TenantGuard` e o `TenantContext` interceptam as requisicoes HTTP e garantem o isolamento com base nessas claims do token JWT.
+
+--------------------------------------------------------------------------------
+3. GAPS ARQUITETURAIS IDENTIFICADOS E RISCOS
+--------------------------------------------------------------------------------
+A ausencia de uma entidade intermediaria como `BusinessAccount` acarreta os seguintes riscos e limitacoes:
+
+* Risco de Seguranca e Complexidade de RBAC (Multi-Tenant/Multi-Business):
+  - Atualmente, para que um Dono administre 3 empresas (Tenants) distintas, ele deve possuir 3 registros em `TenantUser` com `role = TENANT_OWNER`.
+  - Nao ha validacao centralizada de conta empresarial. A revogacao de acesso ou suspensao global do Dono exige iteracao manual ou atualizacao em multiplos registros da tabela `tenant_users`.
+
+* Inexistencia de Login de Dono com Escopo Consolidado:
+  - O JWT Principal (`JwtPrincipal`) atual so suporta o escopo de um unico `tenantId`. Nao ha escopo de "Business Account" que permita visualizar dados agregados de faturamento ou saude operacional de multiplas unidades de forma consolidada no painel administrativo sem alternar de Tenant constantemente.
+
+* Acoplamento de Cobranca e Subscription:
+  - Como `TenantSubscription` aponta diretamente para `Tenant`, cada empresa/unidade operacional e faturada de forma individual.
+  - Impossibilita o oferecimento de planos empresariais ("Corporate") onde o cliente paga uma unica assinatura consolidada pela sua "Conta Empresarial" e tem direito a provisionar um numero flexivel de filiais (Tenants).
+
+* Inexistencia de Gestao de Suspensao a Nivel de Conta:
+  - A suspensao financeira/administrativa ocorre a nivel de `Tenant` (`TenantEstado` ou `TenantSubscriptionStatus`).
+  - Nao e possivel suspender uma conta empresarial como um todo, bloqueando o acesso de todos os sub-tenants de uma vez de forma nativa e limpa.
+
+* Ausencia de Provisionamento Self-Service para Clientes:
+  - O provisionamento de novos Tenants esta centralizado no `PLATFORM_ADMIN` atraves do controller `PlatformTenantProvisioningController`. 
+  - Um `TENANT_OWNER` nao possui endpoints nem autonomia para provisionar novas instituicoes ou novos tenants autonomamente, limitando o modelo SaaS self-service PLG (Product-Led Growth).
+
+--------------------------------------------------------------------------------
+4. RECOMENDACOES PARA ADJACENCIA FUTURA (PLANO DE ACAO)
+--------------------------------------------------------------------------------
+Quando o projeto avancar para a fase de implementacao, sugere-se a seguinte estrategia de evolucao da modelagem (sem quebrar a retrocompatibilidade):
+
+1. Introducao da Entidade `BusinessAccount`:
+   - Tabela: `business_accounts` (id, nome, nif, email, telefone, responsavel_user_id, estado, created_at, etc.).
+   - Representara o cliente comercial / conta pagadora.
+   - O `responsavel_user_id` apontara para o `User` global que e o dono proprietario original da conta.
+
+2. Ajuste na Entidade `Tenant`:
+   - Adicionar uma FK opcional (inicialmente anulavel para compatibilidade com legados) `business_account_id` apontando para `business_accounts`.
+   - O provisionamento passaria a associar novos Tenants a uma `BusinessAccount`.
+
+3. Centralizacao de Billing em `BusinessAccount`:
+   - Migrar a associacao de `TenantSubscription` da tabela `tenants` para `business_accounts`.
+   - As validacoes de limite passariam a consultar de forma consolidada os limites contratados pela Business Account (ex.: somatorio de instituicoes ou dispositivos ativos de todos os Tenants vinculados à Business Account).
+
+4. Enriquecimento de Claims JWT:
+   - Adicionar claim `businessAccountId` ao JWT emitido no `/auth/tenant/select` e no JWT global.
+   - Atualizar `JwtPrincipal` e `TenantContext` para carregar `businessAccountId`, permitindo que o `TenantGuard` valide acessos no escopo da conta mae.
+
+5. Migracao Gradual de Dados:
+   - Scripts Flyway (`V72__...`) para criar `business_accounts` com base nos `Tenants` existentes que possuem `TENANT_OWNER` ativo.
+   - Atualizar a FK `business_account_id` nos `Tenants` correspondentes, garantindo que o sistema continue a funcionar sem indisponibilidade ou quebra de dados historicos.
+
+--------------------------------------------------------------------------------
+5. RESPOSTA DIRETA AS DIRETRIZES DO PROJETO
+--------------------------------------------------------------------------------
+* Existe hoje uma camada formal de Business Account no backend?
+  Nao. Ela e inexistente como entidade de banco de dados ou classe de dominio Java.
+
+* Como e feita a governanca de propriedade hoje?
+  Atraves do relacionamento associativo `TenantUser` com a role `TENANT_OWNER`, que e estritamente restrita ao escopo operacional do respectivo Tenant.
+
+* O sistema suporta multi-business centralizado para o mesmo dono?
+  Apenas de forma fragmentada no banco (multiplos registros em `tenant_users` para o mesmo `user_id` com a role de proprietario), sem visao consolidada de faturamento ou administracao unificada de conta.
+
+* Como proceder no billing sem impactar a arquitetura atual?
+  A proposta de criar a entidade `BusinessAccount` e mover para ela a subscription e faturamento e a abordagem ideal, isolando a complexidade operacional (que permanece no Tenant) da complexidade financeira/comercial (que passa para a Business Account).
+
+Status da Auditoria: CONCLUIDA COM SUCESSO (Sem alteracao de codigo funcional)

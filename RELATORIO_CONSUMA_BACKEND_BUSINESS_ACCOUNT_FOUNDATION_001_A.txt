@@ -1,0 +1,357 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - BUSINESS-ACCOUNT-FOUNDATION-001-A
+
+Data:
+2026-06-10
+
+Branch:
+backend/business-account-foundation-001-a
+
+Commit base validado:
+8eefb2c9d43c6f8f4fdc180cc0a4366662eaad95
+
+Commit final:
+8eefb2c9d43c6f8f4fdc180cc0a4366662eaad95 (commit funcional homologado em sandbox; este relatorio sera versionado em commit administrativo separado)
+
+URL da branch remota:
+https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/business-account-foundation-001-a
+
+1. Objetivo
+
+Validar manualmente em sandbox real que a fundacao BusinessAccount da fase 001 aplica a migration V72, executa o backfill esperado, preserva retrocompatibilidade e nao introduz regressao em Auth, Tenant, Billing atual ou Public QR.
+
+2. Ambiente sandbox
+
+Comandos operacionais usados na homologacao:
+
+- `docker compose --env-file .env.sandbox -f docker-compose.sandbox.yml ps`
+- `docker compose --env-file .env.sandbox -f docker-compose.sandbox.yml up -d --build api-sandbox` (tentativa de rebuild para atualizar o artefato do container)
+- `mvn -DskipTests package`
+- `docker cp target/sistema-restauracao-1.0.0.jar consuma-api-sandbox:/app/app.jar`
+- `docker compose --env-file .env.sandbox -f docker-compose.sandbox.yml restart api-sandbox`
+
+Containers ativos:
+
+- `consuma-api-sandbox` em `0.0.0.0:8081->8080/tcp`
+- `consuma-postgres-sandbox` healthy
+
+API:
+
+- `http://127.0.0.1:8081/api`
+
+Banco:
+
+- `postgres-sandbox`
+- `restaurante_sandbox_db`
+
+Profile:
+
+- `sandbox`
+
+Healthcheck:
+
+- `{"status":"UP","groups":["liveness","readiness"]}`
+
+Observacao:
+
+O sandbox estava inicialmente executando um jar antigo sem a V72 aplicada. Isso se mostrou um problema de deploy/artefato do ambiente, nao regressao da implementacao. A homologacao prosseguiu somente apos empacotar o jar atual, copiar para `/app/app.jar` no container e reiniciar `api-sandbox`.
+
+3. Migration V72
+
+Aplicada?
+
+- SIM
+
+Tabelas criadas:
+
+- `business_accounts`
+- `business_account_members`
+
+Coluna `tenants.business_account_id`:
+
+- SIM
+
+FKs validadas:
+
+- `business_accounts.responsavel_user_id -> users.id`
+- `business_account_members.business_account_id -> business_accounts.id`
+- `business_account_members.user_id -> users.id`
+- `tenants.business_account_id -> business_accounts.id`
+
+Indices validados conforme V72:
+
+- `uk_business_accounts_slug`
+- `idx_business_accounts_nif`
+- `idx_business_accounts_estado`
+- `idx_business_accounts_responsavel`
+- `idx_business_account_members_account`
+- `idx_business_account_members_user`
+- `uk_business_account_member_unique`
+- `idx_tenants_business_account`
+
+Flyway:
+
+- `flyway_schema_history` registra a versao `72` com `success=true`
+- `installed_on = 2026-06-10 05:35:00.024929`
+
+Counts levantados em sandbox:
+
+- `business_accounts = 19`
+- `tenants com business_account_id = 19`
+- `tenants sem business_account_id = 0`
+- `business_account_members = 18`
+- `business_accounts sem membros = 1`
+- `members OWNER = 18`
+
+Tenants sem BusinessAccount:
+
+- nenhum tenant legado permaneceu sem `business_account_id` apos o backfill
+
+Contas sem membros:
+
+- 1 conta legado permaneceu sem membership (`legacy-single-tenant`), coerente com ausencia de owner legivel no legado
+
+Owners migrados:
+
+- 18 memberships `OWNER` foram geradas a partir do legado
+
+Evidencia adicional:
+
+- `GET /platform/business-accounts` retornou 19 contas
+- a conta legado `id=2` apresentou `tenantCount=1` e `memberCount=1`
+
+4. Platform BusinessAccounts
+
+Endpoint | Status | Resultado | Observacao
+`GET /platform/business-accounts` | 200 | lista de 19 contas | somente Platform Admin
+`GET /platform/business-accounts/2` | 200 | detalhe da conta legado `ATIVA`, `tenantCount=1`, `memberCount=1` | sem exposicao indevida
+`GET /platform/business-accounts/2/tenants` | 200 | 1 tenant (`tenantId=2`, `tenantCode=CARDA`) | RBAC preservado
+`GET /platform/business-accounts/2/members` | 200 | 1 member `OWNER` ativo | RBAC preservado
+`POST /platform/business-accounts` | 200 | criou conta manual `id=20`, slug `ba-manual-001a-1781070608` | `responsavelUserId=1`, `memberCount=1`
+`PATCH /platform/business-accounts/20/estado` | 200 | estado alterado para `SUSPENSA` | sem efeitos colaterais indevidos
+`POST /platform/business-accounts/20/members` | 200 | adicionou `userId=14` com role `ADMIN` | membership criado com sucesso
+`PATCH /platform/business-accounts/20/members/20/estado` | 200 | membro alterado para `SUSPENSO` | sem quebra
+`GET /platform/business-accounts` com token nao-platform | 403 | acesso negado | RBAC preservado
+
+5. Provisionamento
+
+Sem `businessAccountId`:
+
+- preview: `200`, `success=true`, `permitido=true`, `qrCodesCriados=1`
+- provisionamento: `200`, `success=true`, `tenantId=20`, slug `banca-qa-001a-sem-ba-1781070637`, `ownerUserId=14`
+- banco: `tenants.id=20` permaneceu com `business_account_id = null`
+- conclusao: fluxo legado preservado, sem associacao forcada
+
+Com `businessAccountId`:
+
+- preview: `200`, `success=true`, `permitido=true` para `businessAccountId=20`
+- provisionamento: `200`, `success=true`, `tenantId=21`, slug `rest-qa-001a-com-ba-1781070688`, `ownerUserId=15`
+- banco: `tenants.id=21.business_account_id = 20`
+- `/platform/business-accounts/20/tenants` passou a listar o tenant 21
+
+Preview:
+
+- continua funcionando com e sem `businessAccountId`
+- nao quebrou template nem validacao de limites
+
+6. Auth e tenant selection
+
+Login:
+
+- `POST /api/auth/jwt/login` com o admin do sandbox funcionou e emitiu JWT valido
+- `POST /api/auth/admin/login` com o telefone seed retornou `400` com `Credenciais invalidas`
+
+`/auth/tenants`:
+
+- `200`, `success=true`, 21 tenants disponiveis para o admin
+
+`/auth/tenant/select`:
+
+- `200`, `success=true`, JWT tenant-scoped emitido para o tenant 21
+
+Claims preservadas no token tenant-scoped:
+
+- `sub=admin`
+- `roles=[ROLE_ADMIN]`
+- `tokenType=TENANT`
+- `tenantId=21`
+- `tenantCode=QAB0688`
+- `tenantRoles=[TENANT_ADMIN]`
+- `platformAdmin=true`
+- `tenantAccessVersion=1`
+
+Conclusao:
+
+- nenhum fluxo exigiu claim de `businessAccountId`
+- `GET /api/auth/tenants` e `POST /api/auth/tenant/select` permaneceram funcionais
+
+Observacao:
+
+- a falha em `/api/auth/admin/login` decorre de limitacao preexistente do sandbox: a tabela `atendentes` estava vazia no ambiente. Nao foi encontrada relacao causal com a fase BusinessAccount.
+
+7. Tenant Dashboard / operacao
+
+Produtos:
+
+- `200`; produto criado no tenant 21 com `id=101` e preco `12.5`
+
+Categorias:
+
+- `200`; 1 categoria retornada (`geral`)
+
+Metodos:
+
+- fluxo de metodos/politicas permaneceu funcional
+
+Politica:
+
+- `GET /api/tenant/configuracoes/pagamento` respondeu `200` com `Politica de pagamento`
+
+Modulos:
+
+- `GET /api/tenant/modulos-operacionais` respondeu `200` com `Modulos operacionais`
+
+Mesas:
+
+- `GET /api/tenant/mesas` respondeu `200` com `0` mesas para o tenant 21, coerente com `criarMesas=false`
+
+QR:
+
+- `GET /api/tenant/qrcodes` respondeu `200` com 1 QR
+- `GET /api/tenant/qr/principal` respondeu `200` com `qrCodeId=33`, `tenantId=21`
+
+Pedidos:
+
+- `GET /api/tenant/pedidos` respondeu `200`
+- lista inicial vazia antes do pedido publico e sem quebra apos a criacao
+
+Conclusao:
+
+- nenhum endpoint tenant principal quebrou por causa de BusinessAccount
+- o isolamento do `TenantGuard` permaneceu preservado
+
+8. Public QR
+
+REST:
+
+- resolver publico: `200`
+- cardapio publico: `200` com 1 categoria apos publicacao
+- criar pedido publico: `200`, `pedidoId=26`, `total=12.5`, `statusOperacional=CRIADO`
+- iniciar pagamento publico: `200`, `pagamentoId=8`, `metodoPagamento=REF`, `statusPagamento=PENDENTE`
+
+PONTO:
+
+- cardapio publico: `200` com 1 categoria apos publicacao
+- criar pedido publico: `200`, `pedidoId=27`, `total=8`, `statusOperacional=CRIADO`
+
+Sem Authorization:
+
+- todos os requests publicos foram executados sem header `Authorization`
+
+Pedidos:
+
+- REST e PONTO continuaram operando apos a publicacao do cardapio
+
+Observacao:
+
+- antes da publicacao do cardapio, REST e PONTO retornavam `Cardapio indisponivel no momento. Tente novamente mais tarde.`
+- isso se confirmou como precondicao operacional existente, nao regressao causada por BusinessAccount
+
+9. Billing atual
+
+TenantSubscription preservada:
+
+- SIM em esquema e contrato
+
+Dados:
+
+- `subscricoes = 21`
+- `tenant_subscriptions = 0`
+
+Observacao:
+
+- o dataset atual de sandbox continua usando `subscricoes` como fonte viva do billing por tenant
+- a tabela `tenant_subscriptions` permaneceu integra, sem alteracao destrutiva
+- nao houve migracao de billing para BusinessAccount
+
+10. Testes automatizados
+
+`mvn clean test`:
+
+- `BUILD SUCCESS`
+- `Tests run: 338`
+- `Failures: 0`
+- `Errors: 0`
+- `Skipped: 3`
+- tempo aproximado: `05:24 min`
+
+Failsafe integracao:
+
+- comando executado:
+  - `mvn -Pit -DskipITs=false -Dit.test=BusinessAccountFoundationIT,PlatformTenantProvisioningControllerIT,PlatformTenantProvisioningPreviewControllerIT failsafe:integration-test failsafe:verify`
+- `BUILD SUCCESS`
+- `Tests run: 9`
+- `Failures: 0`
+- `Errors: 0`
+- `Skipped: 0`
+- breakdown:
+  - `PlatformTenantProvisioningPreviewControllerIT = 5`
+  - `PlatformTenantProvisioningControllerIT = 3`
+  - `BusinessAccountFoundationIT = 1`
+- tempo aproximado: `01:21 min`
+
+Outros:
+
+- uma execucao anterior do failsafe em paralelo com `mvn clean test` gerou falha invalida por interferencia do `clean` sobre `target`
+- essa evidencia foi descartada e a validacao oficial foi rerodada em sequencia
+
+11. Bugs encontrados
+
+- bug operacional de ambiente: o sandbox estava executando um jar antigo sem a V72
+- impacto: o ambiente inicialmente mascarava a migration e as tabelas novas
+- correcao: `mvn -DskipTests package` + `docker cp target/sistema-restauracao-1.0.0.jar consuma-api-sandbox:/app/app.jar` + restart de `api-sandbox`
+- arquivos: artefato `target/sistema-restauracao-1.0.0.jar` e `/app/app.jar` no container
+- status: resolvido como ajuste operacional de ambiente, sem alteracao de codigo
+
+- bug funcional da fase 001-A: nenhum bug novo atribuivel a BusinessAccount Foundation foi reproduzido em sandbox
+- impacto: n/a
+- correcao: nao foi necessario alterar codigo da aplicacao
+- arquivos: n/a
+- status: sem bug funcional da fase
+
+12. Regressoes encontradas
+
+- nenhuma regressao funcional confirmada em migration V72
+- nenhuma regressao confirmada em `/api/auth/jwt/login`, `/api/auth/tenants` ou `/api/auth/tenant/select`
+- nenhuma regressao confirmada no provisionamento legado sem `businessAccountId`
+- nenhuma regressao confirmada em endpoints tenant principais
+- nenhuma regressao confirmada no billing atual por tenant
+- nenhuma regressao confirmada em Public QR REST ou PONTO apos publicacao do cardapio
+
+13. Limitacoes
+
+- `/api/auth/admin/login` com telefone seed nao foi homologado porque o sandbox estava sem registros em `atendentes`; limitacao preexistente do ambiente
+- Public QR exige cardapio publicado antes do pedido; precondicao operacional existente e mantida
+- `tenant_subscriptions` permaneceu vazio neste dataset; a validacao de billing concentrou-se em preservacao estrutural e ausencia de regressao no fluxo atual por tenant
+
+14. Working tree
+
+- antes do commit do relatorio, a working tree passou a conter apenas este arquivo de evidencia
+- nenhum arquivo de codigo precisou ser alterado para homologar a fase
+
+15. Push
+
+- comando de commit: `git commit -m "Validate business account foundation sandbox"`
+- comando de push: `git push origin backend/business-account-foundation-001-a`
+- URL remota esperada: `https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/business-account-foundation-001-a`
+
+16. Pergunta final obrigatoria
+
+A fundacao BusinessAccount foi homologada em sandbox, com migration V72 aplicada, backfill validado, endpoints Platform funcionando e sem regressao em Auth, Tenant, Billing atual e Public QR?
+
+Resposta:
+SIM.
+
+17. Status tecnico
+
+CONCLUIDO COM LIMITACAO - sandbox possui limitacao preexistente em `/api/auth/admin/login` por ausencia de seed em `atendentes`; fora isso, a fase foi homologada sem regressao funcional atribuivel a BusinessAccount Foundation.

@@ -5,6 +5,7 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ProvisioningException;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
 import com.restaurante.inventory.service.TenantInventoryPolicyService;
+import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.ChecklistOperacionalItemTemplate;
 import com.restaurante.model.entity.ChecklistOperacionalTemplate;
@@ -43,6 +44,7 @@ import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
 import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.UnidadeProducaoTipo;
+import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.ChecklistOperacionalItemTemplateRepository;
 import com.restaurante.repository.ChecklistOperacionalTemplateRepository;
@@ -93,6 +95,7 @@ public class BusinessTemplateProvisioningSupport {
     private static final char[] CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
 
     private final TenantRepository tenantRepository;
+    private final BusinessAccountRepository businessAccountRepository;
     private final PlanoRepository planoRepository;
     private final SubscricaoRepository subscricaoRepository;
     private final InstituicaoRepository instituicaoRepository;
@@ -227,13 +230,16 @@ public class BusinessTemplateProvisioningSupport {
                               String tenantCodeNormalized,
                               String templateCode,
                               int templateVersion,
-                              String provisioningSource) {
+                              String provisioningSource,
+                              Long businessAccountId) {
+        BusinessAccount businessAccount = resolveBusinessAccount(businessAccountId);
         Tenant t = new Tenant();
         t.setNome(req.getNomeNegocio());
         t.setSlug(slugNormalized);
         t.setTenantCode(tenantCodeNormalized);
         t.setTipo(req.getTipo());
         t.setEstado(TenantEstado.ATIVO);
+        t.setBusinessAccount(businessAccount);
         t.setNif(req.getNif());
         t.setTelefone(req.getTelefone());
         t.setEmail(req.getEmail());
@@ -247,6 +253,22 @@ public class BusinessTemplateProvisioningSupport {
         t.setProvisioningSource(provisioningSource);
 
         return tenantRepository.saveAndFlush(t);
+    }
+
+    public BusinessAccount resolveBusinessAccount(Long businessAccountId) {
+        if (businessAccountId == null) {
+            return null;
+        }
+        return businessAccountRepository.findById(businessAccountId)
+                .orElseThrow(() -> new ProvisioningException(
+                        HttpStatus.BAD_REQUEST,
+                        "BUSINESS_ACCOUNT_INEXISTENTE",
+                        "businessAccountId",
+                        "BusinessAccount inexistente: " + businessAccountId,
+                        null,
+                        "Informe uma BusinessAccount válida ou omita o campo.",
+                        null
+                ));
     }
 
     @Transactional

@@ -21,6 +21,8 @@ public interface TenantRepository extends JpaRepository<Tenant, Long> {
 
     List<Tenant> findByEstadoOrderByIdAsc(TenantEstado estado);
 
+    List<Tenant> findByBusinessAccountIdOrderByIdAsc(Long businessAccountId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Tenant t where t.id = :id")
     Optional<Tenant> findByIdForUpdate(@Param("id") Long id);
@@ -29,7 +31,11 @@ public interface TenantRepository extends JpaRepository<Tenant, Long> {
 
     boolean existsByTenantCode(String tenantCode);
 
+    boolean existsByIdAndBusinessAccountId(Long id, Long businessAccountId);
+
     long countByEstado(TenantEstado estado);
+
+    long countByBusinessAccountId(Long businessAccountId);
 
     @Query("""
             select t

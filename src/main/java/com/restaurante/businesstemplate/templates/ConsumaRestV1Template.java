@@ -261,7 +261,15 @@ public class ConsumaRestV1Template implements BusinessTemplate {
         boolean deliveryManual = request.getRest() != null && request.getRest().getEntrega() == BusinessTemplateProvisionRequest.RestDeliveryOption.MANUAL;
         boolean deliveryNetwork = request.getRest() != null && request.getRest().getEntrega() == BusinessTemplateProvisionRequest.RestDeliveryOption.CONSUMA_NETWORK;
 
-        Tenant tenant = support.criarTenant(request.getTenant(), slugNorm, tenantCodeNorm, CODE, VERSION, "PLATFORM_TEMPLATE_API");
+        Tenant tenant = support.criarTenant(
+                request.getTenant(),
+                slugNorm,
+                tenantCodeNorm,
+                CODE,
+                VERSION,
+                "PLATFORM_TEMPLATE_API",
+                request.getBusinessAccountId()
+        );
         Subscricao sub = support.criarSubscricaoAtiva(tenant, plano);
 
         int unidadesNovas = 1;

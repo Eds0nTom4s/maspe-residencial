@@ -5,6 +5,7 @@ import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ProvisioningException;
+import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
@@ -28,6 +29,7 @@ import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
+import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.MesaRepository;
@@ -65,6 +67,7 @@ public class TenantProvisioningService {
 
     private final TenantGuard tenantGuard;
     private final TenantRepository tenantRepository;
+    private final BusinessAccountRepository businessAccountRepository;
     private final PlanoRepository planoRepository;
     private final SubscricaoRepository subscricaoRepository;
     private final ProvisioningTemplateRepository templateRepository;
@@ -132,6 +135,7 @@ public class TenantProvisioningService {
         }
 
         boolean ativarTenant = request.getOpcoes() == null || request.getOpcoes().getAtivarTenant() == null || request.getOpcoes().getAtivarTenant();
+        BusinessAccount businessAccount = resolveBusinessAccount(request.getBusinessAccountId());
 
         // Nota: TenantLimitService bloqueia criação se Tenant != ATIVO.
         // Para provisionamento interno, criamos como ATIVO e, se necessário, rebaixamos para RASCUNHO no final.
@@ -144,6 +148,7 @@ public class TenantProvisioningService {
         tenant.setEmail(request.getTenant().getEmail());
         tenant.setTipo(request.getTenant().getTipo());
         tenant.setEstado(TenantEstado.ATIVO);
+        tenant.setBusinessAccount(businessAccount);
         tenant.setTemplateCode(template.getCodigo());
         tenant.setTemplateVersion(template.getVersion() != null ? template.getVersion().intValue() : null);
         tenant.setProvisionedAt(java.time.LocalDateTime.now());
@@ -661,5 +666,18 @@ public class TenantProvisioningService {
     public static class QrPrincipal {
         public String nome;
         public QrCodeOperacionalTipo tipo;
+    }
+
+    private BusinessAccount resolveBusinessAccount(Long businessAccountId) {
+        if (businessAccountId == null) {
+            return null;
+        }
+        return businessAccountRepository.findById(businessAccountId)
+                .orElseThrow(() -> new ProvisioningException(
+                        HttpStatus.BAD_REQUEST,
+                        "BUSINESS_ACCOUNT_INEXISTENTE",
+                        "businessAccountId",
+                        "BusinessAccount inexistente: " + businessAccountId
+                ));
     }
 }

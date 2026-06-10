@@ -6,7 +6,10 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 import java.time.LocalDateTime;
@@ -15,7 +18,8 @@ import java.time.LocalDateTime;
 @Table(name = "tenants", indexes = {
         @Index(name = "idx_tenant_slug", columnList = "slug", unique = true),
         @Index(name = "idx_tenant_tenant_code", columnList = "tenant_code", unique = true),
-        @Index(name = "idx_tenant_estado", columnList = "estado")
+        @Index(name = "idx_tenant_estado", columnList = "estado"),
+        @Index(name = "idx_tenant_business_account", columnList = "business_account_id")
 })
 public class Tenant extends BaseEntity {
 
@@ -44,6 +48,10 @@ public class Tenant extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "estado", nullable = false, length = 20)
     private TenantEstado estado;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "business_account_id")
+    private BusinessAccount businessAccount;
 
     // Business template provenance (Prompt 39)
     @Column(name = "template_code", length = 60)
@@ -126,6 +134,14 @@ public class Tenant extends BaseEntity {
 
     public void setEstado(TenantEstado estado) {
         this.estado = estado;
+    }
+
+    public BusinessAccount getBusinessAccount() {
+        return businessAccount;
+    }
+
+    public void setBusinessAccount(BusinessAccount businessAccount) {
+        this.businessAccount = businessAccount;
     }
 
     public String getTemplateCode() {

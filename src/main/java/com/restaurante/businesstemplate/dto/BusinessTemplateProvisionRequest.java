@@ -30,6 +30,12 @@ public class BusinessTemplateProvisionRequest {
      */
     private String planoCodigo;
 
+    /**
+     * Conta empresarial opcional para agrupar o tenant provisionado.
+     * Quando ausente, o fluxo legado é preservado.
+     */
+    private Long businessAccountId;
+
     @Valid
     @NotNull
     private TenantInfo tenant;
@@ -142,4 +148,3 @@ public class BusinessTemplateProvisionRequest {
         CONSUMA_NETWORK
     }
 }
-

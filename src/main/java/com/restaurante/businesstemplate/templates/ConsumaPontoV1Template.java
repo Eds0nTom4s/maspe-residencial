@@ -130,7 +130,15 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
         boolean entregaManual = request.getPonto() != null && Boolean.TRUE.equals(request.getPonto().getEntregaManual());
         boolean allowPickup = request.getPonto() == null || request.getPonto().getAllowPickup() == null || Boolean.TRUE.equals(request.getPonto().getAllowPickup());
 
-        Tenant tenant = support.criarTenant(request.getTenant(), slugNorm, tenantCodeNorm, CODE, VERSION, "PLATFORM_TEMPLATE_API");
+        Tenant tenant = support.criarTenant(
+                request.getTenant(),
+                slugNorm,
+                tenantCodeNorm,
+                CODE,
+                VERSION,
+                "PLATFORM_TEMPLATE_API",
+                request.getBusinessAccountId()
+        );
         Subscricao sub = support.criarSubscricaoAtiva(tenant, plano);
 
         // Limites

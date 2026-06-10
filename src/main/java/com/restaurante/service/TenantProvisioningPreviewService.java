@@ -5,6 +5,7 @@ import com.restaurante.dto.response.ProvisionarTenantPreviewResponse;
 import com.restaurante.model.entity.Plano;
 import com.restaurante.model.entity.ProvisioningTemplate;
 import com.restaurante.model.entity.User;
+import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.PlanoRepository;
 import com.restaurante.repository.ProvisioningTemplateRepository;
 import com.restaurante.repository.TenantRepository;
@@ -24,6 +25,7 @@ public class TenantProvisioningPreviewService {
 
     private final TenantGuard tenantGuard;
     private final TenantRepository tenantRepository;
+    private final BusinessAccountRepository businessAccountRepository;
     private final PlanoRepository planoRepository;
     private final ProvisioningTemplateRepository templateRepository;
     private final UserRepository userRepository;
@@ -59,6 +61,16 @@ public class TenantProvisioningPreviewService {
             resp.bloqueios(add(resp.build().getBloqueios(), blocking("TEMPLATE_INEXISTENTE_OU_INATIVO", "templateCodigo",
                     "Template inválido/inativo: " + request.getTemplateCodigo(), null, "Informe um template ativo.")));
             return finalizeResponse(resp, request, plano, null, null, null);
+        }
+
+        if (request.getBusinessAccountId() != null && businessAccountRepository.findById(request.getBusinessAccountId()).isEmpty()) {
+            resp.bloqueios(add(resp.build().getBloqueios(), blocking(
+                    "BUSINESS_ACCOUNT_INEXISTENTE",
+                    "businessAccountId",
+                    "BusinessAccount inexistente: " + request.getBusinessAccountId(),
+                    null,
+                    "Informe uma BusinessAccount válida ou omita o campo."
+            )));
         }
 
         ProvisioningPlan plan = planCalculator.calculate(
@@ -345,4 +357,3 @@ public class TenantProvisioningPreviewService {
             Integer maxQrCodes
     ) {}
 }
-

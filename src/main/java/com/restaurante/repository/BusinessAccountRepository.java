@@ -32,9 +32,20 @@ public interface BusinessAccountRepository extends JpaRepository<BusinessAccount
     @Query("""
             select ba
             from BusinessAccount ba
-            where (cast(:estado as string) is null or ba.estado = :estado)
-              and (cast(:search as string) is null or :search = '' or lower(ba.nome) like lower(concat('%', :search, '%')) or lower(ba.slug) like lower(concat('%', :search, '%')))
+            where (:estado is null or ba.estado = :estado)
+              and (:responsavelUserId is null or ba.responsavel.id = :responsavelUserId)
+              and (:search is null or :search = ''
+                   or lower(ba.nome) like lower(concat('%', :search, '%'))
+                   or lower(ba.slug) like lower(concat('%', :search, '%'))
+                   or lower(coalesce(ba.email, '')) like lower(concat('%', :search, '%')))
+              and (:hasTenants is null
+                   or (:hasTenants = true and exists (select 1 from Tenant t where t.businessAccount = ba))
+                   or (:hasTenants = false and not exists (select 1 from Tenant t where t.businessAccount = ba)))
             order by ba.id asc
             """)
-    Page<BusinessAccount> search(@Param("estado") BusinessAccountEstado estado, @Param("search") String search, Pageable pageable);
+    Page<BusinessAccount> search(@Param("estado") BusinessAccountEstado estado,
+                                 @Param("search") String search,
+                                 @Param("responsavelUserId") Long responsavelUserId,
+                                 @Param("hasTenants") Boolean hasTenants,
+                                 Pageable pageable);
 }

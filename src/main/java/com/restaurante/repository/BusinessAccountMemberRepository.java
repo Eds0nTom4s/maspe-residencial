@@ -23,4 +23,8 @@ public interface BusinessAccountMemberRepository extends JpaRepository<BusinessA
     boolean existsByBusinessAccountIdAndUserIdAndRoleInAndEstado(Long businessAccountId, Long userId, List<BusinessAccountRole> roles, BusinessAccountMemberEstado estado);
 
     long countByBusinessAccountId(Long businessAccountId);
+
+    long countByBusinessAccountIdAndRoleAndEstado(Long businessAccountId,
+                                                  BusinessAccountRole role,
+                                                  BusinessAccountMemberEstado estado);
 }

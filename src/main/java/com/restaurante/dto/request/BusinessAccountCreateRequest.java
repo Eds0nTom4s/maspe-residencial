@@ -2,6 +2,7 @@ package com.restaurante.dto.request;
 
 import com.restaurante.model.enums.BusinessAccountEstado;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -28,4 +29,7 @@ public class BusinessAccountCreateRequest {
     private Long responsavelUserId;
     private String observacao;
     private List<Long> tenantIds;
+
+    @Positive
+    private Integer maxTenants;
 }

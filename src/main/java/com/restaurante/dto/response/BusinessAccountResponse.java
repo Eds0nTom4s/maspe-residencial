@@ -24,8 +24,11 @@ public class BusinessAccountResponse {
     private String responsavelNome;
     private String responsavelEmail;
     private String observacao;
+    private Integer maxTenants;
     private Long tenantCount;
+    private Long activeTenantCount;
     private Long memberCount;
+    private Boolean hasTenants;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

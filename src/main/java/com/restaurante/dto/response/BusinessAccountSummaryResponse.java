@@ -19,7 +19,9 @@ public class BusinessAccountSummaryResponse {
     private BusinessAccountEstado estado;
     private Long responsavelUserId;
     private String responsavelNome;
+    private Integer maxTenants;
     private Long tenantCount;
     private Long memberCount;
+    private Boolean hasTenants;
     private LocalDateTime createdAt;
 }

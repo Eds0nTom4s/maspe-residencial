@@ -37,6 +37,9 @@ public class BusinessAccount extends BaseEntity {
     @Column(name = "telefone", length = 20)
     private String telefone;
 
+    @Column(name = "max_tenants", nullable = false)
+    private Integer maxTenants = 1;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "estado", nullable = false, length = 20)
     private BusinessAccountEstado estado;
@@ -95,6 +98,14 @@ public class BusinessAccount extends BaseEntity {
 
     public void setTelefone(String telefone) {
         this.telefone = telefone;
+    }
+
+    public Integer getMaxTenants() {
+        return maxTenants;
+    }
+
+    public void setMaxTenants(Integer maxTenants) {
+        this.maxTenants = maxTenants;
     }
 
     public BusinessAccountEstado getEstado() {

@@ -1,6 +1,6 @@
 package com.restaurante.dto.request;
 
-import com.restaurante.model.enums.BusinessAccountEstado;
+import com.restaurante.model.enums.BusinessAccountRole;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,10 +11,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class BusinessAccountEstadoUpdateRequest {
+public class BusinessAccountMemberRoleUpdateRequest {
 
     @NotNull
-    private BusinessAccountEstado estado;
-
-    private String motivo;
+    private BusinessAccountRole role;
 }

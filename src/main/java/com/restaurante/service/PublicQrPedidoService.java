@@ -37,6 +37,7 @@ import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
@@ -102,7 +103,7 @@ public class PublicQrPedidoService {
 
         List<Produto> produtos = validarECarregarProdutosDoTenant(tenant.getId(), request.getItens());
         TenantOperationalModulesConfig modules = tenantOperationalModulesService.obterParaTenant(tenant.getId());
-        boolean fluxoPonto = isFluxoPonto(tenant, modules);
+        boolean fluxoPonto = isFluxoPonto(tenant);
         SelecaoMetodoPagamento selecaoPagamento = resolverSelecaoMetodoPagamento(request, fluxoPonto);
         ClientePedidoIdentificado cliente = resolverClienteIdentificado(tenant, request, fluxoPonto);
         if (qr.getTipo() == QrCodeOperacionalTipo.MESA && !modules.isQrMesaEnabled()) {
@@ -171,6 +172,7 @@ public class PublicQrPedidoService {
                         .status(StatusSubPedido.CRIADO)
                         .build();
                 subPedido.setTenant(tenant);
+                pedido.getSubPedidos().add(subPedido);
 
                 // Roteamento de produção:
                 // - resolve unidade por categoria para cada item
@@ -227,7 +229,6 @@ public class PublicQrPedidoService {
                 }
 
                 subPedido.calcularTotal();
-                pedido.getSubPedidos().add(subPedido);
             }
 
             pedido.calcularTotal();
@@ -288,11 +289,17 @@ public class PublicQrPedidoService {
         return produtos;
     }
 
-    private boolean isFluxoPonto(Tenant tenant, TenantOperationalModulesConfig modules) {
-        if (tenant != null && "CONSUMA_PONTO".equalsIgnoreCase(tenant.getTemplateCode())) {
-            return true;
+    private boolean isFluxoPonto(Tenant tenant) {
+        if (tenant == null) {
+            return false;
         }
-        return modules != null && !modules.isSessaoConsumoEnabled();
+        String templateCode = tenant.getTemplateCode();
+        if (templateCode != null && !templateCode.isBlank()) {
+            return "CONSUMA_PONTO".equalsIgnoreCase(templateCode)
+                    || "VENDEDOR_RUA".equalsIgnoreCase(templateCode)
+                    || "LOJA".equalsIgnoreCase(templateCode);
+        }
+        return tenant.getTipo() == TenantTipo.VENDEDOR_RUA || tenant.getTipo() == TenantTipo.LOJA;
     }
 
     private SelecaoMetodoPagamento resolverSelecaoMetodoPagamento(PublicQrPedidoRequest request, boolean fluxoPonto) {
@@ -339,6 +346,9 @@ public class PublicQrPedidoService {
             return null;
         }
         if (telefone == null || telefone.isBlank()) {
+            if (!fluxoPonto) {
+                return null;
+            }
             throw new BusinessException("Telefone do cliente é obrigatório");
         }
 
@@ -565,7 +575,7 @@ public class PublicQrPedidoService {
         Tenant tenant = qr.getTenant();
 
         // 2. Buscar pedido com tenant isolation
-        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItensESubPedidos(pedidoId, tenant.getId())
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComSubPedidos(pedidoId, tenant.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido", "id", pedidoId));
 
         // 3. Mapear para DTO público seguro (reutiliza mapPedidoToResponse existente)

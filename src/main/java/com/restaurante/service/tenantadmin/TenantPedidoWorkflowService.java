@@ -70,12 +70,12 @@ public class TenantPedidoWorkflowService {
         }
 
         StatusPedido statusAnterior = pedido.getStatus();
-        List<Long> acceptedSubPedidos = new ArrayList<>();
-        for (SubPedido subPedido : pedido.getSubPedidos()) {
-            if (subPedido.getStatus() == StatusSubPedido.CRIADO) {
-                subPedidoService.confirmar(subPedido.getId());
-                acceptedSubPedidos.add(subPedido.getId());
-            }
+        List<Long> acceptedSubPedidos = pedido.getSubPedidos().stream()
+                .filter(subPedido -> subPedido.getStatus() == StatusSubPedido.CRIADO)
+                .map(SubPedido::getId)
+                .toList();
+        for (Long subPedidoId : acceptedSubPedidos) {
+            subPedidoService.confirmar(subPedidoId);
         }
 
         Pedido atualizado = buscarPedido(ctx.tenantId(), pedidoId);
@@ -140,7 +140,7 @@ public class TenantPedidoWorkflowService {
         }
 
         for (Long subPedidoId : cancelledSubPedidos) {
-            subPedidoService.cancelar(subPedidoId, motivo);
+            subPedidoService.cancelarInterno(subPedidoId, motivo);
         }
 
         OrdemPagamento ordem = ordemPagamentoRepository.findFirstByPedidoIdOrderByCreatedAtDesc(pedidoId).orElse(null);
@@ -258,7 +258,7 @@ public class TenantPedidoWorkflowService {
     }
 
     private Pedido buscarPedido(Long tenantId, Long pedidoId) {
-        return pedidoRepository.findByIdAndTenantIdComItensESubPedidos(pedidoId, tenantId)
+        return pedidoRepository.findByIdAndTenantIdComSubPedidos(pedidoId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
     }
 

@@ -58,7 +58,7 @@ public class PublicQrPagamentoService {
         QrCodeOperacional qr = qrCodeOperacionalService.resolverOperacionalAtivoParaOperacao(qrToken);
 
         Tenant tenant = qr.getTenant();
-        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItensESubPedidos(pedidoId, tenant.getId())
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComSubPedidos(pedidoId, tenant.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido", "id", pedidoId));
 
         validarPedidoPertenceAoContextoQr(qr, pedido);

@@ -52,6 +52,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -146,14 +147,14 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payloadPedido))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode publicJson = objectMapper.readTree(respPublic);
         long pedidoIdA = publicJson.at("/data/pedidoId").asLong();
 
         // tenant lista pedidos
         String respList = mockMvc.perform(get("/tenant/pedidos").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode listJson = objectMapper.readTree(respList);
         assertThat(listJson.at("/data/content").isArray()).isTrue();
         assertThat(listJson.at("/data/content").toString()).contains("\"id\":" + pedidoIdA);
@@ -161,7 +162,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
         // detalhe
         String respDet = mockMvc.perform(get("/tenant/pedidos/" + pedidoIdA))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode detJson = objectMapper.readTree(respDet);
         assertThat(detJson.at("/data/id").asLong()).isEqualTo(pedidoIdA);
 
@@ -215,7 +216,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payloadPedidoB))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         long pedidoIdB = objectMapper.readTree(respPublicB).at("/data/pedidoId").asLong();
 
         // volta para tenant A e tenta acessar pedido B
@@ -269,7 +270,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payloadPedido))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         long pedidoId = objectMapper.readTree(respPublic).at("/data/pedidoId").asLong();
 
         TenantContextHolder.set(new TenantContext(
@@ -284,14 +285,14 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
 
         String respList = mockMvc.perform(get("/tenant/pedidos").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode listJson = objectMapper.readTree(respList);
         assertThat(listJson.at("/data/content").toString()).contains("\"id\":" + pedidoId);
         assertThat(listJson.at("/data/content").toString()).contains("NAO_PAGO");
 
         String respDet = mockMvc.perform(get("/tenant/pedidos/" + pedidoId))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode detJson = objectMapper.readTree(respDet);
         assertThat(detJson.at("/data/id").asLong()).isEqualTo(pedidoId);
         assertThat(detJson.at("/data/contexto/mesaId").isMissingNode()
@@ -345,7 +346,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payloadPedido))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         long pedidoId = objectMapper.readTree(respPublic).at("/data/pedidoId").asLong();
 
         TenantContextHolder.set(new TenantContext(
@@ -362,7 +363,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"observacao\":\"validado no balcão\"}"))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode aceiteJson = objectMapper.readTree(aceite);
         assertThat(aceiteJson.at("/data/statusOperacional").asText()).isEqualTo("EM_ANDAMENTO");
         assertThat(aceiteJson.at("/data/aceiteEm").isMissingNode()).isFalse();
@@ -371,14 +372,14 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"metodoPagamento\":\"CASH\",\"valor\":15.00,\"observacao\":\"recebido no balcão\"}"))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode pagamentoJson = objectMapper.readTree(pagamento);
         assertThat(pagamentoJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
         assertThat(pagamentoJson.at("/data/metodoPagamento").asText()).isEqualTo("CASH");
 
         String tracking = mockMvc.perform(get("/public/q/" + qr.getToken() + "/pedidos/" + pedidoId))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode trackingJson = objectMapper.readTree(tracking);
         assertThat(trackingJson.at("/data/statusOperacional").asText()).isEqualTo("EM_ANDAMENTO");
         assertThat(trackingJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
@@ -431,7 +432,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                                 }
                                 """.formatted(produto.getId())))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         long pedidoId = objectMapper.readTree(respPublic).at("/data/pedidoId").asLong();
 
         TenantContextHolder.set(new TenantContext(
@@ -448,14 +449,14 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"motivo\":\"Produto indisponível\"}"))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode rejeicaoJson = objectMapper.readTree(rejeicao);
         assertThat(rejeicaoJson.at("/data/statusOperacional").asText()).isEqualTo("CANCELADO");
         assertThat(rejeicaoJson.at("/data/motivoRejeicao").asText()).contains("Produto indisponível");
 
         String tracking = mockMvc.perform(get("/public/q/" + qr.getToken() + "/pedidos/" + pedidoId))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode trackingJson = objectMapper.readTree(tracking);
         assertThat(trackingJson.at("/data/statusOperacional").asText()).isEqualTo("CANCELADO");
         assertThat(trackingJson.at("/data/motivoRejeicao").asText()).contains("Produto indisponível");

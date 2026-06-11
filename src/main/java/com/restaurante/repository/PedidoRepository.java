@@ -70,6 +70,11 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
     @Query("SELECT DISTINCT p FROM Pedido p " +
            "LEFT JOIN FETCH p.subPedidos sp " +
+           "WHERE p.id = :id AND p.tenant.id = :tenantId")
+    Optional<Pedido> findByIdAndTenantIdComSubPedidos(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    @Query("SELECT DISTINCT p FROM Pedido p " +
+           "LEFT JOIN FETCH p.subPedidos sp " +
            "LEFT JOIN FETCH p.itens i " +
            "WHERE p.id = :id AND p.tenant.id = :tenantId")
     Optional<Pedido> findByIdAndTenantIdComItensESubPedidos(@Param("id") Long id, @Param("tenantId") Long tenantId);

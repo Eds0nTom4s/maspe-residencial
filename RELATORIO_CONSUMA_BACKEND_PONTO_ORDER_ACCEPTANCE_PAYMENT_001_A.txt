@@ -1,0 +1,377 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - PONTO-ORDER-ACCEPTANCE-PAYMENT-001-A
+
+Data: 2026-06-11
+Branch: backend/ponto-order-acceptance-payment-001-a
+Commit base validado: f7f5764b6cb835fabb7ecab0656261e9362a5eef
+Commit final: HEAD publicado desta branch na entrega final
+URL da branch remota: https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/ponto-order-acceptance-payment-001-a
+
+1. Objetivo
+
+Homologar em sandbox o fluxo PONTO com pedido publico identificado, aceite/rejeicao pelo tenant,
+confirmacao manual de pagamento CASH/TPA, tracking publico atualizado, regressao REST/KDS/Auth e
+validacao do build Docker multi-stage.
+
+2. Ambiente sandbox
+
+* comandos usados:
+  - docker compose --env-file .env.sandbox.local -f docker-compose.sandbox-local.yml down -v
+  - docker compose --env-file .env.sandbox.local -f docker-compose.sandbox-local.yml up -d
+  - docker compose --env-file .env.sandbox.local -f docker-compose.sandbox-local.yml ps
+  - curl -s http://127.0.0.1:8080/api/actuator/health
+  - curl -s http://127.0.0.1:8081/api/actuator/health
+  - curl -s http://127.0.0.1:8090/api/actuator/health
+  - curl -s http://127.0.0.1:8091/api/actuator/health
+* containers:
+  - consuma-api-local
+  - consuma-api-sandbox
+  - consuma-postgres-local
+  - consuma-postgres-sandbox
+  - consuma-api-hotfix-001a
+  - consuma-api-hotfix-001a-v2
+* API:
+  - local compose: http://127.0.0.1:8080/api
+  - sandbox compose: http://127.0.0.1:8081/api
+  - validacao hotfix 1: http://127.0.0.1:8090/api
+  - validacao hotfix 2: http://127.0.0.1:8091/api
+* banco:
+  - PostgreSQL
+  - DB_NAME=consuma_sandbox
+  - DB_USER=consuma
+* healthcheck:
+  - GET /api/actuator/health em 8080 => {"status":"UP","groups":["liveness","readiness"]}
+  - GET /api/actuator/health em 8090 => {"status":"UP","groups":["liveness","readiness"]}
+  - GET /api/actuator/health em 8091 => {"status":"UP","groups":["liveness","readiness"]}
+
+3. Docker build
+
+* comando:
+  - docker compose --env-file .env.sandbox.local -f docker-compose.sandbox-local.yml build api-local
+* resultado:
+  - tentativa 1 no sandbox: falhou em RUN mvn -B -DskipTests package por erro de resolucao/download em https://repo.maven.apache.org/maven2
+  - tentativa 2 fora do sandbox: falhou novamente no mesmo stage build, com erro "failed to solve: process '/bin/sh -c mvn -B -DskipTests package' did not complete successfully: exit code: 1"
+  - para continuar a homologacao funcional, o jar foi gerado no host com /bin/bash -lc 'set -a; source .env.sandbox.local; set +a; mvn -DskipTests package' e executado em container temporario na rede consuma-sandbox-local
+* tempo:
+  - tentativa 1: ~14 min
+  - tentativa 2: ~33 min
+* validado SIM/NAO:
+  - NAO
+* limitacao, se houver:
+  - falha externa de rede/resolucao Maven Central dentro do build containerizado; nao foi identificado erro de sintaxe no Dockerfile nem falta de target/*.jar local
+
+4. Testes automatizados
+
+* mvn clean test:
+  - Tests run: 338, Failures: 0, Errors: 0, Skipped: 3
+* IT especifico principal:
+  - mvn -Pit -Dit.test=PublicQrPedidoIT,PublicQrPaymentMethodsIT,TenantPedidoControllerIT failsafe:integration-test failsafe:verify
+  - Tests run: 12, Failures: 0, Errors: 0, Skipped: 0
+* IT adicional de seguranca:
+  - mvn -Pit -Dit.test=GlobalExceptionHandlerIT failsafe:integration-test failsafe:verify
+  - Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+* mvn -Pit verify completo:
+  - NAO EXECUTADO nesta fase
+
+5. Fluxo PONTO CASH
+
+* QR:
+  - tenantId 3
+  - qr token: q_s4gDmEXGWJwtG97twPzhvM
+* pedido:
+  - pedidoId 11
+  - numero PED-CONSUMAPONTODEMO-20260611-000008
+  - cliente Cliente Ponto Cash 2
+  - telefone +244900111002
+  - metodo CASH
+  - itens: produto 8 PONTO-REFRI + produto 9 PONTO-CACHORRO-QUENTE
+  - total 2000.00
+* status inicial:
+  - POST /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos => 201
+  - statusOperacional CRIADO
+  - statusFinanceiro NAO_PAGO
+  - ordemPagamentoStatus AGUARDANDO_CONFIRMACAO
+* listagem tenant:
+  - GET /api/tenant/pedidos?statusOperacional=CRIADO => 200
+  - pedidoId 11 presente na listagem do tenant 3
+* detalhe:
+  - GET /api/tenant/pedidos/11 => 200
+  - subpedidos 11 e 12 em CRIADO
+* aceite:
+  - POST /api/tenant/pedidos/11/aceitar => 200
+  - statusOperacional EM_ANDAMENTO
+  - aceiteEm preenchido
+  - subpedidos 11 e 12 em PENDENTE
+* tracking apos aceite:
+  - GET /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos/11 => statusOperacional EM_ANDAMENTO
+  - statusFinanceiro NAO_PAGO
+* confirmacao manual:
+  - POST /api/tenant/pedidos/11/pagamento/manual-confirmar => 200
+  - metodo CASH
+  - referencia CASH-001-A
+  - statusFinanceiro PAGO
+  - ordemPagamentoStatus CONFIRMADA
+  - pagoEm preenchido
+* tracking apos pagamento:
+  - GET /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos/11 => 200
+  - statusOperacional EM_ANDAMENTO
+  - statusFinanceiro PAGO
+  - ordemPagamentoStatus CONFIRMADA
+  - mensagem "Pagamento confirmado"
+
+6. Fluxo PONTO TPA
+
+* QR:
+  - tenantId 3
+  - qr token: q_s4gDmEXGWJwtG97twPzhvM
+* pedido:
+  - pedidoId 12
+  - numero PED-CONSUMAPONTODEMO-20260611-000009
+  - cliente Cliente Ponto TPA
+  - telefone +244900111003
+  - metodo TPA
+  - itens: produto 8 PONTO-REFRI + produto 9 PONTO-CACHORRO-QUENTE
+  - total 2000.00
+* status inicial:
+  - POST /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos => 201
+  - statusOperacional CRIADO
+  - statusFinanceiro NAO_PAGO
+  - ordemPagamentoStatus AGUARDANDO_CONFIRMACAO
+* listagem tenant:
+  - GET /api/tenant/pedidos?statusOperacional=CRIADO => 200
+  - pedidoId 12 presente na listagem do tenant 3
+* detalhe:
+  - GET /api/tenant/pedidos/12 => 200
+  - subpedidos 13 e 14 em CRIADO
+* aceite:
+  - POST /api/tenant/pedidos/12/aceitar => 200
+  - statusOperacional EM_ANDAMENTO
+  - subpedidos 13 e 14 em PENDENTE
+* tracking apos aceite:
+  - tracking publico consultado logo apos o aceite ainda podia refletir CRIADO em leitura imediata
+  - estado persistido confirmado pelo aceite 200, pelos subpedidos PENDENTE e pelo tracking publico posterior em EM_ANDAMENTO
+* confirmacao manual:
+  - POST /api/tenant/pedidos/12/pagamento/manual-confirmar => 200
+  - metodo TPA
+  - referencia TPA-001-A
+  - statusFinanceiro PAGO
+  - ordemPagamentoStatus CONFIRMADA
+* tracking apos pagamento:
+  - GET /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos/12 => 200
+  - statusOperacional EM_ANDAMENTO
+  - statusFinanceiro PAGO
+  - ordemPagamentoStatus CONFIRMADA
+  - mensagem "Pagamento confirmado"
+
+7. Fluxo rejeicao
+
+* pedido:
+  - pedidoId 13
+  - numero PED-CONSUMAPONTODEMO-20260611-000010
+* motivo:
+  - Produto indisponivel no momento
+* status:
+  - POST /api/tenant/pedidos/13/rejeitar => 200
+  - statusOperacional CANCELADO
+  - statusFinanceiro NAO_PAGO
+  - ordemPagamentoStatus CANCELADA
+  - subpedidos 15 e 16 em CANCELADO
+* tracking:
+  - GET /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos/13 => 200
+  - statusOperacional CANCELADO
+  - statusFinanceiro NAO_PAGO
+  - motivoRejeicao preenchido
+  - mensagem "Pedido rejeitado: Produto indisponivel no momento"
+* rejeicao sem motivo:
+  - POST /api/tenant/pedidos/13/rejeitar com body {} => 400
+  - validationErrors.motivo = "Motivo e obrigatorio"
+* pedido rejeitado nao deve ser aceito/pago indevidamente:
+  - POST /api/tenant/pedidos/13/aceitar => 409
+  - POST /api/tenant/pedidos/13/pagamento/manual-confirmar => 409
+
+8. Metodo digital
+
+* metodo:
+  - APPYPAY
+* criacao:
+  - pedidoId 14
+  - numero PED-CONSUMAPONTODEMO-20260611-000011
+  - POST /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos => 201
+  - metodoPagamento APPYPAY
+  - metodoPagamentoDetalhe REF
+  - entidade 10100
+  - referencia 999 742776 na criacao e 999 771872 apos disparo de cobranca mock
+* status:
+  - statusOperacional CRIADO
+  - statusFinanceiro PENDENTE_PAGAMENTO
+  - mensagem "Pedido criado e aguardando pagamento"
+* tentativa de confirmacao manual:
+  - POST /api/tenant/pedidos/14/pagamento/manual-confirmar => 400
+  - mensagem "Confirmacao manual so e permitida para metodos CASH ou TPA."
+* tracking:
+  - GET /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos/14 => 200
+  - statusOperacional CRIADO
+  - statusFinanceiro PENDENTE_PAGAMENTO
+  - metodo APPYPAY/REF
+* gateway externo usado SIM/NAO:
+  - NAO
+  - evidencia de runtime: AppyPay configurado com mock=true
+
+9. Campos obrigatorios
+
+* sem nome:
+  - POST /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos sem clienteNome => 400
+  - mensagem "Nome do cliente e obrigatorio"
+* sem telefone:
+  - POST /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos sem telefone => 400
+  - mensagem "Telefone do cliente e obrigatorio"
+* sem metodo:
+  - POST /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/pedidos sem metodoPagamento => 400
+  - mensagem "Metodo de pagamento e obrigatorio."
+
+10. RESTAURANTE regressao
+
+* QR:
+  - tenantId 2
+  - qr token: q_Dpbyvt5hy2BAXFdM8wQuWC
+* pedido:
+  - pedidoId 15
+  - numero PED-CONSUMARESTDEMO-20260611-000003
+  - cliente Cliente Rest
+  - telefone +244900111008
+  - metodo CASH
+  - itens: produto 1 REST-HAMB-CLASSICO + produto 4 REST-SUMOL
+  - total 4300.00
+* tenant pedidos:
+  - GET /api/tenant/pedidos?statusOperacional=CRIADO => 200
+  - pedidoId 15 presente na listagem do tenant 2
+* detalhe:
+  - GET /api/tenant/pedidos/15 => 200
+  - contexto com instituicaoId 1 e unidadeAtendimentoId 1
+  - subpedidos 18 e 19
+* sessao:
+  - validada via banco
+  - select id, sessao_consumo_id from pedidos where id = 15 => sessao_consumo_id = 3
+* KDS:
+  - GET /api/tenant/producao/subpedidos?status=CRIADO => 200
+  - subPedido 18 visivel na Cozinha
+  - subPedido 19 visivel no Bar
+
+11. KDS
+
+Validado para regressao RESTAURANTE.
+Os subpedidos do pedido 15 apareceram em /api/tenant/producao/subpedidos?status=CRIADO
+com roteamento esperado por unidade de producao.
+
+12. Auditoria/eventos
+
+* eventos operacionais validados em /api/tenant/operacional/eventos:
+  - pedido 11 => 3 eventos, incluindo PEDIDO_SEM_TURNO_ABERTO, PEDIDO_STATUS_CHANGED e ORDEM_PAGAMENTO_CONFIRMADA_MANUAL
+  - pedido 13 => 2 eventos, incluindo PEDIDO_STATUS_CHANGED para CANCELADO com motivo
+  - pedido 14 => 1 evento operacional de criacao sem turno aberto
+* limitacao objetiva:
+  - para APPYPAY mock, a evidencia principal do disparo financeiro ficou na resposta de /api/public/q/{token}/pedidos/{pedidoId}/pagamentos e nos logs mock AppyPay; nao houve evento operacional especifico de cobranca digital listado em /tenant/operacional/eventos
+
+13. Seguranca
+
+* endpoint publico sem Authorization:
+  - GET /api/public/q/q_s4gDmEXGWJwtG97twPzhvM/payment-methods?destination=PEDIDO => 200 OK
+* endpoint tenant sem token:
+  - GET /api/tenant/pedidos => 401
+* platform admin como tenant user:
+  - GET /api/tenant/pedidos com token global admin => 404 Recurso nao encontrado
+* acoes cross-tenant:
+  - GET /api/tenant/pedidos/11 com token tenant 2 => 404
+  - GET /api/public/q/q_Dpbyvt5hy2BAXFdM8wQuWC/pedidos/11 => 404
+* tracking inseguro por ID numerico puro:
+  - GET /api/public/pedidos/11 => 404 apos ajuste no handler global
+  - validado em runtime na instancia hotfix 8091 e no IT GlobalExceptionHandlerIT
+* endpoints tenant exigem token tenant-scoped:
+  - sem Authorization => 401
+  - com token global sem tenant context => 404
+  - com token tenant de outro tenant => 404
+
+14. Bugs encontrados
+
+1)
+* descricao:
+  - Pedido publico PONTO direto com multiplos subpedidos disparava org.hibernate.TransientPropertyValueException durante autoflush.
+* impacto:
+  - fluxo CASH/TPA retornava 500 ao criar pedido com itens roteados para mais de uma cozinha/subpedido.
+* correcao aplicada:
+  - anexacao imediata do SubPedido em pedido.getSubPedidos() antes de consultas adicionais que podiam forcar autoflush; lookup tenant-safe reforcado.
+* arquivos alterados:
+  - src/main/java/com/restaurante/repository/PedidoRepository.java
+  - src/main/java/com/restaurante/service/PublicQrPagamentoService.java
+  - src/main/java/com/restaurante/service/PublicQrPedidoService.java
+  - src/main/java/com/restaurante/service/SubPedidoService.java
+  - src/test/java/com/restaurante/qr/PublicQrPedidoIT.java
+
+2)
+* descricao:
+  - aceite tenant de pedido PONTO com mais de um subpedido podia disparar ConcurrentModificationException ao confirmar subpedidos na mesma colecao iterada.
+* impacto:
+  - aceite retornava 500 em validacao manual apos criacao bem sucedida.
+* correcao aplicada:
+  - coleta previa dos IDs dos subpedidos CRIADO e iteracao sobre lista imutavel antes de chamar subPedidoService.confirmar.
+* arquivos alterados:
+  - src/main/java/com/restaurante/service/tenantadmin/TenantPedidoWorkflowService.java
+
+3)
+* descricao:
+  - GET /api/public/pedidos/{id} sem QR nao tinha mapping e caia em 500 generico em vez de 404 padronizado.
+* impacto:
+  - check de seguranca "tracking sem ID numerico puro" devolvia erro interno enganoso.
+* correcao aplicada:
+  - tratamento explicito de NoHandlerFoundException e NoResourceFoundException no GlobalExceptionHandler.
+* arquivos alterados:
+  - src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+  - src/test/java/com/restaurante/exception/GlobalExceptionHandlerIT.java
+
+15. Regressoes encontradas
+
+Nenhuma regressao funcional encontrada nos fluxos REST/KDS/Auth exigidos por esta fase.
+Os testes automatizados focados e a validacao manual de RESTAURANTE/PONTO fecharam sem quebra do comportamento esperado.
+
+16. Limitacoes
+
+* build Docker multi-stage permaneceu bloqueado por acesso externo a Maven Central no stage builder.
+* fluxo digital foi validado em modo mock AppyPay; nao houve provider externo real nesta fase.
+
+17. Proximas fases recomendadas
+
+* CONSUMA UI - PONTO-ORDER-ACCEPTANCE-PAYMENT-001
+* BACKEND - PONTO-SHIFT-MANAGEMENT-001
+* BACKEND - TENANT-USERS-AUTH-MANAGEMENT-001
+* BACKEND - NOTIFICATIONS-ORDER-STATUS-001
+
+18. Working tree
+
+* arquivos alterados nesta fase:
+  - src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+  - src/main/java/com/restaurante/repository/PedidoRepository.java
+  - src/main/java/com/restaurante/service/PublicQrPagamentoService.java
+  - src/main/java/com/restaurante/service/PublicQrPedidoService.java
+  - src/main/java/com/restaurante/service/SubPedidoService.java
+  - src/main/java/com/restaurante/service/tenantadmin/TenantPedidoWorkflowService.java
+  - src/test/java/com/restaurante/exception/GlobalExceptionHandlerIT.java
+  - src/test/java/com/restaurante/qr/PublicQrPedidoIT.java
+  - src/test/java/com/restaurante/tenantadmin/TenantPedidoControllerIT.java
+  - RELATORIO_CONSUMA_BACKEND_PONTO_ORDER_ACCEPTANCE_PAYMENT_001_A.txt
+* diff stat:
+  - 10 files changed, 603 insertions(+), 34 deletions(-)
+
+19. Push
+
+Realizado para a branch remota backend/ponto-order-acceptance-payment-001-a nesta entrega final.
+
+20. Pergunta final obrigatoria
+
+O fluxo PONTO foi homologado em sandbox com pedido publico identificado, CASH/TPA no local, aceite/rejeicao pelo tenant, confirmacao manual de pagamento, tracking publico atualizado e sem regressao em REST/KDS/Auth?
+
+Resposta:
+SIM
+
+21. Status tecnico
+
+CONCLUIDO COM LIMITACAO EXTERNA - fluxos PONTO/RESTAURANTE/KDS/Auth homologados; build Docker multi-stage nao validado por falha externa de rede na resolucao Maven Central

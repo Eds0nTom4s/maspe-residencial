@@ -4,6 +4,7 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
+import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.notificacao.service.NotificacaoService;
@@ -227,6 +228,20 @@ public class SubPedidoService {
      */
     @Transactional
     public SubPedido alterarStatus(Long id, StatusSubPedido novoStatus, String motivo) {
+        return alterarStatus(id, novoStatus, motivo, null);
+    }
+
+    @Transactional
+    public SubPedido alterarStatusInterno(Long id, StatusSubPedido novoStatus, String motivo, Set<String> rolesOverride) {
+        return alterarStatus(id, novoStatus, motivo, rolesOverride);
+    }
+
+    @Transactional
+    public SubPedido cancelarInterno(Long id, String motivo) {
+        return alterarStatus(id, StatusSubPedido.CANCELADO, motivo, Set.of(Role.ROLE_GERENTE.name()));
+    }
+
+    private SubPedido alterarStatus(Long id, StatusSubPedido novoStatus, String motivo, Set<String> rolesOverride) {
         long inicio = System.currentTimeMillis();
         
         // BUSCAR SubPedido (usa @Version para concorrência otimista)
@@ -242,7 +257,7 @@ public class SubPedidoService {
         }
         
         // Obter roles do usuário autenticado
-        Set<String> roles = obterRolesUsuarioAutenticado();
+        Set<String> roles = rolesOverride != null ? rolesOverride : obterRolesUsuarioAutenticado();
         
         // VALIDAR: transição + permissão
         transicaoValidator.validarTransicao(estadoAtual, novoStatus, roles);

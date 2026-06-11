@@ -12,6 +12,8 @@ import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantOperationalModulesConfig;
+import com.restaurante.model.entity.TenantSessaoConsumoConfig;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.PaymentMethodCode;
@@ -26,6 +28,8 @@ import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantOperationalModulesConfigRepository;
+import com.restaurante.repository.TenantSessaoConsumoConfigRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
@@ -64,6 +68,8 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
+    @Autowired TenantOperationalModulesConfigRepository modulesConfigRepository;
+    @Autowired TenantSessaoConsumoConfigRepository sessaoConfigRepository;
 
     @Autowired TenantPaymentMethodBootstrapService bootstrapService;
     @Autowired TenantPaymentMethodRepository tenantPaymentMethodRepository;
@@ -126,6 +132,64 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
                 entity, String.class, qr.getToken(), pedidoId
         );
         assertThat(r.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void public_qr_directPonto_canCreatePedidoWithDigitalPayment() throws Exception {
+        when(appyPayClient.createCharge(any())).thenReturn(AppyPayChargeResponse.builder()
+                .chargeId("ch_direct_123")
+                .status("PENDING")
+                .paymentMethod("REF")
+                .entity("10100")
+                .reference("999123456")
+                .paymentUrl("https://pay.local/direct")
+                .build());
+
+        Tenant tenant = criarTenant("Ponto Digital", "ponto-digital", "TPD");
+        tenant.setTemplateCode("CONSUMA_PONTO");
+        tenantRepository.saveAndFlush(tenant);
+        Instituicao inst = criarInstituicao(tenant, "InstPD", "IPD");
+        UnidadeAtendimento ua = criarUnidade(inst, "UA PD", TipoUnidadeAtendimento.CAFETERIA);
+        criarCozinhaVinculada(ua, "Bar PD", TipoCozinha.BAR_PREP);
+        CategoriaProduto cat = criarCategoria(tenant, "Bebidas PD", "bebidas-pd");
+        Produto prod = criarProduto(tenant, cat, "AGUA-PD", "Água PD", new BigDecimal("12.00"));
+        publicarCardapioForTest(tenant.getId());
+        configurarPedidoDiretoSemSessao(tenant);
+
+        bootstrapService.ensureDefaults(tenant.getId());
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), ua.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR PD"
+        );
+
+        String payload = """
+                {
+                  "clienteNome": "Cliente Digital",
+                  "clienteTelefone": "+244955566677",
+                  "metodoPagamento": "APPYPAY",
+                  "metodoPagamentoDigital": "REF",
+                  "itens": [ { "produtoId": %d, "quantidade": 1 } ]
+                }
+                """.formatted(prod.getId());
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("Idempotency-Key", "idem-direct-pay-0001");
+
+        ResponseEntity<String> resp = restTemplate.postForEntity(
+                "/public/q/{token}/pedidos",
+                new HttpEntity<>(payload, headers),
+                String.class,
+                qr.getToken()
+        );
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        JsonNode data = objectMapper.readTree(resp.getBody()).at("/data");
+        assertThat(data.at("/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
+        assertThat(data.at("/metodoPagamento").asText()).isEqualTo("APPYPAY");
+        assertThat(data.at("/metodoPagamentoDetalhe").asText()).isEqualTo("REF");
+        assertThat(data.at("/entidade").asText()).isEqualTo("10100");
+        assertThat(data.at("/referencia").asText()).isEqualTo("999123456");
+        assertThat(data.at("/paymentUrl").asText()).isEqualTo("https://pay.local/direct");
     }
 
     private Tenant criarTenant(String nome, String slug, String code) {
@@ -205,5 +269,27 @@ class PublicQrPaymentMethodsIT extends PostgresTestcontainersConfig {
         );
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         return objectMapper.readTree(resp.getBody()).at("/data/pedidoId").asLong();
+    }
+
+    private void configurarPedidoDiretoSemSessao(Tenant tenant) {
+        TenantOperationalModulesConfig modules = new TenantOperationalModulesConfig();
+        modules.setTenant(tenant);
+        modules.setSessaoConsumoEnabled(false);
+        modules.setPedidoDiretoEnabled(true);
+        modules.setMesasEnabled(false);
+        modules.setQrMesaEnabled(false);
+        modules.setCaixaEnabled(true);
+        modules.setKdsEnabled(false);
+        modulesConfigRepository.saveAndFlush(modules);
+
+        TenantSessaoConsumoConfig sessaoConfig = new TenantSessaoConsumoConfig();
+        sessaoConfig.setTenant(tenant);
+        sessaoConfig.setEnabled(false);
+        sessaoConfig.setPermitirPrePago(false);
+        sessaoConfig.setPermitirPosPago(false);
+        sessaoConfig.setPermitirModoAnonimo(true);
+        sessaoConfig.setPermitirSessaoSemMesa(true);
+        sessaoConfig.setPermitirSessaoComMesa(false);
+        sessaoConfigRepository.saveAndFlush(sessaoConfig);
     }
 }

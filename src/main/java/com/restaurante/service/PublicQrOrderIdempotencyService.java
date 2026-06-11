@@ -124,6 +124,8 @@ public class PublicQrOrderIdempotencyService {
         sb.append("clienteNome=").append(norm(request.getClienteNome())).append('\n');
         sb.append("clienteTelefone=").append(norm(request.getClienteTelefone())).append('\n');
         sb.append("observacao=").append(norm(request.getObservacao())).append('\n');
+        sb.append("metodoPagamento=").append(request.getMetodoPagamento() != null ? request.getMetodoPagamento().name() : "").append('\n');
+        sb.append("metodoPagamentoDigital=").append(request.getMetodoPagamentoDigital() != null ? request.getMetodoPagamentoDigital().name() : "").append('\n');
 
         List<PublicQrPedidoItemRequest> itens = request.getItens() != null ? request.getItens() : List.of();
         itens.stream()

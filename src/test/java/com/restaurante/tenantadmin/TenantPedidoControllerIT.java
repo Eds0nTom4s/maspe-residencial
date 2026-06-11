@@ -258,6 +258,8 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
         String payloadPedido = """
                 {
                   "clienteNome": "Cliente Ponto",
+                  "clienteTelefone": "+244910123456",
+                  "metodoPagamento": "CASH",
                   "itens": [ { "produtoId": %d, "quantidade": 1 } ]
                 }
                 """.formatted(produto.getId());
@@ -285,7 +287,7 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         JsonNode listJson = objectMapper.readTree(respList);
         assertThat(listJson.at("/data/content").toString()).contains("\"id\":" + pedidoId);
-        assertThat(listJson.at("/data/content").toString()).contains("PENDENTE_PAGAMENTO");
+        assertThat(listJson.at("/data/content").toString()).contains("NAO_PAGO");
 
         String respDet = mockMvc.perform(get("/tenant/pedidos/" + pedidoId))
                 .andExpect(status().isOk())
@@ -294,7 +296,170 @@ class TenantPedidoControllerIT extends PostgresTestcontainersConfig {
         assertThat(detJson.at("/data/id").asLong()).isEqualTo(pedidoId);
         assertThat(detJson.at("/data/contexto/mesaId").isMissingNode()
                 || detJson.at("/data/contexto/mesaId").isNull()).isTrue();
-        assertThat(detJson.at("/data/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
+        assertThat(detJson.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
+        assertThat(detJson.at("/data/metodoPagamento").asText()).isEqualTo("CASH");
+    }
+
+    @Test
+    @WithMockUser(username = "tenant-owner")
+    void tenantPedidos_acceptsAndConfirmsManualPaymentForDirectPontoPedido() throws Exception {
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        Tenant tenant = criarTenantDireto("Ponto Workflow", "ponto-workflow-" + suffix, "PWF" + suffix);
+        Instituicao instituicao = criarInstituicaoDireta(
+                tenant,
+                "Ponto Workflow",
+                uniqueSigla("PWF"),
+                "NIF-PWF-" + suffix,
+                "+24493" + String.format("%06d", Integer.parseInt(suffix))
+        );
+        UnidadeAtendimento unidade = criarUnidadeDireta(instituicao, "Balcao Workflow", TipoUnidadeAtendimento.CAFETERIA);
+        criarCozinhaVinculada(unidade, "Bar Workflow", TipoCozinha.BAR_PREP);
+        User owner = criarUsuarioTenantDireto(unidade, suffix);
+        vincularTenantUser(tenant, owner, unidade, TenantUserRole.TENANT_OWNER);
+
+        CategoriaProduto categoria = criarCategoriaDireta(tenant, "Bebidas Workflow", "bebidas-workflow");
+        Produto produto = criarProdutoDireto(tenant, categoria, "PWF-SUMO-" + suffix, "Sumo Workflow", new BigDecimal("15.00"));
+        publicarCardapioForTest(tenant.getId());
+        configurarPedidoDiretoSemSessao(tenant);
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(),
+                instituicao.getId(),
+                unidade.getId(),
+                null,
+                QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO,
+                "QR Workflow"
+        );
+
+        String payloadPedido = """
+                {
+                  "clienteNome": "Cliente Workflow",
+                  "clienteTelefone": "+244944455566",
+                  "metodoPagamento": "CASH",
+                  "itens": [ { "produtoId": %d, "quantidade": 1 } ]
+                }
+                """.formatted(produto.getId());
+
+        String respPublic = mockMvc.perform(post("/public/q/" + qr.getToken() + "/pedidos")
+                        .header("Idempotency-Key", "tenant-ponto-workflow-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payloadPedido))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long pedidoId = objectMapper.readTree(respPublic).at("/data/pedidoId").asLong();
+
+        TenantContextHolder.set(new TenantContext(
+                tenant.getId(),
+                tenant.getTenantCode(),
+                owner.getId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT,
+                false,
+                false
+        ));
+
+        String aceite = mockMvc.perform(post("/tenant/pedidos/" + pedidoId + "/aceitar")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"observacao\":\"validado no balcão\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode aceiteJson = objectMapper.readTree(aceite);
+        assertThat(aceiteJson.at("/data/statusOperacional").asText()).isEqualTo("EM_ANDAMENTO");
+        assertThat(aceiteJson.at("/data/aceiteEm").isMissingNode()).isFalse();
+
+        String pagamento = mockMvc.perform(post("/tenant/pedidos/" + pedidoId + "/pagamento/manual-confirmar")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"metodoPagamento\":\"CASH\",\"valor\":15.00,\"observacao\":\"recebido no balcão\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode pagamentoJson = objectMapper.readTree(pagamento);
+        assertThat(pagamentoJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
+        assertThat(pagamentoJson.at("/data/metodoPagamento").asText()).isEqualTo("CASH");
+
+        String tracking = mockMvc.perform(get("/public/q/" + qr.getToken() + "/pedidos/" + pedidoId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode trackingJson = objectMapper.readTree(tracking);
+        assertThat(trackingJson.at("/data/statusOperacional").asText()).isEqualTo("EM_ANDAMENTO");
+        assertThat(trackingJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
+        assertThat(trackingJson.at("/data/metodoPagamento").asText()).isEqualTo("CASH");
+        assertThat(trackingJson.at("/data/clienteNome").asText()).isEqualTo("Cliente Workflow");
+        assertThat(trackingJson.at("/data/clienteTelefoneMascarado").asText()).isNotBlank();
+        assertThat(trackingJson.at("/data/mensagem").asText()).contains("Pagamento confirmado");
+    }
+
+    @Test
+    @WithMockUser(username = "tenant-owner")
+    void tenantPedidos_rejectsDirectPontoPedidoWithReasonAndReflectsTracking() throws Exception {
+        String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+        Tenant tenant = criarTenantDireto("Ponto Reject", "ponto-reject-" + suffix, "PRJ" + suffix);
+        Instituicao instituicao = criarInstituicaoDireta(
+                tenant,
+                "Ponto Reject",
+                uniqueSigla("PRJ"),
+                "NIF-PRJ-" + suffix,
+                "+24494" + String.format("%06d", Integer.parseInt(suffix))
+        );
+        UnidadeAtendimento unidade = criarUnidadeDireta(instituicao, "Balcao Reject", TipoUnidadeAtendimento.CAFETERIA);
+        criarCozinhaVinculada(unidade, "Bar Reject", TipoCozinha.BAR_PREP);
+        User owner = criarUsuarioTenantDireto(unidade, suffix);
+        vincularTenantUser(tenant, owner, unidade, TenantUserRole.TENANT_OWNER);
+
+        CategoriaProduto categoria = criarCategoriaDireta(tenant, "Bebidas Reject", "bebidas-reject");
+        Produto produto = criarProdutoDireto(tenant, categoria, "PRJ-SUMO-" + suffix, "Sumo Reject", new BigDecimal("11.00"));
+        publicarCardapioForTest(tenant.getId());
+        configurarPedidoDiretoSemSessao(tenant);
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(),
+                instituicao.getId(),
+                unidade.getId(),
+                null,
+                QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO,
+                "QR Reject"
+        );
+
+        String respPublic = mockMvc.perform(post("/public/q/" + qr.getToken() + "/pedidos")
+                        .header("Idempotency-Key", "tenant-ponto-reject-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "clienteNome": "Cliente Reject",
+                                  "clienteTelefone": "+244977788899",
+                                  "metodoPagamento": "TPA",
+                                  "itens": [ { "produtoId": %d, "quantidade": 1 } ]
+                                }
+                                """.formatted(produto.getId())))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long pedidoId = objectMapper.readTree(respPublic).at("/data/pedidoId").asLong();
+
+        TenantContextHolder.set(new TenantContext(
+                tenant.getId(),
+                tenant.getTenantCode(),
+                owner.getId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT,
+                false,
+                false
+        ));
+
+        String rejeicao = mockMvc.perform(post("/tenant/pedidos/" + pedidoId + "/rejeitar")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motivo\":\"Produto indisponível\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode rejeicaoJson = objectMapper.readTree(rejeicao);
+        assertThat(rejeicaoJson.at("/data/statusOperacional").asText()).isEqualTo("CANCELADO");
+        assertThat(rejeicaoJson.at("/data/motivoRejeicao").asText()).contains("Produto indisponível");
+
+        String tracking = mockMvc.perform(get("/public/q/" + qr.getToken() + "/pedidos/" + pedidoId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode trackingJson = objectMapper.readTree(tracking);
+        assertThat(trackingJson.at("/data/statusOperacional").asText()).isEqualTo("CANCELADO");
+        assertThat(trackingJson.at("/data/motivoRejeicao").asText()).contains("Produto indisponível");
+        assertThat(trackingJson.at("/data/mensagem").asText()).contains("Pedido rejeitado");
     }
 
     private static String uniqueSigla(String prefix) {

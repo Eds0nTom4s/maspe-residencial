@@ -58,7 +58,7 @@ public class PublicQrPagamentoService {
         QrCodeOperacional qr = qrCodeOperacionalService.resolverOperacionalAtivoParaOperacao(qrToken);
 
         Tenant tenant = qr.getTenant();
-        Pedido pedido = pedidoRepository.findByIdAndTenantId(pedidoId, tenant.getId())
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItensESubPedidos(pedidoId, tenant.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido", "id", pedidoId));
 
         validarPedidoPertenceAoContextoQr(qr, pedido);
@@ -145,15 +145,32 @@ public class PublicQrPagamentoService {
 
     private void validarPedidoPertenceAoContextoQr(QrCodeOperacional qr, Pedido pedido) {
         SessaoConsumo sessao = pedido.getSessaoConsumo();
-        if (sessao == null) {
-            throw new BusinessException("Pedido inválido para pagamento.");
+        Instituicao inst = null;
+        UnidadeAtendimento ua = null;
+        Mesa mesa = null;
+
+        if (sessao != null) {
+            inst = sessao.getInstituicao();
+            if (inst == null && sessao.getMesa() != null) {
+                inst = sessao.getMesa().getInstituicao();
+            }
+            mesa = sessao.getMesa();
+            ua = sessao.getUnidadeAtendimento() != null
+                    ? sessao.getUnidadeAtendimento()
+                    : (sessao.getMesa() != null ? sessao.getMesa().getUnidadeAtendimento() : null);
         }
 
-        Instituicao inst = sessao.getInstituicao();
-        if (inst == null && sessao.getMesa() != null) {
-            inst = sessao.getMesa().getInstituicao();
+        if ((inst == null || ua == null) && pedido.getSubPedidos() != null && !pedido.getSubPedidos().isEmpty()) {
+            var primeiro = pedido.getSubPedidos().get(0);
+            if (ua == null) {
+                ua = primeiro.getUnidadeAtendimento();
+            }
+            if (inst == null && ua != null) {
+                inst = ua.getInstituicao();
+            }
         }
-        if (inst == null) {
+
+        if (inst == null || ua == null) {
             throw new BusinessException("Pedido inválido para pagamento.");
         }
         if (!inst.getId().equals(qr.getInstituicao().getId())) {
@@ -161,15 +178,12 @@ public class PublicQrPagamentoService {
         }
 
         if (qr.getMesa() != null) {
-            Mesa mesa = sessao.getMesa();
             if (mesa == null || !mesa.getId().equals(qr.getMesa().getId())) {
                 throw new ResourceNotFoundException("Pedido", "id", pedido.getId());
             }
         }
 
         if (qr.getUnidadeAtendimento() != null) {
-            UnidadeAtendimento ua = sessao.getUnidadeAtendimento() != null ? sessao.getUnidadeAtendimento()
-                    : (sessao.getMesa() != null ? sessao.getMesa().getUnidadeAtendimento() : null);
             if (ua == null || !ua.getId().equals(qr.getUnidadeAtendimento().getId())) {
                 throw new ResourceNotFoundException("Pedido", "id", pedido.getId());
             }

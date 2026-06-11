@@ -13,6 +13,7 @@ import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.PedidoWorkflowMetadataService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -28,6 +29,7 @@ public class TenantAdminPedidoService {
 
     private final TenantGuard tenantGuard;
     private final PedidoRepository pedidoRepository;
+    private final PedidoWorkflowMetadataService pedidoWorkflowMetadataService;
 
     @Transactional(readOnly = true)
     public Page<TenantPedidoResumoResponse> listarPedidos(
@@ -96,6 +98,7 @@ public class TenantAdminPedidoService {
     }
 
     private TenantPedidoDetalheResponse toDetalhe(Pedido p) {
+        var workflow = pedidoWorkflowMetadataService.resolve(p);
         SessaoConsumo s = p.getSessaoConsumo();
         var ctx = TenantPedidoDetalheResponse.TenantPedidoContextResponse.builder();
         if (s != null) {
@@ -154,6 +157,17 @@ public class TenantAdminPedidoService {
                 .criadoEm(p.getCreatedAt())
                 .atualizadoEm(p.getUpdatedAt())
                 .pagoEm(p.getPagoEm())
+                .aceiteEm(workflow.aceiteEm())
+                .rejeitadoEm(workflow.rejeitadoEm())
+                .clienteNome(workflow.clienteNome())
+                .clienteTelefoneMascarado(workflow.clienteTelefoneMascarado())
+                .metodoPagamento(workflow.metodoPagamento())
+                .metodoPagamentoDetalhe(workflow.metodoPagamentoDetalhe())
+                .motivoRejeicao(workflow.motivoRejeicao())
+                .ordemPagamentoToken(workflow.ordemPagamentoToken())
+                .ordemPagamentoStatus(workflow.ordemPagamentoStatus())
+                .entidade(workflow.entidade())
+                .referencia(workflow.referencia())
                 .contexto(ctx.build())
                 .itens(itens)
                 .subPedidos(subs)

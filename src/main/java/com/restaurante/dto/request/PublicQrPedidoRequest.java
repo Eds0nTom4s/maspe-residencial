@@ -1,5 +1,7 @@
 package com.restaurante.dto.request;
 
+import com.restaurante.financeiro.enums.MetodoPagamentoAppyPay;
+import com.restaurante.model.enums.PaymentMethodCode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import lombok.AllArgsConstructor;
@@ -23,6 +25,8 @@ public class PublicQrPedidoRequest {
     private String clienteNome;
     private String clienteTelefone;
     private String observacao;
+    private PaymentMethodCode metodoPagamento;
+    private MetodoPagamentoAppyPay metodoPagamentoDigital;
 
     @NotEmpty(message = "Pedido deve conter ao menos um item")
     @Valid

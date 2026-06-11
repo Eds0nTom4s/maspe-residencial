@@ -1,12 +1,16 @@
 package com.restaurante.service;
 
+import com.restaurante.consumo.identificacao.service.ClienteConsumoService;
+import com.restaurante.consumo.identificacao.service.TelefoneNormalizerService;
 import com.restaurante.dto.request.PublicQrPedidoItemRequest;
 import com.restaurante.dto.request.PublicQrPedidoRequest;
+import com.restaurante.dto.request.PublicQrPagamentoRequest;
 import com.restaurante.dto.response.PublicQrPedidoItemResponse;
 import com.restaurante.dto.response.PublicQrPedidoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.ItemPedido;
@@ -25,6 +29,8 @@ import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.config.OperacaoProperties;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.ComportamentoPedidoNaoPago;
+import com.restaurante.model.enums.PaymentDestination;
+import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -61,10 +67,17 @@ public class PublicQrPedidoService {
     private final TurnoOperacionalRepository turnoOperacionalRepository;
     private final OperacaoProperties operacaoProperties;
     private final OperationalEventLogService operationalEventLogService;
+    private final PaymentMethodPolicyResolutionService paymentMethodPolicyResolutionService;
     private final TenantCardapioConfigService tenantCardapioConfigService;
     private final TenantPagamentoPolicyService tenantPagamentoPolicyService;
     private final TenantOperationalModulesService tenantOperationalModulesService;
     private final TenantSessaoConsumoConfigService tenantSessaoConsumoConfigService;
+    private final ClienteConsumoService clienteConsumoService;
+    private final TelefoneNormalizerService telefoneNormalizerService;
+    private final com.restaurante.financeiro.service.OrdemPagamentoService ordemPagamentoService;
+    private final PublicQrPagamentoService publicQrPagamentoService;
+    private final EventLogService eventLogService;
+    private final PedidoWorkflowMetadataService pedidoWorkflowMetadataService;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -89,13 +102,18 @@ public class PublicQrPedidoService {
 
         List<Produto> produtos = validarECarregarProdutosDoTenant(tenant.getId(), request.getItens());
         TenantOperationalModulesConfig modules = tenantOperationalModulesService.obterParaTenant(tenant.getId());
+        boolean fluxoPonto = isFluxoPonto(tenant, modules);
+        SelecaoMetodoPagamento selecaoPagamento = resolverSelecaoMetodoPagamento(request, fluxoPonto);
+        ClientePedidoIdentificado cliente = resolverClienteIdentificado(tenant, request, fluxoPonto);
         if (qr.getTipo() == QrCodeOperacionalTipo.MESA && !modules.isQrMesaEnabled()) {
             throw new BusinessException("QR por mesa está indisponível para este negócio.");
         }
         var pagamentoPolicy = tenantPagamentoPolicyService.obterParaTenant(tenant.getId());
         TenantSessaoConsumoConfig sessaoConfig = tenantSessaoConsumoConfigService.obterParaTenant(tenant.getId());
         DecisaoPedidoPublico decisao = decidirFluxoPedidoPublico(qr, modules, sessaoConfig, pagamentoPolicy, mesa);
-        if (decisao.deveAguardarPagamento() && pagamentoPolicy.getComportamentoPedidoNaoPago() == ComportamentoPedidoNaoPago.BLOQUEAR) {
+        if (decisao.deveAguardarPagamento()
+                && pagamentoPolicy.getComportamentoPedidoNaoPago() == ComportamentoPedidoNaoPago.BLOQUEAR
+                && selecaoPagamento == null) {
             throw new BusinessException("Pagamento obrigatório antes do pedido. Inicie o pagamento para continuar.");
         }
 
@@ -116,6 +134,7 @@ public class PublicQrPedidoService {
             pedido.setTenant(tenant);
             pedido.setNumero(pedidoNumberService.gerarNumeroPedido(tenant.getId()));
             pedido.setSessaoConsumo(sessao);
+            pedido.setClienteConsumo(cliente != null ? cliente.clienteConsumo() : null);
             pedido.setTurnoOperacional(turnoAberto);
             pedido.setStatus(StatusPedido.CRIADO);
             pedido.setStatusFinanceiro(decisao.statusFinanceiro());
@@ -212,27 +231,30 @@ public class PublicQrPedidoService {
             }
 
             pedido.calcularTotal();
+
+            if (selecaoPagamento != null) {
+                aplicarSelecaoPagamentoAoPedido(pedido, selecaoPagamento);
+            }
+
             pedidoRepository.save(pedido);
 
             if (sessao != null) {
                 sessaoConsumoService.registrarAtividade(sessao, "Pedido público por QR criado: " + pedido.getNumero());
             }
-            idempotencyService.markCompleted(idemReq, pedido);
+            eventLogService.registrarEventoPedido(
+                    pedido,
+                    null,
+                    pedido.getStatus(),
+                    "PUBLIC_QR",
+                    "Pedido criado via QR público"
+            );
 
-            return PublicQrPedidoResponse.builder()
-                    .pedidoId(pedido.getId())
-                    .numero(pedido.getNumero())
-                    .statusOperacional(pedido.getStatus())
-                    .statusFinanceiro(pedido.getStatusFinanceiro())
-                    .tenantNome(tenant.getNome())
-                    .instituicaoNome(instituicao.getNome())
-                    .unidadeAtendimentoNome(unidadeAtendimento.getNome())
-                    .mesaReferencia(mesa != null ? mesa.getReferencia() : null)
-                    .mesaNumero(mesa != null ? mesa.getNumero() : null)
-                    .total(pedido.getTotal())
-                    .itens(itensResponse)
-                    .mensagem(decisao.deveAguardarPagamento() ? "Pedido criado e aguardando pagamento" : "Pedido criado com sucesso")
-                    .build();
+            if (selecaoPagamento != null) {
+                executarFluxoPagamentoSelecionado(token, idemKey, request, pedido, tenant, instituicao, unidadeAtendimento, mesa, turnoAberto, selecaoPagamento);
+            }
+
+            idempotencyService.markCompleted(idemReq, pedido);
+            return mapPedidoToResponse(pedido);
         } catch (ConflictException e) {
             throw e;
         } catch (Exception e) {
@@ -264,6 +286,142 @@ public class PublicQrPedidoService {
             produtos.add(produto);
         }
         return produtos;
+    }
+
+    private boolean isFluxoPonto(Tenant tenant, TenantOperationalModulesConfig modules) {
+        if (tenant != null && "CONSUMA_PONTO".equalsIgnoreCase(tenant.getTemplateCode())) {
+            return true;
+        }
+        return modules != null && !modules.isSessaoConsumoEnabled();
+    }
+
+    private SelecaoMetodoPagamento resolverSelecaoMetodoPagamento(PublicQrPedidoRequest request, boolean fluxoPonto) {
+        if (request == null) {
+            return null;
+        }
+
+        if (fluxoPonto && request.getMetodoPagamento() == null) {
+            throw new BusinessException("Método de pagamento é obrigatório.");
+        }
+
+        if (request.getMetodoPagamento() == null) {
+            return null;
+        }
+
+        if (request.getMetodoPagamento() == PaymentMethodCode.APPYPAY) {
+            return new SelecaoMetodoPagamento(
+                    request.getMetodoPagamento(),
+                    request.getMetodoPagamentoDigital() != null ? request.getMetodoPagamentoDigital() : com.restaurante.financeiro.enums.MetodoPagamentoAppyPay.GPO
+            );
+        }
+
+        if (request.getMetodoPagamentoDigital() != null) {
+            throw new BusinessException("Método digital informado para pagamento manual.");
+        }
+
+        return new SelecaoMetodoPagamento(request.getMetodoPagamento(), null);
+    }
+
+    private ClientePedidoIdentificado resolverClienteIdentificado(Tenant tenant, PublicQrPedidoRequest request, boolean fluxoPonto) {
+        boolean nomeObrigatorio = fluxoPonto;
+        boolean telefoneObrigatorio = fluxoPonto;
+
+        String nome = request != null ? request.getClienteNome() : null;
+        String telefone = request != null ? request.getClienteTelefone() : null;
+
+        if (nomeObrigatorio && (nome == null || nome.isBlank())) {
+            throw new BusinessException("Nome do cliente é obrigatório");
+        }
+        if (telefoneObrigatorio && (telefone == null || telefone.isBlank())) {
+            throw new BusinessException("Telefone do cliente é obrigatório");
+        }
+        if ((telefone == null || telefone.isBlank()) && (nome == null || nome.isBlank())) {
+            return null;
+        }
+        if (telefone == null || telefone.isBlank()) {
+            throw new BusinessException("Telefone do cliente é obrigatório");
+        }
+
+        String normalizado;
+        try {
+            normalizado = telefoneNormalizerService.normalizeOrThrow(telefone);
+        } catch (BusinessException ex) {
+            if ("PHONE_INVALID".equals(ex.getMessage())) {
+                throw new BusinessException("Telefone do cliente é inválido");
+            }
+            throw ex;
+        }
+
+        var result = clienteConsumoService.getOrCreateByPhone(tenant, telefone, normalizado, nome);
+        return new ClientePedidoIdentificado(result.cliente(), normalizado);
+    }
+
+    private void aplicarSelecaoPagamentoAoPedido(Pedido pedido,
+                                                 SelecaoMetodoPagamento selecaoPagamento) {
+        if (selecaoPagamento == null) {
+            return;
+        }
+
+        if (selecaoPagamento.isManual()) {
+            pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
+            pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
+            return;
+        }
+
+        pedido.setTipoPagamento(TipoPagamentoPedido.PRE_PAGO);
+        pedido.setStatusFinanceiro(StatusFinanceiroPedido.PENDENTE_PAGAMENTO);
+    }
+
+    private void executarFluxoPagamentoSelecionado(String token,
+                                                   String idemKey,
+                                                   PublicQrPedidoRequest request,
+                                                   Pedido pedido,
+                                                   Tenant tenant,
+                                                   Instituicao instituicao,
+                                                   UnidadeAtendimento unidadeAtendimento,
+                                                   Mesa mesa,
+                                                   TurnoOperacional turnoAberto,
+                                                   SelecaoMetodoPagamento selecaoPagamento) {
+        if (selecaoPagamento == null) {
+            return;
+        }
+
+        paymentMethodPolicyResolutionService.validateForQr(
+                tenant.getId(),
+                unidadeAtendimento != null ? unidadeAtendimento.getId() : null,
+                selecaoPagamento.code(),
+                PaymentDestination.PEDIDO,
+                pedido.getTotal()
+        );
+
+        if (selecaoPagamento.isManual()) {
+            ordemPagamentoService.criarOrdemPagamentoPedido(
+                    tenant,
+                    instituicao,
+                    unidadeAtendimento,
+                    mesa,
+                    turnoAberto,
+                    pedido,
+                    selecaoPagamento.code() == PaymentMethodCode.CASH
+                            ? com.restaurante.model.enums.MetodoPagamentoManual.CASH
+                            : com.restaurante.model.enums.MetodoPagamentoManual.TPA,
+                    OperationalOrigem.QR_PUBLICO,
+                    null,
+                    null
+            );
+            return;
+        }
+
+        publicQrPagamentoService.iniciarPagamentoPedidoPorQr(
+                token,
+                pedido.getId(),
+                idemKey + "-payment",
+                PublicQrPagamentoRequest.builder()
+                        .idempotencyKey(idemKey + "-payment")
+                        .metodoPagamento(selecaoPagamento.digitalMethod())
+                        .telefone(request.getClienteTelefone())
+                        .build()
+        );
     }
 
     private boolean deveAguardarPagamentoAntesDaOperacao(com.restaurante.model.entity.TenantOperacaoPolicy policy) {
@@ -407,12 +565,11 @@ public class PublicQrPedidoService {
         Tenant tenant = qr.getTenant();
 
         // 2. Buscar pedido com tenant isolation
-        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, tenant.getId())
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItensESubPedidos(pedidoId, tenant.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido", "id", pedidoId));
 
         // 3. Mapear para DTO público seguro (reutiliza mapPedidoToResponse existente)
         PublicQrPedidoResponse resp = mapPedidoToResponse(pedido);
-        resp.setMensagem("Pedido encontrado");
         return resp;
     }
 
@@ -421,6 +578,7 @@ public class PublicQrPedidoService {
             throw new ResourceNotFoundException("Pedido", "id", null);
         }
 
+        var workflow = pedidoWorkflowMetadataService.resolve(pedido);
         SessaoConsumo sessao = pedido.getSessaoConsumo();
         Instituicao inst = sessao != null ? sessao.getInstituicao() : null;
         UnidadeAtendimento ua = sessao != null ? (sessao.getUnidadeAtendimento() != null ? sessao.getUnidadeAtendimento()
@@ -453,10 +611,47 @@ public class PublicQrPedidoService {
                 .unidadeAtendimentoNome(ua != null ? ua.getNome() : null)
                 .mesaReferencia(mesa != null ? mesa.getReferencia() : null)
                 .mesaNumero(mesa != null ? mesa.getNumero() : null)
+                .clienteNome(workflow.clienteNome())
+                .clienteTelefoneMascarado(workflow.clienteTelefoneMascarado())
+                .metodoPagamento(workflow.metodoPagamento())
+                .metodoPagamentoDetalhe(workflow.metodoPagamentoDetalhe())
+                .motivoRejeicao(workflow.motivoRejeicao())
+                .ordemPagamentoToken(workflow.ordemPagamentoToken())
+                .ordemPagamentoStatus(workflow.ordemPagamentoStatus())
+                .entidade(workflow.entidade())
+                .referencia(workflow.referencia())
+                .paymentUrl(workflow.paymentUrl())
+                .criadoEm(pedido.getCreatedAt())
+                .atualizadoEm(pedido.getUpdatedAt())
+                .pagoEm(pedido.getPagoEm())
+                .aceiteEm(workflow.aceiteEm())
+                .rejeitadoEm(workflow.rejeitadoEm())
                 .total(pedido.getTotal())
                 .itens(itens)
-                .mensagem("Pedido já criado anteriormente")
+                .mensagem(mensagemTracking(pedido, workflow))
                 .build();
+    }
+
+    private String mensagemTracking(Pedido pedido, PedidoWorkflowMetadataService.PedidoWorkflowMetadata workflow) {
+        if (pedido.getStatus() == StatusPedido.CANCELADO && workflow.motivoRejeicao() != null && !workflow.motivoRejeicao().isBlank()) {
+            return "Pedido rejeitado: " + workflow.motivoRejeicao();
+        }
+        if (pedido.getStatus() == StatusPedido.CANCELADO) {
+            return "Pedido cancelado";
+        }
+        if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PAGO) {
+            return "Pagamento confirmado";
+        }
+        if (workflow.ordemPagamentoToken() != null && pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
+            return "Pedido criado e aguardando aceite/pagamento manual";
+        }
+        if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PENDENTE_PAGAMENTO) {
+            return "Pedido criado e aguardando pagamento";
+        }
+        if (pedido.getStatus() == StatusPedido.EM_ANDAMENTO) {
+            return "Pedido aceite pelo operador";
+        }
+        return "Pedido encontrado";
     }
 
     private record DecisaoPedidoPublico(
@@ -465,6 +660,21 @@ public class PublicQrPedidoService {
             StatusFinanceiroPedido statusFinanceiro,
             TipoPagamentoPedido tipoPagamento,
             boolean deveAguardarPagamento
+    ) {
+    }
+
+    private record SelecaoMetodoPagamento(
+            PaymentMethodCode code,
+            com.restaurante.financeiro.enums.MetodoPagamentoAppyPay digitalMethod
+    ) {
+        boolean isManual() {
+            return code == PaymentMethodCode.CASH || code == PaymentMethodCode.TPA;
+        }
+    }
+
+    private record ClientePedidoIdentificado(
+            com.restaurante.consumo.identificacao.entity.ClienteConsumo clienteConsumo,
+            String telefoneNormalizado
     ) {
     }
 }

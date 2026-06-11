@@ -1,5 +1,6 @@
 package com.restaurante.dto.response;
 
+import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import lombok.AllArgsConstructor;
@@ -27,6 +28,17 @@ public class TenantPedidoDetalheResponse {
     private LocalDateTime criadoEm;
     private LocalDateTime atualizadoEm;
     private LocalDateTime pagoEm;
+    private LocalDateTime aceiteEm;
+    private LocalDateTime rejeitadoEm;
+    private String clienteNome;
+    private String clienteTelefoneMascarado;
+    private PaymentMethodCode metodoPagamento;
+    private String metodoPagamentoDetalhe;
+    private String motivoRejeicao;
+    private String ordemPagamentoToken;
+    private String ordemPagamentoStatus;
+    private String entidade;
+    private String referencia;
 
     private TenantPedidoContextResponse contexto;
 
@@ -74,4 +86,3 @@ public class TenantPedidoDetalheResponse {
         private List<ItemResponse> itens = new ArrayList<>();
     }
 }
-

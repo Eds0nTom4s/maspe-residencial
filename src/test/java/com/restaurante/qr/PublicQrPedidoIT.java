@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -67,6 +68,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
     @Autowired TenantOperationalModulesConfigRepository modulesConfigRepository;
     @Autowired TenantSessaoConsumoConfigRepository sessaoConfigRepository;
+    @Autowired JdbcTemplate jdbcTemplate;
 
     @Test
     void publicQr_canCreatePedido_withoutPayment_andPedidoIsTenantScoped() throws Exception {
@@ -178,6 +180,81 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
     }
 
     @Test
+    void publicQr_pontoDirect_requiresNomeTelefoneAndMetodoPagamento() throws Exception {
+        Tenant tenant = criarTenant("Ponto Direct Required", "ponto-direct-required", "PONTO-DIRECT-REQ");
+        tenant.setTemplateCode("CONSUMA_PONTO");
+        tenantRepository.saveAndFlush(tenant);
+        Instituicao inst = criarInstituicao(tenant, "Ponto Direct Required", "PDR", "NIF-PDR-301", "+244900000311");
+        UnidadeAtendimento unidade = criarUnidade(inst, "Unidade Ponto Required", TipoUnidadeAtendimento.CAFETERIA);
+        criarCozinhaVinculada(unidade, "Bar Ponto Required", TipoCozinha.BAR_PREP);
+
+        CategoriaProduto cat = criarCategoria(tenant, "Bebidas Required", "bebidas-required");
+        Produto prod = criarProduto(tenant, cat, "PONTO-REQ", "Água Required", new BigDecimal("5.00"));
+        publicarCardapioForTest(tenant.getId());
+
+        TenantOperationalModulesConfig modules = new TenantOperationalModulesConfig();
+        modules.setTenant(tenant);
+        modules.setSessaoConsumoEnabled(false);
+        modules.setPedidoDiretoEnabled(true);
+        modules.setMesasEnabled(false);
+        modules.setQrMesaEnabled(false);
+        modules.setCaixaEnabled(true);
+        modules.setKdsEnabled(false);
+        modulesConfigRepository.saveAndFlush(modules);
+
+        TenantSessaoConsumoConfig sessaoConfig = new TenantSessaoConsumoConfig();
+        sessaoConfig.setTenant(tenant);
+        sessaoConfig.setEnabled(false);
+        sessaoConfig.setPermitirPrePago(false);
+        sessaoConfig.setPermitirPosPago(false);
+        sessaoConfig.setPermitirModoAnonimo(true);
+        sessaoConfig.setPermitirSessaoSemMesa(true);
+        sessaoConfig.setPermitirSessaoComMesa(false);
+        sessaoConfigRepository.saveAndFlush(sessaoConfig);
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), unidade.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Ponto Required"
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("Idempotency-Key", "idem-key-direct-required-1");
+
+        ResponseEntity<String> missingNome = restTemplate.postForEntity(
+                "/public/q/{token}/pedidos",
+                new HttpEntity<>("""
+                        { "clienteTelefone": "+244900000321", "metodoPagamento": "CASH", "itens": [ { "produtoId": %d, "quantidade": 1 } ] }
+                        """.formatted(prod.getId()), headers),
+                String.class,
+                qr.getToken()
+        );
+        assertThat(missingNome.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(objectMapper.readTree(missingNome.getBody()).path("message").asText()).contains("Nome do cliente é obrigatório");
+
+        ResponseEntity<String> missingTelefone = restTemplate.postForEntity(
+                "/public/q/{token}/pedidos",
+                new HttpEntity<>("""
+                        { "clienteNome": "Cliente", "metodoPagamento": "CASH", "itens": [ { "produtoId": %d, "quantidade": 1 } ] }
+                        """.formatted(prod.getId()), headers),
+                String.class,
+                qr.getToken()
+        );
+        assertThat(missingTelefone.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(objectMapper.readTree(missingTelefone.getBody()).path("message").asText()).contains("Telefone do cliente é obrigatório");
+
+        ResponseEntity<String> missingMetodo = restTemplate.postForEntity(
+                "/public/q/{token}/pedidos",
+                new HttpEntity<>("""
+                        { "clienteNome": "Cliente", "clienteTelefone": "+244900000322", "itens": [ { "produtoId": %d, "quantidade": 1 } ] }
+                        """.formatted(prod.getId()), headers),
+                String.class,
+                qr.getToken()
+        );
+        assertThat(missingMetodo.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(objectMapper.readTree(missingMetodo.getBody()).path("message").asText()).contains("Método de pagamento é obrigatório");
+    }
+
+    @Test
     void publicQr_withSessaoDisabled_createsDirectPedidoWithoutSessao() throws Exception {
         Tenant tenant = criarTenant("Ponto Direct", "ponto-direct", "PONTO-DIRECT");
         tenant.setTemplateCode("CONSUMA_PONTO");
@@ -215,7 +292,12 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         );
 
         String payload = """
-                { "itens": [ { "produtoId": %d, "quantidade": 1 } ] }
+                {
+                  "clienteNome": "Cliente Ponto",
+                  "clienteTelefone": "+244900000333",
+                  "metodoPagamento": "CASH",
+                  "itens": [ { "produtoId": %d, "quantidade": 1 } ]
+                }
                 """.formatted(prod.getId());
 
         HttpHeaders headers = new HttpHeaders();
@@ -227,11 +309,87 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode json = objectMapper.readTree(resp.getBody());
         Long pedidoId = json.at("/data/pedidoId").asLong();
-        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
+        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
+        assertThat(json.at("/data/metodoPagamento").asText()).isEqualTo("CASH");
+        assertThat(json.at("/data/ordemPagamentoToken").asText()).isNotBlank();
 
         Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, tenant.getId()).orElseThrow();
         assertThat(pedido.getSessaoConsumo()).isNull();
         assertThat(pedido.getTenant().getId()).isEqualTo(tenant.getId());
+    }
+
+    @Test
+    void publicQr_withSessaoDisabled_createsDirectPedidoWithMultipleSubPedidos() throws Exception {
+        Tenant tenant = criarTenant("Ponto Direct Multi", "ponto-direct-multi", "PONTO-DIRECT-MULTI");
+        tenant.setTemplateCode("CONSUMA_PONTO");
+        tenantRepository.saveAndFlush(tenant);
+        Instituicao inst = criarInstituicao(tenant, "Ponto Direct Multi", "PDM", "NIF-PDM-401", "+244900000401");
+        UnidadeAtendimento unidade = criarUnidade(inst, "Unidade Ponto Multi", TipoUnidadeAtendimento.CAFETERIA);
+        criarCozinhaVinculada(unidade, "Bar Ponto Multi", TipoCozinha.BAR_PREP);
+        criarCozinhaVinculada(unidade, "Cozinha Central Multi", TipoCozinha.CENTRAL);
+
+        CategoriaProduto bebidas = criarCategoria(tenant, "Bebidas", "bebida-nao-alcoolica");
+        CategoriaProduto lanches = criarCategoria(tenant, "Lanches", "lanche");
+        Produto agua = criarProduto(tenant, bebidas, "PONTO-MULTI-AGUA", "Água Multi", new BigDecimal("5.00"));
+        Produto sandes = criarProduto(tenant, lanches, "PONTO-MULTI-SANDES", "Sandes Multi", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenant.getId());
+
+        TenantOperationalModulesConfig modules = new TenantOperationalModulesConfig();
+        modules.setTenant(tenant);
+        modules.setSessaoConsumoEnabled(false);
+        modules.setPedidoDiretoEnabled(true);
+        modules.setMesasEnabled(false);
+        modules.setQrMesaEnabled(false);
+        modules.setCaixaEnabled(true);
+        modules.setKdsEnabled(false);
+        modulesConfigRepository.saveAndFlush(modules);
+
+        TenantSessaoConsumoConfig sessaoConfig = new TenantSessaoConsumoConfig();
+        sessaoConfig.setTenant(tenant);
+        sessaoConfig.setEnabled(false);
+        sessaoConfig.setPermitirPrePago(false);
+        sessaoConfig.setPermitirPosPago(false);
+        sessaoConfig.setPermitirModoAnonimo(true);
+        sessaoConfig.setPermitirSessaoSemMesa(true);
+        sessaoConfig.setPermitirSessaoComMesa(false);
+        sessaoConfigRepository.saveAndFlush(sessaoConfig);
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), unidade.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Ponto Multi"
+        );
+
+        String payload = """
+                {
+                  "clienteNome": "Cliente Multi",
+                  "clienteTelefone": "+244900000444",
+                  "metodoPagamento": "CASH",
+                  "itens": [
+                    { "produtoId": %d, "quantidade": 1 },
+                    { "produtoId": %d, "quantidade": 1 }
+                  ]
+                }
+                """.formatted(agua.getId(), sandes.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("Idempotency-Key", "idem-key-direct-multi-0001");
+
+        ResponseEntity<String> resp = restTemplate.postForEntity(
+                "/public/q/{token}/pedidos",
+                new HttpEntity<>(payload, headers),
+                String.class,
+                qr.getToken()
+        );
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        JsonNode json = objectMapper.readTree(resp.getBody());
+        Long pedidoId = json.at("/data/pedidoId").asLong();
+        assertThat(json.at("/data/itens").isArray()).isTrue();
+        assertThat(json.at("/data/itens").size()).isEqualTo(2);
+
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComSubPedidos(pedidoId, tenant.getId()).orElseThrow();
+        assertThat(pedido.getSessaoConsumo()).isNull();
+        assertThat(pedido.getSubPedidos()).hasSize(2);
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
@@ -270,9 +428,11 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         c.setTipo(tipo);
         c.setAtiva(true);
         Cozinha salva = cozinhaRepository.saveAndFlush(c);
-
-        unidade.adicionarCozinha(salva);
-        unidadeAtendimentoRepository.saveAndFlush(unidade);
+        jdbcTemplate.update(
+                "insert into unidade_cozinha (unidade_id, cozinha_id) values (?, ?)",
+                unidade.getId(),
+                salva.getId()
+        );
     }
 
     private CategoriaProduto criarCategoria(Tenant tenant, String nome, String slug) {

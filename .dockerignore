@@ -1,2 +1,8 @@
-*
-!target/*.jar
+.git
+.github
+.idea
+.vscode
+target
+*.log
+docker-compose*.yml
+RELATORIO_*.txt

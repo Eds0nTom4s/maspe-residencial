@@ -19,12 +19,20 @@ public class ClienteConsumoService {
 
     @Transactional
     public GetOrCreateResult getOrCreateByPhone(Tenant tenant, String rawPhone, String phoneNormalized) {
+        return getOrCreateByPhone(tenant, rawPhone, phoneNormalized, null);
+    }
+
+    @Transactional
+    public GetOrCreateResult getOrCreateByPhone(Tenant tenant, String rawPhone, String phoneNormalized, String nome) {
         ClienteConsumo existing = repository.findByTenant_IdAndTelefoneNormalizado(tenant.getId(), phoneNormalized).orElse(null);
         Instant now = Instant.now();
 
         if (existing != null) {
             if (existing.getStatus() == ClienteConsumoStatus.BLOCKED) throw new BusinessException("CLIENTE_CONSUMO_BLOCKED");
             existing.setTelefone(rawPhone);
+            if (nome != null && !nome.isBlank()) {
+                existing.setNome(nome.trim());
+            }
             existing.setUltimoAcessoEm(now);
             return new GetOrCreateResult(repository.save(existing), false);
         }
@@ -33,6 +41,7 @@ public class ClienteConsumoService {
         c.setTenant(tenant);
         c.setTelefone(rawPhone);
         c.setTelefoneNormalizado(phoneNormalized);
+        c.setNome(nome != null && !nome.isBlank() ? nome.trim() : null);
         c.setStatus(ClienteConsumoStatus.ACTIVE);
         c.setTelefoneVerificado(false);
         c.setUltimoAcessoEm(now);

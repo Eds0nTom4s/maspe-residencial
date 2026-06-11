@@ -20,6 +20,7 @@ import java.util.Optional;
 public interface OrdemPagamentoRepository extends JpaRepository<OrdemPagamento, Long> {
 
     Optional<OrdemPagamento> findByTokenQr(String tokenQr);
+    Optional<OrdemPagamento> findFirstByPedidoIdOrderByCreatedAtDesc(Long pedidoId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from OrdemPagamento o where o.id = :id")

@@ -1,0 +1,135 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - FLOW-INTEGRITY-E2E-001
+
+Data: 2026-06-09
+Branch: backend/flow-integrity-e2e-001
+Commit base: 23fba6fd8504c1c4099dbc16b1b6f2ed75a4f190
+Commit final: HEAD da branch backend/flow-integrity-e2e-001 apos commit/push
+URL da branch remota: https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/flow-integrity-e2e-001
+
+1. Objetivo
+
+Validar e corrigir a integridade dos fluxos backend CONSUMA REST e CONSUMA PONTO, com foco em criacao publica de pedido, estados financeiros e operacionais, listagem tenant, detalhe do pedido, bloqueio de cozinha/KDS antes da regra permitir e pedido PONTO direto sem SessaoConsumo.
+
+2. Regras de dominio validadas
+
+* REST: SIM. Pedidos publicos com pagamento pendente ou manual nao entram em producao/KDS antes de pagamento confirmado ou autorizacao prevista pela politica do tenant, conforme testes de QR publico, pagamentos manuais e KDS.
+* PONTO: SIM para pedido direto pendente permitido pelo dominio. Pedido PONTO sem SessaoConsumo e com status PENDENTE_PAGAMENTO passa a aparecer em /tenant/pedidos e no detalhe do tenant correto. PARCIAL para gateway externo live, pois a validacao automatizada usa o perfil de testes e simulacoes existentes do backend.
+
+3. Perguntas centrais
+
+* Os fluxos estao funcionando como definimos? SIM para os fluxos backend cobertos por testes automatizados. Evidencia: suites PublicQr*, TenantPedidoControllerIT, TenantPaymentMethodManualPaymentIT e KDS executadas com sucesso.
+* Cliente acompanha mudanca de estado? PARCIAL. Existem endpoints publicos de consulta/estado cobertos pelas suites PublicQrPedidoConsultaIT e PublicQrPagamentoStartIT, mas nao foi feita observacao manual live em duas abas nesta fase.
+* Admin tenant recebe pedido em tempo real? PARCIAL. O backend disponibiliza /tenant/pedidos e o pedido direto passa a ser listado corretamente; a comprovacao de push WebSocket/SSE nao fez parte da correcao. Atualizacao por consulta/polling permanece o mecanismo confiavel validado.
+* Fluxo funciona de ponta a ponta? SIM para backend automatizado. PARCIAL para E2E manual completo com UI/gateway externo.
+* Pagamentos manuais sao confirmados antes de ir para cozinha? SIM nos testes backend existentes de pagamento manual e KDS; pedidos pendentes nao sao enviados para producao ativa.
+
+4. Fluxo REST
+
+* QR: SIM, validado por testes PublicQr*.
+* pedido criado: SIM.
+* estado financeiro: SIM, PENDENTE_PAGAMENTO/NAO_PAGO/PAGO sao exercitados pelas suites existentes.
+* estado operacional: SIM, validado em listagem, detalhe e KDS.
+* listagem tenant: SIM.
+* detalhe: SIM.
+* KDS/cozinha: SIM, pedidos pendentes de pagamento permanecem bloqueados.
+* pagamento manual: SIM, validado por TenantPaymentMethodManualPaymentIT.
+* resultado: SIM para backend automatizado.
+
+5. Fluxo PONTO
+
+* QR: SIM, criado por QrCodeOperacionalService com tipo UNIDADE_ATENDIMENTO.
+* pagamento obrigatorio: SIM para estado pendente/bloqueado antes de atendimento; PARCIAL para confirmacao externa live.
+* pedido criado ou bloqueado: SIM. Pedido direto pode ser criado como PENDENTE_PAGAMENTO quando a politica permite intencao pendente.
+* pedido pendente, se permitido: SIM, aparece no dashboard/listagem tenant.
+* pedido aparece em /tenant/pedidos: SIM, bug corrigido.
+* detalhe: SIM, /tenant/pedidos/{id} retorna o pedido direto.
+* sem sessaoConsumo: SIM, detalhe confirma ausencia de mesa/sessao indevida.
+* resultado: SIM para a lacuna backend corrigida e coberta por teste.
+
+6. Bug encontrado
+
+* descricao: Pedido PONTO criado e persistido pelo QR publico direto nao aparecia em /tenant/pedidos.
+* causa raiz: a query JPQL de PedidoRepository navegava p.sessaoConsumo.instituicao, p.sessaoConsumo.unidadeAtendimento e p.sessaoConsumo.mesa dentro de filtros opcionais. Hibernate gerava joins implicitos que removiam pedidos diretos com sessaoConsumo null.
+* arquivos corrigidos: src/main/java/com/restaurante/repository/PedidoRepository.java.
+* testes adicionados: src/test/java/com/restaurante/tenantadmin/TenantPedidoControllerIT.java, metodo tenantPedidos_listsDirectPontoPedidoWithoutSessaoConsumo.
+
+7. Listagem /tenant/pedidos
+
+* pedidos com sessao: SIM, comportamento preservado.
+* pedidos diretos: SIM, query agora usa LEFT JOIN para sessao/instituicao/unidade/mesa.
+* PONTO: SIM, pedido direto PONTO aparece na listagem e detalhe.
+* tenant isolation: SIM, teste cria tenant/usuario/membership proprios e consulta com TenantContext do tenant correto; suites cross-tenant existentes tambem passaram.
+
+8. Acompanhamento pelo cliente
+
+* endpoint existente: SIM, suites PublicQrPedidoConsultaIT e PublicQrPagamentoStartIT cobrem consulta/estado publico.
+* mudanca de estado refletida: PARCIAL, coberta por testes automatizados existentes, sem validacao manual em browser nesta fase.
+* limitacao se existir: nao foi implementado endpoint novo; qualquer requisito de push em tempo real para cliente deve ser tratado em fase propria.
+
+9. Tempo real / atualizacao admin
+
+* WebSocket/SSE/polling/manual: PARCIAL. Foi validada a fonte backend /tenant/pedidos; nao foi adicionada infraestrutura push.
+* comportamento real: pedido aparece via consulta tenant apos criacao publica.
+* limitacao: sem medicao manual de latencia ou observacao de push automatico nesta fase.
+
+10. KDS/cozinha
+
+* REST pagamento obrigatorio: SIM, pendente de pagamento nao entra em KDS ativo.
+* REST pos-pago: SIM nos testes existentes de politica/estado.
+* PONTO: SIM para nao depender de SessaoConsumo e manter PENDENTE_PAGAMENTO bloqueado para atendimento/producao.
+* pagamento manual: SIM, confirmado pelos testes de pagamento manual e KDS.
+* bloqueios confirmados: SIM por suites automatizadas.
+
+11. Testes automatizados
+
+* mvn -DskipTests test-compile: SIM, BUILD SUCCESS.
+* mvn -Pit -Dit.test=TenantPedidoControllerIT failsafe:integration-test failsafe:verify: SIM, Tests run: 2, Failures: 0, Errors: 0, Skipped: 0.
+* mvn -Pit -Dit.test=PublicQrPedidoIT,PublicQrPedidoConsultaIT,PublicQrPagamentoStartIT,PublicQrPaymentMethodsIT,TenantPaymentMethodManualPaymentIT failsafe:integration-test failsafe:verify: SIM, Tests run: 15, Failures: 0, Errors: 0, Skipped: 0.
+* mvn -Pit -Dit.test=ProducaoKdsMinhaUnidadeIT,ProducaoKdsCrossTenantIT,ProducaoKdsRbacIT failsafe:integration-test failsafe:verify: SIM, Tests run: 5, Failures: 0, Errors: 0, Skipped: 0.
+* mvn clean test: SIM, Tests run: 338, Failures: 0, Errors: 0, Skipped: 3.
+* mvn -Pit verify: PARCIAL. Foram executadas suites IT direcionadas; verify completo de todas as ITs nao foi repetido nesta fase por custo, mas os fluxos criticos exigidos foram cobertos.
+* total: 360 testes/suites unitarias e integracao direcionada reportadas nas execucoes acima.
+* falhas: 0 nas execucoes finais.
+
+12. Validacao manual
+
+* REST: PARCIAL, validado por backend automatizado; sem navegacao manual UI.
+* PONTO: PARCIAL, validado por backend automatizado; sem gateway externo live.
+* cliente: PARCIAL, endpoints publicos cobertos por testes; sem observacao manual.
+* admin: PARCIAL, /tenant/pedidos validado; sem observacao manual de polling/push no dashboard.
+
+13. Evidencias
+
+* logs relevantes: BUILD SUCCESS nas execucoes Maven listadas. Avisos de ambiente de teste: CONSUMA_TX_EVIDENCE_HMAC_KEY_V1 nao configurado e propriedades AppyPay incompletas em perfil de teste/mock.
+* IDs de pedidos: gerados dinamicamente pelos testes de integracao.
+* tenants usados: tenants dinamicos criados pelos testes, incluindo tenant PONTO com template CONSUMA_PONTO e TenantTipo VENDEDOR_RUA.
+* endpoints usados: POST /public/q/{token}/pedidos, GET /tenant/pedidos, GET /tenant/pedidos/{id}, endpoints publicos de consulta/pagamento cobertos pelas suites PublicQr*.
+
+14. Limitacoes
+
+Validacao live com gateway externo AppyPay e observacao manual em browser nao foram executadas. Nao foi criado WebSocket/SSE novo. Nao houve alteracao de frontend, conforme proibicao do prompt.
+
+15. Working tree
+
+Arquivos alterados nesta fase:
+* src/main/java/com/restaurante/repository/PedidoRepository.java
+* src/test/java/com/restaurante/tenantadmin/TenantPedidoControllerIT.java
+* RELATORIO_CONSUMA_BACKEND_FLOW_INTEGRITY_E2E_001.txt
+
+16. Push
+
+Branch preparada para push em origin/backend/flow-integrity-e2e-001.
+
+17. Pergunta final obrigatoria
+
+Os fluxos REST e PONTO funcionam como definido, com estados refletidos para cliente/admin, pedido listado corretamente, e pagamentos manuais confirmados antes de ir para cozinha?
+
+Resposta:
+PARCIAL
+
+Justificativa: SIM para correcao backend, testes automatizados, listagem tenant, detalhe, isolamento e bloqueios de KDS/cozinha. PARCIAL para validacao manual live, gateway externo real e tempo real push, que nao foram comprovados nesta fase.
+
+18. Status tecnico
+
+CONCLUIDO COM LIMITACAO - validacao manual live/gateway externo/push em tempo real nao executada; backend corrigido e coberto por testes automatizados.

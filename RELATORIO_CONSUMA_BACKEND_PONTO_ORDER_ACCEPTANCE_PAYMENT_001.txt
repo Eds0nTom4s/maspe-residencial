@@ -1,0 +1,66 @@
+RELATORIO_CONSUMA_BACKEND_PONTO_ORDER_ACCEPTANCE_PAYMENT_001
+Data: 2026-06-11
+Branch: backend/ponto-order-acceptance-payment-001
+
+1. Escopo executado
+- Consolidação do fluxo backend de pedidos públicos PONTO com identificação obrigatória do cliente.
+- Inclusão de aceite, rejeição com motivo e confirmação manual de pagamento pelo tenant.
+- Enriquecimento do tracking público e do detalhe/listagem tenant com metadados do fluxo.
+- Ajuste do build Docker para imagem multi-stage sem dependência prévia de target/*.jar local.
+
+2. Implementações principais
+- Pedido público PONTO agora exige:
+  - clienteNome
+  - clienteTelefone
+  - metodoPagamento
+- Métodos manuais CASH/TPA:
+  - pedido criado com status financeiro NAO_PAGO
+  - ordem manual criada automaticamente
+- Métodos digitais APPYPAY/REF:
+  - fluxo gateway preservado
+  - suporte a pedido direto sem SessaoConsumo no tracking e no start do pagamento
+- Novos endpoints tenant:
+  - POST /tenant/pedidos/{id}/aceitar
+  - POST /tenant/pedidos/{id}/rejeitar
+  - POST /tenant/pedidos/{id}/pagamento/manual-confirmar
+- Auditoria:
+  - eventos de pedido para aceite/rejeição
+  - evento operacional para confirmação manual de ordem
+
+3. Arquivos centrais alterados
+- src/main/java/com/restaurante/service/PublicQrPedidoService.java
+- src/main/java/com/restaurante/service/PublicQrPagamentoService.java
+- src/main/java/com/restaurante/controller/TenantPedidoController.java
+- src/main/java/com/restaurante/service/tenantadmin/TenantPedidoWorkflowService.java
+- src/main/java/com/restaurante/service/PedidoWorkflowMetadataService.java
+- Dockerfile
+- .dockerignore
+
+4. Validações executadas
+- Compilação:
+  - mvn -q -DskipTests compile
+- ITs focados neste fluxo:
+  - mvn -q -DskipTests -Pit -Dit.test=PublicQrPedidoIT,PublicQrPaymentMethodsIT,TenantPedidoControllerIT failsafe:integration-test failsafe:verify
+
+5. Resultado dos testes focados
+- PublicQrPedidoIT:
+  - validações obrigatórias de nome, telefone e método para PONTO direto
+  - criação de pedido direto com CASH
+- PublicQrPaymentMethodsIT:
+  - fluxo digital APPYPAY/REF para pedido direto sem sessão
+- TenantPedidoControllerIT:
+  - listagem de pedido direto PONTO
+  - aceite do pedido
+  - confirmação manual CASH
+  - rejeição com motivo
+  - reflexo no tracking público
+
+6. Docker
+- Dockerfile convertido para multi-stage build com Maven + runtime JRE.
+- docker compose -f docker-compose.local.yml build api iniciou corretamente e validou parsing do novo Dockerfile.
+- O download da imagem base Maven ficou muito lento no ambiente local e o processo foi interrompido para não deixar job preso indefinidamente.
+
+7. Observações finais
+- O fluxo RESTAURANTE existente foi mantido.
+- O tracking público agora expõe método, motivo de rejeição, token/status da ordem manual e timestamps relevantes.
+- O build Docker ficou alinhado para uso local/CI sem exigir jar pré-gerado.

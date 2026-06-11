@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Repository para PedidoEventLog
@@ -53,4 +54,6 @@ public interface PedidoEventLogRepository extends JpaRepository<PedidoEventLog, 
      */
     @Query("SELECT pel FROM PedidoEventLog pel WHERE pel.pedido.id = :pedidoId ORDER BY pel.timestamp DESC")
     List<PedidoEventLog> findUltimoEventoPorPedido(@Param("pedidoId") Long pedidoId);
+
+    Optional<PedidoEventLog> findFirstByPedidoIdAndStatusNovoOrderByTimestampDesc(Long pedidoId, StatusPedido statusNovo);
 }

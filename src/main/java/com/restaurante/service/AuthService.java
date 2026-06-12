@@ -90,6 +90,8 @@ public class AuthService {
                     .expiresIn(3600000L) // 1 hora em ms
                     .username(user.getUsername())
                     .roles(user.getRoles())
+                    .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                    .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
                     .build();
         } catch (Exception e) {
             // ⚠️ SEGURANÇA: Log interno detalhado, mas mensagem genérica para usuário
@@ -142,6 +144,8 @@ public class AuthService {
                 .expiresIn(86400000L)
                 .username(user.getUsername())
                 .roles(user.getRoles())
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
                 .build();
     }
 
@@ -184,6 +188,8 @@ public class AuthService {
                 .expiresIn(86400000L)
                 .username(user.getUsername())
                 .roles(user.getRoles())
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
                 .build();
     }
 

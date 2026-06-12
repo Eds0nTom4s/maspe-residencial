@@ -19,6 +19,7 @@ import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TipoCozinha;
@@ -104,9 +105,9 @@ public class SandboxDemoSeedRunner {
         setCardapioPublicado(rest, true);
         setCardapioPublicado(ponto, true);
         seedOrder(rest, restProducts, "demo-rest-pago", true, MetodoPagamentoManual.TPA);
-        seedOrder(rest, restProducts, "demo-rest-aberto", false, null);
+        seedOrder(rest, restProducts, "demo-rest-aberto", false, MetodoPagamentoManual.CASH);
         seedOrder(ponto, pontoProducts, "demo-ponto-pago", true, MetodoPagamentoManual.CASH);
-        seedOrder(ponto, pontoProducts, "demo-ponto-aberto", false, null);
+        seedOrder(ponto, pontoProducts, "demo-ponto-aberto", false, MetodoPagamentoManual.CASH);
         setCardapioPublicado(rest, false);
         setCardapioPublicado(ponto, false);
 
@@ -315,6 +316,7 @@ public class SandboxDemoSeedRunner {
                         .clienteNome("Cliente Demo")
                         .clienteTelefone("+244930123456")
                         .observacao("Pedido criado pelo seed demo sandbox.")
+                        .metodoPagamento(resolvePaymentMethodCode(metodoPagamento))
                         .itens(List.of(
                                 PublicQrPedidoItemRequest.builder()
                                         .produtoId(produtos.get(0).getId())
@@ -355,6 +357,15 @@ public class SandboxDemoSeedRunner {
                 );
             }
         }
+    }
+
+    private PaymentMethodCode resolvePaymentMethodCode(MetodoPagamentoManual metodoPagamento) {
+        if (metodoPagamento == null) {
+            return PaymentMethodCode.CASH;
+        }
+        return metodoPagamento == MetodoPagamentoManual.TPA
+                ? PaymentMethodCode.TPA
+                : PaymentMethodCode.CASH;
     }
 
     private QrCodeOperacional findPrincipalQr(Tenant tenant) {

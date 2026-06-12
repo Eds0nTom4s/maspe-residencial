@@ -1,0 +1,228 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - TENANT-PROVISIONING-ACCESS-001
+
+Data: 2026-06-12
+Branch: backend/tenant-provisioning-access-001
+Branch base: backend/integration-ponto-platform-contract-001
+Commit base validado: b5ab17a2f7e49e4713d6b4ea87cbe0c68eed802d
+Commit final: HEAD publicado desta branch na entrega final
+URL da branch remota: https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/tenant-provisioning-access-001
+
+1. Objetivo
+
+Fechar a lacuna entre provisionamento Platform Admin e acesso real do tenant owner,
+garantindo que um tenant provisionado nasca com BusinessAccount, owner User,
+TenantUser, BusinessAccountMember, credenciais temporarias e capacidade de operar
+fluxos tenant-scoped sem alteracao de UI.
+
+2. Resumo executivo
+
+* Platform Admin provisiona tenant completo:
+  - SIM
+* BusinessAccount criada/vinculada:
+  - SIM
+* Tenant criado:
+  - SIM
+* Owner User criado/vinculado:
+  - SIM
+* TenantUser OWNER criado:
+  - SIM
+* BusinessAccountMember OWNER criado:
+  - SIM
+* Senha temporaria gerada:
+  - SIM
+* Owner consegue login:
+  - SIM
+* Owner consegue listar e selecionar tenant:
+  - SIM
+* Owner consegue usar endpoint tenant-scoped:
+  - SIM
+* Pedido publico aparece em /tenant/pedidos:
+  - SIM, validado no IT dedicado com QR publico e token tenant-scoped do owner
+
+3. Endpoints implementados
+
+* POST /api/platform/tenants/provision-with-access
+  - provisiona BusinessAccount opcional, tenant, owner, TenantUser OWNER,
+    BusinessAccountMember OWNER, estrutura minima, QR operacional e metodos de pagamento.
+  - retorna tenantId, businessAccountId, ownerUserId, ownerUsername e senha temporaria.
+* GET /api/platform/tenants/{tenantId}/access
+  - retorna resumo de acesso do tenant: owner, TenantUser, BusinessAccountMember,
+    flags de senha temporaria e estado dos vinculos.
+* POST /api/platform/tenants/{tenantId}/access/reset-password
+  - gera nova senha temporaria para o owner e reativa flags de troca obrigatoria.
+
+4. DTOs e contrato
+
+* criados:
+  - TenantProvisioningAccessRequest
+  - TenantProvisioningAccessResponse
+  - PlatformTenantAccessSummaryResponse
+  - PlatformTenantAccessResetPasswordRequest
+  - PlatformTenantAccessResetPasswordResponse
+* alterados:
+  - AuthResponse passou a expor mustChangePassword e temporaryPasswordExpiresAt
+
+5. Persistencia e migracoes
+
+* V74__tenant_provisioning_access.sql:
+  - users.must_change_password
+  - users.password_reset_required
+  - users.temporary_password_expires_at
+  - users.last_password_changed_at
+* entidade User:
+  - novos campos persistidos e usados no login/refresh/reset
+
+6. Regras de negocio validadas
+
+* provisionamento cria tenant ATIVO e BusinessAccount ATIVA quando necessario.
+* owner nasce ativo, com role global compativel, senha temporaria e troca obrigatoria.
+* TenantUser nasce com role TENANT_OWNER e estado ATIVO.
+* BusinessAccountMember nasce com role OWNER e estado ATIVO.
+* maxTenants da BusinessAccount e respeitado antes de vincular novo tenant.
+* tenant ja vinculado a outra BusinessAccount nao e associado indevidamente.
+* metodos de pagamento locais default ficam disponiveis no tenant provisionado.
+* owner consegue gerar token tenant-scoped pelo fluxo auth existente.
+* pedido publico criado pelo QR do tenant provisionado aparece em /tenant/pedidos.
+
+7. Seguranca
+
+* endpoints platform protegidos por ROLE_ADMIN.
+* sem Authorization:
+  - POST /api/platform/tenants/provision-with-access => 401
+* token tenant-scoped sem privilegio platform:
+  - acesso aos endpoints platform negado conforme seguranca existente.
+* owner recem-criado:
+  - recebe token global no login.
+  - lista tenants em /api/auth/tenants.
+  - seleciona tenant em /api/auth/tenant/select.
+  - acessa endpoints tenant somente com token tenant-scoped.
+* observacao de runtime:
+  - uma chamada manual incorreta para /api/auth/tenant/select sem body JSON registrou 500
+    por Required request body is missing; a chamada correta com {"tenantId": 4} retornou 200.
+
+8. Testes automatizados executados
+
+* compilacao:
+  - mvn -DskipTests compile
+  - resultado: BUILD SUCCESS
+* test-compile:
+  - mvn test-compile
+  - resultado: BUILD SUCCESS
+* suite unitaria completa:
+  - mvn clean test
+  - resultado: Tests run: 338, Failures: 0, Errors: 0, Skipped: 3
+  - BUILD SUCCESS
+* IT dedicado:
+  - mvn -Pit -Dit.test=TenantProvisioningAccessIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+  - BUILD SUCCESS
+* regressao focada:
+  - mvn -Pit -Dit.test=TenantProvisioningAccessIT,PlatformBusinessAccountContractIT,BusinessAccountFoundationIT,PublicQrPedidoIT,TenantPedidoControllerIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 15, Failures: 0, Errors: 0, Skipped: 0
+  - BUILD SUCCESS
+
+9. Validacao manual no Docker sandbox local
+
+* alvo:
+  - container: consuma-api-local
+  - imagem: sistema-restauracao-api:sandbox-local
+  - porta: 8080
+* publicacao:
+  - jar gerado no host com mvn -DskipTests package
+  - imagem runtime reconstruida como sistema-restauracao-api:sandbox-local
+  - container consuma-api-local recriado com docker compose usando o projeto original
+* container publicado:
+  - containerId 228425c13c42
+  - porta 0.0.0.0:8080->8080/tcp
+* migracao:
+  - Flyway validou 74 migrations
+  - schema migrou de V73 para V74__tenant_provisioning_access
+* healthcheck:
+  - GET http://127.0.0.1:8080/api/actuator/health
+  - resultado: {"status":"UP","groups":["liveness","readiness"]}
+* smoke Platform Admin:
+  - GET /api/platform/plans => 200
+  - POST /api/platform/tenants/provision-with-access => 201
+  - tenant_id=4
+  - owner_id=3
+  - temporaryPassword presente
+  - GET /api/platform/tenants/4/access => 200
+  - POST /api/platform/tenants/4/access/reset-password => 200
+* smoke owner:
+  - POST /api/auth/jwt/login => 200
+  - mustChangePassword=true
+  - GET /api/auth/tenants => 200
+  - tenant provisionado presente
+  - POST /api/auth/tenant/select com body {"tenantId":4} => 200
+  - GET /api/tenant/cardapio/status com token tenant-scoped => 200
+
+10. Docker build
+
+* build multi-stage oficial:
+  - docker compose --env-file .env.sandbox.local -f docker-compose.sandbox-local.yml build api-local
+* resultado:
+  - NAO CONCLUIDO
+* limitacao objetiva:
+  - o stage RUN mvn -B -DskipTests package ficou bloqueado por varios minutos em resolucao/download Maven dentro do BuildKit, sem novo output operacional.
+  - para publicar o sandbox local, foi usado o caminho de runtime jar validado no host.
+* sandbox local:
+  - PUBLICADO e validado em 8080.
+
+11. Arquivos alterados
+
+* modificados:
+  - src/main/java/com/restaurante/config/SandboxDemoSeedRunner.java
+  - src/main/java/com/restaurante/dto/response/AuthResponse.java
+  - src/main/java/com/restaurante/model/entity/User.java
+  - src/main/java/com/restaurante/service/AuthService.java
+* novos:
+  - src/main/java/com/restaurante/controller/PlatformTenantProvisioningAccessController.java
+  - src/main/java/com/restaurante/dto/request/PlatformTenantAccessResetPasswordRequest.java
+  - src/main/java/com/restaurante/dto/request/TenantProvisioningAccessRequest.java
+  - src/main/java/com/restaurante/dto/response/PlatformTenantAccessResetPasswordResponse.java
+  - src/main/java/com/restaurante/dto/response/PlatformTenantAccessSummaryResponse.java
+  - src/main/java/com/restaurante/dto/response/TenantProvisioningAccessResponse.java
+  - src/main/java/com/restaurante/service/PlatformTenantProvisioningAccessService.java
+  - src/main/resources/db/migration/V74__tenant_provisioning_access.sql
+  - src/test/java/com/restaurante/platform/TenantProvisioningAccessIT.java
+  - RELATORIO_CONSUMA_BACKEND_TENANT_PROVISIONING_ACCESS_001.txt
+
+12. Regressoes verificadas
+
+* BusinessAccount foundation:
+  - verde
+* Platform Business Account contract:
+  - verde
+* Public QR / pedido publico:
+  - verde
+* Tenant pedido:
+  - verde
+* suite unitaria completa:
+  - verde
+
+13. Limitacoes
+
+* build Docker multi-stage nao foi concluido por bloqueio externo/operacional de Maven dentro
+  do BuildKit; o container sandbox local foi atualizado com imagem runtime criada a partir do jar
+  validado no host.
+* onboarding approve existente nao foi transformado em provisionamento completo com owner nesta fase;
+  o novo endpoint explicito /platform/tenants/provision-with-access cobre o contrato solicitado.
+* chamada sem body em /api/auth/tenant/select ainda cai no handler generico 500 do projeto;
+  a validacao correta do fluxo usa body JSON e retorna 200.
+
+14. Pergunta final obrigatoria
+
+O backend agora permite ao Platform Admin provisionar um tenant completo com acesso real
+do owner, credenciais temporarias, TenantUser OWNER, BusinessAccountMember OWNER,
+login, select-tenant e operacao tenant-scoped, sem quebrar BusinessAccounts, Auth,
+Public QR e Tenant pedidos?
+
+Resposta:
+SIM
+
+15. Status tecnico
+
+CONCLUIDO COM LIMITACAO EXTERNA - contrato backend implementado, testado, publicado
+no Docker sandbox local em 8080 e validado; build Docker multi-stage oficial permaneceu
+bloqueado no stage Maven dentro do BuildKit.

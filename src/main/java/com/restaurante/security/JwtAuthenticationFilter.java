@@ -45,8 +45,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // Não aplicar filtro JWT para endpoints públicos
         return path.startsWith("/h2-console") || 
                path.startsWith("/api/h2-console") ||
-               (path.startsWith("/api/auth/") && !path.startsWith("/api/auth/tenant/select") && !path.startsWith("/api/auth/tenants")) ||
-               (path.startsWith("/auth/") && !path.startsWith("/auth/tenant/select") && !path.startsWith("/auth/tenants")) ||
+               (path.startsWith("/api/auth/") && !path.startsWith("/api/auth/password/change") && !path.startsWith("/api/auth/tenant/select") && !path.startsWith("/api/auth/tenants")) ||
+               (path.startsWith("/auth/") && !path.startsWith("/auth/password/change") && !path.startsWith("/auth/tenant/select") && !path.startsWith("/auth/tenants")) ||
                path.startsWith("/swagger-ui") ||
                path.startsWith("/v3/api-docs") ||
                path.startsWith("/actuator");

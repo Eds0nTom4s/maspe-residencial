@@ -60,6 +60,7 @@ public class SecurityConfig {
                         // Endpoints públicos de autenticação (exceto seleção de tenant)
                         // Hardening: registro de staff via JWT deve ser restrito a ADMIN autenticado.
                         .requestMatchers(HttpMethod.POST, "/api/auth/jwt/register", "/auth/jwt/register").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/auth/password/change", "/auth/password/change").authenticated()
                         .requestMatchers("/api/auth/tenant/select", "/auth/tenant/select").authenticated()
                         // Listagem de tenants do usuário autenticado: exige JWT — proteção em 2 camadas (URL + @PreAuthorize)
                         .requestMatchers(HttpMethod.GET, "/api/auth/tenants", "/auth/tenants").authenticated()

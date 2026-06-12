@@ -11,13 +11,11 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class PlatformTenantAccessResetPasswordResponse {
-    private Long tenantId;
+public class ChangePasswordResponse {
     private Long userId;
     private String username;
-    private String temporaryPassword;
     private Boolean mustChangePassword;
     private Boolean passwordResetRequired;
-    private LocalDateTime temporaryPasswordExpiresAt;
-    private LocalDateTime resetAt;
+    private LocalDateTime lastPasswordChangedAt;
+    private String message;
 }

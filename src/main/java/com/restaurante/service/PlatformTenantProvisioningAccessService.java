@@ -36,12 +36,9 @@ import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.provisioning.ProvisioningPlanCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -50,13 +47,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class PlatformTenantProvisioningAccessService {
-
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-    private static final char[] PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789".toCharArray();
 
     private final TenantGuard tenantGuard;
     private final TenantProvisioningService tenantProvisioningService;
@@ -67,9 +62,9 @@ public class PlatformTenantProvisioningAccessService {
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final BusinessAccountRepository businessAccountRepository;
     private final BusinessAccountMemberRepository businessAccountMemberRepository;
-    private final PasswordEncoder passwordEncoder;
     private final TenantPaymentMethodBootstrapService tenantPaymentMethodBootstrapService;
     private final TenantLimitService tenantLimitService;
+    private final UserPasswordManagementService passwordManagementService;
 
     @Value("${app.client-url:http://localhost:5173}")
     private String clientAppUrl;
@@ -169,34 +164,7 @@ public class PlatformTenantProvisioningAccessService {
     @Transactional
     public PlatformTenantAccessResetPasswordResponse resetTemporaryPassword(Long tenantId,
                                                                             PlatformTenantAccessResetPasswordRequest request) {
-        tenantGuard.assertPlatformAdmin();
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new BusinessException("Tenant nao encontrado."));
-
-        TenantUser tenantUser;
-        if (request != null && request.getUserId() != null) {
-            tenantUser = tenantUserRepository.findByTenantIdAndUserId(tenantId, request.getUserId())
-                    .orElseThrow(() -> new BusinessException("Usuario nao pertence ao tenant informado."));
-        } else {
-            tenantUser = tenantUserRepository.findByTenantId(tenantId).stream()
-                    .filter(item -> item.getRole() == TenantUserRole.TENANT_OWNER)
-                    .findFirst()
-                    .orElseThrow(() -> new BusinessException("Tenant nao possui owner ativo para reset."));
-        }
-
-        User user = tenantUser.getUser();
-        String temporaryPassword = generateTemporaryPassword();
-        applyTemporaryPassword(user, temporaryPassword);
-        userRepository.saveAndFlush(user);
-
-        return PlatformTenantAccessResetPasswordResponse.builder()
-                .tenantId(tenant.getId())
-                .userId(user.getId())
-                .username(user.getUsername())
-                .temporaryPassword(temporaryPassword)
-                .mustChangePassword(Boolean.TRUE)
-                .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
-                .build();
+        return passwordManagementService.resetPasswordForTenant(tenantId, request);
     }
 
     private ProvisionarTenantRequest buildProvisioningRequest(TenantProvisioningAccessRequest request,
@@ -278,7 +246,7 @@ public class PlatformTenantProvisioningAccessService {
         if (Boolean.FALSE.equals(request.getGerarSenhaTemporaria())) {
             throw new BusinessException("Owner password obrigatoria quando gerarSenhaTemporaria=false.");
         }
-        return generateTemporaryPassword();
+        return passwordManagementService.generateTemporaryPassword();
     }
 
     private Plano resolvePlano(Long planoId) {
@@ -341,7 +309,7 @@ public class PlatformTenantProvisioningAccessService {
                 : new java.util.HashSet<>(owner.getRoles());
         roles.add(Role.ROLE_GERENTE);
         owner.setRoles(roles);
-        applyTemporaryPassword(owner, temporaryPassword);
+        passwordManagementService.applyTemporaryPassword(owner, temporaryPassword);
         return userRepository.saveAndFlush(owner);
     }
 
@@ -385,16 +353,10 @@ public class PlatformTenantProvisioningAccessService {
                 .businessAccountRole(member != null && member.getRole() != null ? member.getRole().name() : null)
                 .businessAccountMemberEstado(member != null && member.getEstado() != null ? member.getEstado().name() : null)
                 .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .passwordResetRequired(Boolean.TRUE.equals(user.getPasswordResetRequired()))
                 .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
+                .lastPasswordChangedAt(user.getLastPasswordChangedAt())
                 .build();
-    }
-
-    private void applyTemporaryPassword(User user, String temporaryPassword) {
-        user.setPassword(passwordEncoder.encode(temporaryPassword));
-        user.setMustChangePassword(true);
-        user.setPasswordResetRequired(true);
-        user.setTemporaryPasswordExpiresAt(LocalDateTime.now().plusDays(7));
-        user.setLastPasswordChangedAt(LocalDateTime.now());
     }
 
     private String resolveUniqueUsername(TenantProvisioningAccessRequest request) {
@@ -454,21 +416,9 @@ public class PlatformTenantProvisioningAccessService {
         return username.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9@._-]", "");
     }
 
-    private String generateTemporaryPassword() {
-        StringBuilder sb = new StringBuilder("Tmp@");
-        for (int i = 0; i < 10; i++) {
-            sb.append(PASSWORD_ALPHABET[SECURE_RANDOM.nextInt(PASSWORD_ALPHABET.length)]);
-        }
-        sb.append("9");
-        return sb.toString();
-    }
-
     private String randomSuffix(int len) {
-        StringBuilder sb = new StringBuilder(len);
-        for (int i = 0; i < len; i++) {
-            sb.append(PASSWORD_ALPHABET[SECURE_RANDOM.nextInt(PASSWORD_ALPHABET.length)]);
-        }
-        return sb.toString().toLowerCase(Locale.ROOT);
+        String normalized = UUID.randomUUID().toString().replace("-", "").toLowerCase(Locale.ROOT);
+        return normalized.substring(0, Math.min(len, normalized.length()));
     }
 
     private record OwnerResolution(User existingUser, String username) {}

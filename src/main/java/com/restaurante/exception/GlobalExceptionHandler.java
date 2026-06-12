@@ -92,6 +92,27 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Trata senha temporária expirada (409).
+     */
+    @ExceptionHandler(TemporaryPasswordExpiredException.class)
+    public ResponseEntity<ErrorResponse> handleTemporaryPasswordExpiredException(
+            TemporaryPasswordExpiredException ex, WebRequest request) {
+
+        log.warn("Senha temporaria expirada: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Senha temporaria expirada")
+                .code("TEMPORARY_PASSWORD_EXPIRED")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    /**
      * Trata InvalidSignatureException (401) — callback com assinatura inválida.
      */
     @ExceptionHandler(InvalidSignatureException.class)

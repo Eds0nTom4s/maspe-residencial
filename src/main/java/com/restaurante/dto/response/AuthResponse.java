@@ -16,7 +16,9 @@ public class AuthResponse {
     private String username;
     private Set<Role> roles;
     private Boolean mustChangePassword;
+    private Boolean passwordResetRequired;
     private java.time.LocalDateTime temporaryPasswordExpiresAt;
+    private java.time.LocalDateTime lastPasswordChangedAt;
 
     // Dados de sessão, preenchidos apenas quando uma sessão for retornada explicitamente
     private String qrCodeSessao;
@@ -54,8 +56,12 @@ public class AuthResponse {
     public void setRoles(Set<Role> roles) { this.roles = roles; }
     public Boolean getMustChangePassword() { return mustChangePassword; }
     public void setMustChangePassword(Boolean mustChangePassword) { this.mustChangePassword = mustChangePassword; }
+    public Boolean getPasswordResetRequired() { return passwordResetRequired; }
+    public void setPasswordResetRequired(Boolean passwordResetRequired) { this.passwordResetRequired = passwordResetRequired; }
     public java.time.LocalDateTime getTemporaryPasswordExpiresAt() { return temporaryPasswordExpiresAt; }
     public void setTemporaryPasswordExpiresAt(java.time.LocalDateTime temporaryPasswordExpiresAt) { this.temporaryPasswordExpiresAt = temporaryPasswordExpiresAt; }
+    public java.time.LocalDateTime getLastPasswordChangedAt() { return lastPasswordChangedAt; }
+    public void setLastPasswordChangedAt(java.time.LocalDateTime lastPasswordChangedAt) { this.lastPasswordChangedAt = lastPasswordChangedAt; }
 
     public String getQrCodeSessao() { return qrCodeSessao; }
     public void setQrCodeSessao(String qrCodeSessao) { this.qrCodeSessao = qrCodeSessao; }
@@ -81,7 +87,9 @@ public class AuthResponse {
         private String username;
         private Set<Role> roles;
         private Boolean mustChangePassword;
+        private Boolean passwordResetRequired;
         private java.time.LocalDateTime temporaryPasswordExpiresAt;
+        private java.time.LocalDateTime lastPasswordChangedAt;
         private String qrCodeSessao;
         private Long sessaoId;
         private java.math.BigDecimal saldoFundo;
@@ -124,8 +132,18 @@ public class AuthResponse {
             return this;
         }
 
+        public AuthResponseBuilder passwordResetRequired(Boolean passwordResetRequired) {
+            this.passwordResetRequired = passwordResetRequired;
+            return this;
+        }
+
         public AuthResponseBuilder temporaryPasswordExpiresAt(java.time.LocalDateTime temporaryPasswordExpiresAt) {
             this.temporaryPasswordExpiresAt = temporaryPasswordExpiresAt;
+            return this;
+        }
+
+        public AuthResponseBuilder lastPasswordChangedAt(java.time.LocalDateTime lastPasswordChangedAt) {
+            this.lastPasswordChangedAt = lastPasswordChangedAt;
             return this;
         }
 
@@ -152,7 +170,9 @@ public class AuthResponse {
         public AuthResponse build() {
             AuthResponse r = new AuthResponse(this.accessToken, this.refreshToken, this.tokenType, this.expiresIn, this.username, this.roles);
             r.setMustChangePassword(this.mustChangePassword);
+            r.setPasswordResetRequired(this.passwordResetRequired);
             r.setTemporaryPasswordExpiresAt(this.temporaryPasswordExpiresAt);
+            r.setLastPasswordChangedAt(this.lastPasswordChangedAt);
             r.setQrCodeSessao(this.qrCodeSessao);
             r.setSessaoId(this.sessaoId);
             r.setSaldoFundo(this.saldoFundo);

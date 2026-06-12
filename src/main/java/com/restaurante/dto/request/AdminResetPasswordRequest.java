@@ -9,8 +9,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class PlatformTenantAccessResetPasswordRequest {
-    private Long userId;
-    private String motivo;
+public class AdminResetPasswordRequest {
+    private String reason;
     private Integer temporaryPasswordExpiresInHours;
+    private Boolean forceChangePassword;
 }

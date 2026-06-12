@@ -38,6 +38,8 @@ public class PlatformTenantAccessSummaryResponse {
         private String businessAccountRole;
         private String businessAccountMemberEstado;
         private Boolean mustChangePassword;
+        private Boolean passwordResetRequired;
         private LocalDateTime temporaryPasswordExpiresAt;
+        private LocalDateTime lastPasswordChangedAt;
     }
 }

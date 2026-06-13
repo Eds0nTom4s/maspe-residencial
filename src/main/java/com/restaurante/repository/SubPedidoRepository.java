@@ -188,6 +188,49 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
 
     Optional<SubPedido> findByIdAndTenantId(Long id, Long tenantId);
 
+    @Query("""
+            select distinct sp from SubPedido sp
+              join fetch sp.pedido p
+              left join fetch p.sessaoConsumo sc
+              left join fetch sc.mesa m
+              left join fetch p.clienteConsumo cc
+              left join fetch sp.unidadeProducao up
+              left join fetch sp.itens i
+              left join fetch i.produto prod
+            where sp.tenant.id = :tenantId
+              and (cast(:unidadeProducaoId as string) is null or up.id = :unidadeProducaoId)
+              and (cast(:status as string) is null or sp.status = :status)
+              and (cast(:pedidoId as string) is null or p.id = :pedidoId)
+              and (cast(:createdFrom as timestamp) is null or sp.createdAt >= :createdFrom)
+              and (cast(:createdTo as timestamp) is null or sp.createdAt <= :createdTo)
+            order by sp.createdAt asc
+            """)
+    List<SubPedido> findKdsContractByTenantAndFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status,
+            @Param("pedidoId") Long pedidoId,
+            @Param("createdFrom") LocalDateTime createdFrom,
+            @Param("createdTo") LocalDateTime createdTo
+    );
+
+    @Query("""
+            select distinct sp from SubPedido sp
+              join fetch sp.pedido p
+              left join fetch p.sessaoConsumo sc
+              left join fetch sc.mesa m
+              left join fetch p.clienteConsumo cc
+              left join fetch sp.unidadeProducao up
+              left join fetch sp.itens i
+              left join fetch i.produto prod
+            where sp.id = :id
+              and sp.tenant.id = :tenantId
+            """)
+    Optional<SubPedido> findKdsContractByIdAndTenant(
+            @Param("id") Long id,
+            @Param("tenantId") Long tenantId
+    );
+
     @Query("SELECT sp FROM SubPedido sp " +
            "WHERE sp.tenant.id = :tenantId " +
            "AND sp.unidadeProducao.id = :unidadeProducaoId " +

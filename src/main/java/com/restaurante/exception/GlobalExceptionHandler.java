@@ -90,6 +90,31 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Trata conflito de versão do contrato KDS (409).
+     */
+    @ExceptionHandler(KdsSubPedidoConflictException.class)
+    public ResponseEntity<ErrorResponse> handleKdsSubPedidoConflictException(
+            KdsSubPedidoConflictException ex, WebRequest request) {
+
+        log.warn("Conflito KDS: statusAtual={} versionAtual={}", ex.getCurrentStatus(), ex.getCurrentVersion());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Conflito KDS")
+                .code("KDS_SUBPEDIDO_CONFLICT")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .additionalData(Map.of(
+                        "currentStatus", ex.getCurrentStatus() != null ? ex.getCurrentStatus().name() : null,
+                        "currentVersion", ex.getCurrentVersion()
+                ))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    /**
      * Trata InvalidSignatureException (401) — callback com assinatura inválida.
      */
     @ExceptionHandler(InvalidSignatureException.class)
@@ -388,11 +413,16 @@ public class GlobalExceptionHandler {
         private String code;
         private String path;
         private Map<String, String> validationErrors;
+        private Map<String, Object> additionalData;
 
         public ErrorResponse() {
         }
 
         public ErrorResponse(LocalDateTime timestamp, int status, String error, String message, String code, String path, Map<String, String> validationErrors) {
+            this(timestamp, status, error, message, code, path, validationErrors, null);
+        }
+
+        public ErrorResponse(LocalDateTime timestamp, int status, String error, String message, String code, String path, Map<String, String> validationErrors, Map<String, Object> additionalData) {
             this.timestamp = timestamp;
             this.status = status;
             this.error = error;
@@ -400,6 +430,7 @@ public class GlobalExceptionHandler {
             this.code = code;
             this.path = path;
             this.validationErrors = validationErrors;
+            this.additionalData = additionalData;
         }
 
         public LocalDateTime getTimestamp() { return timestamp; }
@@ -416,6 +447,8 @@ public class GlobalExceptionHandler {
         public void setPath(String path) { this.path = path; }
         public Map<String, String> getValidationErrors() { return validationErrors; }
         public void setValidationErrors(Map<String, String> validationErrors) { this.validationErrors = validationErrors; }
+        public Map<String, Object> getAdditionalData() { return additionalData; }
+        public void setAdditionalData(Map<String, Object> additionalData) { this.additionalData = additionalData; }
 
         public static ErrorResponseBuilder builder() {
             return new ErrorResponseBuilder();
@@ -429,6 +462,7 @@ public class GlobalExceptionHandler {
             private String code;
             private String path;
             private Map<String, String> validationErrors;
+            private Map<String, Object> additionalData;
 
             public ErrorResponseBuilder timestamp(LocalDateTime timestamp) { this.timestamp = timestamp; return this; }
             public ErrorResponseBuilder status(int status) { this.status = status; return this; }
@@ -437,9 +471,10 @@ public class GlobalExceptionHandler {
             public ErrorResponseBuilder code(String code) { this.code = code; return this; }
             public ErrorResponseBuilder path(String path) { this.path = path; return this; }
             public ErrorResponseBuilder validationErrors(Map<String, String> validationErrors) { this.validationErrors = validationErrors; return this; }
+            public ErrorResponseBuilder additionalData(Map<String, Object> additionalData) { this.additionalData = additionalData; return this; }
 
             public ErrorResponse build() {
-                return new ErrorResponse(timestamp, status, error, message, code, path, validationErrors);
+                return new ErrorResponse(timestamp, status, error, message, code, path, validationErrors, additionalData);
             }
         }
     }

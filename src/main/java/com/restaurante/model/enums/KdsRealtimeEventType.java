@@ -1,0 +1,11 @@
+package com.restaurante.model.enums;
+
+public enum KdsRealtimeEventType {
+    SUBPEDIDO_CREATED,
+    SUBPEDIDO_STATUS_CHANGED,
+    SUBPEDIDO_STARTED,
+    SUBPEDIDO_READY,
+    SUBPEDIDO_DELIVERED,
+    SUBPEDIDO_CANCELLED,
+    KDS_REFRESH_REQUIRED
+}

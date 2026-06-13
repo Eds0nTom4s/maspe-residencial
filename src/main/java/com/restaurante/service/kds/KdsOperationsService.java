@@ -13,6 +13,7 @@ import com.restaurante.model.entity.ItemPedido;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
+import com.restaurante.model.enums.KdsRealtimeEventType;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.SubPedidoRepository;
@@ -39,6 +40,7 @@ public class KdsOperationsService {
     private final UnidadeProducaoRepository unidadeProducaoRepository;
     private final SubPedidoRepository subPedidoRepository;
     private final SubPedidoStatusTransitionService transitionService;
+    private final KdsRealtimeEventPublisher realtimeEventPublisher;
 
     @Transactional(readOnly = true)
     public List<KdsUnidadeProducaoResponse> listarUnidadesProducao() {
@@ -90,6 +92,7 @@ public class KdsOperationsService {
         SubPedido current = loadSubPedido(id, tenantId);
         assertVersionMatches(current, request);
 
+        StatusSubPedido statusAnterior = current.getStatus();
         if (current.getStatus() == StatusSubPedido.EM_PREPARACAO) {
             return toResponse(current);
         }
@@ -100,6 +103,8 @@ public class KdsOperationsService {
         }
 
         transitionService.atualizarStatus(id, StatusSubPedido.EM_PREPARACAO, "Preparo iniciado no KDS", remoteIp(http), userAgent(http));
+        realtimeEventPublisher.publishTransitionAfterCommit(
+                tenantId, id, statusAnterior, StatusSubPedido.EM_PREPARACAO, KdsRealtimeEventType.SUBPEDIDO_STARTED);
         return buscarDetalhe(id);
     }
 
@@ -109,6 +114,7 @@ public class KdsOperationsService {
         SubPedido current = loadSubPedido(id, tenantId);
         assertVersionMatches(current, request);
 
+        StatusSubPedido statusAnterior = current.getStatus();
         if (current.getStatus() == StatusSubPedido.PRONTO) {
             return toResponse(current);
         }
@@ -117,6 +123,8 @@ public class KdsOperationsService {
         }
 
         transitionService.atualizarStatus(id, StatusSubPedido.PRONTO, "Preparo finalizado no KDS", remoteIp(http), userAgent(http));
+        realtimeEventPublisher.publishTransitionAfterCommit(
+                tenantId, id, statusAnterior, StatusSubPedido.PRONTO, KdsRealtimeEventType.SUBPEDIDO_READY);
         return buscarDetalhe(id);
     }
 
@@ -126,6 +134,7 @@ public class KdsOperationsService {
         SubPedido current = loadSubPedido(id, tenantId);
         assertVersionMatches(current, request);
 
+        StatusSubPedido statusAnterior = current.getStatus();
         if (current.getStatus() == StatusSubPedido.ENTREGUE) {
             return toResponse(current);
         }
@@ -134,6 +143,8 @@ public class KdsOperationsService {
         }
 
         transitionService.atualizarStatus(id, StatusSubPedido.ENTREGUE, "Entrega confirmada no KDS", remoteIp(http), userAgent(http));
+        realtimeEventPublisher.publishTransitionAfterCommit(
+                tenantId, id, statusAnterior, StatusSubPedido.ENTREGUE, KdsRealtimeEventType.SUBPEDIDO_DELIVERED);
         return buscarDetalhe(id);
     }
 

@@ -1,5 +1,6 @@
 package com.restaurante.security;
 
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
@@ -13,6 +14,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -47,18 +49,21 @@ public class JwtChannelInterceptor implements ChannelInterceptor {
                 try {
                     // Validar token
                     if (jwtTokenProvider.validateToken(token)) {
-                        String username = jwtTokenProvider.getUsernameFromToken(token);
-                        String roles = jwtTokenProvider.getRolesFromToken(token);
+                        Claims claims = jwtTokenProvider.getClaims(token);
+                        String username = claims.getSubject();
+                        String roles = claims.get("roles", String.class);
                         
                         // Converter roles string para lista de authorities
-                        List<SimpleGrantedAuthority> authorities = Arrays.stream(roles.split(","))
+                        List<SimpleGrantedAuthority> authorities = Arrays.stream((roles != null ? roles : "").split(","))
                                 .map(String::trim)
+                                .filter(role -> !role.isBlank())
                                 .map(SimpleGrantedAuthority::new)
                                 .collect(Collectors.toList());
                         
                         // Criar authentication e configurar no accessor
                         UsernamePasswordAuthenticationToken authentication = 
                                 new UsernamePasswordAuthenticationToken(username, null, authorities);
+                        authentication.setDetails(toTenantStompSession(claims));
                         
                         accessor.setUser(authentication);
                         
@@ -73,11 +78,92 @@ public class JwtChannelInterceptor implements ChannelInterceptor {
                 }
             } else {
                 log.warn("WebSocket CONNECT sem Authorization header ou formato incorreto");
-                // Permitir conexão sem autenticação (opcional - pode lançar exceção se quiser forçar autenticação)
-                // throw new IllegalArgumentException("Token JWT não fornecido");
+                throw new IllegalArgumentException("Token JWT não fornecido");
             }
+        } else if (accessor != null && StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+            validateTenantSubscription(accessor);
         }
         
         return message;
+    }
+
+    private TenantStompSession toTenantStompSession(Claims claims) {
+        Object rawTenantRoles = claims.get("tenantRoles");
+        List<String> tenantRoles = Collections.emptyList();
+        if (rawTenantRoles instanceof List<?> list) {
+            tenantRoles = list.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .toList();
+        }
+        return new TenantStompSession(
+                asLong(claims.get("userId")),
+                asLong(claims.get("tenantId")),
+                claims.get("tenantCode", String.class),
+                claims.get("tokenType", String.class),
+                Boolean.TRUE.equals(claims.get("platformAdmin", Boolean.class)),
+                tenantRoles
+        );
+    }
+
+    private void validateTenantSubscription(StompHeaderAccessor accessor) {
+        String destination = accessor.getDestination();
+        Long destinationTenantId = extractTenantId(destination);
+        if (destinationTenantId == null) {
+            return;
+        }
+
+        if (!(accessor.getUser() instanceof UsernamePasswordAuthenticationToken authentication)
+                || !(authentication.getDetails() instanceof TenantStompSession session)) {
+            log.warn("WebSocket SUBSCRIBE tenant-scoped sem sessão autenticada: destination={}", destination);
+            throw new IllegalArgumentException("Sessão WebSocket não autenticada");
+        }
+
+        if (session.tenantId() == null || !"TENANT".equals(session.tokenType())) {
+            log.warn("WebSocket SUBSCRIBE KDS bloqueado: token sem tenant selecionado, destination={}", destination);
+            throw new IllegalArgumentException("Token tenant-scoped obrigatório para tópico KDS");
+        }
+
+        if (!destinationTenantId.equals(session.tenantId())) {
+            log.warn("WebSocket SUBSCRIBE cross-tenant bloqueado: tokenTenantId={}, destination={}",
+                    session.tenantId(), destination);
+            throw new IllegalArgumentException("Inscrição cross-tenant bloqueada");
+        }
+    }
+
+    private Long extractTenantId(String destination) {
+        if (destination == null) {
+            return null;
+        }
+        String prefix = "/topic/tenant/";
+        if (!destination.startsWith(prefix)) {
+            return null;
+        }
+        String remainder = destination.substring(prefix.length());
+        int slash = remainder.indexOf('/');
+        if (slash <= 0) {
+            return null;
+        }
+        try {
+            return Long.parseLong(remainder.substring(0, slash));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Tópico tenant inválido");
+        }
+    }
+
+    private Long asLong(Object value) {
+        if (value instanceof Long l) {
+            return l;
+        }
+        if (value instanceof Integer i) {
+            return i.longValue();
+        }
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        if (value instanceof String s && !s.isBlank()) {
+            return Long.parseLong(s);
+        }
+        return null;
     }
 }

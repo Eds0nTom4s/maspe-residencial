@@ -72,6 +72,9 @@ class SubPedidoStateMachineTest {
     
     @Mock
     private com.restaurante.notificacao.service.NotificacaoService notificacaoService;
+    
+    @Mock
+    private com.restaurante.service.kds.KdsRealtimeEventPublisher kdsRealtimeEventPublisher;
 
     private SubPedidoService subPedidoService;
 
@@ -92,7 +95,8 @@ class SubPedidoStateMachineTest {
                 eventLogService,
                 transicaoEstadoValidator,
                 pedidoService,
-                notificacaoService
+                notificacaoService,
+                kdsRealtimeEventPublisher
         );
 
         cozinha = Cozinha.builder()

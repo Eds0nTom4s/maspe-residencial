@@ -11,6 +11,7 @@ import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.service.kds.KdsRealtimeEventPublisher;
 import com.restaurante.service.validator.TransicaoEstadoValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +52,7 @@ public class SubPedidoService {
     private final TransicaoEstadoValidator transicaoValidator;
     private final PedidoService pedidoService; // Injeção lazy para evitar circular dependency
     private final NotificacaoService notificacaoService;
+    private final KdsRealtimeEventPublisher kdsRealtimeEventPublisher;
 
     public SubPedidoService(
         SubPedidoRepository subPedidoRepository,
@@ -59,7 +61,8 @@ public class SubPedidoService {
         EventLogService eventLogService,
         TransicaoEstadoValidator transicaoValidator,
         @Lazy PedidoService pedidoService, // LAZY: evita dependência circular
-        NotificacaoService notificacaoService
+        NotificacaoService notificacaoService,
+        KdsRealtimeEventPublisher kdsRealtimeEventPublisher
     ) {
         this.subPedidoRepository = subPedidoRepository;
         this.cozinhaRepository = cozinhaRepository;
@@ -68,6 +71,7 @@ public class SubPedidoService {
         this.transicaoValidator = transicaoValidator;
         this.pedidoService = pedidoService;
         this.notificacaoService = notificacaoService;
+        this.kdsRealtimeEventPublisher = kdsRealtimeEventPublisher;
     }
 
     /**
@@ -194,6 +198,7 @@ public class SubPedidoService {
             null, "SubPedido criado", 0L);
         
         log.info("SubPedido criado - ID: {} (Status: CRIADO)", subPedidoSalvo.getId());
+        kdsRealtimeEventPublisher.publishCreatedAfterCommit(subPedidoSalvo);
         return subPedidoSalvo;
     }
 

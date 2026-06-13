@@ -41,6 +41,7 @@ import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
+import com.restaurante.service.kds.KdsRealtimeEventPublisher;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -79,6 +80,7 @@ public class PublicQrPedidoService {
     private final PublicQrPagamentoService publicQrPagamentoService;
     private final EventLogService eventLogService;
     private final PedidoWorkflowMetadataService pedidoWorkflowMetadataService;
+    private final KdsRealtimeEventPublisher kdsRealtimeEventPublisher;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -238,6 +240,7 @@ public class PublicQrPedidoService {
             }
 
             pedidoRepository.save(pedido);
+            pedido.getSubPedidos().forEach(kdsRealtimeEventPublisher::publishCreatedAfterCommit);
 
             if (sessao != null) {
                 sessaoConsumoService.registrarAtividade(sessao, "Pedido público por QR criado: " + pedido.getNumero());

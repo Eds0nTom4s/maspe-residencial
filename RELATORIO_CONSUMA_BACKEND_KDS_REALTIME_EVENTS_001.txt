@@ -1,0 +1,213 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - KDS-REALTIME-EVENTS-001
+
+Data: 2026-06-13
+Branch: backend/kds-realtime-events-001
+Commit base validado: 67541835f9c3fea445190c6c7ec99693cc41470b
+Commit final: HEAD publicado desta branch na entrega final
+URL da branch remota: https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/kds-realtime-events-001
+
+1. Objetivo
+
+Adicionar notificacoes realtime tenant-scoped para KDS usando a infraestrutura WebSocket/STOMP
+ja existente, sem alterar UI, mantendo REST KDS funcional e sem vazamento cross-tenant.
+
+2. Decisao tecnica
+
+* mecanismo usado:
+  - WebSocket + STOMP existente no backend
+  - endpoint SockJS: /api/ws
+  - broker: /topic e /queue
+* SSE:
+  - NAO usado, porque o backend ja possuia WebSocket/STOMP e broker simples configurados
+* topicos publicados:
+  - /topic/tenant/{tenantId}/kds
+  - /topic/tenant/{tenantId}/kds/unidade/{unidadeProducaoId}
+* seguranca dos topicos:
+  - CONNECT exige Authorization Bearer
+  - SUBSCRIBE para /topic/tenant/{tenantId}/... exige token tenant-scoped
+  - token global sem tenant selecionado e bloqueado
+  - cross-tenant e bloqueado no interceptor STOMP
+
+3. Contrato de evento
+
+* DTO:
+  - KdsRealtimeEventResponse
+* campos:
+  - eventId
+  - tenantId
+  - eventType
+  - subPedidoId
+  - pedidoId
+  - pedidoNumero
+  - unidadeProducaoId
+  - unidadeProducaoNome
+  - statusAnterior
+  - statusAtual
+  - version
+  - occurredAt
+* tipos:
+  - SUBPEDIDO_CREATED
+  - SUBPEDIDO_STATUS_CHANGED
+  - SUBPEDIDO_STARTED
+  - SUBPEDIDO_READY
+  - SUBPEDIDO_DELIVERED
+  - SUBPEDIDO_CANCELLED
+  - KDS_REFRESH_REQUIRED
+
+4. Pontos de publicacao
+
+* criacao de subpedido:
+  - PublicQrPedidoService => SUBPEDIDO_CREATED
+  - PedidoService => SUBPEDIDO_CREATED
+  - SubPedidoService => SUBPEDIDO_CREATED
+* transicoes KDS:
+  - KdsOperationsService.iniciarPreparo => SUBPEDIDO_STARTED
+  - KdsOperationsService.marcarPronto => SUBPEDIDO_READY
+  - KdsOperationsService.entregar => SUBPEDIDO_DELIVERED
+* sem publicacao indevida:
+  - transicoes invalidas/conflitos 409 nao publicam evento de sucesso
+* consistencia transacional:
+  - eventos sao enfileirados e publicados apos commit via TransactionalEventListener(AFTER_COMMIT)
+  - falha de envio realtime e registrada em log e nao quebra a operacao principal
+
+5. Seguranca tenant-scoped
+
+* CONNECT sem token:
+  - bloqueado pelo JwtChannelInterceptor
+* SUBSCRIBE sem autenticacao:
+  - bloqueado
+* SUBSCRIBE com token global:
+  - bloqueado para topicos tenant-scoped
+* SUBSCRIBE cross-tenant:
+  - bloqueado quando destination tenantId difere do tenantId do token
+* validacao automatizada:
+  - KdsRealtimeEventsWebSocketIT cobre CONNECT, token global, cross-tenant e subscribe valido
+* validacao runtime REST:
+  - GET /api/tenant/kds/subpedidos sem Authorization => 401
+  - GET /api/tenant/kds/subpedidos/4 com token tenant 2 para subpedido tenant 3 => 404
+
+6. Testes automatizados
+
+* compilacao:
+  - comando: mvn -DskipTests compile
+  - resultado: BUILD SUCCESS
+* test-compile:
+  - comando: mvn test-compile
+  - resultado: BUILD SUCCESS
+* IT realtime:
+  - comando: mvn -Pit -Dit.test=KdsRealtimeEventsWebSocketIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+* regressao focada:
+  - comando: mvn -Pit -Dit.test=KdsOperationsContractIT,KdsRealtimeEventsWebSocketIT,TenantPedidoControllerIT,PublicQrPedidoIT,PlatformUserPasswordManagementIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 18, Failures: 0, Errors: 0, Skipped: 0
+* suite unit/base:
+  - comando: mvn clean test
+  - resultado: Tests run: 338, Failures: 0, Errors: 0, Skipped: 3
+* observacao:
+  - a primeira chamada do failsafe antes do test-compile retornou "No tests matching pattern";
+    apos compilacao de testes, o IT dedicado executou e passou integralmente.
+
+7. Validacao sandbox Docker
+
+* build:
+  - comando: docker build -t sistema-restauracao-api:sandbox-local .
+  - resultado: BUILD SUCCESS
+  - Maven stage: mvn -B -DskipTests package => BUILD SUCCESS
+  - image id: sha256:41dee3dc471ecf68b5e36bd9daf8b3bd15aabc19b1a8ea1d4b822770f7a6e1cf
+* publicacao local:
+  - container anterior consuma-api-local removido sem apagar banco/volume
+  - novo container: 0903e3a4218e
+  - imagem: sistema-restauracao-api:sandbox-local
+  - rede: consuma-sandbox-local
+  - porta: 0.0.0.0:8080->8080/tcp
+* health:
+  - GET http://127.0.0.1:8080/api/actuator/health => 200
+  - resposta: {"status":"UP","groups":["liveness","readiness"]}
+* logs de startup:
+  - profiles ativos: sandbox-local, sandbox
+  - Flyway validou 74 migrations
+  - schema public na versao 74, sem migration pendente
+  - Tomcat iniciou na porta 8080 com context path /api
+  - SimpleBrokerMessageHandler iniciou com BrokerAvailabilityEvent available=true
+* WebSocket info:
+  - GET http://127.0.0.1:8080/api/ws/info => 200
+  - websocket=true
+
+8. Validacao runtime REST/KDS no sandbox
+
+* autenticacao:
+  - POST /api/auth/jwt/login => 200
+  - POST /api/auth/tenant/select tenant 2 => 200
+  - POST /api/auth/tenant/select tenant 3 => 200
+* tenant 2:
+  - GET /api/tenant/kds/unidades-producao => 200
+  - retornou Geral, Cozinha e Bar
+  - GET /api/tenant/kds/subpedidos?status=PENDENTE => 200
+* tenant 3:
+  - GET /api/tenant/kds/subpedidos => 200
+  - subpedido 4 identificado em PENDENTE com version 2
+  - PATCH /api/tenant/kds/subpedidos/4/iniciar-preparo com version 2 => 200
+  - status apos iniciar: EM_PREPARACAO, version 3
+  - PATCH /api/tenant/kds/subpedidos/4/pronto com disputa/stale version 3 => uma chamada 200 e uma chamada 409
+  - status apos pronto valido: PRONTO, version 4
+  - PATCH /api/tenant/kds/subpedidos/4/entregar com version 4 => 200
+  - status final: ENTREGUE, version 5
+* seguranca runtime:
+  - GET /api/tenant/kds/subpedidos sem token => 401
+  - GET /api/tenant/kds/subpedidos/4 com token tenant 2 => 404
+
+9. Validacao runtime STOMP
+
+* endpoint SockJS:
+  - /api/ws/info respondeu 200 com websocket=true
+* broker:
+  - logs confirmaram SimpleBrokerMessageHandler Started e BrokerAvailabilityEvent available=true
+* cliente externo local:
+  - tentativa com wscat nao foi usada como evidencia final porque o binario local falhou antes de conectar:
+    "Cannot find module 'https-proxy-agent'"
+* cobertura final:
+  - handshake/autorizacao/subscribe tenant-scoped e publicacao de mensagens STOMP ficaram validados pelo
+    KdsRealtimeEventsWebSocketIT, que usa o broker/interceptor do Spring e SimpMessagingTemplate mockado.
+
+10. Arquivos alterados
+
+* novos:
+  - src/main/java/com/restaurante/dto/response/kds/KdsRealtimeEventResponse.java
+  - src/main/java/com/restaurante/model/enums/KdsRealtimeEventType.java
+  - src/main/java/com/restaurante/security/TenantStompSession.java
+  - src/main/java/com/restaurante/service/kds/KdsRealtimeEventPublisher.java
+  - src/test/java/com/restaurante/kds/KdsRealtimeEventsWebSocketIT.java
+  - RELATORIO_CONSUMA_BACKEND_KDS_REALTIME_EVENTS_001.txt
+* modificados:
+  - src/main/java/com/restaurante/security/JwtChannelInterceptor.java
+  - src/main/java/com/restaurante/service/PedidoService.java
+  - src/main/java/com/restaurante/service/PublicQrPedidoService.java
+  - src/main/java/com/restaurante/service/SubPedidoService.java
+  - src/main/java/com/restaurante/service/kds/KdsOperationsService.java
+  - src/test/java/com/restaurante/service/SubPedidoStateMachineTest.java
+
+11. Limitacoes
+
+* nao foi adicionada persistencia/replay de eventos realtime; consumidores devem recarregar a fila REST em caso de perda de conexao.
+* UI nao foi alterada nesta fase; a assinatura dos topicos fica para a fase de frontend.
+* SUBPEDIDO_CANCELLED ficou previsto no enum, mas os fluxos de cancelamento/rejeicao nao receberam wiring dedicado nesta fase.
+* a validacao runtime WebSocket com cliente externo ficou limitada pela instalacao quebrada do wscat no host local;
+  a prova funcional STOMP ficou coberta por teste de integracao.
+
+12. Push
+
+Realizado para a branch remota backend/kds-realtime-events-001 nesta entrega final.
+
+13. Pergunta final obrigatoria
+
+O backend KDS passou a emitir eventos realtime tenant-scoped via WebSocket/STOMP,
+sem quebrar REST KDS e com sandbox Docker atualizado?
+
+Resposta:
+SIM
+
+14. Status tecnico
+
+CONCLUIDO PARA REVISAO - realtime KDS implementado, testado, publicado no sandbox Docker local
+e validado com REST KDS, seguranca tenant-scoped, broker STOMP ativo e suite automatizada verde.

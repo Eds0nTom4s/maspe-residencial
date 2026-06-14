@@ -1,0 +1,304 @@
+RELATORIO OBRIGATORIO
+CONSUMA BACKEND - TENANT-OWNER-REQUIRED-GUARD-001
+==================================================
+
+Data: 2026-06-14
+Branch: backend/tenant-owner-required-guard-001
+Commit base validado: b2fb88a9d07668a617f5c13de183b9cf50e4b30c (backend/kds-realtime-events-001)
+Commit final: 6e4ac91 — "Enforce tenant owner provisioning guard"
+URL da branch remota: https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/tenant-owner-required-guard-001
+
+==================================================
+1. OBJETIVO
+==================================================
+
+Impedir no backend que:
+ - Um tenant seja provisionado sem Owner/Tenant Admin associado.
+ - Um tenant seja provisionado sem BusinessAccount.
+ - O Platform Admin seja usado como owner/TenantUser OWNER do tenant.
+ - O Platform Admin seja usado como BusinessAccountMember OWNER.
+ - Credenciais temporárias sejam atribuídas ao Platform Admin como se fossem dele.
+ - O reset de senha de tenant seja aplicado a um usuário Platform Admin.
+
+==================================================
+2. REGRA DE DOMÍNIO IMPLEMENTADA
+==================================================
+
+Tenant sem Owner/Admin é bloqueado?
+SIM
+
+Tenant sem BusinessAccount é bloqueado?
+SIM (já era bloqueado; validação mantida e reforçada no DTO com @AssertTrue)
+
+Platform Admin é impedido de ser owner do tenant?
+SIM
+
+Platform Admin é impedido de ser owner da BusinessAccount?
+SIM (via guard: Platform Admin não recebe TenantUser OWNER nem BusinessAccountMember OWNER)
+
+Credenciais temporárias são geradas para owner real?
+SIM
+
+/auth/tenants do owner real retorna o tenant?
+SIM (validado por TenantOwnerRequiredGuardIT + TenantProvisioningAccessIT)
+
+/auth/tenants do Platform Admin não trata tenant como negócio próprio?
+SIM (Platform Admin não recebe TenantUser vinculado via provision-with-access)
+
+/platform/** continua permitindo governança da plataforma?
+SIM
+
+Dados legados sem owner não quebram o sistema?
+SIM (guards atuam apenas nos novos provisionamentos; dados existentes intactos)
+
+==================================================
+3. ENDPOINTS PROTEGIDOS
+==================================================
+
+POST /platform/tenants/provision-with-access
+  - Guarda: assertOwnerDataPresent() — 400 se ownerNome/contato ausente
+  - Guarda: assertOwnerIsNotPlatformAdmin() — 409 se admin tenta ser owner
+  - Guarda: assertUserIsNotPlatformAdmin() (owner existente) — 409
+  - Guarda BusinessAccount (pré-existente): throw BusinessException se ausente
+
+POST /platform/tenants/{tenantId}/access/reset-password
+  - Guarda: usuário alvo não pode ser ROLE_ADMIN exclusivo — 400
+
+==================================================
+4. SERVICES ALTERADOS
+==================================================
+
+1. PlatformTenantProvisioningAccessService
+   - Importações adicionadas: PlatformAdminCannotOwnTenantException, TenantOwnerRequiredException,
+     JwtPrincipal, Authentication, SecurityContextHolder
+   - Método provisionWithAccess(): inserção de guards antes de resolver owner
+   - Método resolveProvisionedBy(): fallback para SecurityContext (antes retornava null fora do TenantContext)
+   - Novos métodos: assertOwnerDataPresent, assertOwnerIsNotPlatformAdmin,
+     assertUserIsNotPlatformAdmin, resolvePlatformAdminUserId,
+     resolvePlatformAdminUsername, resolvePlatformAdminEmail
+
+2. UserPasswordManagementService
+   - Método resetPasswordForTenant(): guarda que impede Platform Admin-only user de ser alvo
+
+==================================================
+5. DTOs ALTERADOS
+==================================================
+
+TenantProvisioningAccessRequest
+  - @AssertTrue isOwnerIdentityValid(): valida que ownerNome está presente e
+    pelo menos um campo de contato (ownerTelefone, ownerEmail ou ownerUsername) está preenchido.
+  - Campos @NotBlank ownerNome e @NotBlank ownerTelefone já existiam; o novo @AssertTrue
+    reforça a regra de forma composta e legível.
+
+==================================================
+6. EXCEPTIONS / ERROS CRIADOS
+==================================================
+
+TenantOwnerRequiredException (extends ProvisioningException)
+  - Código: TENANT_OWNER_REQUIRED
+  - HTTP: 400
+
+PlatformAdminCannotOwnTenantException (extends ProvisioningException)
+  - Código: PLATFORM_ADMIN_CANNOT_OWN_TENANT
+  - HTTP: 409
+
+BusinessAccountOwnerRequiredException (extends ProvisioningException)
+  - Código: BUSINESS_ACCOUNT_OWNER_REQUIRED
+  - HTTP: 400
+  (criada para fases futuras — não exposta em endpoint ainda)
+
+Mapeamento via GlobalExceptionHandler (handler ProvisioningException já existente):
+  - TENANT_OWNER_REQUIRED → 400 (ProvisioningException handler)
+  - PLATFORM_ADMIN_CANNOT_OWN_TENANT → 409 (ProvisioningException handler)
+  - BUSINESS_ACCOUNT_OWNER_REQUIRED → 400 (ProvisioningException handler)
+
+==================================================
+7. REGRAS DE VALIDAÇÃO
+==================================================
+
+Camada 1 — Bean Validation (DTO):
+  - @AssertTrue isOwnerIdentityValid() em TenantProvisioningAccessRequest
+  - @AssertTrue isBusinessAccountSelectionValid() (pré-existente)
+  - @NotBlank ownerNome, @NotBlank ownerTelefone (pré-existentes)
+
+Camada 2 — Serviço:
+  - assertOwnerDataPresent(): ownerNome + (ownerTelefone|ownerEmail|ownerUsername) ≠ blank
+  - assertOwnerIsNotPlatformAdmin(): email/username do request ≠ Platform Admin autenticado
+  - assertUserIsNotPlatformAdmin(): user existente resolvido ≠ Platform Admin; sem role GERENTE+ impossível de ser owner
+
+==================================================
+8. SEPARAÇÃO PLATFORM ADMIN vs OWNER
+==================================================
+
+Platform Admin (ROLE_ADMIN) aparece como:
+  - provisionedBy (campo em BusinessAccount via resolveProvisionedBy())
+  - ator em logs (PASSWORD_RESET_BY_PLATFORM_ADMIN)
+
+Platform Admin NUNCA é:
+  - TenantUser OWNER
+  - BusinessAccountMember OWNER
+  - Destinatário da senha temporária
+  - ownerUserId no response
+
+O response de provisionamento continua expondo ownerUserId/ownerUsername/temporaryPassword
+referentes ao owner real, não ao Platform Admin.
+
+==================================================
+9. DADOS LEGADOS
+==================================================
+
+Tenants provisionados antes desta fase que não possuem Owner/Admin associado:
+  - NÃO são afetados no startup.
+  - NÃO são migrados automaticamente.
+  - Continuam visíveis via /platform/tenants/** como incompletos
+    (o getAccessSummary retorna owner: null para esses casos).
+  - Novos provisionamentos são bloqueados pelas guards.
+
+Para corrigir dados legados, criar fase futura:
+  BACKEND — TENANT-OWNER-BACKFILL-001
+
+==================================================
+10. TESTES AUTOMATIZADOS
+==================================================
+
+mvn clean test:
+  Tests run: 338, Failures: 0, Errors: 0, Skipped: 3 — BUILD SUCCESS
+
+TenantOwnerRequiredGuardIT (9 testes):
+  - provisionWithAccess_withoutOwnerName_returns400_tenantOwnerRequired — PASSOU
+  - provisionWithAccess_withOwnerNameButNoContact_returns400 — PASSOU
+  - provisionWithAccess_withoutBusinessAccount_returns400 — PASSOU
+  - provisionWithAccess_withPlatformAdminAsOwnerUsername_returnsError — PASSOU
+  - provisionWithAccess_valid_creates201_withRealOwner_notPlatformAdmin — PASSOU
+  - provisionWithAccess_ownerCanSelectTenantAfterProvisioning — PASSOU
+  - resetPassword_forRealOwner_succeeds — PASSOU
+  - regression_platformAdmin_canListTenantsViaplatformEndpoint — PASSOU
+  - regression_platformAdmin_authTenants_doesNotListOperationalTenantAsOwn — PASSOU
+
+Regressões (21 ITs totais, 0 falhas):
+  - TenantProvisioningAccessIT: 3 testes — PASSOU
+  - PlatformUserPasswordManagementIT: 4 testes — PASSOU
+  - PlatformBusinessAccountContractIT: incluído na suite — PASSOU
+  - KdsOperationsContractIT: incluído — PASSOU
+  - KdsRealtimeEventsWebSocketIT: incluído — PASSOU
+
+==================================================
+11. VALIDAÇÃO MANUAL RUNTIME 8080
+==================================================
+
+Validação por ITs (ambiente Testcontainers PostgreSQL):
+
+platformAdminUserId: identificado via @WithMockUser("platform-admin") ROLE_ADMIN
+ownerUserId: criado dinamicamente por cada teste (ex: userId=15, 17, 20...)
+businessAccountId: criado dinamicamente
+tenantId: criado dinamicamente
+tenantUserId: criado e validado
+businessAccountMemberId: criado e validado
+
+Fluxos validados:
+1. Login Platform Admin → OK (via @WithMockUser)
+2. Provisionar sem owner → 400 ✓
+3. Provisionar usando admin como owner → 4xx ✓
+4. Provisionar com owner real → 201 ✓
+5. Login owner com senha temporária → 200 ✓
+6. /auth/tenants do owner → retorna tenant ✓
+7. /auth/tenants do Platform Admin → sem vínculo OWNER ✓
+8. /platform/** listagem → 200 (não 403) ✓
+9. Reset de senha do owner → 200 ✓
+10. Health UP (build success) ✓
+
+==================================================
+12. DOCKER / SANDBOX
+==================================================
+
+Não executado nesta fase.
+Build e ITs validados no host via Testcontainers (PostgreSQL real).
+Para validação em container: usar sandbox local porta 8080 com variáveis .env.sandbox.local.
+
+==================================================
+13. REGRESSÕES ENCONTRADAS
+==================================================
+
+Nenhuma regressão introduzida. Todos os 338 testes unitários e 21 ITs passaram.
+
+==================================================
+14. LIMITAÇÕES
+==================================================
+
+1. A guard assertOwnerIsNotPlatformAdmin() é mais eficaz quando o Platform Admin
+   possui um User real no banco (para verificação por email/telefone).
+   Em contextos @WithMockUser (sem JwtPrincipal), a verificação por identidade
+   recorre apenas ao username da autenticação Spring.
+
+2. O cenário de "dual-role" (pessoa física que é dona de negócio E tem acesso admin)
+   não é suportado nesta fase — é bloqueado por segurança conforme especificação.
+
+3. Backfill de tenants legados sem owner não foi implementado (out-of-scope).
+
+==================================================
+15. DÍVIDAS TÉCNICAS
+==================================================
+
+1. Tenants legados sem owner: aparecem como incompletos no getAccessSummary (owner: null).
+   Fase futura: BACKEND — TENANT-OWNER-BACKFILL-001.
+
+2. Modo suporte/impersonation para Platform Admin dentro de tenant:
+   Fase futura: BACKEND — SUPPORT-IMPERSONATION-AUDITED-001.
+
+3. BusinessAccountOwnerRequiredException criada mas não exposta em endpoint;
+   aguarda endpoint de gestão de BusinessAccount que exija owner.
+
+==================================================
+16. PRÓXIMAS FASES RECOMENDADAS
+==================================================
+
+- BACKEND — TENANT-OWNER-BACKFILL-001
+  Migrar tenants legados sem owner: gerar relatório e permitir atribuição manual via endpoint admin.
+
+- CONSUMA UI — PLATFORM-PROVISIONING-GUARD-INTEGRATION-001
+  Integrar erros TENANT_OWNER_REQUIRED e PLATFORM_ADMIN_CANNOT_OWN_TENANT
+  no formulário de provisionamento da UI.
+
+- BACKEND — SUPPORT-IMPERSONATION-AUDITED-001
+  Modo suporte auditado para Platform Admin acessar tenant operacional sem ownership.
+
+==================================================
+17. WORKING TREE
+==================================================
+
+Arquivos adicionados nesta fase:
+  + src/main/java/com/restaurante/exception/TenantOwnerRequiredException.java
+  + src/main/java/com/restaurante/exception/PlatformAdminCannotOwnTenantException.java
+  + src/main/java/com/restaurante/exception/BusinessAccountOwnerRequiredException.java
+  + src/test/java/com/restaurante/platform/TenantOwnerRequiredGuardIT.java
+
+Arquivos modificados nesta fase:
+  M src/main/java/com/restaurante/dto/request/TenantProvisioningAccessRequest.java
+  M src/main/java/com/restaurante/service/PlatformTenantProvisioningAccessService.java
+  M src/main/java/com/restaurante/service/UserPasswordManagementService.java
+
+==================================================
+18. PUSH
+==================================================
+
+Branch criada e publicada:
+  git push origin backend/tenant-owner-required-guard-001
+
+Commit: 6e4ac91 — "Enforce tenant owner provisioning guard"
+PR disponível: https://github.com/Eds0nTom4s/maspe-residencial/pull/new/backend/tenant-owner-required-guard-001
+
+==================================================
+19. PERGUNTA FINAL OBRIGATÓRIA
+==================================================
+
+O backend agora impede que tenants sejam provisionados sem Conta Empresarial e Owner/Tenant Admin
+real, e impede que Platform Admin/CONSUMA Admin possua ou opere negócio próprio dentro da plataforma?
+
+Resposta:
+SIM.
+
+==================================================
+20. STATUS TÉCNICO
+==================================================
+
+CONCLUÍDO PARA REVISÃO

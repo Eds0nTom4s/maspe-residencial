@@ -51,4 +51,13 @@ public class TenantProvisioningAccessRequest {
     public boolean isBusinessAccountSelectionValid() {
         return businessAccountId != null || Boolean.TRUE.equals(createBusinessAccount);
     }
+
+    @AssertTrue(message = "Informe ownerNome e pelo menos ownerTelefone, ownerEmail ou ownerUsername.")
+    public boolean isOwnerIdentityValid() {
+        boolean hasName = ownerNome != null && !ownerNome.isBlank();
+        boolean hasContact = (ownerTelefone != null && !ownerTelefone.isBlank())
+                || (ownerEmail != null && !ownerEmail.isBlank())
+                || (ownerUsername != null && !ownerUsername.isBlank());
+        return hasName && hasContact;
+    }
 }

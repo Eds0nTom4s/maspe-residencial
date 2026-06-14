@@ -8,6 +8,8 @@ import com.restaurante.dto.response.PlatformTenantAccessSummaryResponse;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.dto.response.TenantProvisioningAccessResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.PlatformAdminCannotOwnTenantException;
+import com.restaurante.exception.TenantOwnerRequiredException;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
 import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.BusinessAccountMember;
@@ -31,11 +33,14 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.UserRepository;
+import com.restaurante.security.JwtPrincipal;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.provisioning.ProvisioningPlanCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -73,8 +78,21 @@ public class PlatformTenantProvisioningAccessService {
     public TenantProvisioningAccessResponse provisionWithAccess(TenantProvisioningAccessRequest request) {
         tenantGuard.assertPlatformAdmin();
 
+        // GUARD: owner data must be present
+        assertOwnerDataPresent(request);
+
+        // GUARD: Platform Admin cannot own a tenant
+        Long platformAdminUserId = resolvePlatformAdminUserId();
+        assertOwnerIsNotPlatformAdmin(request, platformAdminUserId);
+
         List<String> warnings = new ArrayList<>();
         OwnerResolution ownerResolution = resolveOwner(request, warnings);
+
+        // GUARD: if owner was resolved to an existing user, that user must not be Platform Admin
+        if (ownerResolution.existingUser() != null) {
+            assertUserIsNotPlatformAdmin(ownerResolution.existingUser(), platformAdminUserId);
+        }
+
         String temporaryPassword = resolveTemporaryPassword(request);
         Plano plano = resolvePlano(request.getPlanoId());
         BusinessAccount businessAccount = resolveOrCreateBusinessAccount(request);
@@ -406,7 +424,113 @@ public class PlatformTenantProvisioningAccessService {
     private String resolveProvisionedBy() {
         return TenantContextHolder.get()
                 .map(ctx -> ctx.userId() != null ? String.valueOf(ctx.userId()) : null)
-                .orElse(null);
+                .orElseGet(() -> {
+                    Long uid = resolvePlatformAdminUserId();
+                    return uid != null ? String.valueOf(uid) : null;
+                });
+    }
+
+    // =========================================================================
+    // OWNER GUARDS — enforce that Platform Admin cannot own a tenant/business
+    // =========================================================================
+
+    /**
+     * Asserts that the request contains at least minimal owner identification data.
+     * The request must have ownerNome + (ownerTelefone or ownerEmail or ownerUsername).
+     */
+    private void assertOwnerDataPresent(TenantProvisioningAccessRequest request) {
+        boolean hasName = request.getOwnerNome() != null && !request.getOwnerNome().isBlank();
+        boolean hasContact = (request.getOwnerTelefone() != null && !request.getOwnerTelefone().isBlank())
+                || (request.getOwnerEmail() != null && !request.getOwnerEmail().isBlank())
+                || (request.getOwnerUsername() != null && !request.getOwnerUsername().isBlank());
+        if (!hasName || !hasContact) {
+            throw new TenantOwnerRequiredException();
+        }
+    }
+
+    /**
+     * Asserts that the owner specified in the request is NOT the currently authenticated Platform Admin.
+     * Checks by userId (via TenantContext or JwtPrincipal), email, and username.
+     */
+    private void assertOwnerIsNotPlatformAdmin(TenantProvisioningAccessRequest request, Long platformAdminUserId) {
+        String adminUsername = resolvePlatformAdminUsername();
+        String adminEmail = resolvePlatformAdminEmail();
+
+        // Check by email
+        if (adminEmail != null && request.getOwnerEmail() != null
+                && adminEmail.equalsIgnoreCase(request.getOwnerEmail().trim())) {
+            throw new PlatformAdminCannotOwnTenantException();
+        }
+        // Check by username
+        if (adminUsername != null && request.getOwnerUsername() != null
+                && adminUsername.equalsIgnoreCase(request.getOwnerUsername().trim())) {
+            throw new PlatformAdminCannotOwnTenantException();
+        }
+        // If email/username matches a User with ROLE_ADMIN, also block
+        if (platformAdminUserId != null) {
+            userRepository.findById(platformAdminUserId).ifPresent(adminUser -> {
+                if (adminUser.getEmail() != null && request.getOwnerEmail() != null
+                        && adminUser.getEmail().equalsIgnoreCase(request.getOwnerEmail().trim())) {
+                    throw new PlatformAdminCannotOwnTenantException();
+                }
+                if (adminUser.getTelefone() != null && request.getOwnerTelefone() != null
+                        && adminUser.getTelefone().equals(request.getOwnerTelefone().trim())) {
+                    throw new PlatformAdminCannotOwnTenantException();
+                }
+            });
+        }
+    }
+
+    /**
+     * Asserts that a resolved (existing) User entity is not the Platform Admin.
+     * Blocks when the user's only role is ROLE_ADMIN (platform-only identity).
+     */
+    private void assertUserIsNotPlatformAdmin(User user, Long platformAdminUserId) {
+        // Block if user IS the authenticated platform admin
+        if (platformAdminUserId != null && platformAdminUserId.equals(user.getId())) {
+            throw new PlatformAdminCannotOwnTenantException();
+        }
+        // Block if user holds ONLY ROLE_ADMIN (no business role)
+        Set<Role> roles = user.getRoles();
+        if (roles != null && !roles.isEmpty()
+                && roles.stream().allMatch(r -> r == Role.ROLE_ADMIN)) {
+            throw new PlatformAdminCannotOwnTenantException();
+        }
+    }
+
+    /**
+     * Resolves the authenticated Platform Admin's User ID from SecurityContext.
+     * Returns null if not identifiable (e.g. test/mock contexts without JwtPrincipal).
+     */
+    private Long resolvePlatformAdminUserId() {
+        // Prefer TenantContext (set by TenantContextFilter)
+        Optional<Long> fromCtx = TenantContextHolder.get()
+                .map(ctx -> ctx.userId());
+        if (fromCtx.isPresent()) {
+            return fromCtx.get();
+        }
+        // Fallback: JwtPrincipal in SecurityContext
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof JwtPrincipal jp) {
+            return jp.getUserId();
+        }
+        return null;
+    }
+
+    private String resolvePlatformAdminUsername() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof JwtPrincipal jp) {
+            return jp.getUsername();
+        }
+        return auth != null ? auth.getName() : null;
+    }
+
+    private String resolvePlatformAdminEmail() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof JwtPrincipal jp) {
+            return jp.getEmail();
+        }
+        return null;
     }
 
     private String normalizeUsername(String username) {

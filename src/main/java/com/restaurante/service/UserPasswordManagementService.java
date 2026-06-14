@@ -122,6 +122,16 @@ public class UserPasswordManagementService {
                     .orElseThrow(() -> new ResourceNotFoundException("Owner do tenant", "tenantId", tenantId));
         }
 
+        // GUARD: Platform Admin cannot be the target of tenant password reset
+        // A user that holds ONLY ROLE_ADMIN is a platform-only identity, not a tenant operational user.
+        com.restaurante.model.entity.User targetUser = tenantUser.getUser();
+        if (targetUser.getRoles() != null && !targetUser.getRoles().isEmpty()
+                && targetUser.getRoles().stream().allMatch(r -> r == com.restaurante.model.enums.Role.ROLE_ADMIN)) {
+            throw new com.restaurante.exception.BusinessException(
+                    "Operacao negada: o usuario alvo e um operador de plataforma, nao um administrador do negocio. " +
+                    "Selecione um usuario owner/admin operacional real do tenant.");
+        }
+
         User user = tenantUser.getUser();
         String temporaryPassword = generateTemporaryPassword();
         LocalDateTime resetAt = LocalDateTime.now();

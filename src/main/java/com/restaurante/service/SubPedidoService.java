@@ -198,7 +198,6 @@ public class SubPedidoService {
             null, "SubPedido criado", 0L);
         
         log.info("SubPedido criado - ID: {} (Status: CRIADO)", subPedidoSalvo.getId());
-        kdsRealtimeEventPublisher.publishCreatedAfterCommit(subPedidoSalvo);
         return subPedidoSalvo;
     }
 
@@ -300,6 +299,10 @@ public class SubPedidoService {
             tempoTransacao);
         
         log.info("SubPedido {} atualizado: {} → {} ({}ms)", id, estadoAtual, novoStatus, tempoTransacao);
+
+        if (estadoAtual == StatusSubPedido.CRIADO && novoStatus == StatusSubPedido.PENDENTE) {
+            kdsRealtimeEventPublisher.publishCreatedAfterCommit(subPedidoSalvo);
+        }
         
         // ⭐ CRÍTICO: Recalcular status do Pedido após mudança em SubPedido ⭐
         pedidoService.recalcularStatusPedido(subPedidoSalvo.getPedido().getId());

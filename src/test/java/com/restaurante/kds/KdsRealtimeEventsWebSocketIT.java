@@ -115,27 +115,34 @@ class KdsRealtimeEventsWebSocketIT extends PostgresTestcontainersConfig {
 
         long pedidoId = criarPedidoPublicoPonto(tenantA.getQrToken(), produto.getId());
         long subPedidoId = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId).getFirst().getId();
-        long initialVersion = subPedidoRepository.findById(subPedidoId).orElseThrow().getVersion();
 
-        ArgumentCaptor<KdsRealtimeEventResponse> createdCaptor = ArgumentCaptor.forClass(KdsRealtimeEventResponse.class);
-        verify(messagingTemplate, after(500).atLeastOnce())
-                .convertAndSend(eq("/topic/tenant/%d/kds".formatted(tenantA.getTenantId())), createdCaptor.capture());
-        KdsRealtimeEventResponse created = findEvent(createdCaptor.getAllValues(), KdsRealtimeEventType.SUBPEDIDO_CREATED);
-        assertThat(created.tenantId()).isEqualTo(tenantA.getTenantId());
-        assertThat(created.subPedidoId()).isEqualTo(subPedidoId);
-        assertThat(created.statusAtual()).isNotNull();
-        assertThat(created.version()).isNotNull();
+        verify(messagingTemplate, after(500).times(0))
+                .convertAndSend(eq("/topic/tenant/%d/kds".formatted(tenantA.getTenantId())), any(Object.class));
         verify(messagingTemplate, never()).convertAndSend(eq("/topic/tenant/%d/kds".formatted(tenantB.getTenantId())), any(Object.class));
 
-        reset(messagingTemplate);
         TenantContextHolder.set(new TenantContext(
                 tenantA.getTenantId(), tenantA.getTenantCode(), tenantA.getOwnerUserId(),
                 Set.of("TENANT_OWNER"), TenantResolutionSource.JWT, false, false
         ));
 
+        mockMvc.perform(post("/tenant/pedidos/{id}/aceitar", pedidoId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"observacao\":\"Liberar produção realtime\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.statusOperacional").value("EM_ANDAMENTO"));
+
+        KdsRealtimeEventResponse created = captureTenantEvent(tenantA.getTenantId(), KdsRealtimeEventType.SUBPEDIDO_CREATED);
+        assertThat(created.tenantId()).isEqualTo(tenantA.getTenantId());
+        assertThat(created.subPedidoId()).isEqualTo(subPedidoId);
+        assertThat(created.statusAtual().name()).isEqualTo("PENDENTE");
+        assertThat(created.version()).isNotNull();
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/tenant/%d/kds".formatted(tenantB.getTenantId())), any(Object.class));
+
+        reset(messagingTemplate);
+
         String prepResp = mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/iniciar-preparo", subPedidoId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"version\":%d}".formatted(initialVersion)))
+                        .content("{\"version\":%d}".formatted(created.version())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("EM_PREPARACAO"))
                 .andReturn().getResponse().getContentAsString();
@@ -150,7 +157,7 @@ class KdsRealtimeEventsWebSocketIT extends PostgresTestcontainersConfig {
         reset(messagingTemplate);
         mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/pronto", subPedidoId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"version\":%d}".formatted(initialVersion)))
+                        .content("{\"version\":%d}".formatted(created.version())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("KDS_SUBPEDIDO_CONFLICT"));
         verifyNoInteractions(messagingTemplate);

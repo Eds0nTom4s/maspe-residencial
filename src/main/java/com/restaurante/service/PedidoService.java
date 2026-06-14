@@ -27,7 +27,6 @@ import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
-import com.restaurante.service.kds.KdsRealtimeEventPublisher;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,7 +69,6 @@ public class PedidoService {
     private final SessaoConsumoService sessaoConsumoService;
     private final SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository;
     private final OperationalEventLogService operationalEventLogService;
-    private final KdsRealtimeEventPublisher kdsRealtimeEventPublisher;
 
     public PedidoService(PedidoRepository pedidoRepository,
                          SessaoConsumoRepository sessaoConsumoRepository,
@@ -83,8 +81,7 @@ public class PedidoService {
                          NotificacaoService notificacaoService,
                          @org.springframework.context.annotation.Lazy SessaoConsumoService sessaoConsumoService,
                          SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository,
-                         OperationalEventLogService operationalEventLogService,
-                         KdsRealtimeEventPublisher kdsRealtimeEventPublisher) {
+                         OperationalEventLogService operationalEventLogService) {
         this.pedidoRepository = pedidoRepository;
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.produtoService = produtoService;
@@ -97,7 +94,6 @@ public class PedidoService {
         this.sessaoConsumoService = sessaoConsumoService;
         this.sessaoConsumoParticipanteRepository = sessaoConsumoParticipanteRepository;
         this.operationalEventLogService = operationalEventLogService;
-        this.kdsRealtimeEventPublisher = kdsRealtimeEventPublisher;
     }
 
     /**
@@ -328,7 +324,6 @@ public class PedidoService {
         Pedido pedidoAtualizado = pedidoRepository.findByIdComSubPedidos(pedido.getId())
             .orElseThrow(() -> new ResourceNotFoundException("Pedido não encontrado após criação"));
         log.info("✅ Pedido recarregado - {} SubPedidos encontrados", pedidoAtualizado.getSubPedidos().size());
-        pedidoAtualizado.getSubPedidos().forEach(kdsRealtimeEventPublisher::publishCreatedAfterCommit);
 
         // CONFIRMAÇÃO AUTOMÁTICA - transita CRIADO → PENDENTE se dentro do limite
         log.info("🤖 INICIANDO CONFIRMAÇÃO AUTOMÁTICA");

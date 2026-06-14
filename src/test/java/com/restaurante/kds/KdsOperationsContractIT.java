@@ -115,18 +115,46 @@ class KdsOperationsContractIT extends PostgresTestcontainersConfig {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isArray())
-                .andExpect(jsonPath("$.data.summary.total").value(1))
+                .andExpect(jsonPath("$.data.summary.total").value(0))
                 .andReturn().getResponse().getContentAsString();
-        JsonNode item = objectMapper.readTree(listResp).at("/data/items/0");
-        assertThat(item.at("/id").asLong()).isEqualTo(subPedidoId);
-        assertThat(item.at("/sessaoId").isNull()).isTrue();
-        assertThat(item.at("/version").asLong()).isGreaterThanOrEqualTo(0);
-        long initialVersion = item.at("/version").asLong();
+        JsonNode listBeforeAccept = objectMapper.readTree(listResp).at("/data/items");
+        assertThat(listBeforeAccept.isArray()).isTrue();
+        assertThat(listBeforeAccept.size()).isZero();
 
         mockMvc.perform(get("/tenant/kds/subpedidos")
                         .param("unidadeProducaoId", String.valueOf(unidadeProducaoId))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
+
+        mockMvc.perform(get("/tenant/kds/subpedidos/{id}", subPedidoId).accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
+
+        long initialVersion = subPedidoRepository.findById(subPedidoId).orElseThrow().getVersion();
+
+        mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/iniciar-preparo", subPedidoId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"version\":%d}".formatted(initialVersion)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_ACCEPTED_FOR_PRODUCTION"));
+
+        mockMvc.perform(post("/tenant/pedidos/{id}/aceitar", pedidoId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"observacao\":\"Liberar produção\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.statusOperacional").value("EM_ANDAMENTO"));
+
+        String acceptedListResp = mockMvc.perform(get("/tenant/kds/subpedidos")
+                        .param("pedidoId", String.valueOf(pedidoId))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.summary.total").value(1))
+                .andReturn().getResponse().getContentAsString();
+        JsonNode item = objectMapper.readTree(acceptedListResp).at("/data/items/0");
+        assertThat(item.at("/id").asLong()).isEqualTo(subPedidoId);
+        assertThat(item.at("/status").asText()).isEqualTo("PENDENTE");
+        assertThat(item.at("/sessaoId").isNull()).isTrue();
+        long acceptedVersion = item.at("/version").asLong();
 
         mockMvc.perform(get("/tenant/kds/subpedidos")
                         .param("status", item.at("/status").asText())
@@ -140,7 +168,7 @@ class KdsOperationsContractIT extends PostgresTestcontainersConfig {
 
         String prepResp = mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/iniciar-preparo", subPedidoId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"version\":%d}".formatted(initialVersion)))
+                        .content("{\"version\":%d}".formatted(acceptedVersion)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("EM_PREPARACAO"))
                 .andReturn().getResponse().getContentAsString();

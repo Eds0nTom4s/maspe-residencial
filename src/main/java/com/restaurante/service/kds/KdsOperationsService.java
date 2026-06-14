@@ -20,6 +20,7 @@ import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeProducaoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.operacional.PublicOrderStateMachineService;
 import com.restaurante.service.operacional.SubPedidoStatusTransitionService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class KdsOperationsService {
     private final SubPedidoRepository subPedidoRepository;
     private final SubPedidoStatusTransitionService transitionService;
     private final KdsRealtimeEventPublisher realtimeEventPublisher;
+    private final PublicOrderStateMachineService publicOrderStateMachineService;
 
     @Transactional(readOnly = true)
     public List<KdsUnidadeProducaoResponse> listarUnidadesProducao() {
@@ -83,23 +85,22 @@ public class KdsOperationsService {
     @Transactional(readOnly = true)
     public KdsSubPedidoResponse buscarDetalhe(Long id) {
         Long tenantId = requireKdsTenant();
-        return toResponse(loadSubPedido(id, tenantId));
+        return toResponse(loadSubPedidoVisivelNoKds(id, tenantId));
     }
 
     @Transactional
     public KdsSubPedidoResponse iniciarPreparo(Long id, KdsTransitionRequest request, HttpServletRequest http) {
         Long tenantId = requireKdsTenant();
-        SubPedido current = loadSubPedido(id, tenantId);
+        SubPedido current = loadSubPedidoParaOperacao(id, tenantId);
         assertVersionMatches(current, request);
 
         StatusSubPedido statusAnterior = current.getStatus();
         if (current.getStatus() == StatusSubPedido.EM_PREPARACAO) {
             return toResponse(current);
         }
-        if (current.getStatus() == StatusSubPedido.CRIADO) {
-            transitionService.atualizarStatus(id, StatusSubPedido.PENDENTE, "Aceite operacional KDS", remoteIp(http), userAgent(http));
-        } else if (current.getStatus() != StatusSubPedido.PENDENTE) {
-            throw new BusinessException("SubPedido deve estar em CRIADO ou PENDENTE para iniciar preparo.");
+        publicOrderStateMachineService.assertSubPedidoPodeEntrarNaProducao(current);
+        if (current.getStatus() != StatusSubPedido.PENDENTE) {
+            throw new BusinessException("SubPedido deve estar em PENDENTE para iniciar preparo.");
         }
 
         transitionService.atualizarStatus(id, StatusSubPedido.EM_PREPARACAO, "Preparo iniciado no KDS", remoteIp(http), userAgent(http));
@@ -111,7 +112,7 @@ public class KdsOperationsService {
     @Transactional
     public KdsSubPedidoResponse marcarPronto(Long id, KdsTransitionRequest request, HttpServletRequest http) {
         Long tenantId = requireKdsTenant();
-        SubPedido current = loadSubPedido(id, tenantId);
+        SubPedido current = loadSubPedidoParaOperacao(id, tenantId);
         assertVersionMatches(current, request);
 
         StatusSubPedido statusAnterior = current.getStatus();
@@ -131,7 +132,7 @@ public class KdsOperationsService {
     @Transactional
     public KdsSubPedidoResponse entregar(Long id, KdsTransitionRequest request, HttpServletRequest http) {
         Long tenantId = requireKdsTenant();
-        SubPedido current = loadSubPedido(id, tenantId);
+        SubPedido current = loadSubPedidoParaOperacao(id, tenantId);
         assertVersionMatches(current, request);
 
         StatusSubPedido statusAnterior = current.getStatus();
@@ -162,8 +163,13 @@ public class KdsOperationsService {
         return ctx.tenantId();
     }
 
-    private SubPedido loadSubPedido(Long id, Long tenantId) {
+    private SubPedido loadSubPedidoVisivelNoKds(Long id, Long tenantId) {
         return subPedidoRepository.findKdsContractByIdAndTenant(id, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("SubPedido", "id", id));
+    }
+
+    private SubPedido loadSubPedidoParaOperacao(Long id, Long tenantId) {
+        return subPedidoRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("SubPedido", "id", id));
     }
 
@@ -214,7 +220,7 @@ public class KdsOperationsService {
 
     private KdsSummaryResponse toSummary(List<KdsSubPedidoResponse> items) {
         long pendentes = items.stream()
-                .filter(item -> item.status() == StatusSubPedido.CRIADO || item.status() == StatusSubPedido.PENDENTE)
+                .filter(item -> item.status() == StatusSubPedido.PENDENTE)
                 .count();
         long emPreparacao = items.stream().filter(item -> item.status() == StatusSubPedido.EM_PREPARACAO).count();
         long prontos = items.stream().filter(item -> item.status() == StatusSubPedido.PRONTO).count();

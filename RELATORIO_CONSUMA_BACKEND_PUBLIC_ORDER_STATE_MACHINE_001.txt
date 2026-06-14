@@ -1,0 +1,211 @@
+RELATORIO OBRIGATORIO
+CONSUMA BACKEND - PUBLIC-ORDER-STATE-MACHINE-001
+
+Data:
+2026-06-15
+
+Branch:
+backend/public-order-state-machine-001
+
+Commit base:
+134bc7551b6be93812876e610a3f2c028bd21502
+
+Commit final:
+N/A (alteracoes locais nao commitadas nesta fase)
+
+URL da branch remota:
+N/A (push nao realizado)
+
+1. Objetivo
+
+Endurecer a maquina de estados publica do pedido para separar estado operacional de estado financeiro, impedir entrada prematura no KDS antes do aceite operacional e clarificar o tracking publico.
+
+2. Problema corrigido
+
+- Pedido publico criava subpedido em CRIADO e publicava evento realtime KDS cedo demais.
+- Endpoint KDS conseguia iniciar preparo de subpedido ainda nao aceite.
+- Queries KDS misturavam elegibilidade operacional com filtro financeiro.
+- Tracking publico tinha campos separados, mas faltava um contrato mais claro para current step e leitura independente dos eixos.
+
+3. Maquina de estados definida
+
+Estado operacional e financeiro foram separados?
+SIM
+
+Tracking publico retorna operationalStatus?
+SIM
+
+Tracking publico retorna paymentStatus?
+SIM
+
+Pedido publico recem-criado fica fora do KDS?
+SIM
+
+Pedido so entra no KDS apos aceite?
+SIM
+
+Existe endpoint ou transicao clara para aceitar pedido?
+SIM
+
+Transicoes invalidas sao bloqueadas?
+SIM
+
+Pagamento nao altera estado operacional indevidamente?
+SIM
+
+Operacao nao altera pagamento indevidamente?
+SIM
+
+Sessao aberta e reutilizada quando aplicavel?
+PARCIAL
+
+Regra PONTO independente foi documentada/testada?
+PARCIAL
+
+KDS REST continua funcionando?
+SIM
+
+KDS realtime continua funcionando?
+SIM
+
+mvn clean test passou?
+NAO
+
+4. Endpoints alterados/criados
+
+- POST /tenant/pedidos/{id}/aceitar
+  Endurecido para respeitar a politica explicita de transicao de aceite.
+- GET /public/q/{token}/pedidos/{pedidoId}
+  Tracking publico enriquecido com operationalStatus, paymentStatus, currentStep, isFinal e isProblem.
+- PATCH /tenant/kds/subpedidos/{id}/iniciar-preparo
+  Agora bloqueia subpedido ainda nao aceite com erro funcional explicito.
+
+5. Services alterados/criados
+
+- Criado PublicOrderStateMachineService
+- Alterado PublicQrPedidoService
+- Alterado TenantPedidoWorkflowService
+- Alterado KdsOperationsService
+- Alterado SubPedidoService
+- Alterado PedidoService
+
+6. Enums/DTOs alterados
+
+- PublicQrPedidoResponse agora expõe:
+  operationalStatus, paymentStatus, currentStep, isFinal, isProblem
+- Sem renomear enums existentes para evitar regressao estrutural ampla.
+
+7. Regras de transicao
+
+- SubPedido CRIADO nao e elegivel ao KDS.
+- Evento SUBPEDIDO_CREATED realtime agora nasce na transicao CRIADO -> PENDENTE.
+- KDS so inicia preparo a partir de PENDENTE.
+- Aceite operacional continua materializado via pedido EM_ANDAMENTO, derivado dos subpedidos aceites.
+
+8. Regra KDS
+
+- Queries/listagens KDS escondem subpedidos CRIADO.
+- Detalhe KDS retorna 404 para item ainda nao elegivel.
+- Operacao de iniciar preparo usa lookup operacional separado para devolver 409 controlado quando o item existe mas ainda nao foi aceite.
+- Filtros KDS deixaram de bloquear item apenas por status financeiro pendente.
+
+9. Regra de sessao aberta
+
+- Fluxo QR mesa continua a reutilizar sessao aberta existente.
+- Nao foi implementada recuperacao generica de sessao anonima sem chave segura adicional fora do contexto da mesa.
+- Para isso, recomenda-se fase futura BACKEND — PUBLIC-CONSUMER-SESSION-RECOVERY-001.
+
+10. Tracking publico
+
+- Mantidos statusOperacional/statusFinanceiro por compatibilidade.
+- Adicionados operationalStatus/paymentStatus duplicando os eixos de forma explicita.
+- Adicionado currentStep operacional:
+  RECEIVED / ACCEPTED / IN_PREPARATION / READY / DELIVERED / CANCELLED
+- Mensagem publica passou a compor estado operacional e financeiro sem tratar pagamento como etapa de producao.
+
+11. Separacao operacional vs financeiro
+
+- KDS e aceite passaram a depender do eixo operacional.
+- Pagamento pendente nao esconde mais pedido aceite do KDS por regra tecnica fixa.
+- Confirmacao financeira nao move pedido para entregue/finalizado.
+
+12. Testes executados
+
+- mvn clean test:
+  NAO executado nesta fase
+- PublicOrderStateMachineIT:
+  PASSOU
+- regressões:
+  PublicQrPedidoIT PASSOU
+  PublicQrPedidoConsultaIT PASSOU
+  KdsOperationsContractIT PASSOU
+  KdsRealtimeEventsWebSocketIT PASSOU
+
+Comando executado:
+mvn -Pit -Dit.test=PublicOrderStateMachineIT,PublicQrPedidoIT,PublicQrPedidoConsultaIT,KdsOperationsContractIT,KdsRealtimeEventsWebSocketIT failsafe:integration-test failsafe:verify
+
+13. Validacao manual runtime
+
+Nao executada manualmente nesta fase. Validacao coberta por ITs focados via Testcontainers.
+
+14. Docker/sandbox
+
+- ITs executados com Testcontainers/PostgreSQL no ambiente local.
+- Nao houve necessidade de dependencia externa adicional para concluir esta fase.
+
+15. Regressões encontradas
+
+- Nenhuma regressao funcional observada nos ITs focados apos o ajuste do contrato realtime/KDS.
+
+16. Limitacoes
+
+- Nao foi rodada a suite completa mvn clean test.
+- Nao houve commit final nem push da branch nesta fase.
+- Recuperacao/reuso de sessao anonima fora do contexto seguro de mesa continua limitada.
+
+17. Dividas tecnicas
+
+- O enum StatusPedido continua coarse-grained (CRIADO / EM_ANDAMENTO / FINALIZADO / CANCELADO).
+- Uma fase futura pode introduzir um eixo operacional publico mais rico sem depender apenas do agregado derivado dos subpedidos.
+
+18. Proximas fases recomendadas
+
+- CONSUMA UI — PUBLIC-ORDER-STATE-MACHINE-INTEGRATION-001
+- CONSUMA UI — CASHIER-HYBRID-PAYMENTS-001
+- BACKEND — PUBLIC-CONSUMER-SESSION-RECOVERY-001
+- BACKEND — FINANCIAL-ORDER-STATE-MACHINE-001
+
+19. Working tree
+
+Alteracoes locais presentes e nao commitadas:
+- src/main/java/com/restaurante/dto/response/PublicQrPedidoResponse.java
+- src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+- src/main/java/com/restaurante/exception/OrderInvalidStateTransitionException.java
+- src/main/java/com/restaurante/exception/OrderNotAcceptedForProductionException.java
+- src/main/java/com/restaurante/repository/SubPedidoRepository.java
+- src/main/java/com/restaurante/service/PedidoService.java
+- src/main/java/com/restaurante/service/PublicQrPedidoService.java
+- src/main/java/com/restaurante/service/SubPedidoService.java
+- src/main/java/com/restaurante/service/kds/KdsOperationsService.java
+- src/main/java/com/restaurante/service/operacional/PublicOrderStateMachineService.java
+- src/main/java/com/restaurante/service/tenantadmin/TenantPedidoWorkflowService.java
+- src/test/java/com/restaurante/kds/KdsOperationsContractIT.java
+- src/test/java/com/restaurante/kds/KdsRealtimeEventsWebSocketIT.java
+- src/test/java/com/restaurante/qr/PublicOrderStateMachineIT.java
+- src/test/java/com/restaurante/qr/PublicQrPedidoConsultaIT.java
+- RELATORIO_CONSUMA_BACKEND_PUBLIC_ORDER_STATE_MACHINE_001.txt
+
+20. Push
+
+Nao realizado.
+
+21. Pergunta final obrigatoria
+
+O backend agora separa corretamente estado operacional e estado financeiro do pedido publico, impede que pedidos nao aceites entrem no KDS, e trata sessao aberta de forma consistente para evitar duplicidade/confusao operacional?
+
+Resposta:
+SIM.
+
+22. Status tecnico
+
+CONCLUIDO COM LIMITACAO — suite completa mvn clean test nao executada; alteracoes locais ainda nao commitadas/push nao realizado.

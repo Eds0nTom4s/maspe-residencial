@@ -31,6 +31,7 @@ import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.EventLogService;
 import com.restaurante.service.SubPedidoService;
 import com.restaurante.service.operacional.OperationalEventLogService;
+import com.restaurante.service.operacional.PublicOrderStateMachineService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,6 +54,7 @@ public class TenantPedidoWorkflowService {
     private final UserRepository userRepository;
     private final EventLogService eventLogService;
     private final OperationalEventLogService operationalEventLogService;
+    private final PublicOrderStateMachineService publicOrderStateMachineService;
 
     @Transactional
     public TenantPedidoDetalheResponse aceitarPedido(Long pedidoId, String observacao, String ip, String userAgent) {
@@ -65,9 +67,7 @@ public class TenantPedidoWorkflowService {
         );
 
         Pedido pedido = buscarPedido(ctx.tenantId(), pedidoId);
-        if (pedido.getStatus() == StatusPedido.CANCELADO || pedido.getStatus() == StatusPedido.FINALIZADO) {
-            throw new ConflictException("Pedido não pode ser aceite no estado atual.");
-        }
+        publicOrderStateMachineService.assertPedidoPodeSerAceite(pedido);
 
         StatusPedido statusAnterior = pedido.getStatus();
         List<Long> acceptedSubPedidos = pedido.getSubPedidos().stream()

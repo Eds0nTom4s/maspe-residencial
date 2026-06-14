@@ -22,6 +22,11 @@ public class PublicQrPedidoResponse {
     private String numero;
     private StatusPedido statusOperacional;
     private StatusFinanceiroPedido statusFinanceiro;
+    private StatusPedido operationalStatus;
+    private StatusFinanceiroPedido paymentStatus;
+    private String currentStep;
+    private Boolean isFinal;
+    private Boolean isProblem;
 
     private String tenantNome;
     private String instituicaoNome;

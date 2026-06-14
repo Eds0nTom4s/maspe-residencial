@@ -137,6 +137,52 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
     }
 
+    @ExceptionHandler(OrderInvalidStateTransitionException.class)
+    public ResponseEntity<ErrorResponse> handleOrderInvalidStateTransitionException(
+            OrderInvalidStateTransitionException ex, WebRequest request) {
+
+        log.warn("Transição inválida de pedido: statusAtual={} transition={}",
+                ex.getCurrentStatus(), ex.getRequestedTransition());
+
+        Map<String, Object> additionalData = new HashMap<>();
+        additionalData.put("currentStatus", ex.getCurrentStatus() != null ? ex.getCurrentStatus().name() : null);
+        additionalData.put("requestedTransition", ex.getRequestedTransition());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Transição inválida")
+                .code(ex.getCode())
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .additionalData(additionalData)
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    @ExceptionHandler(OrderNotAcceptedForProductionException.class)
+    public ResponseEntity<ErrorResponse> handleOrderNotAcceptedForProductionException(
+            OrderNotAcceptedForProductionException ex, WebRequest request) {
+
+        log.warn("Subpedido ainda não aceite para produção: statusAtual={}", ex.getCurrentStatus());
+
+        Map<String, Object> additionalData = new HashMap<>();
+        additionalData.put("currentStatus", ex.getCurrentStatus() != null ? ex.getCurrentStatus().name() : null);
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Pedido não aceite para produção")
+                .code(ex.getCode())
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .additionalData(additionalData)
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
     /**
      * Trata InvalidSignatureException (401) — callback com assinatura inválida.
      */

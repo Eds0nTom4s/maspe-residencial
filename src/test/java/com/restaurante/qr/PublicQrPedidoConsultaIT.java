@@ -112,6 +112,11 @@ class PublicQrPedidoConsultaIT extends PostgresTestcontainersConfig {
         assertThat(data.at("/pedidoId").asLong()).isEqualTo(pedidoId);
         assertThat(data.at("/statusOperacional").asText()).isNotBlank();
         assertThat(data.at("/statusFinanceiro").asText()).isNotBlank();
+        assertThat(data.at("/operationalStatus").asText()).isEqualTo(data.at("/statusOperacional").asText());
+        assertThat(data.at("/paymentStatus").asText()).isEqualTo(data.at("/statusFinanceiro").asText());
+        assertThat(data.at("/currentStep").asText()).isNotBlank();
+        assertThat(data.at("/isFinal").isBoolean()).isTrue();
+        assertThat(data.at("/isProblem").isBoolean()).isTrue();
         assertThat(data.at("/total").asText()).isNotBlank();
         assertThat(data.at("/itens").isArray()).isTrue();
         assertThat(data.at("/itens").size()).isGreaterThan(0);

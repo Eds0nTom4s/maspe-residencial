@@ -41,7 +41,7 @@ import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
-import com.restaurante.service.kds.KdsRealtimeEventPublisher;
+import com.restaurante.service.operacional.PublicOrderStateMachineService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -80,7 +80,7 @@ public class PublicQrPedidoService {
     private final PublicQrPagamentoService publicQrPagamentoService;
     private final EventLogService eventLogService;
     private final PedidoWorkflowMetadataService pedidoWorkflowMetadataService;
-    private final KdsRealtimeEventPublisher kdsRealtimeEventPublisher;
+    private final PublicOrderStateMachineService publicOrderStateMachineService;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -240,7 +240,6 @@ public class PublicQrPedidoService {
             }
 
             pedidoRepository.save(pedido);
-            pedido.getSubPedidos().forEach(kdsRealtimeEventPublisher::publishCreatedAfterCommit);
 
             if (sessao != null) {
                 sessaoConsumoService.registrarAtividade(sessao, "Pedido público por QR criado: " + pedido.getNumero());
@@ -592,6 +591,7 @@ public class PublicQrPedidoService {
         }
 
         var workflow = pedidoWorkflowMetadataService.resolve(pedido);
+        var tracking = publicOrderStateMachineService.snapshot(pedido);
         SessaoConsumo sessao = pedido.getSessaoConsumo();
         Instituicao inst = sessao != null ? sessao.getInstituicao() : null;
         UnidadeAtendimento ua = sessao != null ? (sessao.getUnidadeAtendimento() != null ? sessao.getUnidadeAtendimento()
@@ -619,6 +619,11 @@ public class PublicQrPedidoService {
                 .numero(pedido.getNumero())
                 .statusOperacional(pedido.getStatus())
                 .statusFinanceiro(pedido.getStatusFinanceiro())
+                .operationalStatus(tracking.operationalStatus())
+                .paymentStatus(tracking.paymentStatus())
+                .currentStep(tracking.currentStep())
+                .isFinal(tracking.isFinal())
+                .isProblem(tracking.isProblem())
                 .tenantNome(pedido.getTenant() != null ? pedido.getTenant().getNome() : null)
                 .instituicaoNome(inst != null ? inst.getNome() : null)
                 .unidadeAtendimentoNome(ua != null ? ua.getNome() : null)
@@ -641,30 +646,33 @@ public class PublicQrPedidoService {
                 .rejeitadoEm(workflow.rejeitadoEm())
                 .total(pedido.getTotal())
                 .itens(itens)
-                .mensagem(mensagemTracking(pedido, workflow))
+                .mensagem(mensagemTracking(pedido, workflow, tracking))
                 .build();
     }
 
-    private String mensagemTracking(Pedido pedido, PedidoWorkflowMetadataService.PedidoWorkflowMetadata workflow) {
+    private String mensagemTracking(Pedido pedido,
+                                    PedidoWorkflowMetadataService.PedidoWorkflowMetadata workflow,
+                                    PublicOrderStateMachineService.TrackingSnapshot tracking) {
         if (pedido.getStatus() == StatusPedido.CANCELADO && workflow.motivoRejeicao() != null && !workflow.motivoRejeicao().isBlank()) {
             return "Pedido rejeitado: " + workflow.motivoRejeicao();
         }
-        if (pedido.getStatus() == StatusPedido.CANCELADO) {
-            return "Pedido cancelado";
-        }
-        if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PAGO) {
-            return "Pagamento confirmado";
-        }
-        if (workflow.ordemPagamentoToken() != null && pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
-            return "Pedido criado e aguardando aceite/pagamento manual";
-        }
-        if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PENDENTE_PAGAMENTO) {
-            return "Pedido criado e aguardando pagamento";
-        }
-        if (pedido.getStatus() == StatusPedido.EM_ANDAMENTO) {
-            return "Pedido aceite pelo operador";
-        }
-        return "Pedido encontrado";
+        String operacional = switch (tracking.currentStep()) {
+            case "ACCEPTED" -> "Pedido aceite pelo operador.";
+            case "IN_PREPARATION" -> "Pedido em preparação.";
+            case "READY" -> "Pedido pronto.";
+            case "DELIVERED" -> "Pedido entregue.";
+            case "CANCELLED" -> "Pedido cancelado.";
+            default -> "Pedido recebido.";
+        };
+        String financeiro = switch (pedido.getStatusFinanceiro()) {
+            case PAGO -> " Pagamento confirmado.";
+            case PENDENTE_PAGAMENTO -> workflow.ordemPagamentoToken() != null
+                    ? " Pagamento pendente."
+                    : " Pagamento ainda não iniciado.";
+            case ESTORNADO -> " Pagamento estornado.";
+            case NAO_PAGO -> " Pagamento ainda não confirmado.";
+        };
+        return operacional + financeiro;
     }
 
     private record DecisaoPedidoPublico(

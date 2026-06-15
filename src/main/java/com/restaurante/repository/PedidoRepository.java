@@ -1,6 +1,7 @@
 package com.restaurante.repository;
 
 import com.restaurante.model.entity.Pedido;
+import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
@@ -114,6 +115,54 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
             @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
             @Param("mesaId") Long mesaId,
             Pageable pageable
+    );
+
+    @Query("SELECT DISTINCT p FROM Pedido p " +
+           "LEFT JOIN p.sessaoConsumo sc " +
+           "LEFT JOIN sc.instituicao inst " +
+           "LEFT JOIN sc.unidadeAtendimento ua " +
+           "LEFT JOIN sc.mesa mesa " +
+           "LEFT JOIN p.clienteConsumo cliente " +
+           "WHERE p.tenant.id = :tenantId " +
+           "AND p.status IN :statusOperacionais " +
+           "AND p.statusFinanceiro IN :statusFinanceiros " +
+           "AND (cast(:inicio as timestamp) IS NULL OR p.createdAt >= :inicio) " +
+           "AND (cast(:fim as timestamp) IS NULL OR p.createdAt <= :fim) " +
+           "AND (:manualMethod IS NULL OR EXISTS (" +
+           "    SELECT 1 FROM OrdemPagamento op " +
+           "    WHERE op.pedido = p AND op.tenant.id = :tenantId AND op.metodoSolicitado = :manualMethod" +
+           ")) " +
+           "AND (:appyPayOnly = false OR EXISTS (" +
+           "    SELECT 1 FROM Pagamento pay " +
+           "    WHERE pay.pedido = p AND pay.tenant.id = :tenantId AND pay.metodo IS NOT NULL" +
+           ")) " +
+           "AND (:search IS NULL OR :search = '' " +
+           "    OR LOWER(p.numero) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "    OR LOWER(cliente.nome) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "    OR cliente.telefone LIKE CONCAT('%', :search, '%') " +
+           "    OR cliente.telefoneNormalizado LIKE CONCAT('%', :search, '%') " +
+           "    OR LOWER(mesa.referencia) LIKE LOWER(CONCAT('%', :search, '%'))" +
+           ")")
+    Page<Pedido> findTenantCaixaPedidosWithFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("statusOperacionais") List<StatusPedido> statusOperacionais,
+            @Param("statusFinanceiros") List<StatusFinanceiroPedido> statusFinanceiros,
+            @Param("manualMethod") MetodoPagamentoManual manualMethod,
+            @Param("appyPayOnly") boolean appyPayOnly,
+            @Param("inicio") LocalDateTime inicio,
+            @Param("fim") LocalDateTime fim,
+            @Param("search") String search,
+            Pageable pageable
+    );
+
+    @Query("SELECT DISTINCT p FROM Pedido p " +
+           "WHERE p.tenant.id = :tenantId " +
+           "AND (cast(:inicio as timestamp) IS NULL OR p.createdAt >= :inicio) " +
+           "AND (cast(:fim as timestamp) IS NULL OR p.createdAt <= :fim)")
+    List<Pedido> findTenantCaixaPedidosForResumo(
+            @Param("tenantId") Long tenantId,
+            @Param("inicio") LocalDateTime inicio,
+            @Param("fim") LocalDateTime fim
     );
 
     /**

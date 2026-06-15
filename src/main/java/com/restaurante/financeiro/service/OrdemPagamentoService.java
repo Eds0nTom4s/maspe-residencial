@@ -271,8 +271,8 @@ public class OrdemPagamentoService {
         if (metodoConfirmado == null || metodoConfirmado == MetodoPagamentoManual.APPYPAY) {
             throw new BusinessException("Método confirmado inválido para manual.");
         }
-        if (valorRecebido == null || valorRecebido.compareTo(ordem.getValor()) < 0) {
-            throw new BusinessException("Valor recebido menor que o valor da ordem.");
+        if (valorRecebido == null || valorRecebido.compareTo(ordem.getValor()) != 0) {
+            throw new BusinessException("Valor recebido deve ser igual ao valor da ordem.");
         }
 
         ordem.setStatus(OrdemPagamentoStatus.CONFIRMADA);

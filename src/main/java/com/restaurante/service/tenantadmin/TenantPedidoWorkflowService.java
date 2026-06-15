@@ -194,6 +194,12 @@ public class TenantPedidoWorkflowService {
         }
 
         Pedido pedido = buscarPedido(ctx.tenantId(), pedidoId);
+        if (pedido.getStatus() == StatusPedido.CANCELADO) {
+            throw new ConflictException("Pedido cancelado não pode receber confirmação de pagamento.");
+        }
+        if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.ESTORNADO) {
+            throw new ConflictException("Pedido estornado não pode receber confirmação de pagamento.");
+        }
         OrdemPagamento ordem = ordemPagamentoRepository.findFirstByPedidoIdOrderByCreatedAtDesc(pedidoId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
 

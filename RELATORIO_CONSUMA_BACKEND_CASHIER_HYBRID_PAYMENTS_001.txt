@@ -1,0 +1,195 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - CASHIER-HYBRID-PAYMENTS-001
+
+Data: 2026-06-15
+Branch: backend/cashier-hybrid-payments-001
+Commit base validado: 0284bd13501133852f8711ec25ce227cb27e8a39
+Commit final: HEAD publicado desta branch na entrega final
+URL da branch remota: https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/cashier-hybrid-payments-001
+
+1. Objetivo
+
+Entregar contratos backend reais para o Caixa hibrido, permitindo listagem paginada de
+pedidos/pagamentos por tenant, filtros operacionais e financeiros, resumo financeiro,
+historico paginado e confirmacao manual/local segura para CASH/TPA sem misturar estado
+financeiro com estado operacional.
+
+2. Escopo entregue
+
+* Caixa tenant-scoped:
+  - GET /tenant/caixa/pedidos
+  - GET /tenant/caixa/resumo
+  - GET /tenant/caixa/historico
+  - POST /tenant/caixa/pedidos/{pedidoId}/pagamento/manual-confirmar
+* filtros de pedidos:
+  - paymentStatus/statusFinanceiro
+  - operationalStatus/statusOperacional
+  - paymentMethod/metodoPagamento
+  - dateFrom/dateTo
+  - search por numero do pedido, cliente, telefone e mesa/referencia
+* paginacao:
+  - default page size 20
+  - limite maximo 100
+  - ordenacao default por createdAt desc
+* confirmacao manual:
+  - permitida somente para CASH/TPA
+  - valor recebido deve ser exatamente igual ao valor da ordem
+  - pedido cancelado ou estornado nao pode receber confirmacao
+  - segunda confirmacao da mesma ordem e idempotente e nao duplica pagamento
+* separacao operacional/financeira:
+  - pedido pode passar de NAO_PAGO para PAGO sem alterar CRIADO/EM_ANDAMENTO/FINALIZADO
+  - fluxo em preparo permanece em preparo apos pagamento confirmado
+
+3. Endpoints validados
+
+* GET /tenant/caixa/pedidos
+  - paginado
+  - filtros por status financeiro
+  - filtros por status operacional
+  - filtros por metodo CASH/TPA/APPYPAY
+  - filtros por periodo e busca textual
+* GET /tenant/caixa/resumo
+  - totais pendentes
+  - totais pagos
+  - quantidade pendente/paga
+  - agrupamento por metodo
+* GET /tenant/caixa/historico
+  - historico paginado via monitoramento financeiro existente
+  - filtros por status, numero, referencia externa e periodo
+* POST /tenant/caixa/pedidos/{pedidoId}/pagamento/manual-confirmar
+  - confirma CASH
+  - confirma TPA
+  - bloqueia valor divergente
+  - bloqueia pedido cancelado/estornado
+  - respeita isolamento por tenant
+
+4. Regras de integridade validadas
+
+* estado financeiro e estado operacional permanecem independentes
+* confirmacao financeira nao altera status operacional
+* pagamentos locais aceitos apenas para metodos CASH e TPA
+* valor parcial ou superior ao total da ordem e rejeitado
+* pedido cancelado nao pode receber pagamento manual
+* pedido de outro tenant retorna 404
+* confirmacao repetida de ordem ja confirmada retorna estado atual sem duplicar registro
+* TRANSFERENCIA nao foi mapeado artificialmente no dominio atual
+
+5. Persistencia e migracoes
+
+* nenhuma migration nova foi necessaria
+* foram reutilizadas as tabelas existentes:
+  - pedidos
+  - ordens_pagamento
+  - pagamentos_gateway
+  - operational_event_logs
+* foi adicionada query tenant-scoped em PedidoRepository para a visao de Caixa
+
+6. Arquivos alterados
+
+* novos:
+  - src/main/java/com/restaurante/financeiro/caixa/controller/TenantCaixaController.java
+  - src/main/java/com/restaurante/financeiro/caixa/dto/CaixaPedidoResponse.java
+  - src/main/java/com/restaurante/financeiro/caixa/dto/CaixaResumoMetodoResponse.java
+  - src/main/java/com/restaurante/financeiro/caixa/dto/CaixaResumoResponse.java
+  - src/main/java/com/restaurante/financeiro/caixa/service/TenantCaixaService.java
+  - src/test/java/com/restaurante/financeiro/CashierHybridPaymentsControllerIT.java
+  - RELATORIO_CONSUMA_BACKEND_CASHIER_HYBRID_PAYMENTS_001.txt
+* modificados:
+  - src/main/java/com/restaurante/financeiro/service/OrdemPagamentoService.java
+  - src/main/java/com/restaurante/repository/PedidoRepository.java
+  - src/main/java/com/restaurante/service/tenantadmin/TenantPedidoWorkflowService.java
+
+7. Testes executados
+
+* compilacao:
+  - mvn -DskipTests compile
+  - resultado: BUILD SUCCESS
+* test-compile:
+  - mvn -DskipTests test-compile
+  - resultado: BUILD SUCCESS
+* IT novo do Caixa:
+  - mvn -Pit -Dit.test=CashierHybridPaymentsControllerIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+* regressao PONTO/Public QR/KDS:
+  - mvn -Pit -Dit.test=CashierHybridPaymentsControllerIT,PublicOrderStateMachineIT,PublicQrPedidoIT,PublicQrPedidoConsultaIT,KdsOperationsContractIT,KdsRealtimeEventsWebSocketIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 17, Failures: 0, Errors: 0, Skipped: 0
+* regressao Tenant/Platform provisioning:
+  - mvn -Pit -Dit.test=TenantOwnerRequiredGuardIT,PlatformTenantOwnershipBackfillControllerIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 14, Failures: 0, Errors: 0, Skipped: 0
+* suite unitaria completa:
+  - mvn clean test
+  - resultado: Tests run: 338, Failures: 0, Errors: 0, Skipped: 3
+
+8. Regressao observada
+
+Nenhuma regressao automatizada foi encontrada nas superficies validadas:
+Caixa, PONTO/Public QR, KDS realtime, Tenant/Platform provisioning e testes unitarios.
+
+9. Auditoria/eventos
+
+* a confirmacao manual reutiliza o fluxo existente de TenantPedidoWorkflowService
+* a trilha operacional continua registrando ORDEM_PAGAMENTO_CONFIRMADA_MANUAL via
+  OperationalEventLogService
+* o log legado de pedido tambem permanece preservado pelo fluxo compartilhado
+
+10. Seguranca
+
+* endpoints de Caixa sao tenant-scoped
+* acesso permitido para:
+  - TENANT_OWNER
+  - TENANT_ADMIN
+  - TENANT_CASHIER
+  - TENANT_FINANCE
+* isolamento cross-tenant validado no IT novo:
+  - tentativa de confirmar pedido de outro tenant retorna 404
+* handlers de autorizacao completos dependem do filtro de seguranca em runtime; o IT focou
+  contrato, isolamento por tenant e regras de negocio com contexto autenticado simulado
+
+11. Limitacoes
+
+* nao houve alteracao de UI nesta fase
+* nao foi criado gateway novo nem metodo TRANSFERENCIA sem suporte de dominio
+* runtime Docker/sandbox nao foi reconstruido nesta fase; a validacao foi local por Maven e
+  integracao com Testcontainers
+* GET /tenant/caixa/historico reaproveita PagamentoMonitoramentoService e nao adicionou filtro
+  proprio por paymentMethod no historico; o filtro por metodo foi entregue em /tenant/caixa/pedidos
+
+12. Perguntas finais obrigatorias
+
+* Existe endpoint real e paginado para pedidos/pagamentos do Caixa?
+  - SIM
+* Existem filtros por estado financeiro, estado operacional, metodo, periodo e busca?
+  - SIM em /tenant/caixa/pedidos
+* CASH funciona?
+  - SIM
+* TPA funciona?
+  - SIM
+* confirmacao duplicada e bloqueada ou idempotente?
+  - SIM, idempotente sem duplicacao de pagamento
+* pagamento confirmado nao muda estado operacional?
+  - SIM
+* pedido pago pode continuar em preparacao?
+  - SIM
+* existe resumo financeiro para dashboard do Caixa?
+  - SIM
+* existe historico paginado?
+  - SIM
+* isolamento tenant foi validado?
+  - SIM
+* regressao PONTO/Public QR/KDS/Tenant provisioning foi validada?
+  - SIM
+
+13. Pergunta final obrigatoria
+
+O backend agora fornece contratos reais e paginados para o Caixa, permite confirmacao
+manual/local segura de pagamentos hibridos sem misturar estado financeiro com estado
+operacional, e impede dupla confirmacao/confusao financeira?
+
+Resposta:
+SIM
+
+14. Status tecnico
+
+CONCLUIDO COM LIMITACAO - contratos backend do Caixa hibrido implementados e validados
+com compile, test-compile, IT dedicado, regressao focada e mvn clean test; runtime
+Docker/sandbox nao foi reconstruido nesta fase.

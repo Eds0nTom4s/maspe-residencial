@@ -55,7 +55,7 @@ financeiro com estado operacional.
   - agrupamento por metodo
 * GET /tenant/caixa/historico
   - historico paginado via monitoramento financeiro existente
-  - filtros por status, numero, referencia externa e periodo
+  - filtros por status, numero, referencia externa, metodo CASH/TPA/APPYPAY e periodo
 * POST /tenant/caixa/pedidos/{pedidoId}/pagamento/manual-confirmar
   - confirma CASH
   - confirma TPA
@@ -70,7 +70,9 @@ financeiro com estado operacional.
 * pagamentos locais aceitos apenas para metodos CASH e TPA
 * valor parcial ou superior ao total da ordem e rejeitado
 * pedido cancelado nao pode receber pagamento manual
+* pedido finalizado/entregue com pagamento pendente continua elegivel para confirmacao financeira
 * pedido de outro tenant retorna 404
+* usuario tenant sem papel de caixa/financeiro/admin/owner recebe 403 na confirmacao manual
 * confirmacao repetida de ordem ja confirmada retorna estado atual sem duplicar registro
 * TRANSFERENCIA nao foi mapeado artificialmente no dominio atual
 
@@ -95,7 +97,10 @@ financeiro com estado operacional.
   - src/test/java/com/restaurante/financeiro/CashierHybridPaymentsControllerIT.java
   - RELATORIO_CONSUMA_BACKEND_CASHIER_HYBRID_PAYMENTS_001.txt
 * modificados:
+  - src/main/java/com/restaurante/financeiro/monitoramento/dto/PagamentoMonitoramentoFiltro.java
+  - src/main/java/com/restaurante/financeiro/repository/PagamentoGatewayRepository.java
   - src/main/java/com/restaurante/financeiro/service/OrdemPagamentoService.java
+  - src/main/java/com/restaurante/financeiro/service/PagamentoMonitoramentoService.java
   - src/main/java/com/restaurante/repository/PedidoRepository.java
   - src/main/java/com/restaurante/service/tenantadmin/TenantPedidoWorkflowService.java
 
@@ -105,7 +110,7 @@ financeiro com estado operacional.
   - mvn -DskipTests compile
   - resultado: BUILD SUCCESS
 * test-compile:
-  - mvn -DskipTests test-compile
+  - mvn clean test-compile
   - resultado: BUILD SUCCESS
 * IT novo do Caixa:
   - mvn -Pit -Dit.test=CashierHybridPaymentsControllerIT failsafe:integration-test failsafe:verify
@@ -119,6 +124,7 @@ financeiro com estado operacional.
 * suite unitaria completa:
   - mvn clean test
   - resultado: Tests run: 338, Failures: 0, Errors: 0, Skipped: 3
+  - observacao: executada antes da extensao final do filtro por metodo no historico; apos a extensao final, foram rerodados com sucesso test-compile, IT dedicado e regressao focada.
 
 8. Regressao observada
 
@@ -142,8 +148,8 @@ Caixa, PONTO/Public QR, KDS realtime, Tenant/Platform provisioning e testes unit
   - TENANT_FINANCE
 * isolamento cross-tenant validado no IT novo:
   - tentativa de confirmar pedido de outro tenant retorna 404
-* handlers de autorizacao completos dependem do filtro de seguranca em runtime; o IT focou
-  contrato, isolamento por tenant e regras de negocio com contexto autenticado simulado
+* autorizacao por papel validada no IT novo:
+  - usuario TENANT_KITCHEN recebe 403 ao tentar confirmacao manual
 
 11. Limitacoes
 
@@ -151,8 +157,8 @@ Caixa, PONTO/Public QR, KDS realtime, Tenant/Platform provisioning e testes unit
 * nao foi criado gateway novo nem metodo TRANSFERENCIA sem suporte de dominio
 * runtime Docker/sandbox nao foi reconstruido nesta fase; a validacao foi local por Maven e
   integracao com Testcontainers
-* GET /tenant/caixa/historico reaproveita PagamentoMonitoramentoService e nao adicionou filtro
-  proprio por paymentMethod no historico; o filtro por metodo foi entregue em /tenant/caixa/pedidos
+* GET /tenant/caixa/historico reaproveita PagamentoMonitoramentoService, agora com filtro
+  tenant-scoped por metodo manual CASH/TPA e APPYPAY via paymentMethod/metodoPagamento
 
 12. Perguntas finais obrigatorias
 
@@ -173,7 +179,7 @@ Caixa, PONTO/Public QR, KDS realtime, Tenant/Platform provisioning e testes unit
 * existe resumo financeiro para dashboard do Caixa?
   - SIM
 * existe historico paginado?
-  - SIM
+  - SIM, incluindo filtro por metodo
 * isolamento tenant foi validado?
   - SIM
 * regressao PONTO/Public QR/KDS/Tenant provisioning foi validada?

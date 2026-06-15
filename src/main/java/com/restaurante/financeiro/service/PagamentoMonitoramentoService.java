@@ -48,12 +48,14 @@ public class PagamentoMonitoramentoService {
         String pedidoNumero = filtro != null ? filtro.getPedidoNumero() : null;
         StatusPagamentoGateway status = filtro != null ? filtro.getStatusPagamento() : null;
         StatusFinanceiroPedido statusFin = filtro != null ? filtro.getStatusFinanceiroPedido() : null;
+        var manualMethod = filtro != null ? filtro.getMetodoManual() : null;
+        boolean appyPayOnly = filtro != null && Boolean.TRUE.equals(filtro.getAppyPayOnly());
         String externalRef = filtro != null ? filtro.getExternalReference() : null;
         LocalDateTime de = filtro != null ? filtro.getDe() : null;
         LocalDateTime ate = filtro != null ? filtro.getAte() : null;
 
         Page<Pagamento> page = pagamentoRepository.searchTenantPagamentos(
-                tenantId, status, statusFin, externalRef, de, ate, pedidoNumero, pageable
+                tenantId, status, statusFin, manualMethod, appyPayOnly, externalRef, de, ate, pedidoNumero, pageable
         );
 
         int timeout = resolveTimeoutMinutos(filtro);
@@ -78,14 +80,16 @@ public class PagamentoMonitoramentoService {
         Long tenantId = filtro != null ? filtro.getTenantId() : null;
         StatusPagamentoGateway status = filtro != null ? filtro.getStatusPagamento() : null;
         StatusFinanceiroPedido statusFin = filtro != null ? filtro.getStatusFinanceiroPedido() : null;
+        var manualMethod = filtro != null ? filtro.getMetodoManual() : null;
+        boolean appyPayOnly = filtro != null && Boolean.TRUE.equals(filtro.getAppyPayOnly());
         String externalRef = filtro != null ? filtro.getExternalReference() : null;
         String pedidoNumero = filtro != null ? filtro.getPedidoNumero() : null;
         LocalDateTime de = filtro != null ? filtro.getDe() : null;
         LocalDateTime ate = filtro != null ? filtro.getAte() : null;
 
         Page<Pagamento> page = (tenantId != null)
-                ? pagamentoRepository.searchTenantPagamentos(tenantId, status, statusFin, externalRef, de, ate, pedidoNumero, pageable)
-                : pagamentoRepository.searchPlatformPagamentos(status, statusFin, externalRef, de, ate, pedidoNumero, pageable);
+                ? pagamentoRepository.searchTenantPagamentos(tenantId, status, statusFin, manualMethod, appyPayOnly, externalRef, de, ate, pedidoNumero, pageable)
+                : pagamentoRepository.searchPlatformPagamentos(status, statusFin, manualMethod, appyPayOnly, externalRef, de, ate, pedidoNumero, pageable);
 
         int timeout = resolveTimeoutMinutos(filtro);
         Page<PagamentoResumoDTO> mapped = page.map(p -> toResumo(p, true, timeout));

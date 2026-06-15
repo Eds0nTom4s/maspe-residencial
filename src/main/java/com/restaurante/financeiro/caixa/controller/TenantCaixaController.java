@@ -84,6 +84,8 @@ public class TenantCaixaController {
     public ResponseEntity<ApiResponse<Page<PagamentoResumoDTO>>> historico(
             @RequestParam(required = false) String paymentStatus,
             @RequestParam(required = false) String statusFinanceiro,
+            @RequestParam(required = false) String paymentMethod,
+            @RequestParam(required = false) String metodoPagamento,
             @RequestParam(required = false) String pedidoNumero,
             @RequestParam(required = false) String externalReference,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime dateFrom,
@@ -94,6 +96,8 @@ public class TenantCaixaController {
         Page<PagamentoResumoDTO> page = tenantCaixaService.historico(
                 paymentStatus,
                 statusFinanceiro,
+                paymentMethod,
+                metodoPagamento,
                 pedidoNumero,
                 externalReference,
                 dateFrom,

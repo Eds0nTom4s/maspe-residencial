@@ -3,6 +3,7 @@ package com.restaurante.financeiro.repository;
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import com.restaurante.model.entity.Pagamento;
+import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
@@ -61,9 +62,12 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
             select p
             from Pagamento p
               left join p.pedido ped
+              left join p.ordemPagamento op
             where p.tenant.id = :tenantId
               and (cast(:status as string) is null or p.status = :status)
               and (cast(:statusFinanceiroPedido as string) is null or ped.statusFinanceiro = :statusFinanceiroPedido)
+              and (cast(:manualMethod as string) is null or op.metodoSolicitado = :manualMethod)
+              and (:appyPayOnly = false or p.metodo is not null)
               and (cast(:externalReference as string) is null or p.externalReference = :externalReference)
               and (cast(:from as timestamp) is null or p.createdAt >= :from)
               and (cast(:to as timestamp) is null or p.createdAt <= :to)
@@ -73,6 +77,8 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
             Long tenantId,
             StatusPagamentoGateway status,
             StatusFinanceiroPedido statusFinanceiroPedido,
+            MetodoPagamentoManual manualMethod,
+            boolean appyPayOnly,
             String externalReference,
             LocalDateTime from,
             LocalDateTime to,
@@ -84,8 +90,11 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
             select p
             from Pagamento p
               left join p.pedido ped
+              left join p.ordemPagamento op
             where (cast(:status as string) is null or p.status = :status)
               and (cast(:statusFinanceiroPedido as string) is null or ped.statusFinanceiro = :statusFinanceiroPedido)
+              and (cast(:manualMethod as string) is null or op.metodoSolicitado = :manualMethod)
+              and (:appyPayOnly = false or p.metodo is not null)
               and (cast(:externalReference as string) is null or p.externalReference = :externalReference)
               and (cast(:from as timestamp) is null or p.createdAt >= :from)
               and (cast(:to as timestamp) is null or p.createdAt <= :to)
@@ -94,6 +103,8 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
     Page<Pagamento> searchPlatformPagamentos(
             StatusPagamentoGateway status,
             StatusFinanceiroPedido statusFinanceiroPedido,
+            MetodoPagamentoManual manualMethod,
+            boolean appyPayOnly,
             String externalReference,
             LocalDateTime from,
             LocalDateTime to,

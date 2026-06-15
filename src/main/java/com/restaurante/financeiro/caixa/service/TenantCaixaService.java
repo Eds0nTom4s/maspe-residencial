@@ -132,6 +132,8 @@ public class TenantCaixaService {
     @Transactional(readOnly = true)
     public Page<PagamentoResumoDTO> historico(String paymentStatus,
                                               String statusFinanceiro,
+                                              String paymentMethod,
+                                              String metodoPagamento,
                                               String pedidoNumero,
                                               String externalReference,
                                               LocalDateTime dateFrom,
@@ -141,6 +143,9 @@ public class TenantCaixaService {
         PagamentoMonitoramentoFiltro filtro = new PagamentoMonitoramentoFiltro();
         filtro.setStatusPagamento(parseGatewayStatus(paymentStatus));
         filtro.setStatusFinanceiroPedido(parseFinancialStatus(statusFinanceiro));
+        PaymentMethodCode method = parsePaymentMethod(firstNonBlank(paymentMethod, metodoPagamento));
+        filtro.setMetodoManual(toManualMethod(method));
+        filtro.setAppyPayOnly(method == PaymentMethodCode.APPYPAY);
         filtro.setPedidoNumero(blankToNull(pedidoNumero));
         filtro.setExternalReference(blankToNull(externalReference));
         filtro.setDe(dateFrom);

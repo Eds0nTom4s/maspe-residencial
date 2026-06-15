@@ -1,6 +1,7 @@
 package com.restaurante.financeiro.monitoramento.dto;
 
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
+import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 
 import java.time.LocalDateTime;
@@ -12,6 +13,8 @@ public class PagamentoMonitoramentoFiltro {
     private StatusFinanceiroPedido statusFinanceiroPedido;
     private String externalReference;
     private String pedidoNumero;
+    private MetodoPagamentoManual metodoManual;
+    private Boolean appyPayOnly;
     private LocalDateTime de;
     private LocalDateTime ate;
     private Integer pendenteHaMaisDeMinutos;
@@ -33,6 +36,12 @@ public class PagamentoMonitoramentoFiltro {
     public String getPedidoNumero() { return pedidoNumero; }
     public void setPedidoNumero(String pedidoNumero) { this.pedidoNumero = pedidoNumero; }
 
+    public MetodoPagamentoManual getMetodoManual() { return metodoManual; }
+    public void setMetodoManual(MetodoPagamentoManual metodoManual) { this.metodoManual = metodoManual; }
+
+    public Boolean getAppyPayOnly() { return appyPayOnly; }
+    public void setAppyPayOnly(Boolean appyPayOnly) { this.appyPayOnly = appyPayOnly; }
+
     public LocalDateTime getDe() { return de; }
     public void setDe(LocalDateTime de) { this.de = de; }
 
@@ -48,4 +57,3 @@ public class PagamentoMonitoramentoFiltro {
     public Boolean getSomenteComCallbackInvalido() { return somenteComCallbackInvalido; }
     public void setSomenteComCallbackInvalido(Boolean somenteComCallbackInvalido) { this.somenteComCallbackInvalido = somenteComCallbackInvalido; }
 }
-

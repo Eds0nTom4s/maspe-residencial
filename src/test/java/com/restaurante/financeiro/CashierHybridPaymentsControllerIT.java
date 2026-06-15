@@ -47,6 +47,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,6 +89,8 @@ class CashierHybridPaymentsControllerIT extends PostgresTestcontainersConfig {
         UnidadeAtendimento unidadeA = criarUnidade(instA, "Balcao A");
         User cashierA = criarUser("cashier-a-" + suffix, "+24493" + String.format("%06d", Integer.parseInt(suffix)));
         vincular(tenantA, cashierA, unidadeA, TenantUserRole.TENANT_CASHIER);
+        User kitchenA = criarUser("kitchen-a-" + suffix, "+24495" + String.format("%06d", Integer.parseInt(suffix)));
+        vincular(tenantA, kitchenA, unidadeA, TenantUserRole.TENANT_KITCHEN);
 
         Tenant tenantB = criarTenant("Caixa B", "caixa-b-" + suffix, "CXB" + suffix);
         Instituicao instB = criarInstituicao(tenantB, "Inst Caixa B", "CXB", suffix);
@@ -101,8 +104,21 @@ class CashierHybridPaymentsControllerIT extends PostgresTestcontainersConfig {
         criarOrdem(tenantA, instA, unidadeA, tpa, MetodoPagamentoManual.TPA);
         Pedido cancelado = criarPedido(tenantA, "PED-CANCEL-" + suffix, StatusPedido.CANCELADO, StatusFinanceiroPedido.NAO_PAGO, "3000.00");
         criarOrdem(tenantA, instA, unidadeA, cancelado, MetodoPagamentoManual.CASH);
+        Pedido entreguePendente = criarPedido(tenantA, "PED-DELIVERED-PENDING-" + suffix, StatusPedido.FINALIZADO, StatusFinanceiroPedido.NAO_PAGO, "5000.00");
+        criarOrdem(tenantA, instA, unidadeA, entreguePendente, MetodoPagamentoManual.CASH);
         Pedido crossTenant = criarPedido(tenantB, "PED-CROSS-" + suffix, StatusPedido.CRIADO, StatusFinanceiroPedido.NAO_PAGO, "4000.00");
         criarOrdem(tenantB, instB, unidadeB, crossTenant, MetodoPagamentoManual.CASH);
+
+        LocalDateTime windowStart = LocalDateTime.now().minusMinutes(1);
+        LocalDateTime windowEnd = LocalDateTime.now().plusMinutes(1);
+
+        setTenantContext(tenantA, kitchenA, TenantUserRole.TENANT_KITCHEN);
+        mockMvc.perform(post("/tenant/caixa/pedidos/{pedidoId}/pagamento/manual-confirmar", cash.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"metodoPagamento":"CASH","valor":1000.00,"referenciaComprovativo":"KITCHEN-BLOCKED"}
+                                """))
+                .andExpect(status().isForbidden());
 
         setTenantContext(tenantA, cashierA, TenantUserRole.TENANT_CASHIER);
 
@@ -112,7 +128,7 @@ class CashierHybridPaymentsControllerIT extends PostgresTestcontainersConfig {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.size").value(1))
-                .andExpect(jsonPath("$.data.totalElements").value(3))
+                .andExpect(jsonPath("$.data.totalElements").value(4))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(objectMapper.readTree(listResp).at("/data/content").isArray()).isTrue();
 
@@ -120,7 +136,16 @@ class CashierHybridPaymentsControllerIT extends PostgresTestcontainersConfig {
                         .param("paymentStatus", "PENDENTES")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.totalElements").value(3));
+                .andExpect(jsonPath("$.data.totalElements").value(4));
+
+        mockMvc.perform(get("/tenant/caixa/pedidos")
+                        .param("paymentStatus", "PENDENTES")
+                        .param("operationalStatus", "FINALIZADO")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].pedidoId").value(entreguePendente.getId()))
+                .andExpect(jsonPath("$.data.content[0].canConfirmPayment").value(true));
 
         mockMvc.perform(get("/tenant/caixa/pedidos")
                         .param("operationalStatus", "EM_ANDAMENTO")
@@ -133,7 +158,14 @@ class CashierHybridPaymentsControllerIT extends PostgresTestcontainersConfig {
                         .param("paymentMethod", "CASH")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.totalElements").value(2));
+                .andExpect(jsonPath("$.data.totalElements").value(3));
+
+        mockMvc.perform(get("/tenant/caixa/pedidos")
+                        .param("dateFrom", windowStart.toString())
+                        .param("dateTo", windowEnd.toString())
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(4));
 
         mockMvc.perform(post("/tenant/caixa/pedidos/{pedidoId}/pagamento/manual-confirmar", cash.getId())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -212,6 +244,18 @@ class CashierHybridPaymentsControllerIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.size").value(1))
                 .andExpect(jsonPath("$.data.totalElements").value(2));
+
+        mockMvc.perform(get("/tenant/caixa/historico")
+                        .param("paymentMethod", "CASH")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+
+        mockMvc.perform(get("/tenant/caixa/historico")
+                        .param("metodoPagamento", "TPA")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1));
 
         Pedido cashReloaded = pedidoRepository.findById(cash.getId()).orElseThrow();
         assertThat(cashReloaded.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);

@@ -3,12 +3,14 @@ package com.restaurante.service;
 import com.restaurante.billing.repository.TenantSubscriptionRepository;
 import com.restaurante.dto.request.BusinessAccountCreateRequest;
 import com.restaurante.dto.request.BusinessAccountEstadoUpdateRequest;
+import com.restaurante.dto.request.BusinessAccountLegacyGovernanceBackfillRequest;
 import com.restaurante.dto.request.BusinessAccountLimitsUpdateRequest;
 import com.restaurante.dto.request.BusinessAccountMemberCreateRequest;
 import com.restaurante.dto.request.BusinessAccountMemberEstadoUpdateRequest;
 import com.restaurante.dto.request.BusinessAccountMemberRoleUpdateRequest;
 import com.restaurante.dto.response.BusinessAccountBillingResponse;
 import com.restaurante.dto.response.BusinessAccountGovernanceDiagnosticResponse;
+import com.restaurante.dto.response.BusinessAccountLegacyGovernanceBackfillResponse;
 import com.restaurante.dto.response.BusinessAccountLimitsResponse;
 import com.restaurante.dto.response.BusinessAccountMemberResponse;
 import com.restaurante.dto.response.BusinessAccountResponse;
@@ -23,6 +25,7 @@ import com.restaurante.model.entity.Plano;
 import com.restaurante.model.entity.Subscricao;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantSubscription;
+import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.BusinessAccountEstado;
 import com.restaurante.model.enums.BusinessAccountLimitOrigin;
@@ -51,6 +54,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -124,6 +128,108 @@ public class BusinessAccountService {
     public BusinessAccountGovernanceDiagnosticResponse diagnosticarGovernanca(Long businessAccountId) {
         tenantGuard.assertPlatformAdmin();
         return buildGovernanceDiagnostic(getBusinessAccount(businessAccountId), null);
+    }
+
+    @Transactional
+    public BusinessAccountLegacyGovernanceBackfillResponse executarLegacyGovernanceBackfill(
+            Long businessAccountId,
+            BusinessAccountLegacyGovernanceBackfillRequest request
+    ) {
+        tenantGuard.assertPlatformAdmin();
+        BusinessAccount account = getBusinessAccount(businessAccountId);
+        BusinessAccountGovernanceDiagnosticResponse before = buildGovernanceDiagnostic(account, null);
+        BusinessAccountEstado estadoBefore = account.getEstado();
+        Long responsavelBefore = account.getResponsavel() != null ? account.getResponsavel().getId() : null;
+
+        if (!Boolean.TRUE.equals(before.getRequiresBackfill())) {
+            List<BusinessAccountMember> currentOwners = businessAccountMemberRepository
+                    .findByBusinessAccountIdOrderByIdAsc(account.getId())
+                    .stream()
+                    .filter(member -> member.getRole() == BusinessAccountRole.OWNER
+                            && member.getEstado() == BusinessAccountMemberEstado.ATIVO)
+                    .toList();
+            return BusinessAccountLegacyGovernanceBackfillResponse.builder()
+                    .businessAccountId(account.getId())
+                    .estadoBefore(estadoBefore)
+                    .estadoAfter(account.getEstado())
+                    .responsavelUserIdBefore(responsavelBefore)
+                    .responsavelUserIdAfter(responsavelBefore)
+                    .ownerUserIds(currentOwners.stream().map(member -> member.getUser().getId()).toList())
+                    .businessAccountMemberIds(currentOwners.stream().map(BusinessAccountMember::getId).toList())
+                    .promotedToAtiva(false)
+                    .responsavelUpdated(false)
+                    .requiresBackfillBefore(false)
+                    .requiresBackfillAfter(false)
+                    .status("ALREADY_COMPLETE")
+                    .diagnosticBefore(before)
+                    .diagnosticAfter(before)
+                    .build();
+        }
+
+        List<Tenant> activeTenants = tenantRepository.findByBusinessAccountIdOrderByIdAsc(account.getId())
+                .stream()
+                .filter(tenant -> tenant.getEstado() == TenantEstado.ATIVO)
+                .toList();
+        if (activeTenants.isEmpty()) {
+            throw new BusinessException("Backfill legado exige pelo menos um tenant ativo vinculado a BusinessAccount.");
+        }
+
+        List<User> owners = resolveLegacyBackfillOwners(activeTenants, request);
+        revokePlatformAdminOwnersFromBusinessAccount(account);
+        revokePlatformAdminOwnersFromTenants(activeTenants);
+
+        List<BusinessAccountMember> ownerMembers = new ArrayList<>();
+        for (User owner : owners) {
+            assertUserIsNotPlatformAdminOwner(owner);
+            if (!Boolean.TRUE.equals(owner.getAtivo())) {
+                owner.setAtivo(true);
+            }
+            Set<Role> roles = owner.getRoles() == null ? new HashSet<>() : new HashSet<>(owner.getRoles());
+            if (!roles.contains(Role.ROLE_GERENTE)) {
+                roles.add(Role.ROLE_GERENTE);
+                owner.setRoles(roles);
+            }
+            userRepository.save(owner);
+            ownerMembers.add(upsertMember(account, owner, BusinessAccountRole.OWNER, BusinessAccountMemberEstado.ATIVO));
+        }
+        userRepository.flush();
+
+        boolean promotedToAtiva = false;
+        if (account.getEstado() != BusinessAccountEstado.ATIVA) {
+            account.setEstado(BusinessAccountEstado.ATIVA);
+            promotedToAtiva = true;
+        }
+
+        boolean responsavelUpdated = false;
+        User currentResponsavel = account.getResponsavel();
+        Set<Long> ownerIds = owners.stream().map(User::getId).collect(java.util.stream.Collectors.toSet());
+        if (currentResponsavel == null || isPlatformAdmin(currentResponsavel) || !ownerIds.contains(currentResponsavel.getId())) {
+            account.setResponsavel(owners.get(0));
+            responsavelUpdated = true;
+        }
+
+        if (request != null && request.getReason() != null && !request.getReason().isBlank()) {
+            account.setObservacao(mergeObservacao(account.getObservacao(), "Legacy governance backfill: " + request.getReason().trim()));
+        }
+        account = businessAccountRepository.saveAndFlush(account);
+
+        BusinessAccountGovernanceDiagnosticResponse after = buildGovernanceDiagnostic(account, null);
+        return BusinessAccountLegacyGovernanceBackfillResponse.builder()
+                .businessAccountId(account.getId())
+                .estadoBefore(estadoBefore)
+                .estadoAfter(account.getEstado())
+                .responsavelUserIdBefore(responsavelBefore)
+                .responsavelUserIdAfter(account.getResponsavel() != null ? account.getResponsavel().getId() : null)
+                .ownerUserIds(owners.stream().map(User::getId).toList())
+                .businessAccountMemberIds(ownerMembers.stream().map(BusinessAccountMember::getId).toList())
+                .promotedToAtiva(promotedToAtiva)
+                .responsavelUpdated(responsavelUpdated)
+                .requiresBackfillBefore(Boolean.TRUE.equals(before.getRequiresBackfill()))
+                .requiresBackfillAfter(Boolean.TRUE.equals(after.getRequiresBackfill()))
+                .status(Boolean.TRUE.equals(after.getRequiresBackfill()) ? "COMPLETED_WITH_WARNINGS" : "COMPLETED")
+                .diagnosticBefore(before)
+                .diagnosticAfter(after)
+                .build();
     }
 
     @Transactional
@@ -586,6 +692,85 @@ public class BusinessAccountService {
                 .owners(owners)
                 .tenants(tenantItems)
                 .build();
+    }
+
+    private List<User> resolveLegacyBackfillOwners(List<Tenant> activeTenants,
+                                                   BusinessAccountLegacyGovernanceBackfillRequest request) {
+        if (request != null && request.getOwnerUserId() != null) {
+            User explicitOwner = resolveUserRequired(request.getOwnerUserId());
+            assertUserIsNotPlatformAdminOwner(explicitOwner);
+            boolean isTenantOwner = activeTenants.stream()
+                    .anyMatch(tenant -> tenantUserRepository.existsByTenantIdAndUserIdAndRoleAndEstado(
+                            tenant.getId(),
+                            explicitOwner.getId(),
+                            TenantUserRole.TENANT_OWNER,
+                            TenantUserEstado.ATIVO
+                    ));
+            if (!isTenantOwner) {
+                throw new BusinessException("Usuario informado precisa ser TENANT_OWNER ativo de pelo menos um tenant vinculado.");
+            }
+            ensureActiveTenantsHaveRealOwners(activeTenants);
+            return List.of(explicitOwner);
+        }
+
+        List<User> owners = new ArrayList<>();
+        Set<Long> ownerIds = new LinkedHashSet<>();
+        for (Tenant tenant : activeTenants) {
+            List<User> tenantOwners = tenantUserRepository.findByTenantIdWithUser(tenant.getId())
+                    .stream()
+                    .filter(tu -> tu.getRole() == TenantUserRole.TENANT_OWNER && tu.getEstado() == TenantUserEstado.ATIVO)
+                    .map(TenantUser::getUser)
+                    .filter(user -> !isPlatformAdmin(user))
+                    .toList();
+            if (tenantOwners.isEmpty()) {
+                throw new BusinessException("Tenant ativo " + tenant.getId() + " nao possui TENANT_OWNER real; execute ownership-backfill do tenant antes.");
+            }
+            for (User owner : tenantOwners) {
+                if (ownerIds.add(owner.getId())) {
+                    owners.add(owner);
+                }
+            }
+        }
+        return owners;
+    }
+
+    private void ensureActiveTenantsHaveRealOwners(List<Tenant> activeTenants) {
+        for (Tenant tenant : activeTenants) {
+            boolean hasRealOwner = tenantUserRepository.findByTenantIdWithUser(tenant.getId())
+                    .stream()
+                    .anyMatch(tu -> tu.getRole() == TenantUserRole.TENANT_OWNER
+                            && tu.getEstado() == TenantUserEstado.ATIVO
+                            && !isPlatformAdmin(tu.getUser()));
+            if (!hasRealOwner) {
+                throw new BusinessException("Tenant ativo " + tenant.getId() + " nao possui TENANT_OWNER real; execute ownership-backfill do tenant antes.");
+            }
+        }
+    }
+
+    private void revokePlatformAdminOwnersFromBusinessAccount(BusinessAccount account) {
+        List<BusinessAccountMember> members = businessAccountMemberRepository.findByBusinessAccountIdOrderByIdAsc(account.getId());
+        for (BusinessAccountMember member : members) {
+            if (member.getRole() == BusinessAccountRole.OWNER
+                    && member.getEstado() == BusinessAccountMemberEstado.ATIVO
+                    && isPlatformAdmin(member.getUser())) {
+                businessAccountMemberRepository.delete(member);
+            }
+        }
+        businessAccountMemberRepository.flush();
+    }
+
+    private void revokePlatformAdminOwnersFromTenants(List<Tenant> activeTenants) {
+        for (Tenant tenant : activeTenants) {
+            List<TenantUser> tenantUsers = tenantUserRepository.findByTenantIdWithUser(tenant.getId());
+            for (TenantUser tenantUser : tenantUsers) {
+                if (tenantUser.getRole() == TenantUserRole.TENANT_OWNER
+                        && tenantUser.getEstado() == TenantUserEstado.ATIVO
+                        && isPlatformAdmin(tenantUser.getUser())) {
+                    tenantUserRepository.delete(tenantUser);
+                }
+            }
+        }
+        tenantUserRepository.flush();
     }
 
     private void assertUserIsNotPlatformAdminOwner(User user) {

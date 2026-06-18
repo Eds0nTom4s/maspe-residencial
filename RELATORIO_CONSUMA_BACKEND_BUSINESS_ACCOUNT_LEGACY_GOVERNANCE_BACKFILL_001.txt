@@ -1,0 +1,108 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - BUSINESS-ACCOUNT-LEGACY-GOVERNANCE-BACKFILL-001
+
+Data: 2026-06-18
+Branch: backend/business-account-legacy-governance-backfill-001
+Commit base validado: 5a6c6ad73e75d9855c2b254656f9216a14221bdd
+Commit final: HEAD publicado desta branch na entrega final
+
+1. Objetivo
+
+Publicar fluxo backend controlado para corrigir BusinessAccounts legadas que ja
+possuem tenants ativos com TENANT_OWNER real, mas ainda estao sem responsavel,
+sem BusinessAccountMember OWNER ou em estado RASCUNHO. A fase complementa a
+auditoria de origem e fecha o caminho operacional de reparacao sem depender de
+mutacao manual no banco.
+
+2. Escopo entregue
+
+* Novo endpoint platform:
+  - POST /platform/business-accounts/{id}/legacy-governance-backfill
+* Novo request:
+  - BusinessAccountLegacyGovernanceBackfillRequest
+  - campos: ownerUserId opcional e reason opcional
+* Novo response:
+  - BusinessAccountLegacyGovernanceBackfillResponse
+  - retorna estado/responsavel antes e depois, owners corrigidos, members criados,
+    flags de promocao, requiresBackfill antes/depois e diagnosticos completos
+* Reuso do diagnostico existente:
+  - GET /platform/business-accounts/{id}/governance-diagnostic
+
+3. Regras implementadas
+
+* O backfill exige pelo menos um tenant ATIVO vinculado a BusinessAccount.
+* Quando ownerUserId nao e informado:
+  - o backend deriva os owners reais a partir dos TenantUser TENANT_OWNER ativos
+    dos tenants vinculados;
+  - platform admin e ignorado como owner valido;
+  - se qualquer tenant ativo nao possui TENANT_OWNER real, o backfill falha e
+    orienta executar ownership-backfill do tenant antes.
+* Quando ownerUserId e informado:
+  - o usuario precisa existir;
+  - nao pode ser platform admin puro;
+  - precisa ser TENANT_OWNER ativo de pelo menos um tenant vinculado;
+  - todos os tenants ativos vinculados precisam possuir owner real.
+* O backfill remove owners platform admin residuais de:
+  - BusinessAccountMember OWNER ativo;
+  - TenantUser TENANT_OWNER ativo.
+* Para cada owner real encontrado:
+  - garante ROLE_GERENTE;
+  - garante BusinessAccountMember OWNER ATIVO.
+* A BusinessAccount e promovida para ATIVA quando necessario.
+* O responsavel_user_id e definido para owner real quando ausente, invalido ou
+  apontando para platform admin.
+* O campo observacao registra a reason do backfill quando informada.
+* A operacao e idempotente quando a governanca ja esta completa.
+
+4. Arquivos alterados
+
+* modificados:
+  - src/main/java/com/restaurante/controller/PlatformBusinessAccountController.java
+  - src/main/java/com/restaurante/service/BusinessAccountService.java
+* novos:
+  - src/main/java/com/restaurante/dto/request/BusinessAccountLegacyGovernanceBackfillRequest.java
+  - src/main/java/com/restaurante/dto/response/BusinessAccountLegacyGovernanceBackfillResponse.java
+  - src/test/java/com/restaurante/platform/BusinessAccountLegacyGovernanceBackfillIT.java
+  - RELATORIO_CONSUMA_BACKEND_BUSINESS_ACCOUNT_LEGACY_GOVERNANCE_BACKFILL_001.txt
+
+5. Testes automatizados executados
+
+* IT dedicado:
+  - mvn -Pit -Dit.test=BusinessAccountLegacyGovernanceBackfillIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+* Regressao focada:
+  - mvn -Pit -Dit.test=BusinessAccountLegacyGovernanceBackfillIT,BusinessAccountOwnershipOriginAuditIT,PlatformTenantOwnershipBackfillControllerIT,BusinessAccountFoundationIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 11, Failures: 0, Errors: 0, Skipped: 0
+
+6. Validacoes cobertas
+
+* BusinessAccount RASCUNHO com tenant ATIVO e TENANT_OWNER real e corrigida para:
+  - estado ATIVA;
+  - responsavel_user_id definido;
+  - BusinessAccountMember OWNER ATIVO criado;
+  - ROLE_GERENTE garantida no owner;
+  - diagnostico final sem requiresBackfill.
+* Owners platform admin residuais sao removidos do tenant e da BusinessAccount.
+* BusinessAccount sem owner real no tenant ativo retorna erro 400 e nao aplica
+  correcao parcial.
+
+7. Limitacoes
+
+* Esta fase adiciona o endpoint de backfill e valida o comportamento automatizado,
+  mas nao executa correcao de dados especificos do sandbox por padrao.
+* Nao foi executado sweep completo de toda a suite IT do monolito.
+* A UI nao foi alterada nesta fase.
+
+8. Pergunta final obrigatoria
+
+O backend passou a oferecer um caminho controlado para corrigir BusinessAccounts
+legadas sem owner de governanca, derivando owners reais dos tenants ativos,
+removendo platform admin residual e validando a correcao por testes automatizados?
+
+Resposta:
+SIM
+
+9. Status tecnico
+
+CONCLUIDO PARA REVISAO - backfill legado de governanca de BusinessAccount
+implementado, testado e pronto para publicacao no sandbox Docker

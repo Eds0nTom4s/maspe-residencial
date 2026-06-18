@@ -2,6 +2,7 @@ package com.restaurante.controller;
 
 import com.restaurante.dto.request.BusinessAccountCreateRequest;
 import com.restaurante.dto.request.BusinessAccountEstadoUpdateRequest;
+import com.restaurante.dto.request.BusinessAccountLegacyGovernanceBackfillRequest;
 import com.restaurante.dto.request.BusinessAccountLimitsUpdateRequest;
 import com.restaurante.dto.request.BusinessAccountMemberCreateRequest;
 import com.restaurante.dto.request.BusinessAccountMemberEstadoUpdateRequest;
@@ -9,6 +10,7 @@ import com.restaurante.dto.request.BusinessAccountMemberRoleUpdateRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.BusinessAccountBillingResponse;
 import com.restaurante.dto.response.BusinessAccountGovernanceDiagnosticResponse;
+import com.restaurante.dto.response.BusinessAccountLegacyGovernanceBackfillResponse;
 import com.restaurante.dto.response.BusinessAccountLimitsResponse;
 import com.restaurante.dto.response.BusinessAccountMemberResponse;
 import com.restaurante.dto.response.BusinessAccountResponse;
@@ -91,6 +93,20 @@ public class PlatformBusinessAccountController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Diagnostico de governanca da BusinessAccount",
                 businessAccountService.diagnosticarGovernanca(id)
+        ));
+    }
+
+    @PostMapping("/{id}/legacy-governance-backfill")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BusinessAccountLegacyGovernanceBackfillResponse>> legacyGovernanceBackfill(
+            @PathVariable Long id,
+            @RequestBody(required = false) BusinessAccountLegacyGovernanceBackfillRequest request
+    ) {
+        BusinessAccountLegacyGovernanceBackfillRequest actualRequest =
+                request != null ? request : new BusinessAccountLegacyGovernanceBackfillRequest();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Backfill de governanca legado da BusinessAccount executado",
+                businessAccountService.executarLegacyGovernanceBackfill(id, actualRequest)
         ));
     }
 

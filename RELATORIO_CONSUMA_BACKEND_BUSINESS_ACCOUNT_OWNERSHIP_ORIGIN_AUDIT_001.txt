@@ -1,0 +1,178 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - BUSINESS-ACCOUNT-OWNERSHIP-ORIGIN-AUDIT-001
+
+Data: 2026-06-18
+Branch: backend/business-account-ownership-origin-audit-001
+Commit base validado: 2d04af1ab288f90e4c49776b94607884e840f849
+Commit final: HEAD publicado desta branch na entrega final
+
+1. Objetivo
+
+Investigar a origem da BusinessAccount/Tenant "Graciete Pirucas" sem owner de
+BusinessAccount, identificar o caminho tecnico que permitiu o estado inconsistente,
+endurecer a governanca de ownership no backend e validar por testes automatizados.
+
+2. Evidencia runtime investigada
+
+* BusinessAccount encontrada no sandbox:
+  - id: 21
+  - nome: Graciete Pirucas
+  - slug: graciete-pirucas
+  - nif: 500023200
+  - email: greciente@teste.ao
+  - telefone: 925813939
+  - estado: RASCUNHO
+  - responsavel_user_id: null
+  - created_at: 2026-06-17 22:05:27.883857
+  - created_by: admin
+  - provisioned_at: 2026-06-17 22:05:27.861868
+  - provisioned_by: 1
+  - max_tenants: 5
+* Tenant vinculado:
+  - id: 23
+  - nome: Graciete Pirucas
+  - slug: graciete-pirucas
+  - nif: 50002111
+  - estado: ATIVO
+  - business_account_id: 21
+  - template_code: CONSUMA_REST
+  - template_version: 1
+  - provisioning_source: PLATFORM_TEMPLATE_API
+  - created_at: 2026-06-17 22:08:18.673697
+  - created_by: admin
+  - provisioned_at: 2026-06-17 22:08:18.660378
+  - provisioned_by: 1
+* Members da BusinessAccount 21:
+  - nenhum registro encontrado
+* Owner tenant encontrado:
+  - userId: 11
+  - email/username: edsontomas@consuma.ao
+  - nome: Dono de K
+  - telefone: 925813939
+  - tenant role: TENANT_OWNER
+  - status: ATIVO
+* Eventos operacionais relevantes:
+  - 2026-06-17 22:08:19 tenant 23 PAYMENT_METHOD_DEFAULTS_BOOTSTRAPPED
+  - 2026-06-17 22:08:19 tenant 23 BUSINESS_TEMPLATE_PROVISIONED
+  - metadata: {"templateCode":"CONSUMA_REST","templateVersion":1,"planoCodigo":"PILOTO"}
+  - 2026-06-17 22:11:02 tenant 23 actor_user_id 1 PLATFORM_TENANT_CONTEXT_ASSUMED
+
+3. Origem identificada
+
+Nao foi encontrada referencia a "Graciete", "greciente" ou ao NIF da conta em seed,
+migration ou codigo fonte. A evidencia aponta para origem runtime por API de Platform
+Admin.
+
+Sequencia mais provavel:
+
+* a BusinessAccount foi criada em rascunho por admin em 2026-06-17 22:05:27 sem
+  responsavel e sem BusinessAccountMember;
+* o provisionamento por template em 2026-06-17 22:08:18 criou um tenant ATIVO
+  vinculado a essa BusinessAccount;
+* o fluxo criou TenantUser OWNER para o tenant, mas nao promoveu a BusinessAccount
+  para ATIVA, nao definiu responsavel_user_id e nao criou BusinessAccountMember OWNER;
+* apos isso, o Platform Admin assumiu contexto do tenant e executou operacoes
+  operacionais normalmente.
+
+4. Caminhos de codigo auditados
+
+* BusinessAccountService:
+  - criacao de BusinessAccount;
+  - patch de estado;
+  - vinculacao direta de tenants;
+  - associacao em lote de tenants;
+  - membros e roles.
+* TenantProvisioningService:
+  - provisionamento com businessAccountId;
+  - criacao/reuso de owner;
+  - criacao de TenantUser.
+* BusinessTemplateProvisioningSupport:
+  - criacao de tenant por template;
+  - associacao com BusinessAccount.
+* ConsumaRestV1Template e ConsumaPontoV1Template:
+  - criacao do owner operacional no provisionamento por template.
+* PlatformTenantProvisioningAccessService:
+  - provisionamento via contrato platform com BusinessAccount existente.
+
+5. Correcoes aplicadas
+
+* Criado endpoint diagnostico:
+  - GET /platform/business-accounts/{id}/governance-diagnostic
+* Criado DTO:
+  - BusinessAccountGovernanceDiagnosticResponse
+* BusinessAccountService:
+  - bloqueia ativacao de BusinessAccount sem owner real ativo;
+  - bloqueia ativacao quando o responsavel e platform admin;
+  - bloqueia owner de BusinessAccount baseado apenas em platform admin;
+  - bloqueia vinculacao de tenant ATIVO a BusinessAccount sem governanca valida;
+  - preserva BusinessAccount RASCUNHO sem owner apenas como estado pre-operacional;
+  - expõe diagnostico com blockingReasons, warnings, owners, tenant owners e flags
+    canActivate, canLinkActiveTenant, canResetOwnerLogin e requiresBackfill.
+* BusinessTemplateProvisioningSupport:
+  - garante BusinessAccountMember OWNER ao criar/reusar owner do tenant;
+  - define responsavel_user_id da BusinessAccount;
+  - promove BusinessAccount RASCUNHO para ATIVA quando o tenant ativo e provisionado;
+  - rejeita platform admin como owner operacional.
+* ConsumaRestV1Template e ConsumaPontoV1Template:
+  - chamam a garantia de owner de BusinessAccount apos criar/reusar o owner tenant.
+* TenantProvisioningService:
+  - garante owner de BusinessAccount quando provisiona tenant com businessAccountId;
+  - rejeita provisionamento ativo com BusinessAccount sem owner configurado;
+  - rejeita platform admin como owner operacional.
+* PlatformTenantProvisioningAccessService:
+  - ao usar BusinessAccount existente, define responsavel e promove rascunho para
+    ativa quando owner real foi criado.
+
+6. Regras de governanca implementadas
+
+* BusinessAccount ATIVA exige owner real ativo.
+* Platform admin isolado nao pode substituir o owner operacional da BusinessAccount.
+* Tenant ATIVO nao deve ficar vinculado a BusinessAccount sem owner real ativo.
+* Provisionamento por template deve alinhar TenantUser OWNER com BusinessAccountMember OWNER.
+* BusinessAccount RASCUNHO sem owner continua permitida somente antes de operar ou vincular
+  tenant ativo.
+
+7. Testes automatizados executados
+
+* IT dedicado:
+  - mvn -Pit -Dit.test=BusinessAccountOwnershipOriginAuditIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+* Regressao platform/foundation:
+  - mvn -Pit -Dit.test=BusinessAccountFoundationIT,PlatformBusinessAccountContractIT,PlatformBusinessTemplateControllerIT,BusinessAccountOwnershipOriginAuditIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 13, Failures: 0, Errors: 0, Skipped: 0
+
+8. Arquivos alterados
+
+* modificados:
+  - src/main/java/com/restaurante/businesstemplate/support/BusinessTemplateProvisioningSupport.java
+  - src/main/java/com/restaurante/businesstemplate/templates/ConsumaPontoV1Template.java
+  - src/main/java/com/restaurante/businesstemplate/templates/ConsumaRestV1Template.java
+  - src/main/java/com/restaurante/controller/PlatformBusinessAccountController.java
+  - src/main/java/com/restaurante/service/BusinessAccountService.java
+  - src/main/java/com/restaurante/service/PlatformTenantProvisioningAccessService.java
+  - src/main/java/com/restaurante/service/TenantProvisioningService.java
+* novos:
+  - src/main/java/com/restaurante/dto/response/BusinessAccountGovernanceDiagnosticResponse.java
+  - src/test/java/com/restaurante/platform/BusinessAccountOwnershipOriginAuditIT.java
+  - RELATORIO_CONSUMA_BACKEND_BUSINESS_ACCOUNT_OWNERSHIP_ORIGIN_AUDIT_001.txt
+
+9. Limitacoes
+
+* A linha existente do sandbox (BusinessAccount 21 / Tenant 23) nao foi alterada
+  automaticamente nesta fase; a entrega adiciona diagnostico e fecha os caminhos de
+  criacao/vinculo para impedir recorrencia.
+* Nao foi executado sweep completo de toda a suite IT do monolito.
+* A UI nao foi alterada nesta fase.
+
+10. Pergunta final obrigatoria
+
+Foi identificada a origem da BusinessAccount/Tenant sem owner, fechado o caminho
+de criacao/vinculo sem owner real e validado por testes automatizados?
+
+Resposta:
+SIM
+
+11. Status tecnico
+
+CONCLUIDO PARA REVISAO - origem runtime/API identificada, governanca backend
+endurecida, endpoint diagnostico adicionado e regressao platform/foundation validada

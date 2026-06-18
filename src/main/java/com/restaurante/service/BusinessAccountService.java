@@ -8,6 +8,7 @@ import com.restaurante.dto.request.BusinessAccountMemberCreateRequest;
 import com.restaurante.dto.request.BusinessAccountMemberEstadoUpdateRequest;
 import com.restaurante.dto.request.BusinessAccountMemberRoleUpdateRequest;
 import com.restaurante.dto.response.BusinessAccountBillingResponse;
+import com.restaurante.dto.response.BusinessAccountGovernanceDiagnosticResponse;
 import com.restaurante.dto.response.BusinessAccountLimitsResponse;
 import com.restaurante.dto.response.BusinessAccountMemberResponse;
 import com.restaurante.dto.response.BusinessAccountResponse;
@@ -27,12 +28,17 @@ import com.restaurante.model.enums.BusinessAccountEstado;
 import com.restaurante.model.enums.BusinessAccountLimitOrigin;
 import com.restaurante.model.enums.BusinessAccountMemberEstado;
 import com.restaurante.model.enums.BusinessAccountRole;
+import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.SubscricaoEstado;
+import com.restaurante.model.enums.TenantEstado;
+import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.BusinessAccountLimitOverrideRepository;
 import com.restaurante.repository.BusinessAccountMemberRepository;
 import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.SubscricaoRepository;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantGuard;
@@ -59,6 +65,7 @@ public class BusinessAccountService {
     private final BusinessAccountMemberRepository businessAccountMemberRepository;
     private final BusinessAccountLimitOverrideRepository businessAccountLimitOverrideRepository;
     private final TenantRepository tenantRepository;
+    private final TenantUserRepository tenantUserRepository;
     private final UserRepository userRepository;
     private final SubscricaoRepository subscricaoRepository;
     private final TenantSubscriptionRepository tenantSubscriptionRepository;
@@ -113,6 +120,12 @@ public class BusinessAccountService {
         return toBillingResponse(getBusinessAccount(businessAccountId));
     }
 
+    @Transactional(readOnly = true)
+    public BusinessAccountGovernanceDiagnosticResponse diagnosticarGovernanca(Long businessAccountId) {
+        tenantGuard.assertPlatformAdmin();
+        return buildGovernanceDiagnostic(getBusinessAccount(businessAccountId), null);
+    }
+
     @Transactional
     public BusinessAccountResponse criar(BusinessAccountCreateRequest request) {
         tenantGuard.assertPlatformAdmin();
@@ -142,8 +155,10 @@ public class BusinessAccountService {
         account = businessAccountRepository.saveAndFlush(account);
 
         if (account.getResponsavel() != null) {
+            assertUserIsNotPlatformAdminOwner(account.getResponsavel());
             upsertMember(account, account.getResponsavel(), BusinessAccountRole.OWNER, BusinessAccountMemberEstado.ATIVO);
         }
+        ensureCanTransitionToState(account, account.getEstado());
         associateTenants(account, request.getTenantIds());
         return toResponse(account);
     }
@@ -152,6 +167,7 @@ public class BusinessAccountService {
     public BusinessAccountResponse atualizarEstado(Long id, BusinessAccountEstadoUpdateRequest request) {
         tenantGuard.assertPlatformAdmin();
         BusinessAccount account = getBusinessAccount(id);
+        ensureCanTransitionToState(account, request.getEstado());
         account.setEstado(request.getEstado());
         if (request.getMotivo() != null && !request.getMotivo().isBlank()) {
             account.setObservacao(mergeObservacao(account.getObservacao(), "Estado " + request.getEstado().name() + ": " + request.getMotivo()));
@@ -166,6 +182,7 @@ public class BusinessAccountService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException("Tenant nao encontrado."));
         ensureTenantCanAttach(account, tenant);
+        ensureBusinessAccountCanHoldTenant(account, tenant);
         tenant.setBusinessAccount(account);
         tenantRepository.saveAndFlush(tenant);
         return platformTenantAccessService.toResponse(tenant);
@@ -189,6 +206,9 @@ public class BusinessAccountService {
         tenantGuard.assertPlatformAdmin();
         BusinessAccount account = getBusinessAccount(businessAccountId);
         User user = resolveUserRequired(request.getUserId());
+        if (request.getRole() == BusinessAccountRole.OWNER) {
+            assertUserIsNotPlatformAdminOwner(user);
+        }
         BusinessAccountMember member = upsertMember(
                 account,
                 user,
@@ -234,6 +254,9 @@ public class BusinessAccountService {
         BusinessAccountMember member = businessAccountMemberRepository.findByBusinessAccountIdAndId(businessAccountId, memberId)
                 .orElseThrow(() -> new BusinessException("Membro da BusinessAccount nao encontrado."));
         ensureOwnerWillRemainActive(member, member.getEstado(), request.getRole());
+        if (request.getRole() == BusinessAccountRole.OWNER) {
+            assertUserIsNotPlatformAdminOwner(member.getUser());
+        }
         member.setRole(request.getRole());
         return toMemberResponse(businessAccountMemberRepository.saveAndFlush(member));
     }
@@ -362,6 +385,7 @@ public class BusinessAccountService {
             Tenant tenant = tenantRepository.findById(tenantId)
                     .orElseThrow(() -> new BusinessException("Tenant nao encontrado."));
             ensureTenantCanAttach(account, tenant);
+            ensureBusinessAccountCanHoldTenant(account, tenant);
             tenant.setBusinessAccount(account);
             tenantRepository.save(tenant);
         }
@@ -377,6 +401,205 @@ public class BusinessAccountService {
         if (!alreadyLinked && account.getMaxTenants() != null && currentCount >= account.getMaxTenants()) {
             throw new BusinessException("BusinessAccount atingiu o limite maximo de tenants vinculados.");
         }
+    }
+
+    private void ensureCanTransitionToState(BusinessAccount account, BusinessAccountEstado targetEstado) {
+        if (targetEstado != BusinessAccountEstado.ATIVA) {
+            return;
+        }
+        BusinessAccountGovernanceDiagnosticResponse diagnostic = buildGovernanceDiagnostic(account, targetEstado);
+        List<String> blockingReasons = diagnostic.getBlockingReasons();
+        if (blockingReasons != null && !blockingReasons.isEmpty()) {
+            throw new BusinessException("BusinessAccount nao pode ser ativada sem owner real ativo: " + String.join(",", blockingReasons));
+        }
+    }
+
+    private void ensureBusinessAccountCanHoldTenant(BusinessAccount account, Tenant tenant) {
+        if (tenant.getEstado() != TenantEstado.ATIVO) {
+            return;
+        }
+        BusinessAccountGovernanceDiagnosticResponse diagnostic = buildGovernanceDiagnostic(account, account.getEstado());
+        List<String> blockingReasons = diagnostic.getBlockingReasons();
+        if (blockingReasons != null && !blockingReasons.isEmpty()) {
+            throw new BusinessException("Tenant ativo nao pode ser vinculado a BusinessAccount sem owner real ativo: " + String.join(",", blockingReasons));
+        }
+    }
+
+    private BusinessAccountGovernanceDiagnosticResponse buildGovernanceDiagnostic(BusinessAccount account,
+                                                                                 BusinessAccountEstado targetEstado) {
+        BusinessAccountEstado effectiveEstado = targetEstado != null ? targetEstado : account.getEstado();
+        List<BusinessAccountMember> members = businessAccountMemberRepository.findByBusinessAccountIdOrderByIdAsc(account.getId());
+        List<Tenant> tenants = tenantRepository.findByBusinessAccountIdOrderByIdAsc(account.getId());
+
+        User responsavel = account.getResponsavel();
+        boolean hasResponsavel = responsavel != null;
+        boolean responsavelAtivo = responsavel != null && Boolean.TRUE.equals(responsavel.getAtivo());
+        boolean responsavelPlatformAdmin = responsavel != null && isPlatformAdmin(responsavel);
+
+        List<BusinessAccountGovernanceDiagnosticResponse.OwnerItem> owners = members.stream()
+                .filter(member -> member.getRole() == BusinessAccountRole.OWNER)
+                .map(member -> {
+                    User user = member.getUser();
+                    return BusinessAccountGovernanceDiagnosticResponse.OwnerItem.builder()
+                            .userId(user != null ? user.getId() : null)
+                            .username(user != null ? user.getUsername() : null)
+                            .nome(user != null ? user.getNomeCompleto() : null)
+                            .email(user != null ? user.getEmail() : null)
+                            .ativo(user != null ? user.getAtivo() : null)
+                            .platformAdmin(isPlatformAdmin(user))
+                            .role(member.getRole())
+                            .estado(member.getEstado())
+                            .build();
+                })
+                .toList();
+
+        boolean hasOwnerMember = !owners.isEmpty();
+        boolean hasPlatformAdminOwner = owners.stream().anyMatch(owner -> Boolean.TRUE.equals(owner.getPlatformAdmin()));
+        boolean hasActiveOwnerMember = members.stream()
+                .anyMatch(member -> member.getRole() == BusinessAccountRole.OWNER
+                        && member.getEstado() == BusinessAccountMemberEstado.ATIVO
+                        && member.getUser() != null
+                        && Boolean.TRUE.equals(member.getUser().getAtivo()));
+        boolean responsavelIsActiveOwner = responsavel != null && members.stream()
+                .anyMatch(member -> member.getRole() == BusinessAccountRole.OWNER
+                        && member.getEstado() == BusinessAccountMemberEstado.ATIVO
+                        && member.getUser() != null
+                        && member.getUser().getId().equals(responsavel.getId())
+                        && Boolean.TRUE.equals(member.getUser().getAtivo())
+                        && !isPlatformAdmin(member.getUser()));
+        boolean hasValidBusinessOwner = responsavelIsActiveOwner && !responsavelPlatformAdmin;
+
+        List<BusinessAccountGovernanceDiagnosticResponse.TenantItem> tenantItems = new ArrayList<>();
+        long activeTenantCount = 0L;
+        boolean hasActiveTenantWithoutOwner = false;
+        boolean hasPlatformAdminTenantOwner = false;
+        for (Tenant tenant : tenants) {
+            if (tenant.getEstado() == TenantEstado.ATIVO) {
+                activeTenantCount++;
+            }
+            List<com.restaurante.model.entity.TenantUser> tenantOwners = tenantUserRepository.findByTenantIdWithUser(tenant.getId())
+                    .stream()
+                    .filter(tu -> tu.getRole() == TenantUserRole.TENANT_OWNER && tu.getEstado() == TenantUserEstado.ATIVO)
+                    .toList();
+            boolean tenantHasOwner = tenantOwners.stream()
+                    .anyMatch(tu -> tu.getUser() != null && Boolean.TRUE.equals(tu.getUser().getAtivo()) && !isPlatformAdmin(tu.getUser()));
+            boolean tenantHasPlatformAdminOwner = tenantOwners.stream()
+                    .anyMatch(tu -> isPlatformAdmin(tu.getUser()));
+            if (tenant.getEstado() == TenantEstado.ATIVO && !tenantHasOwner) {
+                hasActiveTenantWithoutOwner = true;
+            }
+            if (tenantHasPlatformAdminOwner) {
+                hasPlatformAdminTenantOwner = true;
+            }
+            tenantItems.add(BusinessAccountGovernanceDiagnosticResponse.TenantItem.builder()
+                    .tenantId(tenant.getId())
+                    .nome(tenant.getNome())
+                    .slug(tenant.getSlug())
+                    .tenantCode(tenant.getTenantCode())
+                    .estado(tenant.getEstado())
+                    .hasTenantOwner(tenantHasOwner)
+                    .hasPlatformAdminTenantOwner(tenantHasPlatformAdminOwner)
+                    .owners(tenantOwners.stream()
+                            .map(tu -> {
+                                User user = tu.getUser();
+                                return BusinessAccountGovernanceDiagnosticResponse.TenantOwnerItem.builder()
+                                        .userId(user != null ? user.getId() : null)
+                                        .username(user != null ? user.getUsername() : null)
+                                        .nome(user != null ? user.getNomeCompleto() : null)
+                                        .email(user != null ? user.getEmail() : null)
+                                        .ativo(user != null ? user.getAtivo() : null)
+                                        .platformAdmin(isPlatformAdmin(user))
+                                        .role(tu.getRole())
+                                        .estado(tu.getEstado())
+                                        .build();
+                            })
+                            .toList())
+                    .build());
+        }
+
+        List<String> blockingReasons = new ArrayList<>();
+        if (effectiveEstado == BusinessAccountEstado.ATIVA || activeTenantCount > 0) {
+            if (!hasResponsavel) {
+                blockingReasons.add("BUSINESS_ACCOUNT_RESPONSAVEL_MISSING");
+            } else if (!responsavelAtivo) {
+                blockingReasons.add("BUSINESS_ACCOUNT_RESPONSAVEL_INACTIVE");
+            } else if (responsavelPlatformAdmin) {
+                blockingReasons.add("PLATFORM_ADMIN_IS_BUSINESS_ACCOUNT_RESPONSAVEL");
+            }
+            if (!hasOwnerMember) {
+                blockingReasons.add("BUSINESS_ACCOUNT_OWNER_MISSING");
+            } else if (!hasActiveOwnerMember) {
+                blockingReasons.add("BUSINESS_ACCOUNT_ACTIVE_OWNER_MISSING");
+            }
+            if (hasPlatformAdminOwner) {
+                blockingReasons.add("PLATFORM_ADMIN_IS_BUSINESS_ACCOUNT_OWNER");
+            }
+            if (hasResponsavel && !responsavelIsActiveOwner) {
+                blockingReasons.add("BUSINESS_ACCOUNT_RESPONSAVEL_NOT_ACTIVE_OWNER");
+            }
+            if (hasActiveTenantWithoutOwner) {
+                blockingReasons.add("ACTIVE_TENANT_OWNER_MISSING");
+            }
+            if (hasPlatformAdminTenantOwner) {
+                blockingReasons.add("PLATFORM_ADMIN_IS_TENANT_OWNER");
+            }
+        }
+        if (activeTenantCount > 0 && effectiveEstado != BusinessAccountEstado.ATIVA) {
+            blockingReasons.add("ACTIVE_TENANT_LINKED_TO_NON_ACTIVE_BUSINESS_ACCOUNT");
+        }
+
+        List<String> warnings = new ArrayList<>();
+        if (account.getEstado() == BusinessAccountEstado.RASCUNHO && members.isEmpty()) {
+            warnings.add("RASCUNHO_SEM_OWNER_PERMITIDO_APENAS_ANTES_DA_OPERACAO");
+        }
+        boolean ownerGovernanceReady = hasValidBusinessOwner
+                && !hasPlatformAdminOwner
+                && !hasPlatformAdminTenantOwner
+                && !hasActiveTenantWithoutOwner;
+
+        return BusinessAccountGovernanceDiagnosticResponse.builder()
+                .businessAccountId(account.getId())
+                .businessAccountNome(account.getNome())
+                .businessAccountSlug(account.getSlug())
+                .estado(account.getEstado())
+                .responsavelUserId(responsavel != null ? responsavel.getId() : null)
+                .responsavelNome(responsavel != null ? responsavel.getNomeCompleto() : null)
+                .responsavelEmail(responsavel != null ? responsavel.getEmail() : null)
+                .responsavelAtivo(responsavel != null ? responsavel.getAtivo() : null)
+                .responsavelPlatformAdmin(responsavelPlatformAdmin)
+                .hasResponsavel(hasResponsavel)
+                .hasMembers(!members.isEmpty())
+                .hasOwnerMember(hasOwnerMember)
+                .hasActiveOwnerMember(hasActiveOwnerMember)
+                .hasValidBusinessOwner(hasValidBusinessOwner)
+                .hasPlatformAdminAsBusinessAccountOwner(hasPlatformAdminOwner)
+                .memberCount((long) members.size())
+                .linkedTenantCount((long) tenants.size())
+                .activeTenantCount(activeTenantCount)
+                .hasActiveTenants(activeTenantCount > 0)
+                .canActivate(ownerGovernanceReady)
+                .canLinkActiveTenant(account.getEstado() == BusinessAccountEstado.ATIVA && ownerGovernanceReady)
+                .canResetOwnerLogin(hasValidBusinessOwner)
+                .requiresBackfill(!blockingReasons.isEmpty() || (activeTenantCount > 0 && !ownerGovernanceReady))
+                .blockingReasons(blockingReasons)
+                .warnings(warnings)
+                .owners(owners)
+                .tenants(tenantItems)
+                .build();
+    }
+
+    private void assertUserIsNotPlatformAdminOwner(User user) {
+        if (isPlatformAdmin(user)) {
+            throw new BusinessException("Platform Admin nao pode ser OWNER da BusinessAccount.");
+        }
+    }
+
+    private boolean isPlatformAdmin(User user) {
+        if (user == null) {
+            return false;
+        }
+        Set<Role> roles = user.getRoles();
+        return roles != null && !roles.isEmpty() && roles.stream().allMatch(role -> role == Role.ROLE_ADMIN);
     }
 
     private void ensureOwnerWillRemainActive(BusinessAccountMember member,

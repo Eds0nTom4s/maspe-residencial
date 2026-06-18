@@ -6,6 +6,7 @@ import com.restaurante.exception.ProvisioningException;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
 import com.restaurante.inventory.service.TenantInventoryPolicyService;
 import com.restaurante.model.entity.BusinessAccount;
+import com.restaurante.model.entity.BusinessAccountMember;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.ChecklistOperacionalItemTemplate;
 import com.restaurante.model.entity.ChecklistOperacionalTemplate;
@@ -23,6 +24,9 @@ import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.UnidadeProducao;
 import com.restaurante.model.enums.ChecklistEscopo;
+import com.restaurante.model.enums.BusinessAccountEstado;
+import com.restaurante.model.enums.BusinessAccountMemberEstado;
+import com.restaurante.model.enums.BusinessAccountRole;
 import com.restaurante.model.enums.ChecklistTipo;
 import com.restaurante.model.enums.ChecklistTipoResposta;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
@@ -44,6 +48,7 @@ import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
 import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.UnidadeProducaoTipo;
+import com.restaurante.repository.BusinessAccountMemberRepository;
 import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.ChecklistOperacionalItemTemplateRepository;
@@ -96,6 +101,7 @@ public class BusinessTemplateProvisioningSupport {
 
     private final TenantRepository tenantRepository;
     private final BusinessAccountRepository businessAccountRepository;
+    private final BusinessAccountMemberRepository businessAccountMemberRepository;
     private final PlanoRepository planoRepository;
     private final SubscricaoRepository subscricaoRepository;
     private final InstituicaoRepository instituicaoRepository;
@@ -412,12 +418,14 @@ public class BusinessTemplateProvisioningSupport {
         if (owner.getEmail() != null && !owner.getEmail().isBlank()) {
             com.restaurante.model.entity.User existing = userRepository.findByEmail(owner.getEmail()).orElse(null);
             if (existing != null) {
+                assertUserIsNotPlatformAdminOwner(existing);
                 return existing;
             }
         }
         if (owner.getTelefone() != null && !owner.getTelefone().isBlank()) {
             com.restaurante.model.entity.User existing = userRepository.findByTelefone(owner.getTelefone()).orElse(null);
             if (existing != null) {
+                assertUserIsNotPlatformAdminOwner(existing);
                 return existing;
             }
         }
@@ -438,6 +446,42 @@ public class BusinessTemplateProvisioningSupport {
         u.setRoles(Set.of(Role.ROLE_GERENTE));
         u.setAtivo(true);
         return userRepository.saveAndFlush(u);
+    }
+
+    public BusinessAccount ensureBusinessAccountOwner(Tenant tenant, com.restaurante.model.entity.User owner) {
+        BusinessAccount businessAccount = tenant.getBusinessAccount();
+        if (businessAccount == null) {
+            return null;
+        }
+        assertUserIsNotPlatformAdminOwner(owner);
+
+        BusinessAccountMember member = businessAccountMemberRepository
+                .findByBusinessAccountIdAndUserId(businessAccount.getId(), owner.getId())
+                .orElseGet(BusinessAccountMember::new);
+        member.setBusinessAccount(businessAccount);
+        member.setUser(owner);
+        member.setRole(BusinessAccountRole.OWNER);
+        member.setEstado(BusinessAccountMemberEstado.ATIVO);
+        businessAccountMemberRepository.saveAndFlush(member);
+
+        businessAccount.setResponsavel(owner);
+        if (businessAccount.getEstado() == BusinessAccountEstado.RASCUNHO) {
+            businessAccount.setEstado(BusinessAccountEstado.ATIVA);
+        }
+        return businessAccountRepository.saveAndFlush(businessAccount);
+    }
+
+    private void assertUserIsNotPlatformAdminOwner(com.restaurante.model.entity.User user) {
+        Set<Role> roles = user != null ? user.getRoles() : null;
+        if (roles != null && !roles.isEmpty() && roles.stream().allMatch(role -> role == Role.ROLE_ADMIN)) {
+            throw new ProvisioningException(HttpStatus.CONFLICT,
+                    "PLATFORM_ADMIN_CANNOT_OWN_TENANT",
+                    "owner",
+                    "O operador da plataforma não pode ser proprietário ou administrador operacional do negócio.",
+                    null,
+                    "Forneça dados de um usuário real que não seja Platform Admin como owner do tenant.",
+                    null);
+        }
     }
 
     public TenantUser criarTenantUser(Tenant tenant, com.restaurante.model.entity.User user, TenantUserRole role, UnidadeAtendimento unidadeDefault) {

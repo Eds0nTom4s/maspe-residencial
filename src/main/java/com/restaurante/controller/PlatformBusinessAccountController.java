@@ -8,6 +8,7 @@ import com.restaurante.dto.request.BusinessAccountMemberEstadoUpdateRequest;
 import com.restaurante.dto.request.BusinessAccountMemberRoleUpdateRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.BusinessAccountBillingResponse;
+import com.restaurante.dto.response.BusinessAccountGovernanceDiagnosticResponse;
 import com.restaurante.dto.response.BusinessAccountLimitsResponse;
 import com.restaurante.dto.response.BusinessAccountMemberResponse;
 import com.restaurante.dto.response.BusinessAccountResponse;
@@ -82,6 +83,15 @@ public class PlatformBusinessAccountController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<BusinessAccountBillingResponse>> billing(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success("Billing da BusinessAccount", businessAccountService.buscarBilling(id)));
+    }
+
+    @GetMapping("/{id}/governance-diagnostic")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BusinessAccountGovernanceDiagnosticResponse>> governanceDiagnostic(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Diagnostico de governanca da BusinessAccount",
+                businessAccountService.diagnosticarGovernanca(id)
+        ));
     }
 
     @PostMapping

@@ -165,6 +165,7 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
 
         var ownerUser = support.criarOuReusarOwnerUser(request.getOwner(), ua);
         TenantUser ownerLink = support.criarTenantUser(tenant, ownerUser, TenantUserRole.TENANT_OWNER, ua);
+        support.ensureBusinessAccountOwner(tenant, ownerUser);
 
         QrCodeOperacional qr = support.criarQrPrincipal(tenant, inst, ua, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Principal");
 

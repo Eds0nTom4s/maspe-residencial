@@ -299,6 +299,7 @@ public class ConsumaRestV1Template implements BusinessTemplate {
 
         var ownerUser = support.criarOuReusarOwnerUser(request.getOwner(), ua);
         support.criarTenantUser(tenant, ownerUser, TenantUserRole.TENANT_OWNER, ua);
+        support.ensureBusinessAccountOwner(tenant, ownerUser);
 
         QrCodeOperacional qrPrincipal = support.criarQrPrincipal(tenant, inst, ua, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Principal");
 

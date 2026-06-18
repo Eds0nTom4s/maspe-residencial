@@ -121,8 +121,11 @@ public class PlatformTenantProvisioningAccessService {
         if (businessAccount != null) {
             if (businessAccount.getResponsavel() == null || !businessAccount.getResponsavel().getId().equals(owner.getId())) {
                 businessAccount.setResponsavel(owner);
-                businessAccountRepository.saveAndFlush(businessAccount);
             }
+            if (businessAccount.getEstado() == BusinessAccountEstado.RASCUNHO) {
+                businessAccount.setEstado(BusinessAccountEstado.ATIVA);
+            }
+            businessAccountRepository.saveAndFlush(businessAccount);
         }
 
         return TenantProvisioningAccessResponse.builder()

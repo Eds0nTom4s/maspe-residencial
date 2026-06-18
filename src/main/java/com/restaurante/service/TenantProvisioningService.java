@@ -6,6 +6,7 @@ import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ProvisioningException;
 import com.restaurante.model.entity.BusinessAccount;
+import com.restaurante.model.entity.BusinessAccountMember;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
@@ -20,6 +21,9 @@ import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.ComportamentoPedidoNaoPago;
+import com.restaurante.model.enums.BusinessAccountEstado;
+import com.restaurante.model.enums.BusinessAccountMemberEstado;
+import com.restaurante.model.enums.BusinessAccountRole;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.SubscricaoEstado;
@@ -30,6 +34,7 @@ import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
 import com.restaurante.repository.BusinessAccountRepository;
+import com.restaurante.repository.BusinessAccountMemberRepository;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.MesaRepository;
@@ -68,6 +73,7 @@ public class TenantProvisioningService {
     private final TenantGuard tenantGuard;
     private final TenantRepository tenantRepository;
     private final BusinessAccountRepository businessAccountRepository;
+    private final BusinessAccountMemberRepository businessAccountMemberRepository;
     private final PlanoRepository planoRepository;
     private final SubscricaoRepository subscricaoRepository;
     private final ProvisioningTemplateRepository templateRepository;
@@ -258,6 +264,15 @@ public class TenantProvisioningService {
             }
             owner = criarOuReusarOwnerUser(request, unidade);
             tenantOwner = criarTenantOwner(tenant, owner, unidade);
+            ensureBusinessAccountOwner(tenant, owner);
+        } else if (businessAccount != null && ativarTenant) {
+            throw new ProvisioningException(HttpStatus.CONFLICT,
+                    "BUSINESS_ACCOUNT_OWNER_REQUIRED",
+                    "responsavel",
+                    "Tenant ativo vinculado a BusinessAccount exige owner real.",
+                    null,
+                    "Informe responsavel com criarUsuario=true ou use provisionamento com acesso.",
+                    null);
         }
 
         QrCodeOperacional qr = null;
@@ -514,12 +529,14 @@ public class TenantProvisioningService {
         if (resp.getEmail() != null && !resp.getEmail().isBlank()) {
             User existing = userRepository.findByEmail(resp.getEmail()).orElse(null);
             if (existing != null) {
+                assertUserIsNotPlatformAdminOwner(existing);
                 return existing;
             }
         }
         if (resp.getTelefone() != null && !resp.getTelefone().isBlank()) {
             User existing = userRepository.findByTelefone(resp.getTelefone()).orElse(null);
             if (existing != null) {
+                assertUserIsNotPlatformAdminOwner(existing);
                 return existing;
             }
         }
@@ -540,6 +557,41 @@ public class TenantProvisioningService {
         u.setRoles(Set.of(Role.ROLE_GERENTE));
         u.setAtivo(true);
         return userRepository.saveAndFlush(u);
+    }
+
+    private BusinessAccount ensureBusinessAccountOwner(Tenant tenant, User owner) {
+        BusinessAccount businessAccount = tenant.getBusinessAccount();
+        if (businessAccount == null) {
+            return null;
+        }
+        assertUserIsNotPlatformAdminOwner(owner);
+        BusinessAccountMember member = businessAccountMemberRepository
+                .findByBusinessAccountIdAndUserId(businessAccount.getId(), owner.getId())
+                .orElseGet(BusinessAccountMember::new);
+        member.setBusinessAccount(businessAccount);
+        member.setUser(owner);
+        member.setRole(BusinessAccountRole.OWNER);
+        member.setEstado(BusinessAccountMemberEstado.ATIVO);
+        businessAccountMemberRepository.saveAndFlush(member);
+
+        businessAccount.setResponsavel(owner);
+        if (businessAccount.getEstado() == BusinessAccountEstado.RASCUNHO) {
+            businessAccount.setEstado(BusinessAccountEstado.ATIVA);
+        }
+        return businessAccountRepository.saveAndFlush(businessAccount);
+    }
+
+    private void assertUserIsNotPlatformAdminOwner(User user) {
+        Set<Role> roles = user != null ? user.getRoles() : null;
+        if (roles != null && !roles.isEmpty() && roles.stream().allMatch(role -> role == Role.ROLE_ADMIN)) {
+            throw new ProvisioningException(HttpStatus.CONFLICT,
+                    "PLATFORM_ADMIN_CANNOT_OWN_TENANT",
+                    "responsavel",
+                    "O operador da plataforma não pode ser proprietário ou administrador operacional do negócio.",
+                    null,
+                    "Forneça dados de um usuário real que não seja Platform Admin como owner do tenant.",
+                    null);
+        }
     }
 
     private TenantUser criarTenantOwner(Tenant tenant, User user, UnidadeAtendimento unidadeDefault) {

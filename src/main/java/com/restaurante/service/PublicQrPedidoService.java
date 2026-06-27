@@ -30,6 +30,8 @@ import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
+import com.restaurante.repository.TenantCardapioConfigRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +61,8 @@ public class PublicQrPedidoService {
     private final OperacaoProperties operacaoProperties;
     private final OperationalEventLogService operationalEventLogService;
     private final TenantCardapioConfigService tenantCardapioConfigService;
+    private final TenantCardapioConfigRepository tenantCardapioConfigRepository;
+    private final SessaoConsumoRepository sessaoConsumoRepository;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -83,7 +87,9 @@ public class PublicQrPedidoService {
 
         List<Produto> produtos = validarECarregarProdutosDoTenant(tenant.getId(), request.getItens());
 
-        SessaoConsumo sessao = resolverOuCriarSessaoMinima(qr, instituicao, unidadeAtendimento, mesa);
+        validarLimiteItensPorPedido(tenant.getId(), request.getItens());
+
+        SessaoConsumo sessao = resolverSessaoParaPedido(qr, instituicao, unidadeAtendimento, mesa, request.getSessaoConsumoId());
 
         PublicQrOrderRequest idemReq = start.request();
         try {
@@ -285,6 +291,50 @@ public class PublicQrPedidoService {
                 TipoSessao.POS_PAGO,
                 false
         );
+    }
+
+    private SessaoConsumo resolverSessaoParaPedido(
+            QrCodeOperacional qr,
+            Instituicao instituicao,
+            UnidadeAtendimento unidadeAtendimento,
+            Mesa mesa,
+            Long sessaoConsumoId
+    ) {
+        if (sessaoConsumoId == null) {
+            return resolverOuCriarSessaoMinima(qr, instituicao, unidadeAtendimento, mesa);
+        }
+
+        Long tenantId = qr.getTenant() != null ? qr.getTenant().getId() : null;
+        if (tenantId == null) {
+            throw new BusinessException("QR sem tenant válido.");
+        }
+
+        SessaoConsumo sessao = sessaoConsumoRepository.findByIdAndTenantId(sessaoConsumoId, tenantId)
+                .orElseThrow(() -> new BusinessException("SESSAO_CONSUMO_NOT_FOUND"));
+
+        if (sessao.getStatus() != com.restaurante.model.enums.StatusSessaoConsumo.ABERTA) {
+            throw new BusinessException("SESSAO_CONSUMO_NOT_ACTIVE");
+        }
+
+        return sessao;
+    }
+
+    private void validarLimiteItensPorPedido(Long tenantId, List<PublicQrPedidoItemRequest> itens) {
+        if (itens == null || itens.isEmpty()) {
+            return;
+        }
+
+        int quantidadeTotal = itens.stream()
+                .mapToInt(item -> item.getQuantidade() != null ? item.getQuantidade() : 0)
+                .sum();
+
+        Integer limite = tenantCardapioConfigRepository.findByTenantId(tenantId)
+                .map(config -> config.getMaxItensPorPedido())
+                .orElse(null);
+
+        if (limite != null && limite > 0 && quantidadeTotal > limite) {
+            throw new BusinessException("LIMITE_ITENS_EXCEDIDO");
+        }
     }
 
     /**

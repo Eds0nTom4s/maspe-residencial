@@ -23,6 +23,7 @@ public class PublicQrPedidoRequest {
     private String clienteNome;
     private String clienteTelefone;
     private String observacao;
+    private Long sessaoConsumoId;
 
     @NotEmpty(message = "Pedido deve conter ao menos um item")
     @Valid

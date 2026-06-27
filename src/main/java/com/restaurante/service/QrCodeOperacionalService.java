@@ -2,8 +2,10 @@ package com.restaurante.service;
 
 import com.restaurante.dto.response.PublicCardapioResponse;
 import com.restaurante.dto.response.PublicCategoriaProdutoResponse;
+import com.restaurante.dto.response.PublicProdutoImagemResponse;
 import com.restaurante.dto.response.PublicProdutoResponse;
 import com.restaurante.dto.response.QrPublicContext;
+import com.restaurante.model.entity.TenantCardapioConfig;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Instituicao;
@@ -17,8 +19,10 @@ import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.MesaRepository;
+import com.restaurante.repository.ProdutoImagemRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.QrCodeOperacionalRepository;
+import com.restaurante.repository.TenantCardapioConfigRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +52,9 @@ public class QrCodeOperacionalService {
     private final MesaRepository mesaRepository;
     private final CategoriaProdutoRepository categoriaProdutoRepository;
     private final ProdutoRepository produtoRepository;
+    private final ProdutoImagemRepository produtoImagemRepository;
     private final TenantCardapioConfigService tenantCardapioConfigService;
+    private final TenantCardapioConfigRepository tenantCardapioConfigRepository;
 
     @Transactional
     public QrCodeOperacional criarQr(
@@ -124,6 +130,7 @@ public class QrCodeOperacionalService {
         ctx.setTenantId(tenant.getId());
         ctx.setTenantNome(tenant.getNome());
         ctx.setTenantCode(tenant.getTenantCode());
+        ctx.setTenantBannerUrl(resolveTenantBannerUrl(tenant.getId()));
 
         ctx.setInstituicaoId(inst.getId());
         ctx.setInstituicaoNome(inst.getNome());
@@ -192,12 +199,15 @@ public class QrCodeOperacionalService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", tenantId));
 
+        TenantCardapioConfig cardapioConfig = tenantCardapioConfigRepository.findByTenantId(tenantId).orElse(null);
+
         if (!tenantCardapioConfigService.isPublicado(tenantId)) {
             PublicCardapioResponse resp = new PublicCardapioResponse();
             resp.setQr(ctx);
             resp.setPublicado(false);
             resp.setTelefoneContato(tenant.getTelefone());
             resp.setMensagem(tenantCardapioConfigService.mensagemPublicaIndisponivel(tenant.getTelefone()));
+            resp.setMaxItensPorPedido(resolveMaxItensPorPedido(cardapioConfig));
             resp.setCategorias(List.of());
             return resp;
         }
@@ -236,6 +246,7 @@ public class QrCodeOperacionalService {
         resp.setQr(ctx);
         resp.setPublicado(true);
         resp.setTelefoneContato(tenant.getTelefone());
+        resp.setMaxItensPorPedido(resolveMaxItensPorPedido(cardapioConfig));
         resp.setCategorias(categoriaResponses);
         return resp;
     }
@@ -277,8 +288,34 @@ public class QrCodeOperacionalService {
         r.setDescricao(p.getDescricao());
         r.setPreco(p.getPreco());
         r.setImagemUrl(p.getUrlImagem());
+        r.setImagens(resolveProdutoImagens(p.getId()));
         r.setDisponivel(p.getDisponivel());
         r.setCategoriaProdutoId(p.getCategoriaProduto() != null ? p.getCategoriaProduto().getId() : null);
         return r;
+    }
+
+    private String resolveTenantBannerUrl(Long tenantId) {
+        return tenantCardapioConfigRepository.findByTenantId(tenantId)
+                .map(TenantCardapioConfig::getUrlBanner)
+                .orElse(null);
+    }
+
+    private Integer resolveMaxItensPorPedido(TenantCardapioConfig config) {
+        return config != null ? config.getMaxItensPorPedido() : null;
+    }
+
+    private List<PublicProdutoImagemResponse> resolveProdutoImagens(Long produtoId) {
+        return produtoImagemRepository.findByProdutoIdOrderByOrdemAsc(produtoId)
+                .stream()
+                .limit(4)
+                .map(img -> {
+                    PublicProdutoImagemResponse r = new PublicProdutoImagemResponse();
+                    r.setId(img.getId());
+                    r.setUrl(img.getUrl());
+                    r.setOrdem(img.getOrdem());
+                    r.setLegenda(img.getLegenda());
+                    return r;
+                })
+                .toList();
     }
 }

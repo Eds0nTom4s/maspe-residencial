@@ -10,6 +10,7 @@ public class QrPublicContext {
     private Long tenantId;
     private String tenantNome;
     private String tenantCode;
+    private String tenantBannerUrl;
 
     private Long instituicaoId;
     private String instituicaoNome;
@@ -63,6 +64,14 @@ public class QrPublicContext {
 
     public void setTenantCode(String tenantCode) {
         this.tenantCode = tenantCode;
+    }
+
+    public String getTenantBannerUrl() {
+        return tenantBannerUrl;
+    }
+
+    public void setTenantBannerUrl(String tenantBannerUrl) {
+        this.tenantBannerUrl = tenantBannerUrl;
     }
 
     public Long getInstituicaoId() {

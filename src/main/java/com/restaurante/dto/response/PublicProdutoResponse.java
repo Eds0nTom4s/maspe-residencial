@@ -1,6 +1,7 @@
 package com.restaurante.dto.response;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 public class PublicProdutoResponse {
 
@@ -10,6 +11,7 @@ public class PublicProdutoResponse {
     private String descricao;
     private BigDecimal preco;
     private String imagemUrl;
+    private List<PublicProdutoImagemResponse> imagens;
     private Boolean disponivel;
     private Long categoriaProdutoId;
 
@@ -59,6 +61,14 @@ public class PublicProdutoResponse {
 
     public void setImagemUrl(String imagemUrl) {
         this.imagemUrl = imagemUrl;
+    }
+
+    public List<PublicProdutoImagemResponse> getImagens() {
+        return imagens;
+    }
+
+    public void setImagens(List<PublicProdutoImagemResponse> imagens) {
+        this.imagens = imagens;
     }
 
     public Boolean getDisponivel() {

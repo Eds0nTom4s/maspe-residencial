@@ -42,6 +42,12 @@ public class TenantCardapioConfig extends BaseEntity {
     @Column(name = "cardapio_atualizado_em")
     private LocalDateTime cardapioAtualizadoEm;
 
+    @Column(name = "url_banner", length = 500)
+    private String urlBanner;
+
+    @Column(name = "max_itens_por_pedido")
+    private Integer maxItensPorPedido;
+
     public Tenant getTenant() {
         return tenant;
     }
@@ -104,5 +110,21 @@ public class TenantCardapioConfig extends BaseEntity {
 
     public void setCardapioAtualizadoEm(LocalDateTime cardapioAtualizadoEm) {
         this.cardapioAtualizadoEm = cardapioAtualizadoEm;
+    }
+
+    public String getUrlBanner() {
+        return urlBanner;
+    }
+
+    public void setUrlBanner(String urlBanner) {
+        this.urlBanner = urlBanner;
+    }
+
+    public Integer getMaxItensPorPedido() {
+        return maxItensPorPedido;
+    }
+
+    public void setMaxItensPorPedido(Integer maxItensPorPedido) {
+        this.maxItensPorPedido = maxItensPorPedido;
     }
 }

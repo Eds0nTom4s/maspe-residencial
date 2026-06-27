@@ -8,19 +8,25 @@ import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
+import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantCardapioConfig;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
+import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TipoCozinha;
+import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
+import com.restaurante.repository.TenantCardapioConfigRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
@@ -59,6 +65,8 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
     @Autowired ProdutoRepository produtoRepository;
     @Autowired PedidoRepository pedidoRepository;
     @Autowired SubPedidoRepository subPedidoRepository;
+    @Autowired SessaoConsumoRepository sessaoConsumoRepository;
+    @Autowired TenantCardapioConfigRepository tenantCardapioConfigRepository;
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
 
     @Test
@@ -165,6 +173,108 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    @Test
+    void publicQr_rejectsPedidoExceedingMaxItensPorPedido() throws Exception {
+        Tenant tenant = criarTenant("Limite Itens", "limite-itens", "LIMITE-ITENS");
+        Instituicao inst = criarInstituicao(tenant, "Limite Itens", "LI", "NIF-LI-001", "+244900003001");
+        UnidadeAtendimento ua = criarUnidade(inst, "UA Limite", TipoUnidadeAtendimento.RESTAURANTE);
+        criarCozinhaVinculada(ua, "Bar Limite", TipoCozinha.BAR_PREP);
+
+        CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
+        Produto prod = criarProduto(tenant, cat, "AGUA-LIMITE", "Água Limite", new BigDecimal("10.00"));
+        configurarMaxItensPorPedido(tenant, 2);
+        publicarCardapioForTest(tenant.getId());
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), ua.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Limite"
+        );
+
+        String payload = """
+                { "itens": [ { "produtoId": %d, "quantidade": 3 } ] }
+                """.formatted(prod.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("Idempotency-Key", "idem-limite-0001");
+        HttpEntity<String> entity = new HttpEntity<>(payload, headers);
+
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qr.getToken());
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode json = objectMapper.readTree(resp.getBody());
+        assertThat(json.path("message").asText()).contains("LIMITE_ITENS_EXCEDIDO");
+    }
+
+    @Test
+    void publicQr_acceptsPedidoWithinMaxItensPorPedido() throws Exception {
+        Tenant tenant = criarTenant("Limite OK", "limite-ok", "LIMITE-OK");
+        Instituicao inst = criarInstituicao(tenant, "Limite OK", "LO", "NIF-LO-001", "+244900004001");
+        UnidadeAtendimento ua = criarUnidade(inst, "UA Limite OK", TipoUnidadeAtendimento.RESTAURANTE);
+        criarCozinhaVinculada(ua, "Bar Limite OK", TipoCozinha.BAR_PREP);
+
+        CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
+        Produto prod = criarProduto(tenant, cat, "AGUA-OK", "Água OK", new BigDecimal("10.00"));
+        configurarMaxItensPorPedido(tenant, 5);
+        publicarCardapioForTest(tenant.getId());
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), ua.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Limite OK"
+        );
+
+        String payload = """
+                { "itens": [ { "produtoId": %d, "quantidade": 3 } ] }
+                """.formatted(prod.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("Idempotency-Key", "idem-limite-0002");
+        HttpEntity<String> entity = new HttpEntity<>(payload, headers);
+
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qr.getToken());
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+
+    @Test
+    void publicQr_usesProvidedSessaoConsumoId() throws Exception {
+        Tenant tenant = criarTenant("Sessao Identificada", "sessao-identificada", "SESSAO-ID");
+        Instituicao inst = criarInstituicao(tenant, "Sessao Identificada", "SI", "NIF-SI-001", "+244900005001");
+        UnidadeAtendimento ua = criarUnidade(inst, "UA Sessao", TipoUnidadeAtendimento.RESTAURANTE);
+        criarCozinhaVinculada(ua, "Bar Sessao", TipoCozinha.BAR_PREP);
+
+        CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
+        Produto prod = criarProduto(tenant, cat, "AGUA-SESSAO", "Água Sessao", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenant.getId());
+
+        SessaoConsumo sessao = new SessaoConsumo();
+        sessao.setTenant(tenant);
+        sessao.setInstituicao(inst);
+        sessao.setUnidadeAtendimento(ua);
+        sessao.setModoAnonimo(false);
+        sessao.setStatus(StatusSessaoConsumo.ABERTA);
+        sessao.setTipoSessao(TipoSessao.PRE_PAGO);
+        SessaoConsumo sessaoAberta = sessaoConsumoRepository.saveAndFlush(sessao);
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), ua.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Sessao"
+        );
+
+        String payload = """
+                { "sessaoConsumoId": %d, "itens": [ { "produtoId": %d, "quantidade": 1 } ] }
+                """.formatted(sessaoAberta.getId(), prod.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("Idempotency-Key", "idem-sessao-0001");
+        HttpEntity<String> entity = new HttpEntity<>(payload, headers);
+
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qr.getToken());
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        JsonNode json = objectMapper.readTree(resp.getBody());
+        Long pedidoId = json.at("/data/pedidoId").asLong();
+        Pedido pedido = pedidoRepository.findById(pedidoId).orElseThrow();
+        assertThat(pedido.getSessaoConsumo().getId()).isEqualTo(sessaoAberta.getId());
+    }
+
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
@@ -228,5 +338,16 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         p.setDisponivel(true);
         p.setAtivo(true);
         return produtoRepository.saveAndFlush(p);
+    }
+
+    private void configurarMaxItensPorPedido(Tenant tenant, Integer limite) {
+        TenantCardapioConfig config = tenantCardapioConfigRepository.findByTenantId(tenant.getId()).orElseGet(() -> {
+            TenantCardapioConfig novo = new TenantCardapioConfig();
+            novo.setTenant(tenant);
+            novo.setCardapioPublicado(false);
+            return novo;
+        });
+        config.setMaxItensPorPedido(limite);
+        tenantCardapioConfigRepository.saveAndFlush(config);
     }
 }

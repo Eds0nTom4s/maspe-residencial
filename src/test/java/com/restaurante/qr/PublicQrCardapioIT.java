@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Produto;
+import com.restaurante.model.entity.ProdutoImagem;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantCardapioConfig;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
@@ -15,7 +17,9 @@ import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.ProdutoImagemRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.TenantCardapioConfigRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
@@ -48,6 +52,8 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
+    @Autowired ProdutoImagemRepository produtoImagemRepository;
+    @Autowired TenantCardapioConfigRepository tenantCardapioConfigRepository;
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
 
     @Test
@@ -64,8 +70,8 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
         CategoriaProduto catB = criarCategoria(tenantB, "Bebidas", "bebidas");
 
-        criarProduto(tenantA, catA, "AGUA-500", "Água 500ml A");
-        criarProduto(tenantB, catB, "AGUA-500", "Água 500ml B");
+        criarProduto(tenantA, catA, "AGUA-500", "Água 500ml A", new BigDecimal("10.00"));
+        criarProduto(tenantB, catB, "AGUA-500", "Água 500ml B", new BigDecimal("10.00"));
         publicarCardapioForTest(tenantA.getId());
         publicarCardapioForTest(tenantB.getId());
 
@@ -123,6 +129,46 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
         assertThat(json.at("/data/unidadeAtendimentoNome").asText()).isEqualTo(unidadeA.getNome());
     }
 
+    @Test
+    void publicCardapio_exposesBannerMaxItensAndProductImages() throws Exception {
+        Tenant tenant = criarTenant("Banner e Imagens", "banner-imagens", "BANNER-IMG");
+        Instituicao inst = criarInstituicao(tenant, "Banner e Imagens", "BI", "NIF-BI-001", "+244900000010");
+        UnidadeAtendimento ua = criarUnidade(inst, "Unidade BI", TipoUnidadeAtendimento.RESTAURANTE);
+
+        String bannerUrl = "https://cdn.consuma.ao/banner-test.jpg";
+        Integer maxItens = 7;
+        configurarCardapio(tenant, bannerUrl, maxItens);
+
+        CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
+        Produto prod = criarProduto(tenant, cat, "SUCO-300", "Suco 300ml", new BigDecimal("8.00"));
+        adicionarImagem(prod, 0, "https://cdn.consuma.ao/suco-1.jpg", "Frente");
+        adicionarImagem(prod, 1, "https://cdn.consuma.ao/suco-2.jpg", "Lateral");
+
+        publicarCardapioForTest(tenant.getId());
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), ua.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Banner"
+        );
+
+        ResponseEntity<String> resp = restTemplate.getForEntity("/public/q/{token}/cardapio", String.class, qr.getToken());
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode json = objectMapper.readTree(resp.getBody());
+        assertThat(json.path("success").asBoolean()).isTrue();
+
+        // Contexto QR expõe banner
+        assertThat(json.at("/data/qr/tenantBannerUrl").asText()).isEqualTo(bannerUrl);
+
+        // Cardápio expõe limite de itens por pedido
+        assertThat(json.at("/data/maxItensPorPedido").asInt()).isEqualTo(maxItens);
+
+        // Produto expõe imagens limitadas
+        JsonNode produtoJson = json.at("/data/categorias/0/produtos/0");
+        assertThat(produtoJson.at("/imagens").isArray()).isTrue();
+        assertThat(produtoJson.at("/imagens").size()).isEqualTo(2);
+        assertThat(produtoJson.at("/imagens/0/url").asText()).isEqualTo("https://cdn.consuma.ao/suco-1.jpg");
+        assertThat(produtoJson.at("/imagens/0/legenda").asText()).isEqualTo("Frente");
+    }
+
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
@@ -163,17 +209,39 @@ class PublicQrCardapioIT extends PostgresTestcontainersConfig {
         return categoriaProdutoRepository.saveAndFlush(c);
     }
 
-    private Produto criarProduto(Tenant tenant, CategoriaProduto categoriaProduto, String codigo, String nome) {
+    private Produto criarProduto(Tenant tenant, CategoriaProduto categoriaProduto, String codigo, String nome, BigDecimal preco) {
         Produto p = new Produto();
         p.setTenant(tenant);
         p.setCodigo(codigo);
         p.setNome(nome);
         p.setDescricao(null);
-        p.setPreco(new BigDecimal("10.00"));
+        p.setPreco(preco);
         p.setCategoria(CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA);
         p.setCategoriaProduto(categoriaProduto);
         p.setDisponivel(true);
         p.setAtivo(true);
         return produtoRepository.saveAndFlush(p);
+    }
+
+    private void configurarCardapio(Tenant tenant, String bannerUrl, Integer maxItensPorPedido) {
+        TenantCardapioConfig config = tenantCardapioConfigRepository.findByTenantId(tenant.getId()).orElseGet(() -> {
+            TenantCardapioConfig novo = new TenantCardapioConfig();
+            novo.setTenant(tenant);
+            novo.setCardapioPublicado(false);
+            return novo;
+        });
+        config.setUrlBanner(bannerUrl);
+        config.setMaxItensPorPedido(maxItensPorPedido);
+        tenantCardapioConfigRepository.saveAndFlush(config);
+    }
+
+    private void adicionarImagem(Produto produto, int ordem, String url, String legenda) {
+        ProdutoImagem img = new ProdutoImagem();
+        img.setTenant(produto.getTenant());
+        img.setProduto(produto);
+        img.setUrl(url);
+        img.setOrdem(ordem);
+        img.setLegenda(legenda);
+        produtoImagemRepository.saveAndFlush(img);
     }
 }

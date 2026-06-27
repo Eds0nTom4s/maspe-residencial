@@ -8,6 +8,7 @@ public class PublicCardapioResponse {
     private Boolean publicado;
     private String mensagem;
     private String telefoneContato;
+    private Integer maxItensPorPedido;
     private List<PublicCategoriaProdutoResponse> categorias;
 
     public QrPublicContext getQr() {
@@ -40,6 +41,14 @@ public class PublicCardapioResponse {
 
     public void setTelefoneContato(String telefoneContato) {
         this.telefoneContato = telefoneContato;
+    }
+
+    public Integer getMaxItensPorPedido() {
+        return maxItensPorPedido;
+    }
+
+    public void setMaxItensPorPedido(Integer maxItensPorPedido) {
+        this.maxItensPorPedido = maxItensPorPedido;
     }
 
     public List<PublicCategoriaProdutoResponse> getCategorias() {

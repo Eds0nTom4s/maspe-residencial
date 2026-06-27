@@ -6,6 +6,7 @@ import com.restaurante.dto.response.ProdutoResponse;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.security.JwtAuthenticationFilter;
 import com.restaurante.security.JwtTokenProvider;
+import com.restaurante.service.ProdutoImagemService;
 import com.restaurante.service.ProdutoService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,6 +58,9 @@ class ProdutoControllerTest {
 
     @MockBean
     private ProdutoService produtoService;
+
+    @MockBean
+    private ProdutoImagemService produtoImagemService;
 
     @Test
     @DisplayName("POST /produtos - deve criar produto com sucesso")

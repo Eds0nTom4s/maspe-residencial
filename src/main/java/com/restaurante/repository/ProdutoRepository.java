@@ -60,6 +60,8 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
     // Tenant-aware (Prompt 5)
     Optional<Produto> findByIdAndTenantId(Long id, Long tenantId);
 
+    boolean existsByIdAndTenantId(Long id, Long tenantId);
+
     List<Produto> findByTenantIdAndIdIn(Long tenantId, Collection<Long> ids);
 
     Optional<Produto> findByCodigoAndTenantId(String codigo, Long tenantId);

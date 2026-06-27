@@ -1,8 +1,10 @@
 package com.restaurante.service;
 
+import com.restaurante.dto.request.AtualizarCardapioAparenciaRequest;
 import com.restaurante.dto.request.AtualizarLimitesCardapioRequest;
 import com.restaurante.dto.response.PlatformCardapioLimitsResponse;
 import com.restaurante.dto.response.TenantCardapioStatusResponse;
+import com.restaurante.service.storage.StorageService;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantCardapioConfig;
@@ -21,6 +23,7 @@ import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -41,6 +44,7 @@ public class TenantCardapioConfigService {
     private final ProdutoRepository produtoRepository;
     private final TenantLimitService tenantLimitService;
     private final OperationalEventLogService operationalEventLogService;
+    private final StorageService storageService;
 
     @Transactional
     public TenantCardapioConfig getOrCreate(Tenant tenant) {
@@ -103,6 +107,51 @@ public class TenantCardapioConfigService {
 
         audit(tenant.getId(), OperationalEventType.CARDAPIO_PUBLICADO, config.getId(),
                 origemTenant(), "Cardápio publicado", Map.of("userId", safeUserId()));
+        return buildStatus(tenant, config);
+    }
+
+    @Transactional
+    public TenantCardapioStatusResponse atualizarAparenciaCurrentTenant(AtualizarCardapioAparenciaRequest request) {
+        TenantContext ctx = TenantContextHolder.require();
+        Tenant tenant = tenantRepository.findById(ctx.tenantId())
+                .orElseThrow(() -> new BusinessException("Tenant não encontrado: " + ctx.tenantId()));
+        TenantCardapioConfig config = getOrCreate(tenant);
+
+        LocalDateTime now = LocalDateTime.now();
+        if (request.getUrlBanner() != null) {
+            config.setUrlBanner(trimToNull(request.getUrlBanner()));
+        }
+        if (request.getMaxItensPorPedido() != null) {
+            config.setMaxItensPorPedido(request.getMaxItensPorPedido());
+        }
+        config.setCardapioAtualizadoEm(now);
+        tenantCardapioConfigRepository.saveAndFlush(config);
+
+        audit(tenant.getId(), OperationalEventType.CARDAPIO_APARENCIA_ALTERADA, config.getId(),
+                origemTenant(), "Aparência do cardápio atualizada", Map.of(
+                        "urlBanner", config.getUrlBanner() != null ? config.getUrlBanner() : "",
+                        "maxItensPorPedido", config.getMaxItensPorPedido() != null ? config.getMaxItensPorPedido() : ""
+                ));
+        return buildStatus(tenant, config);
+    }
+
+    @Transactional
+    public TenantCardapioStatusResponse uploadBannerCurrentTenant(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException("Arquivo do banner é obrigatório.");
+        }
+        TenantContext ctx = TenantContextHolder.require();
+        Tenant tenant = tenantRepository.findById(ctx.tenantId())
+                .orElseThrow(() -> new BusinessException("Tenant não encontrado: " + ctx.tenantId()));
+        TenantCardapioConfig config = getOrCreate(tenant);
+
+        String url = storageService.uploadFile(file, "cardapio-banners");
+        config.setUrlBanner(url);
+        config.setCardapioAtualizadoEm(LocalDateTime.now());
+        tenantCardapioConfigRepository.saveAndFlush(config);
+
+        audit(tenant.getId(), OperationalEventType.CARDAPIO_BANNER_ALTERADO, config.getId(),
+                origemTenant(), "Banner do cardápio atualizado", Map.of("url", url));
         return buildStatus(tenant, config);
     }
 
@@ -232,6 +281,8 @@ public class TenantCardapioConfigService {
         response.setBloqueios(bloqueios);
         response.setAvisos(avisos);
         response.setTelefoneContato(tenant.getTelefone());
+        response.setUrlBanner(config.getUrlBanner());
+        response.setMaxItensPorPedido(config.getMaxItensPorPedido());
         return response;
     }
 

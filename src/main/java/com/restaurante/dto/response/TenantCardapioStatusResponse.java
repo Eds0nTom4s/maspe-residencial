@@ -21,6 +21,8 @@ public class TenantCardapioStatusResponse {
     private List<String> bloqueios;
     private List<String> avisos;
     private String telefoneContato;
+    private String urlBanner;
+    private Integer maxItensPorPedido;
 
     public Long getTenantId() { return tenantId; }
     public void setTenantId(Long tenantId) { this.tenantId = tenantId; }
@@ -54,4 +56,8 @@ public class TenantCardapioStatusResponse {
     public void setAvisos(List<String> avisos) { this.avisos = avisos; }
     public String getTelefoneContato() { return telefoneContato; }
     public void setTelefoneContato(String telefoneContato) { this.telefoneContato = telefoneContato; }
+    public String getUrlBanner() { return urlBanner; }
+    public void setUrlBanner(String urlBanner) { this.urlBanner = urlBanner; }
+    public Integer getMaxItensPorPedido() { return maxItensPorPedido; }
+    public void setMaxItensPorPedido(Integer maxItensPorPedido) { this.maxItensPorPedido = maxItensPorPedido; }
 }

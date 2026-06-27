@@ -1,8 +1,12 @@
 package com.restaurante.cardapio;
 
+import com.restaurante.dto.request.AtualizarCardapioAparenciaRequest;
 import com.restaurante.dto.request.AtualizarLimitesCardapioRequest;
 import com.restaurante.dto.response.PlatformCardapioLimitsResponse;
 import com.restaurante.dto.response.TenantCardapioStatusResponse;
+import com.restaurante.security.tenant.TenantContext;
+import com.restaurante.security.tenant.TenantContextHolder;
+import com.restaurante.service.storage.StorageService;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantCardapioConfig;
@@ -22,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Optional;
 
@@ -41,6 +46,7 @@ class TenantCardapioConfigServiceTest {
     @Mock ProdutoRepository produtoRepository;
     @Mock TenantLimitService tenantLimitService;
     @Mock OperationalEventLogService operationalEventLogService;
+    @Mock StorageService storageService;
     @InjectMocks TenantCardapioConfigService service;
 
     @Test
@@ -77,6 +83,56 @@ class TenantCardapioConfigServiceTest {
         assertThatThrownBy(() -> service.alterarLimitesPlatform(10L, request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Novo limite de categorias");
+    }
+
+    @Test
+    void atualizarAparencia_atualizaUrlBannerEMaxItensPorPedido() {
+        Tenant tenant = tenant(10L);
+        TenantCardapioConfig config = config(tenant, false);
+        when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
+        when(tenantCardapioConfigRepository.findByTenantId(10L)).thenReturn(Optional.of(config));
+        when(tenantCardapioConfigRepository.saveAndFlush(any(TenantCardapioConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(tenantLimitService.getEffectiveLimits(10L)).thenReturn(limits(10L, 8, 40));
+        when(categoriaProdutoRepository.countByTenantIdAndAtivoTrue(10L)).thenReturn(1L);
+        when(produtoRepository.countByTenantIdAndAtivoTrue(10L)).thenReturn(1L);
+        when(produtoRepository.countByTenantIdAndDisponivelTrueAndAtivoTrue(10L)).thenReturn(1L);
+        TenantContextHolder.set(new TenantContext(10L, "tenant-10", 1L, java.util.Set.of("TENANT_OWNER"), com.restaurante.security.tenant.TenantResolutionSource.JWT, false, false));
+
+        AtualizarCardapioAparenciaRequest request = new AtualizarCardapioAparenciaRequest();
+        request.setUrlBanner("https://cdn.exemplo.com/banner.jpg");
+        request.setMaxItensPorPedido(12);
+
+        TenantCardapioStatusResponse status = service.atualizarAparenciaCurrentTenant(request);
+
+        assertThat(status.getUrlBanner()).isEqualTo("https://cdn.exemplo.com/banner.jpg");
+        assertThat(status.getMaxItensPorPedido()).isEqualTo(12);
+        assertThat(config.getUrlBanner()).isEqualTo("https://cdn.exemplo.com/banner.jpg");
+        assertThat(config.getMaxItensPorPedido()).isEqualTo(12);
+        TenantContextHolder.clear();
+    }
+
+    @Test
+    void uploadBanner_fazUploadNoStorageEAtualizaConfig() {
+        Tenant tenant = tenant(10L);
+        TenantCardapioConfig config = config(tenant, false);
+        org.springframework.mock.web.MockMultipartFile file =
+                new org.springframework.mock.web.MockMultipartFile("file", "banner.jpg", "image/jpeg", new byte[]{1, 2, 3});
+        when(tenantRepository.findById(10L)).thenReturn(Optional.of(tenant));
+        when(tenantCardapioConfigRepository.findByTenantId(10L)).thenReturn(Optional.of(config));
+        when(tenantCardapioConfigRepository.saveAndFlush(any(TenantCardapioConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(tenantLimitService.getEffectiveLimits(10L)).thenReturn(limits(10L, 8, 40));
+        when(categoriaProdutoRepository.countByTenantIdAndAtivoTrue(10L)).thenReturn(1L);
+        when(produtoRepository.countByTenantIdAndAtivoTrue(10L)).thenReturn(1L);
+        when(produtoRepository.countByTenantIdAndDisponivelTrueAndAtivoTrue(10L)).thenReturn(1L);
+        when(storageService.uploadFile(any(MultipartFile.class), any())).thenReturn("https://minio/banner.jpg");
+        TenantContextHolder.set(new TenantContext(10L, "tenant-10", 1L, java.util.Set.of("TENANT_OWNER"), com.restaurante.security.tenant.TenantResolutionSource.JWT, false, false));
+
+        TenantCardapioStatusResponse status = service.uploadBannerCurrentTenant(file);
+
+        assertThat(status.getUrlBanner()).isEqualTo("https://minio/banner.jpg");
+        assertThat(config.getUrlBanner()).isEqualTo("https://minio/banner.jpg");
+        verify(storageService).uploadFile(file, "cardapio-banners");
+        TenantContextHolder.clear();
     }
 
     @Test

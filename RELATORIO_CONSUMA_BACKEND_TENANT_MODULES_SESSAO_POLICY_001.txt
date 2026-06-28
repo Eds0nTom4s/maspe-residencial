@@ -1,0 +1,310 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - TENANT-MODULES-SESSAO-POLICY-001
+
+Data: 2026-06-09
+Branch: tenant-modules-sessao-policy-001
+Commit base validado: 8f22fd5967858226a9355cc9101a0466fbb2c57b
+Branch criada: tenant-modules-sessao-policy-001
+Commit final: gerado no commit que inclui este relatorio; hash informado na resposta final.
+URL da branch remota: https://github.com/Eds0nTom4s/maspe-residencial/tree/tenant-modules-sessao-policy-001
+
+1. Auditoria inicial
+
+Configuracao existente:
+- Pedido publico por QR usava SessaoConsumo de forma obrigatoria e criava sessao anonima com tipo POS_PAGO.
+- Pedido.sessao_consumo_id estava obrigatorio no banco/modelo.
+- Templates e provisioning nao persistiam uma configuracao operacional dedicada para modulos do tenant.
+- TenantOperacaoPolicy cuidava de politica de pagamento/pedido, mas sem amarracao com modulos operacionais e politica de SessaoConsumo.
+- KDS/producao assumiam pedidos com dados operacionais derivados de sessao ou subpedido conforme fluxo legado.
+
+PublicQrPedidoService:
+- Fluxo revisado para decidir entre pedido direto e pedido com SessaoConsumo.
+- Quando SessaoConsumo esta desabilitada, o pedido publico pode ser criado sem sessao, desde que pedido direto esteja habilitado.
+- Quando SessaoConsumo esta habilitada, o fluxo respeita tipo padrao, mesa, modo anonimo, PRE_PAGO/POS_PAGO e exigencia de saldo.
+
+Templates:
+- CONSUMA_REST passa a provisionar modulos de restaurante com sessao, pedido direto, mesas, QR por mesa, caixa e KDS conforme opcoes.
+- CONSUMA_PONTO passa a provisionar pedido direto e caixa, sem sessao, mesas, QR por mesa ou KDS.
+
+TenantOperacaoPolicy:
+- Continua sendo a fonte de politica de pagamento/pedido.
+- Validacao adicionada para impedir POS_PAGO quando a politica de SessaoConsumo do tenant nao permite pos-pago.
+
+SessaoConsumo:
+- Pedido.sessaoConsumo passou a aceitar null para suportar pedido direto.
+- Fluxos com sessao continuam usando SessaoConsumoService.
+
+KDS/producao:
+- Provisioning default de restaurante mantem KDS/pre-fecho habilitados.
+- Criacao de ordem de pagamento e alertas financeiros passaram a suportar pedidos diretos sem sessao.
+
+2. Modulos operacionais
+
+Entidade/config:
+- TenantOperationalModulesConfig criada para controlar:
+  - sessaoConsumoEnabled
+  - pedidoDiretoEnabled
+  - mesasEnabled
+  - qrMesaEnabled
+  - caixaEnabled
+  - kdsEnabled
+
+Platform GET:
+- GET /platform/tenants/{tenantId}/modulos-operacionais
+
+Platform PATCH:
+- PATCH /platform/tenants/{tenantId}/modulos-operacionais
+
+Tenant GET:
+- GET /tenant/modulos-operacionais
+
+sessao enabled:
+- Controla se o tenant pode usar SessaoConsumo.
+
+mesas enabled:
+- Bloqueia operacoes tenant de mesa quando desabilitado.
+
+qrMesa enabled:
+- Bloqueia geracao/regeneracao de QR por mesa quando desabilitado.
+
+pedidoDireto enabled:
+- Controla se o pedido publico pode seguir sem SessaoConsumo quando sessao esta desabilitada.
+
+3. Sessao de consumo
+
+Config:
+- TenantSessaoConsumoConfig criada para controlar politica operacional de sessao.
+
+enabled pela Platform:
+- A configuracao de sessao so e utilizavel quando o modulo SessaoConsumo esta habilitado pela Platform.
+
+configuravel pelo Tenant:
+- GET /tenant/sessao-consumo/config
+- PUT /tenant/sessao-consumo/config
+
+PRE_PAGO:
+- Suportado por permitirPrePago e tipoSessaoPadrao.
+
+POS_PAGO:
+- Suportado por permitirPosPago e tipoSessaoPadrao.
+- Bloqueado na politica de pagamento quando nao permitido.
+
+modo anonimo:
+- Controlado por permitirModoAnonimo para QR publico.
+
+com mesa:
+- Controlado por permitirSessaoComMesa.
+
+sem mesa:
+- Controlado por permitirSessaoSemMesa.
+
+4. Templates
+
+CONSUMA_REST:
+- Modulos default: sessao, pedido direto, mesas, QR por mesa, caixa e KDS conforme template/opcoes.
+- Sessao default: habilitada, PRE_PAGO e POS_PAGO permitidos, tipo padrao POS_PAGO.
+- Politica de operacao default permite pedido sem pagamento/pos-pago para manter fluxo restaurante e KDS.
+
+CONSUMA_PONTO:
+- Modulos default: pedido direto e caixa habilitados; sessao, mesas, QR por mesa e KDS desabilitados.
+- Sessao default: desabilitada.
+- Politica de operacao default exige pagamento antes do pedido e nao libera pos-pago.
+
+5. Pedido publico
+
+sessao desabilitada:
+- Pedido publico usa pedido direto se pedidoDiretoEnabled=true.
+- Se pedido direto estiver desabilitado, o backend bloqueia a criacao.
+
+sessao habilitada:
+- Pedido publico usa SessaoConsumo conforme TenantSessaoConsumoConfig.
+
+pedido direto:
+- Pedido pode ser criado com sessao_consumo_id null.
+- Dados operacionais de pagamento/alerta usam fallback pelos subpedidos.
+
+pedido com sessao:
+- Mantem comportamento com SessaoConsumo e registra atividade da sessao.
+
+pagamento obrigatorio:
+- Respeita TenantOperacaoPolicy.
+
+pedido sem pagamento:
+- Respeita permitirPedidoSemPagamento e comportamentoPedidoNaoPago.
+
+PENDENTE_PAGAMENTO:
+- Usado quando politica permite criar pedido pendente de pagamento.
+
+NAO_PAGO:
+- Usado em fluxo direto/permitido quando a politica nao exige bloqueio ou pendencia previa.
+
+KDS/producao:
+- Pedidos sem pagamento obrigatorio indevido nao entram em producao/KDS por ajuste de politica default em templates restaurante.
+- Pedidos diretos sem sessao nao quebram alertas financeiros nem ordem de pagamento.
+
+6. Segurança
+
+Platform Admin:
+- Endpoints Platform de modulos operacionais ficam sob rotas /platform e seguem o padrao de seguranca existente.
+
+Tenant Admin:
+- Endpoints tenant de modulos/sessao e operacoes de mesa/QR usam TenantContext e validacoes de modulo.
+
+Public QR:
+- Fluxo publico nao permite QR por mesa quando o modulo qrMesaEnabled esta desabilitado.
+
+tenant isolation:
+- Repositorios e servicos consultam configuracoes por tenant atual ou tenantId explicitamente validado.
+- Teste TenantAdminEstruturaQrIT preserva validacao cross-tenant para mesa.
+
+7. Arquivos alterados
+
+Migrations:
+- src/main/resources/db/migration/V71__tenant_modules_sessao_policy.sql
+
+Entities:
+- src/main/java/com/restaurante/model/entity/TenantOperationalModulesConfig.java
+- src/main/java/com/restaurante/model/entity/TenantSessaoConsumoConfig.java
+- src/main/java/com/restaurante/model/entity/Pedido.java
+
+Repositories:
+- src/main/java/com/restaurante/repository/TenantOperationalModulesConfigRepository.java
+- src/main/java/com/restaurante/repository/TenantSessaoConsumoConfigRepository.java
+
+Services:
+- src/main/java/com/restaurante/service/TenantOperationalModulesService.java
+- src/main/java/com/restaurante/service/TenantSessaoConsumoConfigService.java
+- src/main/java/com/restaurante/service/PublicQrPedidoService.java
+- src/main/java/com/restaurante/service/TenantPagamentoPolicyService.java
+- src/main/java/com/restaurante/service/TenantProvisioningService.java
+- src/main/java/com/restaurante/service/tenantadmin/TenantAdminQrService.java
+- src/main/java/com/restaurante/financeiro/service/OrdemPagamentoService.java
+- src/main/java/com/restaurante/financeiro/service/PagamentoPendenteQueryService.java
+- src/main/java/com/restaurante/businesstemplate/support/BusinessTemplateProvisioningSupport.java
+- src/main/java/com/restaurante/businesstemplate/templates/ConsumaPontoV1Template.java
+- src/main/java/com/restaurante/businesstemplate/templates/ConsumaRestV1Template.java
+
+Controllers:
+- src/main/java/com/restaurante/controller/PlatformTenantModulesController.java
+- src/main/java/com/restaurante/controller/TenantOperationalModulesController.java
+- src/main/java/com/restaurante/controller/TenantSessaoConsumoConfigController.java
+- src/main/java/com/restaurante/controller/TenantEstruturaController.java
+
+DTOs:
+- src/main/java/com/restaurante/dto/request/PlatformTenantOperationalModulesPatchRequest.java
+- src/main/java/com/restaurante/dto/request/TenantSessaoConsumoConfigRequest.java
+- src/main/java/com/restaurante/dto/response/TenantOperationalModulesResponse.java
+- src/main/java/com/restaurante/dto/response/TenantSessaoConsumoConfigResponse.java
+
+Enums:
+- src/main/java/com/restaurante/model/enums/OperationalEntityType.java
+- src/main/java/com/restaurante/model/enums/OperationalEventType.java
+
+Auditoria:
+- Eventos adicionados para atualizacao de modulos operacionais, politica de SessaoConsumo e bloqueio operacional por modulo.
+
+Security:
+- Sem alteracao estrutural de filtros/autenticacao.
+- A fase usa isolamento tenant e rotas Platform/Tenant existentes.
+
+Testes:
+- src/test/java/com/restaurante/qr/PublicQrPedidoIT.java
+- src/test/java/com/restaurante/tenantadmin/TenantAdminEstruturaQrIT.java
+
+8. Testes executados
+
+- mvn -DskipTests compile
+  Resultado: BUILD SUCCESS
+
+- mvn -Pit -Dit.test=PublicQrPedidoIT failsafe:integration-test failsafe:verify
+  Resultado: BUILD SUCCESS
+  Testes: 4 executados, 0 falhas, 0 erros, 0 ignorados.
+
+- mvn clean test
+  Resultado: BUILD SUCCESS
+  Testes: 338 executados, 0 falhas, 0 erros, 3 ignorados.
+
+- mvn clean -DskipTests compile
+  Resultado: BUILD SUCCESS
+
+- mvn -Pit -Dit.test=ProducaoKdsMinhaUnidadeIT,ProducaoKdsDeviceScopeIT,ProducaoMetricasIT,TurnoPreFechoFinanceiroAlertasIT,SandboxDemoSeedRunnerIT failsafe:integration-test failsafe:verify
+  Resultado: BUILD SUCCESS
+  Testes: 6 executados, 0 falhas, 0 erros, 0 ignorados.
+
+- mvn -Pit -Dit.test=TenantAdminEstruturaQrIT failsafe:integration-test failsafe:verify
+  Resultado: BUILD SUCCESS
+  Testes: 1 executado, 0 falhas, 0 erros, 0 ignorados.
+
+- mvn -Pit verify
+  Resultado: BUILD SUCCESS
+  Surefire: 338 executados, 0 falhas, 0 erros, 3 ignorados.
+  Failsafe: 256 executados, 0 falhas, 0 erros, 0 ignorados.
+
+9. Resultado dos testes
+
+- Suite unit/test completa passou.
+- Suite IT completa passou.
+- Falhas intermediarias foram corrigidas e as suites afetadas foram reexecutadas com sucesso.
+
+Problemas encontrados:
+- Uso inicial de OperationalOrigem.PLATFORM_ADMIN inexistente; ajustado para origem existente.
+- Ciclo entre services de modulos e sessao; resolvido com ObjectProvider.
+- ITs de KDS/producao expuseram diferenca de politica default para pedidos diretos; provisioning default foi ajustado.
+- Ordem de pagamento em pedido direto precisava resolver instituicao/unidade via subpedido; fallback implementado.
+- Alerta de pre-fecho financeiro usava consulta com join em sessao; consulta direta por turno/status implementada.
+- TenantAdminEstruturaQrIT provisionava tenant sem QR por mesa e esperava geracao de QR por mesa; setup positivo ajustado.
+
+10. Validacao manual sandbox
+
+Nao executada nesta etapa.
+
+Checklist pendente:
+- Subir sandbox limpo com a branch tenant-modules-sessao-policy-001.
+- Login Platform Admin.
+- Selecionar/provisionar CONSUMA_REST.
+- Confirmar modulos operacionais REST.
+- Confirmar politica inicial de SessaoConsumo REST.
+- Confirmar politica de pagamento inicial.
+- Criar pedido publico por QR com pagamento obrigatorio ativo e validar bloqueio ou PENDENTE_PAGAMENTO conforme politica.
+- Confirmar que pedido nao entra indevidamente em producao/KDS.
+- Alterar politica para permitir pedido sem pagamento/pos-pago.
+- Criar pedido publico novamente.
+- Confirmar pedido em /tenant/pedidos.
+- Confirmar status financeiro coerente.
+- Provisionar/selecionar CONSUMA_PONTO.
+- Confirmar SessaoConsumo desabilitada e pedido direto habilitado.
+- Confirmar bloqueio de mesas/QR por mesa quando modulos desabilitados.
+
+11. Working tree
+
+Antes do commit:
+- Working tree com alteracoes da fase e este relatorio pendentes de commit.
+
+Depois do commit/push:
+- Status final sera informado na resposta final apos execucao de git status --short.
+
+12. Push
+
+- Push sera executado para origin/tenant-modules-sessao-policy-001 apos o commit deste relatorio.
+- Confirmacao final sera informada na resposta final.
+
+13. Pergunta final obrigatoria
+
+O backend decide corretamente quando deve usar SessaoConsumo, quando deve criar pedido direto e quando deve bloquear ou permitir pedido sem pagamento conforme modulos e politicas do tenant?
+
+Resposta: SIM.
+
+Justificativa objetiva:
+- SessaoConsumo e pedido direto agora sao decididos por TenantOperationalModulesConfig e TenantSessaoConsumoConfig.
+- O pedido publico bloqueia QR por mesa, mesa, sessao, pedido direto e POS_PAGO quando os modulos ou politicas do tenant nao permitem.
+- TenantOperacaoPolicy continua decidindo bloqueio, PENDENTE_PAGAMENTO ou NAO_PAGO para pedido sem pagamento.
+- Templates CONSUMA_REST e CONSUMA_PONTO provisionam defaults distintos e coerentes com cada operacao.
+- Suites automatizadas unitarias e integradas passaram apos os ajustes.
+
+14. Pendencias
+
+- Validacao manual sandbox nao executada nesta etapa.
+
+15. Status tecnico
+
+CONCLUIDO COM LIMITACAO - validacao manual sandbox nao executada.

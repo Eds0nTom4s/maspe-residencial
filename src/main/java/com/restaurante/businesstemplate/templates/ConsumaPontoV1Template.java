@@ -20,6 +20,7 @@ import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.LogisticsMode;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -129,7 +130,15 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
         boolean entregaManual = request.getPonto() != null && Boolean.TRUE.equals(request.getPonto().getEntregaManual());
         boolean allowPickup = request.getPonto() == null || request.getPonto().getAllowPickup() == null || Boolean.TRUE.equals(request.getPonto().getAllowPickup());
 
-        Tenant tenant = support.criarTenant(request.getTenant(), slugNorm, tenantCodeNorm, CODE, VERSION, "PLATFORM_TEMPLATE_API");
+        Tenant tenant = support.criarTenant(
+                request.getTenant(),
+                slugNorm,
+                tenantCodeNorm,
+                CODE,
+                VERSION,
+                "PLATFORM_TEMPLATE_API",
+                request.getBusinessAccountId()
+        );
         Subscricao sub = support.criarSubscricaoAtiva(tenant, plano);
 
         // Limites
@@ -177,6 +186,9 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
                 false,
                 false
         );
+        support.upsertOperationalModules(tenant, false, true, false, false, true, false);
+        support.upsertSessaoConsumoConfig(tenant, false, false, false, TipoSessao.PRE_PAGO,
+                true, true, true, false, 12);
 
         support.logTemplateProvisioned(tenant, CODE, VERSION, plano.getCodigo());
 

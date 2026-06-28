@@ -5,6 +5,7 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ProvisioningException;
 import com.restaurante.financeiro.paymentmethod.service.TenantPaymentMethodBootstrapService;
 import com.restaurante.inventory.service.TenantInventoryPolicyService;
+import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.ChecklistOperacionalItemTemplate;
 import com.restaurante.model.entity.ChecklistOperacionalTemplate;
@@ -41,7 +42,9 @@ import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
+import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.UnidadeProducaoTipo;
+import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.ChecklistOperacionalItemTemplateRepository;
 import com.restaurante.repository.ChecklistOperacionalTemplateRepository;
@@ -63,6 +66,8 @@ import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.service.TenantCardapioConfigService;
 import com.restaurante.service.TenantLimitService;
+import com.restaurante.service.TenantOperationalModulesService;
+import com.restaurante.service.TenantSessaoConsumoConfigService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -90,6 +95,7 @@ public class BusinessTemplateProvisioningSupport {
     private static final char[] CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
 
     private final TenantRepository tenantRepository;
+    private final BusinessAccountRepository businessAccountRepository;
     private final PlanoRepository planoRepository;
     private final SubscricaoRepository subscricaoRepository;
     private final InstituicaoRepository instituicaoRepository;
@@ -112,6 +118,8 @@ public class BusinessTemplateProvisioningSupport {
     private final PasswordEncoder passwordEncoder;
     private final OperationalEventLogService operationalEventLogService;
     private final TenantCardapioConfigService tenantCardapioConfigService;
+    private final TenantOperationalModulesService tenantOperationalModulesService;
+    private final TenantSessaoConsumoConfigService tenantSessaoConsumoConfigService;
 
     @Value("${consuma.public-base-url:http://localhost:8080}")
     private String publicBaseUrl;
@@ -222,13 +230,16 @@ public class BusinessTemplateProvisioningSupport {
                               String tenantCodeNormalized,
                               String templateCode,
                               int templateVersion,
-                              String provisioningSource) {
+                              String provisioningSource,
+                              Long businessAccountId) {
+        BusinessAccount businessAccount = resolveBusinessAccount(businessAccountId);
         Tenant t = new Tenant();
         t.setNome(req.getNomeNegocio());
         t.setSlug(slugNormalized);
         t.setTenantCode(tenantCodeNormalized);
         t.setTipo(req.getTipo());
         t.setEstado(TenantEstado.ATIVO);
+        t.setBusinessAccount(businessAccount);
         t.setNif(req.getNif());
         t.setTelefone(req.getTelefone());
         t.setEmail(req.getEmail());
@@ -242,6 +253,22 @@ public class BusinessTemplateProvisioningSupport {
         t.setProvisioningSource(provisioningSource);
 
         return tenantRepository.saveAndFlush(t);
+    }
+
+    public BusinessAccount resolveBusinessAccount(Long businessAccountId) {
+        if (businessAccountId == null) {
+            return null;
+        }
+        return businessAccountRepository.findById(businessAccountId)
+                .orElseThrow(() -> new ProvisioningException(
+                        HttpStatus.BAD_REQUEST,
+                        "BUSINESS_ACCOUNT_INEXISTENTE",
+                        "businessAccountId",
+                        "BusinessAccount inexistente: " + businessAccountId,
+                        null,
+                        "Informe uma BusinessAccount válida ou omita o campo.",
+                        null
+                ));
     }
 
     @Transactional
@@ -528,6 +555,48 @@ public class BusinessTemplateProvisioningSupport {
         p.setSnapshotFinanceiroEnabled(snapshotFinanceiroEnabled);
         p.setPreFechoEnabled(preFechoEnabled);
         return tenantOperacaoPolicyRepository.saveAndFlush(p);
+    }
+
+    public void upsertOperationalModules(Tenant tenant,
+                                         boolean sessaoConsumoEnabled,
+                                         boolean pedidoDiretoEnabled,
+                                         boolean mesasEnabled,
+                                         boolean qrMesaEnabled,
+                                         boolean caixaEnabled,
+                                         boolean kdsEnabled) {
+        tenantOperationalModulesService.upsertForTemplate(
+                tenant,
+                sessaoConsumoEnabled,
+                pedidoDiretoEnabled,
+                mesasEnabled,
+                qrMesaEnabled,
+                caixaEnabled,
+                kdsEnabled
+        );
+    }
+
+    public void upsertSessaoConsumoConfig(Tenant tenant,
+                                          boolean enabled,
+                                          boolean permitirPrePago,
+                                          boolean permitirPosPago,
+                                          TipoSessao tipoSessaoPadrao,
+                                          boolean exigirSaldoParaPedido,
+                                          boolean permitirModoAnonimo,
+                                          boolean permitirSessaoSemMesa,
+                                          boolean permitirSessaoComMesa,
+                                          Integer expiracaoHoras) {
+        tenantSessaoConsumoConfigService.upsertForTemplate(
+                tenant,
+                enabled,
+                permitirPrePago,
+                permitirPosPago,
+                tipoSessaoPadrao,
+                exigirSaldoParaPedido,
+                permitirModoAnonimo,
+                permitirSessaoSemMesa,
+                permitirSessaoComMesa,
+                expiracaoHoras
+        );
     }
 
     public void assertPlanLimitsOrThrow(Long tenantId,

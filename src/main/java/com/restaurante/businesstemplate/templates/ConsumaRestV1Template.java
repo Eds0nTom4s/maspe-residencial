@@ -26,6 +26,7 @@ import com.restaurante.model.enums.LogisticsMode;
 import com.restaurante.model.enums.OperationalDeviceType;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.service.producao.RotaProducaoService;
 import lombok.RequiredArgsConstructor;
@@ -260,7 +261,15 @@ public class ConsumaRestV1Template implements BusinessTemplate {
         boolean deliveryManual = request.getRest() != null && request.getRest().getEntrega() == BusinessTemplateProvisionRequest.RestDeliveryOption.MANUAL;
         boolean deliveryNetwork = request.getRest() != null && request.getRest().getEntrega() == BusinessTemplateProvisionRequest.RestDeliveryOption.CONSUMA_NETWORK;
 
-        Tenant tenant = support.criarTenant(request.getTenant(), slugNorm, tenantCodeNorm, CODE, VERSION, "PLATFORM_TEMPLATE_API");
+        Tenant tenant = support.criarTenant(
+                request.getTenant(),
+                slugNorm,
+                tenantCodeNorm,
+                CODE,
+                VERSION,
+                "PLATFORM_TEMPLATE_API",
+                request.getBusinessAccountId()
+        );
         Subscricao sub = support.criarSubscricaoAtiva(tenant, plano);
 
         int unidadesNovas = 1;
@@ -425,6 +434,9 @@ public class ConsumaRestV1Template implements BusinessTemplate {
                 true,
                 true
         );
+        support.upsertOperationalModules(tenant, true, true, temMesas, temMesas && gerarQrPorMesa, true, true);
+        support.upsertSessaoConsumoConfig(tenant, true, true, true, TipoSessao.POS_PAGO,
+                false, true, true, temMesas, 12);
 
         support.logTemplateProvisioned(tenant, CODE, VERSION, plano.getCodigo());
 

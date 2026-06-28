@@ -88,6 +88,8 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
 
     List<Produto> findByTenantIdAndCategoriaProdutoIdAndAtivoTrue(Long tenantId, Long categoriaProdutoId);
 
+    long countByTenantIdAndCategoriaProdutoIdAndAtivoTrue(Long tenantId, Long categoriaProdutoId);
+
     Page<Produto> findByTenantIdAndCategoriaProdutoIdAndDisponivelTrueAndAtivoTrue(Long tenantId, Long categoriaProdutoId, Pageable pageable);
 
     @Query("SELECT p FROM Produto p " +

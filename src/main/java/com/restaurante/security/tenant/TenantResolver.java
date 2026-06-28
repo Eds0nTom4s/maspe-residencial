@@ -279,6 +279,8 @@ public class TenantResolver {
             String tenantCode = claims.get("tenantCode", String.class);
             Object tenantRolesObj = claims.get("tenantRoles");
             Integer tokenAccessVersion = claims.get("tenantAccessVersion", Integer.class);
+            Boolean tokenPlatformAdmin = claims.get("platformAdmin", Boolean.class);
+            boolean tenantTokenPlatformAdmin = platformAdmin || Boolean.TRUE.equals(tokenPlatformAdmin);
 
             Long userId = extractUserId(authentication).orElse(claims.get("userId", Long.class));
             if (tenantId == null || userId == null) {
@@ -289,7 +291,7 @@ public class TenantResolver {
             Tenant tenant = requireActiveTenant(tenantId);
             TenantUserRepository tenantUserRepository = requireTenantUserRepository();
             boolean belongs = tenantUserRepository.existsByTenantIdAndUserIdAndEstado(tenant.getId(), userId, TenantUserEstado.ATIVO);
-            if (!belongs) {
+            if (!belongs && !tenantTokenPlatformAdmin) {
                 // Verificar se existe membership com estado diferente de ATIVO (SUSPENSO, INATIVO)
                 boolean existsAny = tenantUserRepository.existsByTenantIdAndUserId(tenant.getId(), userId);
                 if (existsAny) {
@@ -301,7 +303,7 @@ public class TenantResolver {
                 return Optional.empty();
             }
 
-            if (requireAccessVersion) {
+            if (requireAccessVersion && !tenantTokenPlatformAdmin) {
                 if (tokenAccessVersion == null) {
                     throw new TenantTokenStaleException("Sessão do tenant desatualizada. Selecione novamente o tenant.");
                 }
@@ -328,7 +330,7 @@ public class TenantResolver {
                     userId,
                     roles,
                     TenantResolutionSource.JWT,
-                    platformAdmin,
+                    tenantTokenPlatformAdmin,
                     false
             ));
         } catch (com.restaurante.exception.TenantTokenStaleException e) {

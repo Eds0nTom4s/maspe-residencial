@@ -1,0 +1,321 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - BUSINESS-ACCOUNT-FOUNDATION-001
+
+Data:
+2026-06-10
+
+Branch:
+backend/business-account-foundation-001
+
+Commit base validado:
+23fba6fd8504c1c4099dbc16b1b6f2ed75a4f190
+
+Commit final:
+PENDENTE NO MOMENTO DA REDACAO DO RELATORIO. VER COMMIT "Add business account foundation" NESTA BRANCH.
+
+URL da branch remota:
+PENDENTE DE PUBLICACAO NO MOMENTO DA REDACAO DO RELATORIO.
+
+1. Objetivo
+
+Introduzir a fundacao minima de BusinessAccount de forma incremental e retrocompativel, permitindo associar uma Conta Empresarial a multiplos Tenants sem quebrar Tenant, TenantUser, TenantSubscription, autenticacao atual, QR publico, pedidos ou provisionamento existente.
+
+2. Resumo da implementacao
+
+Foi criada a nova camada estrutural de BusinessAccount com:
+
+BusinessAccount
+BusinessAccountMember
+relacao opcional Tenant -> BusinessAccount
+servicos de gestao e validacao de acesso
+endpoints internos de Platform Admin
+adaptacao retrocompativel do provisionamento para aceitar businessAccountId opcional
+migration Flyway para estrutura, backfill de tenants legados e backfill de memberships legados
+
+TenantSubscription foi preservada sem alteracao estrutural e continua ligada a Tenant.
+
+3. Arquitetura implementada
+
+Diagrama textual:
+
+BusinessAccount
+|- BusinessAccountMember
+\- Tenant
+
+Tenant
+\- TenantSubscription atual preservada
+
+Modelo implementado:
+
+BusinessAccount representa a conta empresarial consolidada.
+BusinessAccountMember representa membros administrativos da conta.
+Tenant continua representando o negocio operacional isolado.
+TenantSubscription continua sendo a camada atual de billing por Tenant.
+
+4. Entidades criadas
+
+4.1 BusinessAccount
+
+Tabela:
+business_accounts
+
+Campos principais:
+id
+nome
+slug
+nif
+email
+telefone
+estado
+responsavel_user_id
+observacao
+provisioned_at
+provisioned_by
+created_at
+updated_at
+created_by
+modified_by
+
+Relacoes:
+ManyToOne para User responsavel
+OneToMany indireto para Tenant via tenants.business_account_id
+
+Enum:
+BusinessAccountEstado
+ATIVA
+SUSPENSA
+BLOQUEADA
+CANCELADA
+RASCUNHO
+
+Observacoes:
+slug unico
+responsavel principal opcional para suportar tenants legados sem owner resolvido
+
+4.2 BusinessAccountMember
+
+Tabela:
+business_account_members
+
+Campos principais:
+id
+business_account_id
+user_id
+role
+estado
+created_at
+updated_at
+created_by
+modified_by
+
+Relacoes:
+ManyToOne para BusinessAccount
+ManyToOne para User
+
+Enums:
+BusinessAccountRole
+OWNER
+ADMIN
+BILLING_MANAGER
+MEMBER
+VIEWER
+
+BusinessAccountMemberEstado
+ATIVO
+PENDENTE
+SUSPENSO
+REMOVIDO
+
+Observacoes:
+constraint unico por business_account_id + user_id
+membership administrativo separado de TenantUser operacional
+
+4.3 Tenant
+
+Alteracao:
+adicionada coluna opcional business_account_id com index e FK
+
+Observacoes:
+nao houve remocao de campos existentes
+tenants legados continuam validos
+
+5. Migrations
+
+Arquivo:
+src/main/resources/db/migration/V72__business_account_foundation.sql
+
+Tabelas criadas:
+business_accounts
+business_account_members
+
+Colunas adicionadas:
+tenants.business_account_id
+
+Indices:
+uk_business_accounts_slug
+idx_business_accounts_nif
+idx_business_accounts_estado
+idx_business_accounts_responsavel
+idx_business_account_members_account
+idx_business_account_members_user
+uk_business_account_members_account_user
+idx_tenants_business_account
+
+FKs:
+business_accounts.responsavel_user_id -> users.id
+business_account_members.business_account_id -> business_accounts.id
+business_account_members.user_id -> users.id
+tenants.business_account_id -> business_accounts.id
+
+Estrategia de migracao dos tenants legados:
+uma BusinessAccount inicial por Tenant legado sem business_account_id
+nome, slug, nif, email e telefone copiados do Tenant
+estado da BusinessAccount derivado de Tenant.estado
+responsavel_user_id derivado do primeiro TENANT_OWNER ATIVO quando existir
+tenants passam a apontar para a BusinessAccount criada via slug
+
+Estrategia de membros legados:
+TenantUser ATIVO foi promovido para BusinessAccountMember usando deduplicacao por prioridade
+TENANT_OWNER -> OWNER
+TENANT_ADMIN -> ADMIN
+TENANT_FINANCE -> BILLING_MANAGER
+TENANT_OPERATOR -> MEMBER
+TENANT_KITCHEN -> MEMBER
+TENANT_CASHIER -> MEMBER
+demais -> VIEWER
+
+6. APIs criadas
+
+Base:
+/platform/business-accounts
+
+Endpoints:
+GET /platform/business-accounts
+GET /platform/business-accounts/{id}
+GET /platform/business-accounts/{id}/tenants
+POST /platform/business-accounts
+PATCH /platform/business-accounts/{id}/estado
+POST /platform/business-accounts/{id}/members
+GET /platform/business-accounts/{id}/members
+PATCH /platform/business-accounts/{id}/members/{memberId}/estado
+
+Provisionamento adaptado:
+POST /platform/tenants/provisionar continua retrocompativel e agora aceita businessAccountId opcional
+Preview de provisionamento valida businessAccountId opcional quando informado
+
+7. Retrocompatibilidade
+
+Confirmacoes:
+Tenant atual continua funcionando
+TenantUser continua funcionando
+TenantSubscription continua funcionando
+Auth continua funcionando
+Public QR continua funcionando no escopo coberto pelos testes
+Platform tenant provisioning continua funcionando
+
+Escopo da retrocompatibilidade implementada:
+nenhum contrato publico de Tenant foi removido
+nenhum fluxo JWT principal foi alterado
+nenhum endpoint /tenant/** foi redirecionado para BusinessAccount
+nenhuma regra operacional existente de pedidos ou QR foi substituida
+
+8. Billing
+
+Preservado:
+TenantSubscription continua ligada diretamente a Tenant
+servicos atuais de billing por Tenant continuam inalterados
+
+Preparado:
+Tenant agora pode ser agrupado sob BusinessAccount
+BusinessAccountMember e responsavel principal criam base para billing consolidado futuro
+
+Nao foi feito:
+nao houve migracao de TenantSubscription para BusinessAccount
+nao houve consolidacao financeira por conta
+nao houve alteracao de cobranca, planos ou renovacoes para escopo de conta empresarial
+
+9. Seguranca/RBAC
+
+Quem pode acessar:
+os fluxos de BusinessAccount foram protegidos no servico com tenantGuard.assertPlatformAdmin()
+
+Controle administrativo:
+Platform Admin cria contas, altera estado, lista tenants e administra membros
+
+O que ainda nao foi incorporado no JWT:
+nenhuma nova claim de BusinessAccount foi adicionada
+o token global e o token tenant-scoped permaneceram retrocompativeis
+TenantGuard nao sofreu alteracao invasiva
+
+10. Testes executados
+
+mvn clean test:
+BUILD SUCCESS
+338 testes executados
+0 falhas
+0 erros
+3 skipped
+
+mvn -Pit -DskipITs=false -Dit.test=BusinessAccountFoundationIT,PlatformTenantProvisioningControllerIT,PlatformTenantProvisioningPreviewControllerIT failsafe:integration-test failsafe:verify:
+BUILD SUCCESS
+12 testes executados
+0 falhas
+0 erros
+
+Outros:
+BusinessAccountFoundationIT criado para validar criacao, associacao, membros, estado, billing preservado, auth tenant select e endpoint tenant/cardapio/status
+PlatformTenantProvisioningControllerIT ampliado para validar provisionamento com businessAccountId
+PlatformTenantProvisioningPreviewControllerIT ampliado para validar rejeicao de businessAccountId inexistente
+
+11. Validacao manual
+
+Nao executada nesta sessao.
+
+Os itens de sandbox listados no pedido permanecem recomendados para a proxima etapa de homologacao manual:
+subir backend
+confirmar migrations aplicadas
+confirmar tenants legados com business_account_id
+confirmar auth admin, auth tenants e auth tenant select
+confirmar pedido publico REST e PONTO
+confirmar listagem de BusinessAccounts no Platform Admin
+
+12. Limitacoes
+
+JWT ainda nao carrega contexto de BusinessAccount
+nao existe bloqueio operacional global por BusinessAccount nesta fase
+nao existe self-service da conta empresarial
+o billing consolidado ainda nao foi implementado
+o relatorio foi gerado antes da materializacao do commit final e antes da publicacao remota
+
+13. Dividas tecnicas
+
+aprofundar busca e filtros por BusinessAccount para cenarios de grande volume
+adicionar cobertura dedicada para backfill da migration em dataset legado mais variado
+evoluir regras de acesso de BusinessAccount para uso direto em controllers futuros
+avaliar paginacao e ordenacao mais completas para endpoints administrativos
+
+14. Proximas fases recomendadas
+
+BUSINESS-ACCOUNT-AUTH-001
+BUSINESS-ACCOUNT-BILLING-001
+BUSINESS-ACCOUNT-SELF-SERVICE-001
+BUSINESS-ACCOUNT-UI-001
+
+15. Working tree
+
+Todos os arquivos desta fase estao preparados para commit na branch backend/business-account-foundation-001.
+
+16. Push
+
+Push ainda nao materializado no momento da redacao deste relatorio.
+
+17. Pergunta final obrigatoria
+
+A fundacao de BusinessAccount foi criada de forma retrocompativel, permitindo associar multiplos Tenants a uma Conta Empresarial, sem quebrar Tenant, TenantUser, Auth, Billing atual e Public QR?
+
+Resposta:
+SIM.
+
+18. Status tecnico
+
+CONCLUIDO COM LIMITACAO - branch ainda nao publicada e validacao manual de sandbox ainda nao executada.

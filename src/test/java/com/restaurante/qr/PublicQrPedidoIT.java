@@ -11,6 +11,8 @@ import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantCardapioConfig;
+import com.restaurante.model.entity.TenantOperationalModulesConfig;
+import com.restaurante.model.entity.TenantSessaoConsumoConfig;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
@@ -26,9 +28,11 @@ import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
-import com.restaurante.repository.TenantCardapioConfigRepository;
-import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.SubPedidoRepository;
+import com.restaurante.repository.TenantCardapioConfigRepository;
+import com.restaurante.repository.TenantOperationalModulesConfigRepository;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantSessaoConsumoConfigRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.QrCodeOperacionalService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
@@ -36,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -44,6 +49,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -68,6 +74,8 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
     @Autowired SessaoConsumoRepository sessaoConsumoRepository;
     @Autowired TenantCardapioConfigRepository tenantCardapioConfigRepository;
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
+    @Autowired TenantOperationalModulesConfigRepository modulesConfigRepository;
+    @Autowired TenantSessaoConsumoConfigRepository sessaoConfigRepository;
 
     @Test
     void publicQr_canCreatePedido_withoutPayment_andPedidoIsTenantScoped() throws Exception {
@@ -107,7 +115,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(json.path("success").asBoolean()).isTrue();
         Long pedidoId = json.at("/data/pedidoId").asLong();
         assertThat(pedidoId).isPositive();
-        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
+        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
         assertThat(json.at("/data/total").asText()).isNotBlank();
         assertThat(json.at("/data/itens").isArray()).isTrue();
         assertThat(json.at("/data/itens/0/produtoId").asLong()).isEqualTo(prodA.getId());
@@ -117,10 +125,14 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(pedido.getSessaoConsumo().getInstituicao().getId()).isEqualTo(instA.getId());
         assertThat(pedido.getStatus().name()).isEqualTo("CRIADO");
 
-        // Produção: subpedidos devem ter unidadeProducao resolvida (rota ou default)
         var subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedido.getId());
         assertThat(subs).isNotEmpty();
         assertThat(subs).allMatch(sp -> sp.getUnidadeProducao() != null);
+
+        var kdsIds = subPedidoRepository.findKdsIdsByTenantAndFilters(
+                tenantA.getId(), null, null, null, null, pedido.getNumero(), PageRequest.of(0, 10)
+        );
+        assertThat(kdsIds.getContent()).isEmpty();
     }
 
     @Test
@@ -275,6 +287,63 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(pedido.getSessaoConsumo().getId()).isEqualTo(sessaoAberta.getId());
     }
 
+    @Test
+    void publicQr_withSessaoDisabled_createsDirectPedidoWithoutSessao() throws Exception {
+        Tenant tenant = criarTenant("Ponto Direct", "ponto-direct", "PONTO-DIRECT");
+        tenant.setTemplateCode("CONSUMA_PONTO");
+        tenantRepository.saveAndFlush(tenant);
+        Instituicao inst = criarInstituicao(tenant, "Ponto Direct", "PD", "NIF-PD-301", "+244900000301");
+        UnidadeAtendimento unidade = criarUnidade(inst, "Unidade Ponto", TipoUnidadeAtendimento.CAFETERIA);
+        criarCozinhaVinculada(unidade, "Bar Ponto", TipoCozinha.BAR_PREP);
+
+        CategoriaProduto cat = criarCategoria(tenant, "Bebidas", "bebidas");
+        Produto prod = criarProduto(tenant, cat, "PONTO-AGUA", "Água Ponto", new BigDecimal("5.00"));
+        publicarCardapioForTest(tenant.getId());
+
+        TenantOperationalModulesConfig modules = new TenantOperationalModulesConfig();
+        modules.setTenant(tenant);
+        modules.setSessaoConsumoEnabled(false);
+        modules.setPedidoDiretoEnabled(true);
+        modules.setMesasEnabled(false);
+        modules.setQrMesaEnabled(false);
+        modules.setCaixaEnabled(true);
+        modules.setKdsEnabled(false);
+        modulesConfigRepository.saveAndFlush(modules);
+
+        TenantSessaoConsumoConfig sessaoConfig = new TenantSessaoConsumoConfig();
+        sessaoConfig.setTenant(tenant);
+        sessaoConfig.setEnabled(false);
+        sessaoConfig.setPermitirPrePago(false);
+        sessaoConfig.setPermitirPosPago(false);
+        sessaoConfig.setPermitirModoAnonimo(true);
+        sessaoConfig.setPermitirSessaoSemMesa(true);
+        sessaoConfig.setPermitirSessaoComMesa(false);
+        sessaoConfigRepository.saveAndFlush(sessaoConfig);
+
+        QrCodeOperacional qr = qrCodeOperacionalService.criarQr(
+                tenant.getId(), inst.getId(), unidade.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Ponto"
+        );
+
+        String payload = """
+                { "itens": [ { "produtoId": %d, "quantidade": 1 } ] }
+                """.formatted(prod.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("Idempotency-Key", "idem-key-direct-0001");
+        HttpEntity<String> entity = new HttpEntity<>(payload, headers);
+
+        ResponseEntity<String> resp = restTemplate.postForEntity("/public/q/{token}/pedidos", entity, String.class, qr.getToken());
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        JsonNode json = objectMapper.readTree(resp.getBody());
+        Long pedidoId = json.at("/data/pedidoId").asLong();
+        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
+
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, tenant.getId()).orElseThrow();
+        assertThat(pedido.getSessaoConsumo()).isNull();
+        assertThat(pedido.getTenant().getId()).isEqualTo(tenant.getId());
+    }
+
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
         Tenant t = new Tenant();
         t.setNome(nome);
@@ -338,6 +407,18 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         p.setDisponivel(true);
         p.setAtivo(true);
         return produtoRepository.saveAndFlush(p);
+    }
+
+    protected void publicarCardapioForTest(Long tenantId) {
+        Tenant tenant = tenantRepository.findById(tenantId).orElseThrow();
+        TenantCardapioConfig config = tenantCardapioConfigRepository.findByTenantId(tenantId).orElseGet(() -> {
+            TenantCardapioConfig novo = new TenantCardapioConfig();
+            novo.setTenant(tenant);
+            return novo;
+        });
+        config.setCardapioPublicado(true);
+        config.setCardapioPublicadoEm(LocalDateTime.now());
+        tenantCardapioConfigRepository.saveAndFlush(config);
     }
 
     private void configurarMaxItensPorPedido(Tenant tenant, Integer limite) {

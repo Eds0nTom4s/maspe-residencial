@@ -13,6 +13,7 @@ import com.restaurante.model.entity.OrdemPagamento;
 import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
+import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
@@ -26,6 +27,7 @@ import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.fiscal.autoissue.event.PaymentConfirmedForFiscalIssueEvent;
 import com.restaurante.model.enums.FiscalAutoIssueSource;
 import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
 import com.restaurante.service.FundoConsumoService;
 import com.restaurante.service.operacional.OperationalEventLogService;
@@ -36,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -47,6 +50,7 @@ public class OrdemPagamentoService {
     private final OrdemPagamentoRepository ordemPagamentoRepository;
     private final PagamentoGatewayRepository pagamentoGatewayRepository;
     private final PedidoRepository pedidoRepository;
+    private final SubPedidoRepository subPedidoRepository;
     private final TransacaoFundoRepository transacaoFundoRepository;
     private final FundoConsumoService fundoConsumoService;
     private final OrdemPagamentoTokenService tokenService;
@@ -141,10 +145,12 @@ public class OrdemPagamentoService {
         pagamentoGatewayRepository.findPagamentoConfirmadoPorPedido(pedido.getId(), TipoPagamentoFinanceiro.POS_PAGO)
                 .ifPresent(p -> { throw new BusinessException("Pedido já possui pagamento confirmado."); });
 
+        DadosOperacionaisPedido dados = resolverDadosOperacionaisPedido(pedido, instituicao, unidadeAtendimento, mesa);
+
         OrdemPagamento ordem = new OrdemPagamento();
         ordem.setTenant(tenant);
-        ordem.setInstituicao(instituicao);
-        ordem.setUnidadeAtendimento(unidadeAtendimento);
+        ordem.setInstituicao(dados.instituicao());
+        ordem.setUnidadeAtendimento(dados.unidadeAtendimento());
         ordem.setTurnoOperacional(turno != null ? turno : pedido.getTurnoOperacional());
         ordem.setTipo(OrdemPagamentoTipo.PEDIDO);
         ordem.setStatus(OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO);
@@ -163,9 +169,9 @@ public class OrdemPagamentoService {
 
         operationalEventLogService.logPublicEvent(
                 tenant,
-                instituicao,
-                unidadeAtendimento,
-                mesa,
+                dados.instituicao(),
+                dados.unidadeAtendimento(),
+                dados.mesa(),
                 ordem.getTurnoOperacional(),
                 OperationalEventType.ORDEM_PAGAMENTO_CRIADA,
                 OperationalEntityType.ORDEM_PAGAMENTO,
@@ -184,6 +190,53 @@ public class OrdemPagamentoService {
         );
 
         return ordem;
+    }
+
+    private DadosOperacionaisPedido resolverDadosOperacionaisPedido(Pedido pedido,
+                                                                    Instituicao instituicao,
+                                                                    UnidadeAtendimento unidadeAtendimento,
+                                                                    Mesa mesa) {
+        Instituicao inst = instituicao;
+        UnidadeAtendimento unidade = unidadeAtendimento;
+        Mesa mesaResolvida = mesa;
+
+        SessaoConsumo sessao = pedido.getSessaoConsumo();
+        if (sessao != null) {
+            if (inst == null) {
+                inst = sessao.getInstituicao();
+            }
+            if (unidade == null) {
+                unidade = sessao.getUnidadeAtendimentoEfetiva();
+            }
+            if (mesaResolvida == null) {
+                mesaResolvida = sessao.getMesa();
+            }
+        }
+
+        if (inst == null || unidade == null) {
+            List<SubPedido> subPedidos = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedido.getId());
+            if (!subPedidos.isEmpty()) {
+                SubPedido primeiro = subPedidos.get(0);
+                if (unidade == null && primeiro.getUnidadeAtendimento() != null) {
+                    unidade = primeiro.getUnidadeAtendimento();
+                }
+                if (inst == null && primeiro.getUnidadeAtendimento() != null) {
+                    inst = primeiro.getUnidadeAtendimento().getInstituicao();
+                }
+            }
+        }
+
+        if (inst == null) {
+            throw new BusinessException("Instituição do pedido não foi resolvida para ordem de pagamento.");
+        }
+        if (unidade == null) {
+            throw new BusinessException("Unidade de atendimento do pedido não foi resolvida para ordem de pagamento.");
+        }
+
+        return new DadosOperacionaisPedido(inst, unidade, mesaResolvida);
+    }
+
+    private record DadosOperacionaisPedido(Instituicao instituicao, UnidadeAtendimento unidadeAtendimento, Mesa mesa) {
     }
 
     @Transactional(readOnly = true)

@@ -3,6 +3,7 @@ package com.restaurante.provisioning;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Subscricao;
@@ -13,6 +14,7 @@ import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.QrCodeOperacionalRepository;
 import com.restaurante.repository.SubscricaoRepository;
@@ -50,6 +52,7 @@ class PlatformTenantProvisioningControllerIT extends PostgresTestcontainersConfi
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
 
+    @Autowired BusinessAccountRepository businessAccountRepository;
     @Autowired TenantRepository tenantRepository;
     @Autowired SubscricaoRepository subscricaoRepository;
     @Autowired InstituicaoRepository instituicaoRepository;
@@ -157,5 +160,62 @@ class PlatformTenantProvisioningControllerIT extends PostgresTestcontainersConfi
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "platform-admin", authorities = "ROLE_ADMIN")
+    void platformAdmin_canProvisionTenantLinkedToBusinessAccount() throws Exception {
+        BusinessAccount account = new BusinessAccount();
+        account.setNome("Conta Provisionada");
+        account.setSlug("conta-provisionada-" + Math.abs(System.nanoTime() % 1_000_000L));
+        account.setEstado(com.restaurante.model.enums.BusinessAccountEstado.ATIVA);
+        account = businessAccountRepository.saveAndFlush(account);
+
+        String payload = """
+                {
+                  "tenant": {
+                    "nome": "Rest Conta",
+                    "slug": "rest-conta-%d",
+                    "tenantCode": "RCT%d",
+                    "tipo": "RESTAURANTE"
+                  },
+                  "planoCodigo": "PILOTO",
+                  "templateCodigo": "RESTAURANTE_SIMPLES",
+                  "instituicao": {
+                    "nome": "Rest Conta"
+                  },
+                  "responsavel": {
+                    "email": "rest-conta-%d@test.com",
+                    "telefone": "+24491111%06d",
+                    "criarUsuario": true
+                  },
+                  "opcoes": {
+                    "criarQrPrincipal": true,
+                    "criarCategoriaDefault": true,
+                    "criarUnidadeAtendimentoDefault": true,
+                    "ativarTenant": true,
+                    "criarMesas": false,
+                    "criarQrPorMesa": false
+                  },
+                  "businessAccountId": %d
+                }
+                """.formatted(
+                account.getId(),
+                account.getId(),
+                account.getId(),
+                account.getId(),
+                account.getId()
+        );
+
+        String resp = mockMvc.perform(post("/platform/tenants/provisionar")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        long tenantId = objectMapper.readTree(resp).at("/data/tenantId").asLong();
+        Tenant tenant = tenantRepository.findById(tenantId).orElseThrow();
+        assertThat(tenant.getBusinessAccount()).isNotNull();
+        assertThat(tenant.getBusinessAccount().getId()).isEqualTo(account.getId());
     }
 }

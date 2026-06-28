@@ -1,5 +1,6 @@
 package com.restaurante.model.entity;
 
+import com.restaurante.model.enums.ComportamentoPedidoNaoPago;
 import com.restaurante.model.enums.LogisticsMode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -66,5 +67,26 @@ public class TenantOperacaoPolicy extends BaseEntity {
 
     @Column(name = "pre_fecho_enabled", nullable = false)
     private boolean preFechoEnabled = false;
-}
 
+    @Column(name = "pagamento_obrigatorio_antes_do_pedido", nullable = false)
+    private boolean pagamentoObrigatorioAntesDoPedido = true;
+
+    @Column(name = "permitir_pedido_sem_pagamento", nullable = false)
+    private boolean permitirPedidoSemPagamento = false;
+
+    @Column(name = "permitir_pos_pago", nullable = false)
+    private boolean permitirPosPago = false;
+
+    @Column(name = "permitir_cash", nullable = false)
+    private boolean permitirCash = false;
+
+    @Column(name = "permitir_pagamento_na_entrega", nullable = false)
+    private boolean permitirPagamentoNaEntrega = false;
+
+    @Column(name = "tempo_expiracao_pedido_pendente_pagamento_minutos", nullable = false)
+    private Integer tempoExpiracaoPedidoPendentePagamentoMinutos = 15;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "comportamento_pedido_nao_pago", nullable = false, length = 80)
+    private ComportamentoPedidoNaoPago comportamentoPedidoNaoPago = ComportamentoPedidoNaoPago.CRIAR_PENDENTE;
+}

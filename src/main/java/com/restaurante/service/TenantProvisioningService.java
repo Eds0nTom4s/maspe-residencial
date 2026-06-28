@@ -5,6 +5,7 @@ import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ProvisioningException;
+import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
@@ -14,17 +15,21 @@ import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Subscricao;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantLimiteOverride;
+import com.restaurante.model.entity.TenantOperacaoPolicy;
 import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.User;
+import com.restaurante.model.enums.ComportamentoPedidoNaoPago;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.SubscricaoEstado;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
+import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.MesaRepository;
@@ -32,6 +37,7 @@ import com.restaurante.repository.PlanoRepository;
 import com.restaurante.repository.ProvisioningTemplateRepository;
 import com.restaurante.repository.SubscricaoRepository;
 import com.restaurante.repository.TenantLimiteOverrideRepository;
+import com.restaurante.repository.TenantOperacaoPolicyRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
@@ -61,6 +67,7 @@ public class TenantProvisioningService {
 
     private final TenantGuard tenantGuard;
     private final TenantRepository tenantRepository;
+    private final BusinessAccountRepository businessAccountRepository;
     private final PlanoRepository planoRepository;
     private final SubscricaoRepository subscricaoRepository;
     private final ProvisioningTemplateRepository templateRepository;
@@ -72,9 +79,12 @@ public class TenantProvisioningService {
     private final UserRepository userRepository;
     private final TenantUserRepository tenantUserRepository;
     private final TenantLimiteOverrideRepository tenantLimiteOverrideRepository;
+    private final TenantOperacaoPolicyRepository tenantOperacaoPolicyRepository;
     private final QrCodeOperacionalService qrCodeOperacionalService;
     private final com.restaurante.service.producao.UnidadeProducaoService unidadeProducaoService;
     private final com.restaurante.service.producao.RotaProducaoService rotaProducaoService;
+    private final TenantOperationalModulesService tenantOperationalModulesService;
+    private final TenantSessaoConsumoConfigService tenantSessaoConsumoConfigService;
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
     private final ProvisioningPlanCalculator planCalculator;
@@ -125,6 +135,7 @@ public class TenantProvisioningService {
         }
 
         boolean ativarTenant = request.getOpcoes() == null || request.getOpcoes().getAtivarTenant() == null || request.getOpcoes().getAtivarTenant();
+        BusinessAccount businessAccount = resolveBusinessAccount(request.getBusinessAccountId());
 
         // Nota: TenantLimitService bloqueia criação se Tenant != ATIVO.
         // Para provisionamento interno, criamos como ATIVO e, se necessário, rebaixamos para RASCUNHO no final.
@@ -137,6 +148,11 @@ public class TenantProvisioningService {
         tenant.setEmail(request.getTenant().getEmail());
         tenant.setTipo(request.getTenant().getTipo());
         tenant.setEstado(TenantEstado.ATIVO);
+        tenant.setBusinessAccount(businessAccount);
+        tenant.setTemplateCode(template.getCodigo());
+        tenant.setTemplateVersion(template.getVersion() != null ? template.getVersion().intValue() : null);
+        tenant.setProvisionedAt(java.time.LocalDateTime.now());
+        tenant.setProvisioningSource("LEGACY_PROVISIONING");
         tenant = tenantRepository.saveAndFlush(tenant);
 
         Subscricao subscricao = new Subscricao();
@@ -174,6 +190,8 @@ public class TenantProvisioningService {
         int quantidadeMesas = plan.quantidadeMesas();
         boolean criarQrPorMesa = plan.criarQrPorMesa();
         String prefixoMesa = plan.prefixoMesa();
+
+        provisionarModulosOperacionaisDefault(tenant, criarMesas, criarQrPorMesa);
 
         if (quantidadeMesas < 0) {
             throw new ProvisioningException(HttpStatus.BAD_REQUEST, "QUANTIDADE_MESAS_INVALIDA", "opcoes.quantidadeMesas",
@@ -346,6 +364,74 @@ public class TenantProvisioningService {
         resp.totalQrCodesCriados(qrNovos);
         resp.mesas(mesasResp);
         return resp.build();
+    }
+
+    private void provisionarModulosOperacionaisDefault(Tenant tenant, boolean criarMesas, boolean criarQrPorMesa) {
+        boolean ponto = tenant.getTipo() == com.restaurante.model.enums.TenantTipo.VENDEDOR_RUA
+                || tenant.getTipo() == com.restaurante.model.enums.TenantTipo.LOJA
+                || "CONSUMA_PONTO".equalsIgnoreCase(tenant.getTemplateCode())
+                || "VENDEDOR_RUA".equalsIgnoreCase(tenant.getTemplateCode());
+
+        if (ponto) {
+            tenantOperationalModulesService.upsertForTemplate(tenant, false, true, false, false, true, false);
+            tenantSessaoConsumoConfigService.upsertForTemplate(
+                    tenant,
+                    false,
+                    false,
+                    false,
+                    TipoSessao.PRE_PAGO,
+                    true,
+                    true,
+                    true,
+                    false,
+                    12
+            );
+            upsertOperacaoPolicyDefault(tenant, false, false, true);
+            return;
+        }
+
+        tenantOperationalModulesService.upsertForTemplate(tenant, true, true, criarMesas, criarMesas && criarQrPorMesa, true, true);
+        tenantSessaoConsumoConfigService.upsertForTemplate(
+                tenant,
+                true,
+                true,
+                true,
+                TipoSessao.POS_PAGO,
+                false,
+                true,
+                true,
+                criarMesas,
+                12
+        );
+        upsertOperacaoPolicyDefault(tenant, true, criarMesas && criarQrPorMesa, false);
+    }
+
+    private void upsertOperacaoPolicyDefault(Tenant tenant,
+                                             boolean restaurante,
+                                             boolean allowTableQr,
+                                             boolean pagamentoObrigatorio) {
+        TenantOperacaoPolicy policy = tenantOperacaoPolicyRepository.findByTenantId(tenant.getId()).orElseGet(() -> {
+            TenantOperacaoPolicy created = new TenantOperacaoPolicy();
+            created.setTenant(tenant);
+            return created;
+        });
+        policy.setProductionEnabled(restaurante);
+        policy.setPosEnabled(true);
+        policy.setKdsEnabled(restaurante);
+        policy.setAllowTableQr(allowTableQr);
+        policy.setSnapshotFinanceiroEnabled(true);
+        policy.setPreFechoEnabled(true);
+        policy.setAllowManualPayment(true);
+        policy.setAllowDigitalPayment(true);
+        policy.setAllowPickup(true);
+        policy.setPagamentoObrigatorioAntesDoPedido(pagamentoObrigatorio);
+        policy.setPermitirPedidoSemPagamento(!pagamentoObrigatorio);
+        policy.setPermitirPosPago(!pagamentoObrigatorio);
+        policy.setPermitirCash(true);
+        policy.setPermitirPagamentoNaEntrega(!pagamentoObrigatorio);
+        policy.setTempoExpiracaoPedidoPendentePagamentoMinutos(15);
+        policy.setComportamentoPedidoNaoPago(ComportamentoPedidoNaoPago.CRIAR_PENDENTE);
+        tenantOperacaoPolicyRepository.saveAndFlush(policy);
     }
 
     private Instituicao criarInstituicao(Tenant tenant, ProvisionarTenantRequest request) {
@@ -580,5 +666,18 @@ public class TenantProvisioningService {
     public static class QrPrincipal {
         public String nome;
         public QrCodeOperacionalTipo tipo;
+    }
+
+    private BusinessAccount resolveBusinessAccount(Long businessAccountId) {
+        if (businessAccountId == null) {
+            return null;
+        }
+        return businessAccountRepository.findById(businessAccountId)
+                .orElseThrow(() -> new ProvisioningException(
+                        HttpStatus.BAD_REQUEST,
+                        "BUSINESS_ACCOUNT_INEXISTENTE",
+                        "businessAccountId",
+                        "BusinessAccount inexistente: " + businessAccountId
+                ));
     }
 }

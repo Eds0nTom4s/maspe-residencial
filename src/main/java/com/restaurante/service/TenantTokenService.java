@@ -7,8 +7,10 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.User;
+import com.restaurante.model.enums.SubscricaoEstado;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.security.JwtTokenProvider;
@@ -38,8 +40,10 @@ public class TenantTokenService {
     private final TenantRepository tenantRepository;
     private final TenantUserRepository tenantUserRepository;
     private final com.restaurante.repository.UserRepository userRepository;
+    private final com.restaurante.repository.SubscricaoRepository subscricaoRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final TenantUserAccessVersionService tenantUserAccessVersionService;
+    private final PlatformTenantAccessService platformTenantAccessService;
 
     @Transactional(readOnly = true)
     public SelectTenantResponse selectTenant(SelectTenantRequest request) {
@@ -57,6 +61,32 @@ public class TenantTokenService {
                 .orElseThrow(() -> new BusinessException("Tenant não encontrado."));
         if (tenant.getEstado() != TenantEstado.ATIVO) {
             throw new BusinessException("Tenant não está ativo para operação tenant-aware.");
+        }
+
+        if (isPlatformAdmin(auth, user)) {
+            String token = jwtTokenProvider.generateTenantScopedToken(
+                    user,
+                    tenant,
+                    TenantUserRole.TENANT_ADMIN,
+                    TenantUserEstado.ATIVO,
+                    1,
+                    null,
+                    true
+            );
+            platformTenantAccessService.auditContextAssumed(tenant.getId());
+
+            return SelectTenantResponse.builder()
+                    .userId(user.getId())
+                    .tenantId(tenant.getId())
+                    .tenantCode(tenant.getTenantCode())
+                    .slug(tenant.getSlug())
+                    .nome(tenant.getNome())
+                    .tenantNome(tenant.getNome())
+                    .tokenType("Bearer")
+                    .accessToken(token)
+                    .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
+                    .roles(Set.of(TenantUserRole.TENANT_ADMIN.name()))
+                    .build();
         }
 
         TenantUser membership = tenantUserRepository.findByTenantIdAndUserIdAndEstado(
@@ -80,6 +110,8 @@ public class TenantTokenService {
                 .userId(user.getId())
                 .tenantId(tenant.getId())
                 .tenantCode(tenant.getTenantCode())
+                .slug(tenant.getSlug())
+                .nome(tenant.getNome())
                 .tenantNome(tenant.getNome())
                 // tokenType aqui segue convenção HTTP Authorization ("Bearer").
                 // O escopo do token (TENANT vs GLOBAL) fica no claim "tokenType" dentro do JWT.
@@ -111,6 +143,29 @@ public class TenantTokenService {
         User user = resolveUserFromPrincipal(auth.getPrincipal());
         log.info("[AUTH-TENANTS] Listando tenants acessíveis para userId={}", user.getId());
 
+        if (isPlatformAdmin(auth, user)) {
+            List<Tenant> tenants = tenantRepository.findByEstadoOrderByIdAsc(TenantEstado.ATIVO);
+            log.info("[AUTH-TENANTS] Platform Admin userId={} recebeu {} tenants ativos", user.getId(), tenants.size());
+            boolean first = true;
+            List<AuthTenantOptionResponse> result = new java.util.ArrayList<>();
+            for (Tenant t : tenants) {
+                result.add(AuthTenantOptionResponse.builder()
+                        .tenantId(t.getId())
+                        .tenantCode(t.getTenantCode())
+                        .slug(t.getSlug())
+                        .nome(t.getNome())
+                        .estado(t.getEstado().name())
+                        .ativo(true)
+                        .roles(List.of(TenantUserRole.TENANT_ADMIN.name()))
+                        .templateCode(t.getTemplateCode())
+                        .planoCodigo(resolvePlanoCodigo(t.getId()))
+                        .principal(first)
+                        .build());
+                first = false;
+            }
+            return result;
+        }
+
         List<TenantUser> memberships = tenantUserRepository.findActiveTenantOptionsByUserId(
                 user.getId(),
                 TenantUserEstado.ATIVO,
@@ -131,6 +186,8 @@ public class TenantTokenService {
                     .estado(t.getEstado().name())
                     .ativo(t.getEstado() == TenantEstado.ATIVO)
                     .roles(List.of(tu.getRole().name()))
+                    .templateCode(t.getTemplateCode())
+                    .planoCodigo(resolvePlanoCodigo(t.getId()))
                     .principal(first)
                     .build();
             result.add(opt);
@@ -148,5 +205,21 @@ public class TenantTokenService {
                     .orElseThrow(() -> new BusinessException("Usuário não encontrado."));
         }
         throw new BusinessException("Principal inválido para seleção de tenant.");
+    }
+
+    private boolean isPlatformAdmin(Authentication auth, User user) {
+        if (user != null && user.isAdmin()) {
+            return true;
+        }
+        if (auth == null) {
+            return false;
+        }
+        return auth.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    }
+
+    private String resolvePlanoCodigo(Long tenantId) {
+        return subscricaoRepository.findByTenantIdAndEstado(tenantId, SubscricaoEstado.ATIVA)
+                .map(s -> s.getPlano() != null ? s.getPlano().getCodigo() : null)
+                .orElse(null);
     }
 }

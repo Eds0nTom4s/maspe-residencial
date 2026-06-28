@@ -2,6 +2,9 @@ package com.restaurante.provisioning;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaurante.model.entity.BusinessAccount;
+import com.restaurante.model.enums.BusinessAccountEstado;
+import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
@@ -33,6 +36,7 @@ class PlatformTenantProvisioningPreviewControllerIT extends PostgresTestcontaine
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
+    @Autowired BusinessAccountRepository businessAccountRepository;
     @Autowired TenantRepository tenantRepository;
 
     @AfterEach
@@ -188,5 +192,42 @@ class PlatformTenantProvisioningPreviewControllerIT extends PostgresTestcontaine
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "platform-admin")
+    void preview_blocksWhenBusinessAccountDoesNotExist() throws Exception {
+        TenantContextHolder.set(new TenantContext(
+                null, null, 1L, Set.of("ROLE_ADMIN"),
+                TenantResolutionSource.JWT, true, false
+        ));
+
+        BusinessAccount existing = new BusinessAccount();
+        existing.setNome("Conta Preview");
+        existing.setSlug("conta-preview-" + Math.abs(System.nanoTime() % 1_000_000L));
+        existing.setEstado(BusinessAccountEstado.ATIVA);
+        existing = businessAccountRepository.saveAndFlush(existing);
+        long invalidId = existing.getId() + 9999;
+
+        String payload = """
+                {
+                  "tenant": { "nome": "Rest Preview", "slug": "rest-preview", "tipo": "RESTAURANTE" },
+                  "planoCodigo": "PILOTO",
+                  "templateCodigo": "RESTAURANTE_SIMPLES",
+                  "instituicao": { "nome": "Rest Preview" },
+                  "responsavel": { "email": "preview@test.com", "criarUsuario": true },
+                  "businessAccountId": %d
+                }
+                """.formatted(invalidId);
+
+        String resp = mockMvc.perform(post("/platform/tenants/provisionar/preview")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode json = objectMapper.readTree(resp);
+        assertThat(json.at("/data/permitido").asBoolean()).isFalse();
+        assertThat(json.at("/data/bloqueios").toString()).contains("BUSINESS_ACCOUNT_INEXISTENTE");
     }
 }

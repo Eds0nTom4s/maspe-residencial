@@ -224,9 +224,11 @@ public class PagamentoPendenteQueryService {
             return resp;
         }
 
-        // Pega primeira página de pendentes do turno para compor alertas (MVP).
-        Page<PagamentoPendenteResponse> page = listarPendentes(turnoId, null, null, null, null, null, null, null, null, Pageable.ofSize(Math.min(props.getMaxPageSize(), 100)).withPage(0));
-        List<PagamentoPendenteResponse> pendList = page.getContent();
+        List<PagamentoPendenteResponse> pendList = pagamentoGatewayRepository
+                .findAllByTenantIdAndPedidoTurnoOperacionalIdAndStatus(ctx.tenantId(), turnoId, com.restaurante.financeiro.enums.StatusPagamentoGateway.PENDENTE)
+                .stream()
+                .map(p -> toResponse(p, LocalDateTime.now()))
+                .toList();
 
         List<PagamentoPendenteResponse> criticos = pendList.stream()
                 .filter(p -> p.getAlertLevel() == PagamentoPendenciaAlertLevel.CRITICAL)
@@ -239,7 +241,7 @@ public class PagamentoPendenteQueryService {
         resp.setTotalWarnings(warn);
         resp.setTotalCriticos(crit);
         resp.setPagamentosCriticos(criticos);
-        resp.setPagamentosPendentesResumo(resumoPendentes(turnoId, null, null, null));
+        resp.setPagamentosPendentesResumo(resumoPendentesFromList(pendList));
 
         resp.setBloqueiaFecho(props.isBlockTurnoCloseOnCritical() && crit > 0);
 
@@ -251,6 +253,28 @@ public class PagamentoPendenteQueryService {
 
         resp.setAvisos(List.of(item));
         return resp;
+    }
+
+    private PagamentoPendenteResumoResponse resumoPendentesFromList(List<PagamentoPendenteResponse> pendentes) {
+        PagamentoPendenteResumoResponse r = new PagamentoPendenteResumoResponse();
+        r.setTotalPendentes(pendentes.size());
+        r.setValorTotalPendente(pendentes.stream().map(PagamentoPendenteResponse::getValor).reduce(BigDecimal.ZERO, BigDecimal::add));
+        r.setTotalPollingEligible(pendentes.stream().filter(p -> p.getPollingStatus() == PagamentoPollingStatus.ELIGIBLE).count());
+        r.setTotalPollingInProgress(pendentes.stream().filter(p -> p.getPollingStatus() == PagamentoPollingStatus.IN_PROGRESS).count());
+        r.setTotalMaxAttemptsReached(pendentes.stream().filter(p -> p.getPollingStatus() == PagamentoPollingStatus.MAX_ATTEMPTS_REACHED).count());
+        r.setTotalComErroGateway(pendentes.stream().filter(p -> p.getPollingLastErrorCode() != null).count());
+        r.setTotalCriticos(pendentes.stream().filter(p -> p.getAlertLevel() == PagamentoPendenciaAlertLevel.CRITICAL).count());
+        r.setTotalWarnings(pendentes.stream().filter(p -> p.getAlertLevel() == PagamentoPendenciaAlertLevel.WARNING).count());
+        r.setMaisAntigoPendenteEm(pendentes.stream().map(PagamentoPendenteResponse::getCriadoEm).min(LocalDateTime::compareTo).orElse(null));
+        r.setPorPollingStatus(pendentes.stream().collect(Collectors.groupingBy(p -> String.valueOf(p.getPollingStatus()), Collectors.counting())));
+        r.setPorMetodoPagamento(pendentes.stream().collect(Collectors.groupingBy(p -> String.valueOf(p.getMetodoPagamento()), Collectors.counting())));
+        r.setPorUnidadeAtendimento(pendentes.stream()
+                .filter(p -> p.getUnidadeAtendimentoId() != null)
+                .collect(Collectors.groupingBy(PagamentoPendenteResponse::getUnidadeAtendimentoId, Collectors.counting())));
+        r.setPorTurno(pendentes.stream()
+                .filter(p -> p.getTurnoOperacionalId() != null)
+                .collect(Collectors.groupingBy(PagamentoPendenteResponse::getTurnoOperacionalId, Collectors.counting())));
+        return r;
     }
 
     private Pageable capPageable(Pageable pageable) {

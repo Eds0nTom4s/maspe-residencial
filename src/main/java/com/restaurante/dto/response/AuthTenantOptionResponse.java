@@ -38,6 +38,12 @@ public class AuthTenantOptionResponse {
     /** Roles do usuário neste tenant (ex: ["TENANT_ADMIN"]). */
     private List<String> roles;
 
+    /** Template operacional usado no provisionamento, se disponível. */
+    private String templateCode;
+
+    /** Plano comercial ativo, se disponível. */
+    private String planoCodigo;
+
     /**
      * Indica se este é o tenant principal/padrão do usuário.
      * Calculado como o primeiro vínculo ativo quando ordenado por id.

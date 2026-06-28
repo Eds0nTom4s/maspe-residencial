@@ -11,12 +11,17 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
+import java.util.List;
 
 public interface TenantRepository extends JpaRepository<Tenant, Long> {
 
     Optional<Tenant> findBySlug(String slug);
 
     Optional<Tenant> findByTenantCode(String tenantCode);
+
+    List<Tenant> findByEstadoOrderByIdAsc(TenantEstado estado);
+
+    List<Tenant> findByBusinessAccountIdOrderByIdAsc(Long businessAccountId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Tenant t where t.id = :id")
@@ -26,7 +31,11 @@ public interface TenantRepository extends JpaRepository<Tenant, Long> {
 
     boolean existsByTenantCode(String tenantCode);
 
+    boolean existsByIdAndBusinessAccountId(Long id, Long businessAccountId);
+
     long countByEstado(TenantEstado estado);
+
+    long countByBusinessAccountId(Long businessAccountId);
 
     @Query("""
             select t

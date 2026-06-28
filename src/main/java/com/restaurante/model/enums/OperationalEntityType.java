@@ -1,6 +1,7 @@
 package com.restaurante.model.enums;
 
 public enum OperationalEntityType {
+    TENANT,
     PEDIDO,
     SUBPEDIDO,
     ITEM_PEDIDO,
@@ -13,6 +14,9 @@ public enum OperationalEntityType {
     PAGAMENTO,
     ORDEM_PAGAMENTO,
     TENANT_PAYMENT_METHOD,
+    TENANT_PAYMENT_POLICY,
+    TENANT_OPERATIONAL_MODULES,
+    TENANT_SESSAO_CONSUMO_CONFIG,
     UNIDADE_PAYMENT_METHOD_POLICY,
     DEVICE_PAYMENT_METHOD_POLICY,
     PAYMENT_POLICY_TEMPLATE,

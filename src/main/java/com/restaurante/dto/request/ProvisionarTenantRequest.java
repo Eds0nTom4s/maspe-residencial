@@ -42,6 +42,12 @@ public class ProvisionarTenantRequest {
     @Valid
     private LimitesOverride limitesOverride;
 
+    /**
+     * Conta empresarial opcional para associar o tenant provisionado.
+     * Quando ausente, o fluxo legado permanece igual.
+     */
+    private Long businessAccountId;
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

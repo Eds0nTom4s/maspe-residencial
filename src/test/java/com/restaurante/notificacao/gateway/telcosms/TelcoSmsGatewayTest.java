@@ -251,6 +251,37 @@ class TelcoSmsGatewayTest {
         assertTrue(response.getMessage().contains("modo mock"));
         assertTrue(response.getMessageId().startsWith("MOCK-"));
     }
+
+    @Test
+    void deveRetornarErroControladoQuandoProviderDesabilitado() {
+        // Arrange
+        when(properties.getProvider()).thenReturn("disabled");
+        when(properties.getEnabled()).thenReturn(false);
+
+        // Act
+        SmsResponse response = gateway.sendSms("+244925813939", "Código 123456");
+
+        // Assert
+        assertFalse(response.isSuccess());
+        assertEquals("SMS_DISABLED", response.getErrorCode());
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    void deveSimularEnvioSemChamarApiQuandoProviderSandbox() {
+        // Arrange
+        when(properties.getProvider()).thenReturn("sandbox");
+        when(properties.getEnabled()).thenReturn(false);
+
+        // Act
+        SmsResponse response = gateway.sendSms("+244925813939", "Código 123456");
+
+        // Assert
+        assertTrue(response.isSuccess());
+        assertTrue(response.getMessage().contains("sandbox"));
+        assertTrue(response.getMessageId().startsWith("SANDBOX-"));
+        verifyNoInteractions(restTemplate);
+    }
     
     @Test
     void deveRetornarTrueParaIsMockModeQuandoMockAtivado() {

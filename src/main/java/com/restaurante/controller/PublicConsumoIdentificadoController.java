@@ -51,7 +51,7 @@ public class PublicConsumoIdentificadoController {
         resp.setResendAvailableAt(result.getResendAvailableAt());
         resp.setMaskedPhone(result.getMaskedPhone());
         resp.setDebugOtp(result.getDebugOtp());
-        return ResponseEntity.ok(ApiResponse.success("OTP solicitado", resp));
+        return ResponseEntity.ok(ApiResponse.success("Se o número for válido, enviaremos um código de confirmação.", resp));
     }
 
     @PostMapping("/identificacao/otp/verify")
@@ -99,7 +99,7 @@ public class PublicConsumoIdentificadoController {
         resp.setResendAvailableAt(result.getResendAvailableAt());
         resp.setMaskedPhone(result.getMaskedPhone());
         resp.setDebugOtp(result.getDebugOtp());
-        return ResponseEntity.ok(ApiResponse.success("OTP solicitado", resp));
+        return ResponseEntity.ok(ApiResponse.success("Se o número for válido, enviaremos um código de confirmação.", resp));
     }
 
     @PostMapping("/recuperar/otp/verify")
@@ -129,4 +129,3 @@ public class PublicConsumoIdentificadoController {
         return ResponseEntity.ok(ApiResponse.success("Sessões ativas", resp));
     }
 }
-

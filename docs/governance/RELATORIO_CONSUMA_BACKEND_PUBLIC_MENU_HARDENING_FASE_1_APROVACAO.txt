@@ -89,9 +89,10 @@ Migration: V70__public_menu_hardening_banner_limit_images.sql
 --------------------------------------------------------------------------------
 src/main/resources/application.properties
   • app.notification.telcosms.mock=false
-  • app.notification.telcosms.api-key=${TELCOSMS_API_KEY:prdcd061eb2240de2dbccbccfdd0d}
+  • app.notification.telcosms.api-key=${TELCOSMS_API_KEY:<redigido>}
 
-A chave pode ser sobrescrita via variável de ambiente TELCOSMS_API_KEY.
+A chave foi redigida neste histórico. Configurações atuais devem usar variáveis
+de ambiente ou secret manager, sem valor sensível versionado.
 
 ================================================================================
 3. TESTES EXECUTADOS
@@ -151,8 +152,8 @@ Cobertura adicionada:
   • Sessão identificada: opcional (sessaoConsumoId NULL = comportamento legado).
     Quando informado, a sessão deve pertencer ao mesmo tenant e estar ABERTA.
 
-  • API key SMS: armazenada como default no application.properties com override
-    via TELCOSMS_API_KEY, mantendo flexibilidade entre ambientes.
+  • API key SMS: histórico redigido. A configuração atual deve ser fornecida
+    por variável de ambiente ou secret manager, sem default sensível versionado.
 
 ================================================================================
 6. PRÓXIMOS PASSOS SUGERIDOS

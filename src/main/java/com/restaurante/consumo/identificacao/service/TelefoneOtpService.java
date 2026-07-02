@@ -20,7 +20,6 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -67,7 +66,7 @@ public class TelefoneOtpService {
 
             String otp = generateOtp();
             challenge.setOtpHash(hashOtp(challenge.getId(), otp));
-            challenge.setExpiresAt(now.plus(props.getTtlMinutes(), ChronoUnit.MINUTES));
+            challenge.setExpiresAt(now.plusSeconds(props.getTtlSeconds()));
             challenge.setResendCount(challenge.getResendCount() + 1);
             challenge.setLastSentAt(now);
             challenge.setClientIp(clientIp);
@@ -88,7 +87,7 @@ public class TelefoneOtpService {
         challenge.setAttempts(0);
         challenge.setResendCount(0);
         challenge.setLastSentAt(now);
-        challenge.setExpiresAt(now.plus(props.getTtlMinutes(), ChronoUnit.MINUTES));
+        challenge.setExpiresAt(now.plusSeconds(props.getTtlSeconds()));
         challenge.setClientIp(clientIp);
         challenge.setUserAgent(userAgent);
         challenge.setSessaoConsumo(sessaoConsumo);

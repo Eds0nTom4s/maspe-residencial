@@ -39,22 +39,33 @@ public class TelcoSmsGateway implements SmsGateway {
     public SmsResponse sendSms(String phoneNumber, String message) {
         // Normaliza o número de telefone
         String normalizedPhone = normalizePhoneNumber(phoneNumber);
-        
-        if (properties.getMock()) {
-            return enviarSmsMock(normalizedPhone, message);
+
+        String provider = resolveProvider();
+        if (provider.equals("disabled")) {
+            log.info("SMS provider disabled; envio não executado para {}", maskPhone(normalizedPhone));
+            return SmsResponse.error("SMS provider disabled", "SMS_DISABLED");
         }
-        
+
+        if (provider.equals("log") || provider.equals("sandbox") || provider.equals("mock")) {
+            return enviarSmsSandbox(normalizedPhone, provider);
+        }
+
         return enviarSmsReal(normalizedPhone, message);
     }
     
     @Override
     public boolean isMockMode() {
-        return properties.getMock();
+        String provider = resolveProvider();
+        return provider.equals("disabled") || provider.equals("log") || provider.equals("sandbox") || provider.equals("mock");
     }
     
     @Override
     public String getProviderName() {
-        return "TelcoSMS";
+        String provider = resolveProvider();
+        if (provider.equals("telcosms") || provider.equals("provider_real") || provider.equals("real")) {
+            return "TelcoSMS";
+        }
+        return "SMS-" + provider;
     }
     
     /**
@@ -64,7 +75,7 @@ public class TelcoSmsGateway implements SmsGateway {
         String url = properties.getBaseUrl() + "/send_message";
         
         try {
-            log.info("Iniciando envio de SMS via TelcoSMS para: {}", phoneNumber);
+            log.info("Iniciando envio de SMS via TelcoSMS para: {}", maskPhone(phoneNumber));
             
             // Cria request
             TelcoSmsRequest request = new TelcoSmsRequest(
@@ -77,7 +88,7 @@ public class TelcoSmsGateway implements SmsGateway {
             String maskedKey = properties.getApiKey() != null && properties.getApiKey().length() > 4 
                 ? properties.getApiKey().substring(0, 4) + "***" 
                 : "***";
-            log.info("Payload TelcoSMS: URL={}, Fone={}, Msg='{}', KeyPrefix={}", url, phoneNumber, message, maskedKey);
+            log.info("Payload TelcoSMS: URL={}, Fone={}, KeyPrefix={}", url, maskPhone(phoneNumber), maskedKey);
             
             // Configura headers
             HttpHeaders headers = new HttpHeaders();
@@ -99,11 +110,11 @@ public class TelcoSmsGateway implements SmsGateway {
             // Converte TelcoSmsResponse para SmsResponse genérico
             if (telcoResponse != null && telcoResponse.isSuccess()) {
                 log.info("SMS enviado com sucesso via TelcoSMS para {} - ID: {}", 
-                    phoneNumber, telcoResponse.getMessageId());
+                    maskPhone(phoneNumber), telcoResponse.getMessageId());
                 return SmsResponse.success(telcoResponse.getMessage(), telcoResponse.getMessageId());
             } else {
                 String errorMsg = telcoResponse != null ? telcoResponse.getMessage() : "Resposta nula";
-                log.warn("Falha ao enviar SMS via TelcoSMS para {}: {}", phoneNumber, errorMsg);
+                log.warn("Falha ao enviar SMS via TelcoSMS para {}: {}", maskPhone(phoneNumber), errorMsg);
                 return SmsResponse.error(errorMsg, telcoResponse != null ? telcoResponse.getErrorCode() : null);
             }
             
@@ -111,7 +122,7 @@ public class TelcoSmsGateway implements SmsGateway {
             // O TelcoSMS retorna HTTP 404 quando o saldo é insuficiente.
             // Precisamos ler o corpo e distinguir este caso de um erro genérico.
             String responseBody = e.getResponseBodyAsString();
-            log.error("Erro ao enviar SMS via TelcoSMS para {}. URL={}: {}", phoneNumber, url, responseBody);
+            log.error("Erro ao enviar SMS via TelcoSMS para {}. URL={}: {}", maskPhone(phoneNumber), url, responseBody);
 
             if (responseBody != null && responseBody.toLowerCase().contains("saldo insuficiente")) {
                 log.warn("Saldo insuficiente na conta TelcoSMS! Approvisionamento necessário.");
@@ -124,19 +135,36 @@ public class TelcoSmsGateway implements SmsGateway {
             return SmsResponse.error(responseBody != null ? responseBody : e.getMessage(), "HTTP_" + e.getStatusCode().value());
 
         } catch (Exception e) {
-            log.error("Erro ao enviar SMS via TelcoSMS para {}. URL={}: {}", phoneNumber, url, e.getMessage(), e);
+            log.error("Erro ao enviar SMS via TelcoSMS para {}. URL={}: {}", maskPhone(phoneNumber), url, e.getMessage(), e);
             return SmsResponse.error(e.getMessage(), "SEND_FAILED");
         }
     }
     
     /**
-     * Simula envio de SMS (modo mock para desenvolvimento)
+     * Simula envio de SMS (log/sandbox para desenvolvimento)
      */
-    private SmsResponse enviarSmsMock(String phoneNumber, String message) {
-        log.info("📱 [MOCK] SMS simulado via TelcoSMS para {}: {}", phoneNumber, message);
-        
-        String mockId = "MOCK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        return SmsResponse.success("SMS enviado com sucesso (modo mock)", mockId);
+    private SmsResponse enviarSmsSandbox(String phoneNumber, String provider) {
+        log.info("SMS {} simulado para {}", provider, maskPhone(phoneNumber));
+
+        String mockId = provider.toUpperCase() + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        String message = provider.equals("sandbox")
+                ? "SMS enviado com sucesso (modo mock/sandbox)"
+                : "SMS enviado com sucesso (modo " + provider + ")";
+        return SmsResponse.success(message, mockId);
+    }
+
+    private String resolveProvider() {
+        String configured = properties.getProvider();
+        if (configured == null || configured.isBlank()) {
+            Boolean legacyMock = properties.getMock();
+            if (Boolean.TRUE.equals(legacyMock)) return "mock";
+            return "telcosms";
+        }
+        String provider = configured.trim().toLowerCase();
+        if (!Boolean.TRUE.equals(properties.getEnabled()) && (provider.equals("telcosms") || provider.equals("provider_real") || provider.equals("real"))) {
+            return "disabled";
+        }
+        return provider;
     }
     
     /**
@@ -170,5 +198,16 @@ public class TelcoSmsGateway implements SmsGateway {
         }
         
         return normalized;
+    }
+
+    private String maskPhone(String phoneNumber) {
+        if (phoneNumber == null || phoneNumber.isBlank()) {
+            return "***";
+        }
+        String digits = phoneNumber.replaceAll("\\D", "");
+        if (digits.length() <= 4) {
+            return "***" + digits;
+        }
+        return "***" + digits.substring(digits.length() - 4);
     }
 }

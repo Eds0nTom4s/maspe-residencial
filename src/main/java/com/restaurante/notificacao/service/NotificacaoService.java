@@ -45,27 +45,27 @@ public class NotificacaoService {
         );
         
         try {
-            log.info("Enviando OTP via SMS [OTP] para {} via {}", telefone, smsGateway.getProviderName());
+            log.info("Enviando OTP via SMS [OTP] para {} via {}", maskPhone(telefone), smsGateway.getProviderName());
             SmsResponse response = smsGateway.sendSms(telefone, mensagem);
             
             if (!response.isSuccess()) {
                 if (ERRO_SALDO_INSUFICIENTE_GATEWAY.equals(response.getErrorCode())) {
-                    log.error("\u26a0\ufe0f Saldo de SMS esgotado! Não é possível enviar OTP para {}.", telefone);
+                    log.error("\u26a0\ufe0f Saldo de SMS esgotado! Não é possível enviar OTP para {}.", maskPhone(telefone));
                     throw new BusinessException(
                         "Sistema de notificações indisponível. Tente novamente mais tarde ou" +
                         " dirija-se ao balcão para assistência presencial."
                     );
                 }
-                log.warn("Falha ao enviar OTP [OTP] para {}: {}", telefone, response.getMessage());
+                log.warn("Falha ao enviar OTP [OTP] para {}: {}", maskPhone(telefone), response.getMessage());
                 return false;
             }
             
-            log.info("OTP enviado com sucesso para {}", telefone);
+            log.info("OTP enviado com sucesso para {}", maskPhone(telefone));
             return true;
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Erro ao enviar OTP [OTP] para {}: {}", telefone, e.getMessage(), e);
+            log.error("Erro ao enviar OTP [OTP] para {}: {}", maskPhone(telefone), e.getMessage(), e);
             return false;
         }
     }
@@ -204,8 +204,8 @@ public class NotificacaoService {
      */
     public boolean enviarSms(String telefone, String mensagem, String contexto) {
         try {
-            log.info("Enviando notificação SMS [{}] para {} via {}", 
-                contexto, telefone, smsGateway.getProviderName());
+            log.info("Enviando notificação SMS [{}] para {} via {}",
+                contexto, maskPhone(telefone), smsGateway.getProviderName());
             
             SmsResponse response = smsGateway.sendSms(telefone, mensagem);
             
@@ -215,7 +215,7 @@ public class NotificacaoService {
             } else {
                 if (ERRO_SALDO_INSUFICIENTE_GATEWAY.equals(response.getErrorCode())) {
                     log.warn("\u26a0\ufe0f Saldo de SMS esgotado na conta TelcoSMS! Notificação [{}] não enviada para {}. " +
-                             "Contacte o administrador para recarregar o saldo.", contexto, telefone);
+                             "Contacte o administrador para recarregar o saldo.", contexto, maskPhone(telefone));
                 } else {
                     log.warn("Falha ao enviar notificação [{}]: {}", contexto, response.getMessage());
                 }
@@ -226,7 +226,7 @@ public class NotificacaoService {
             // Re-lança BusinessException para não silenciar erros críticos em fluxos síncronos
             throw e;
         } catch (Exception e) {
-            log.error("Erro ao enviar notificação [{}] para {}: {}", contexto, telefone, e.getMessage(), e);
+            log.error("Erro ao enviar notificação [{}] para {}: {}", contexto, maskPhone(telefone), e.getMessage(), e);
             return false;
         }
     }
@@ -253,7 +253,18 @@ public class NotificacaoService {
             }
         }
         
-        log.error("Todas as {} tentativas de envio falharam para {}", maxTentativas, telefone);
+        log.error("Todas as {} tentativas de envio falharam para {}", maxTentativas, maskPhone(telefone));
         return false;
+    }
+
+    private String maskPhone(String telefone) {
+        if (telefone == null || telefone.isBlank()) {
+            return "***";
+        }
+        String digits = telefone.replaceAll("\\D", "");
+        if (digits.length() <= 4) {
+            return "***" + digits;
+        }
+        return "***" + digits.substring(digits.length() - 4);
     }
 }

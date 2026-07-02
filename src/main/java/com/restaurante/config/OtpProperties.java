@@ -10,6 +10,7 @@ public class OtpProperties {
     private boolean enabled = true;
     private int length = 6;
     private int ttlMinutes = 5;
+    private int ttlSeconds = 300;
     private int maxAttempts = 5;
     private int resendCooldownSeconds = 60;
     private int maxResends = 3;
@@ -22,7 +23,15 @@ public class OtpProperties {
     public int getLength() { return length; }
     public void setLength(int length) { this.length = length; }
     public int getTtlMinutes() { return ttlMinutes; }
-    public void setTtlMinutes(int ttlMinutes) { this.ttlMinutes = ttlMinutes; }
+    public void setTtlMinutes(int ttlMinutes) {
+        this.ttlMinutes = ttlMinutes;
+        this.ttlSeconds = ttlMinutes * 60;
+    }
+    public int getTtlSeconds() { return ttlSeconds; }
+    public void setTtlSeconds(int ttlSeconds) {
+        this.ttlSeconds = ttlSeconds;
+        this.ttlMinutes = Math.max(1, ttlSeconds / 60);
+    }
     public int getMaxAttempts() { return maxAttempts; }
     public void setMaxAttempts(int maxAttempts) { this.maxAttempts = maxAttempts; }
     public int getResendCooldownSeconds() { return resendCooldownSeconds; }
@@ -36,4 +45,3 @@ public class OtpProperties {
     public boolean isMockEnabled() { return mockEnabled; }
     public void setMockEnabled(boolean mockEnabled) { this.mockEnabled = mockEnabled; }
 }
-

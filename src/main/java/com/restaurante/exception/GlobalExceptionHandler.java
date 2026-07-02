@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
 
 import jakarta.validation.ConstraintViolationException;
 import java.time.LocalDateTime;
@@ -67,6 +68,31 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
+     * Trata erros HTTP controlados lancados por servicos de dominio (ex: rate limit).
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatusException(
+            ResponseStatusException ex, WebRequest request) {
+
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        String error = status != null ? status.getReasonPhrase() : "Erro HTTP";
+        String code = status == HttpStatus.TOO_MANY_REQUESTS ? "RATE_LIMIT_EXCEEDED" : null;
+
+        log.warn("Erro HTTP controlado {}: {}", ex.getStatusCode().value(), ex.getReason());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(ex.getStatusCode().value())
+                .error(error)
+                .code(code)
+                .message(ex.getReason() != null ? ex.getReason() : error)
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(ex.getStatusCode()).body(errorResponse);
     }
 
     /**

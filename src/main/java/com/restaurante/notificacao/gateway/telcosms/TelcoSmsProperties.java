@@ -5,27 +5,41 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Propriedades de configuração para integração com TelcoSMS
- * API: https://www.telcosms.co.ao
+ * Propriedades de configuração para envio de SMS.
  */
 @Configuration
-@ConfigurationProperties(prefix = "app.notification.telcosms")
+@ConfigurationProperties(prefix = "consuma.sms")
 public class TelcoSmsProperties {
+
+    /**
+     * Provider ativo: disabled, log, sandbox, telcosms/provider_real.
+     */
+    private String provider = "disabled";
+
+    /**
+     * Habilita envio externo de SMS.
+     */
+    private Boolean enabled = false;
+
+    /**
+     * Identificação do remetente quando suportada pelo provider.
+     */
+    private String senderId = "CONSUMA";
     
     /**
      * URL base da API TelcoSMS
      */
-    private String baseUrl;
+    private String baseUrl = "";
     
     /**
      * Chave de API para autenticação
      */
-    private String apiKey;
+    private String apiKey = "";
     
     /**
      * Timeout para requisições HTTP (em milissegundos)
      */
-    private Integer timeoutMs = 15000; // 15 segundos
+    private Integer timeoutMs = 10000;
     
     /**
      * Habilitar logs de debug
@@ -50,18 +64,51 @@ public class TelcoSmsProperties {
     
     @PostConstruct
     public void validate() {
-        if (!mock) {
+        if (isRealProvider() && Boolean.TRUE.equals(enabled)) {
             if (baseUrl == null || baseUrl.isBlank()) {
-                throw new IllegalStateException("app.notification.telcosms.baseUrl é obrigatório quando mock=false");
+                throw new IllegalStateException("consuma.sms.base-url é obrigatório quando provider real está habilitado");
             }
             if (apiKey == null || apiKey.isBlank()) {
-                throw new IllegalStateException("app.notification.telcosms.apiKey é obrigatório quando mock=false");
+                throw new IllegalStateException("consuma.sms.api-key é obrigatório quando provider real está habilitado");
             }
         }
+    }
+
+    public boolean isRealProvider() {
+        String p = normalizedProvider();
+        return p.equals("telcosms") || p.equals("provider_real") || p.equals("real");
+    }
+
+    public String normalizedProvider() {
+        return provider == null ? "disabled" : provider.trim().toLowerCase();
     }
     
     // Getters e Setters
     
+    public String getProvider() {
+        return provider;
+    }
+
+    public void setProvider(String provider) {
+        this.provider = provider;
+    }
+
+    public Boolean getEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public String getSenderId() {
+        return senderId;
+    }
+
+    public void setSenderId(String senderId) {
+        this.senderId = senderId;
+    }
+
     public String getBaseUrl() {
         return baseUrl;
     }

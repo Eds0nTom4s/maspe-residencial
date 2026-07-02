@@ -64,7 +64,7 @@ class TenantProdutoControllerTest {
                 .urlImagem("http://localhost:9000/restaurante-images/produtos/uuid.jpg")
                 .build();
 
-        when(produtoService.atualizarImagem(eq(produtoId), any())).thenReturn(response);
+        when(produtoService.atualizarImagemTenantAware(eq(produtoId), any())).thenReturn(response);
 
         MockMultipartFile file = new MockMultipartFile("file", "foto.jpg", "image/jpeg", "conteudo".getBytes());
 
@@ -74,7 +74,7 @@ class TenantProdutoControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.urlImagem").value("http://localhost:9000/restaurante-images/produtos/uuid.jpg"));
 
-        verify(produtoService, times(1)).atualizarImagem(eq(produtoId), any());
+        verify(produtoService, times(1)).atualizarImagemTenantAware(eq(produtoId), any());
     }
 
     @Test

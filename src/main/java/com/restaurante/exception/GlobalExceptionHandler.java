@@ -116,6 +116,27 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Trata falta de turno aberto em fluxos operacionais obrigatórios (409).
+     */
+    @ExceptionHandler(TurnoObrigatorioException.class)
+    public ResponseEntity<ErrorResponse> handleTurnoObrigatorioException(
+            TurnoObrigatorioException ex, WebRequest request) {
+
+        log.warn("Turno obrigatório: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Turno aberto obrigatório")
+                .code(TurnoObrigatorioException.CODE)
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    /**
      * Trata conflito de versão do contrato KDS (409).
      */
     @ExceptionHandler(KdsSubPedidoConflictException.class)

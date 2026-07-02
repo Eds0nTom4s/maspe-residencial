@@ -5,6 +5,7 @@ import com.restaurante.dto.request.CancelarTurnoRequest;
 import com.restaurante.dto.request.FecharTurnoRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.ChecklistTemplateResponse;
+import com.restaurante.dto.response.OperacaoConfigResponse;
 import com.restaurante.dto.response.TurnoOperacionalResponse;
 import com.restaurante.dto.response.TurnoPreFechoResponse;
 import com.restaurante.financeiro.snapshot.evidence.dto.SnapshotFinanceiroEvidenceBundleResponse;
@@ -45,6 +46,20 @@ public class TenantOperacaoController {
     private final TurnoOperacionalService turnoService;
     private final ChecklistOperacionalService checklistService;
     private final SnapshotFinanceiroEvidenceBundleService evidenceBundleService;
+
+    @GetMapping("/config")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<OperacaoConfigResponse>> config() {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_FINANCE,
+                TenantUserRole.TENANT_CASHIER,
+                TenantUserRole.TENANT_KITCHEN
+        );
+        return ResponseEntity.ok(ApiResponse.success("Configuração operacional", turnoService.getConfig()));
+    }
 
     @PostMapping("/turnos/abrir")
     @PreAuthorize("isAuthenticated()")

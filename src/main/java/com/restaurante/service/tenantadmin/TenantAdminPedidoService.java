@@ -1,8 +1,10 @@
 package com.restaurante.service.tenantadmin;
 
+import com.restaurante.config.OperacaoProperties;
 import com.restaurante.dto.response.TenantPedidoDetalheResponse;
 import com.restaurante.dto.response.TenantPedidoResumoResponse;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.exception.TurnoObrigatorioException;
 import com.restaurante.model.entity.ItemPedido;
 import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.Pedido;
@@ -11,6 +13,7 @@ import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +31,8 @@ public class TenantAdminPedidoService {
 
     private final TenantGuard tenantGuard;
     private final PedidoRepository pedidoRepository;
+    private final TurnoOperacionalRepository turnoOperacionalRepository;
+    private final OperacaoProperties operacaoProperties;
 
     @Transactional(readOnly = true)
     public Page<TenantPedidoResumoResponse> listarPedidos(
@@ -41,17 +46,41 @@ public class TenantAdminPedidoService {
             Pageable pageable
     ) {
         TenantContext ctx = requireTenantContext();
-        Page<Pedido> page = pedidoRepository.findTenantPedidosWithFilters(
-                ctx.tenantId(),
-                statusOperacional,
-                statusFinanceiro,
-                de,
-                ate,
-                instituicaoId,
-                unidadeAtendimentoId,
-                mesaId,
-                pageable
-        );
+        Page<Pedido> page;
+        if (operacaoProperties.isTurnoObrigatorio()) {
+            List<Long> turnoIds = turnoOperacionalRepository.findOpenIdsByTenantAndOptionalScope(
+                    ctx.tenantId(),
+                    instituicaoId,
+                    unidadeAtendimentoId
+            );
+            if (turnoIds.isEmpty()) {
+                throw new TurnoObrigatorioException("Abra um turno para consultar os pedidos operacionais.");
+            }
+            page = pedidoRepository.findTenantPedidosWithFiltersAndTurnos(
+                    ctx.tenantId(),
+                    turnoIds,
+                    statusOperacional,
+                    statusFinanceiro,
+                    de,
+                    ate,
+                    instituicaoId,
+                    unidadeAtendimentoId,
+                    mesaId,
+                    pageable
+            );
+        } else {
+            page = pedidoRepository.findTenantPedidosWithFilters(
+                    ctx.tenantId(),
+                    statusOperacional,
+                    statusFinanceiro,
+                    de,
+                    ate,
+                    instituicaoId,
+                    unidadeAtendimentoId,
+                    mesaId,
+                    pageable
+            );
+        }
         return page.map(this::toResumo);
     }
 

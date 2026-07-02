@@ -3,15 +3,31 @@ package com.restaurante.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.Locale;
+
 @Configuration
 @ConfigurationProperties(prefix = "consuma.operacao")
 public class OperacaoProperties {
 
     /**
-     * Quando true, exige turno ABERTO para permitir criação de pedidos (QR/POS).
-     * Default false para não quebrar fluxo público enquanto a disciplina é adotada.
+     * Quando true, as telas e APIs operacionais trabalham no escopo do turno aberto.
      */
-    private boolean requireOpenTurnoForOrders = false;
+    private boolean turnoObrigatorio = true;
+
+    /**
+     * Escopo usado por listagens operacionais de pedidos.
+     */
+    private String pedidosEscopo = "TURNO_ATUAL";
+
+    /**
+     * Habilita extrato/relatório operacional por turno.
+     */
+    private boolean extratoTurnoEnabled = true;
+
+    /**
+     * Quando true, exige turno ABERTO para permitir criação de pedidos (QR/POS).
+     */
+    private boolean requireOpenTurnoForOrders = true;
 
     /**
      * Quando true, exige turno ABERTO para pedidos criados por device/POS.
@@ -35,6 +51,33 @@ public class OperacaoProperties {
      * Limiar em minutos para considerar dispositivo "offline" no pré-fecho (informativo/warning).
      */
     private int deviceOfflineMinutes = 10;
+
+    public boolean isTurnoObrigatorio() {
+        return turnoObrigatorio;
+    }
+
+    public void setTurnoObrigatorio(boolean turnoObrigatorio) {
+        this.turnoObrigatorio = turnoObrigatorio;
+    }
+
+    public String getPedidosEscopo() {
+        if (pedidosEscopo == null || pedidosEscopo.isBlank()) {
+            return "TURNO_ATUAL";
+        }
+        return pedidosEscopo.trim().toUpperCase(Locale.ROOT);
+    }
+
+    public void setPedidosEscopo(String pedidosEscopo) {
+        this.pedidosEscopo = pedidosEscopo;
+    }
+
+    public boolean isExtratoTurnoEnabled() {
+        return extratoTurnoEnabled;
+    }
+
+    public void setExtratoTurnoEnabled(boolean extratoTurnoEnabled) {
+        this.extratoTurnoEnabled = extratoTurnoEnabled;
+    }
 
     public boolean isRequireOpenTurnoForOrders() {
         return requireOpenTurnoForOrders;

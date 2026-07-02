@@ -64,6 +64,31 @@ public interface TurnoOperacionalRepository extends JpaRepository<TurnoOperacion
         );
     }
 
+    @Query("""
+            select t.id
+            from TurnoOperacional t
+            where t.tenant.id = :tenantId
+              and (cast(:instituicaoId as long) is null or t.instituicao.id = :instituicaoId)
+              and (cast(:unidadeAtendimentoId as long) is null or t.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and t.status in :statuses
+            order by t.abertoEm desc
+            """)
+    List<Long> findOpenIdsByTenantAndOptionalScope(
+            @Param("tenantId") Long tenantId,
+            @Param("instituicaoId") Long instituicaoId,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("statuses") Iterable<TurnoOperacionalStatus> statuses
+    );
+
+    default List<Long> findOpenIdsByTenantAndOptionalScope(Long tenantId, Long instituicaoId, Long unidadeAtendimentoId) {
+        return findOpenIdsByTenantAndOptionalScope(
+                tenantId,
+                instituicaoId,
+                unidadeAtendimentoId,
+                java.util.List.of(TurnoOperacionalStatus.ABERTO, TurnoOperacionalStatus.EM_FECHO)
+        );
+    }
+
     Optional<TurnoOperacional> findByIdAndTenantId(Long id, Long tenantId);
 
     @Query("""

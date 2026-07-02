@@ -5,6 +5,7 @@ import com.restaurante.dto.request.AbrirTurnoRequest;
 import com.restaurante.dto.request.CancelarTurnoRequest;
 import com.restaurante.dto.request.FecharTurnoRequest;
 import com.restaurante.dto.response.ChecklistRunResponse;
+import com.restaurante.dto.response.OperacaoConfigResponse;
 import com.restaurante.dto.response.TurnoOperacionalResponse;
 import com.restaurante.dto.response.TurnoPreFechoResponse;
 import com.restaurante.exception.ConflictException;
@@ -146,6 +147,17 @@ public class TurnoOperacionalService {
         TurnoOperacional turno = turnoOperacionalRepository.findOpenByTenantAndInstituicaoAndUnidade(tenantId, instituicaoId, unidadeAtendimentoId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
         return toResponse(turno, checklistServiceRuns(turno));
+    }
+
+    @Transactional(readOnly = true)
+    public OperacaoConfigResponse getConfig() {
+        TenantContext ctx = TenantContextHolder.require();
+        policy.assertCanRead(ctx);
+        return OperacaoConfigResponse.builder()
+                .turnoObrigatorio(operacaoProperties.isTurnoObrigatorio())
+                .pedidosEscopo(operacaoProperties.getPedidosEscopo())
+                .extratoTurnoEnabled(operacaoProperties.isExtratoTurnoEnabled())
+                .build();
     }
 
     @Transactional(readOnly = true)

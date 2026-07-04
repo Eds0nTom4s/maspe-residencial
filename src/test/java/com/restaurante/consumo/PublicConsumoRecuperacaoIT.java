@@ -71,6 +71,8 @@ class PublicConsumoRecuperacaoIT extends PostgresTestcontainersConfig {
         ).getBody()).at("/data");
         String otp = chall.at("/debugOtp").asText();
         long cid = chall.at("/challengeId").asLong();
+        assertThat(chall.at("/otpLength").asInt()).isEqualTo(4);
+        assertThat(otp).hasSize(chall.at("/otpLength").asInt());
         String verifyIdentify = "{\"challengeId\":%d,\"telefone\":\"923000000\",\"otp\":\"%s\"}".formatted(cid, otp);
         restTemplate.postForEntity("/public/q/{token}/identificacao/otp/verify", json(verifyIdentify), String.class, qr.getToken());
 
@@ -83,6 +85,8 @@ class PublicConsumoRecuperacaoIT extends PostgresTestcontainersConfig {
         ).getBody()).at("/data");
         long recChallengeId = challRec.at("/challengeId").asLong();
         String recOtp = challRec.at("/debugOtp").asText();
+        assertThat(challRec.at("/otpLength").asInt()).isEqualTo(4);
+        assertThat(recOtp).hasSize(challRec.at("/otpLength").asInt());
 
         String verifyRec = "{\"challengeId\":%d,\"telefone\":\"923000000\",\"otp\":\"%s\"}".formatted(recChallengeId, recOtp);
         ResponseEntity<String> verifyResp = restTemplate.postForEntity(

@@ -48,6 +48,7 @@ services:
       JWT_SECRET: "local-dev-jwt-secret-please-change-32chars-min-0000000000000000"
       DEVICE_TOKEN_HASH_SECRET: "local-dev-device-token-hash-secret-please-change-32chars-min"
       SYNC_CURSOR_HMAC_SECRET: "local-dev-sync-cursor-hmac-secret-please-change-32chars-min"
+      CONSUMA_OTP_HASH_PEPPER: "local-dev-otp-hash-pepper-please-change-32chars-min"
       APPYPAY_WEBHOOK_SECRET: "local-dev-appypay-webhook-secret-please-change-32chars-min"
       CONSUMA_SNAPSHOT_HMAC_SECRET_V1: "local-dev-snapshot-hmac-secret-v1-please-change-32chars-min"
     extra_hosts:

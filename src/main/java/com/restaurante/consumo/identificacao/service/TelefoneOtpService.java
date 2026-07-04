@@ -64,7 +64,8 @@ public class TelefoneOtpService {
             Instant availableAt = challenge.getLastSentAt().plusSeconds(props.getResendCooldownSeconds());
             if (availableAt.isAfter(now)) throw new BusinessException("OTP_RESEND_TOO_SOON");
 
-            String otp = generateOtp();
+            int otpLength = configuredOtpLength();
+            String otp = generateOtp(otpLength);
             challenge.setOtpHash(hashOtp(challenge.getId(), otp));
             challenge.setExpiresAt(now.plusSeconds(props.getTtlSeconds()));
             challenge.setResendCount(challenge.getResendCount() + 1);
@@ -74,7 +75,7 @@ public class TelefoneOtpService {
             repository.save(challenge);
 
             boolean smsSent = trySendSms(phone, otp);
-            return new OtpRequestResult(challenge, phoneNormalizerService.mask(phone), otpIfDebug(otp), availableAt, smsSent);
+            return new OtpRequestResult(challenge, phoneNormalizerService.mask(phone), otpIfDebug(otp), availableAt, smsSent, otpLength);
         }
 
         // novo challenge
@@ -94,14 +95,15 @@ public class TelefoneOtpService {
         challenge.setOtpHash("PENDING_HASH_GENERATION");
         repository.save(challenge);
 
-        String otp = generateOtp();
+        int otpLength = configuredOtpLength();
+        String otp = generateOtp(otpLength);
         challenge.setOtpHash(hashOtp(challenge.getId(), otp));
         repository.save(challenge);
 
         boolean smsSent = trySendSms(phone, otp);
 
         Instant resendAvailableAt = now.plusSeconds(props.getResendCooldownSeconds());
-        return new OtpRequestResult(challenge, phoneNormalizerService.mask(phone), otpIfDebug(otp), resendAvailableAt, smsSent);
+        return new OtpRequestResult(challenge, phoneNormalizerService.mask(phone), otpIfDebug(otp), resendAvailableAt, smsSent, otpLength);
     }
 
     @Transactional
@@ -164,14 +166,26 @@ public class TelefoneOtpService {
     private boolean trySendSms(String phoneNormalized, String otp) {
         // Nunca logar OTP aqui.
         try {
-            return notificacaoService.enviarOtp(phoneNormalized, otp);
+            boolean sent = notificacaoService.enviarOtp(phoneNormalized, otp);
+            if (!sent && !props.isMockEnabled()) {
+                throw new BusinessException("OTP_SMS_SEND_FAILED");
+            }
+            return sent;
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
+            if (!props.isMockEnabled()) {
+                throw new BusinessException("OTP_SMS_SEND_FAILED");
+            }
             return false;
         }
     }
 
-    private String generateOtp() {
-        int len = Math.max(4, props.getLength());
+    private int configuredOtpLength() {
+        return Math.max(4, props.getLength());
+    }
+
+    private String generateOtp(int len) {
         StringBuilder sb = new StringBuilder(len);
         for (int i = 0; i < len; i++) sb.append(secureRandom.nextInt(10));
         return sb.toString();
@@ -200,13 +214,15 @@ public class TelefoneOtpService {
         private final String debugOtp;
         private final Instant resendAvailableAt;
         private final boolean smsSent;
+        private final int otpLength;
 
-        public OtpRequestResult(TelefoneOtpChallenge challenge, String maskedPhone, String debugOtp, Instant resendAvailableAt, boolean smsSent) {
+        public OtpRequestResult(TelefoneOtpChallenge challenge, String maskedPhone, String debugOtp, Instant resendAvailableAt, boolean smsSent, int otpLength) {
             this.challenge = challenge;
             this.maskedPhone = maskedPhone;
             this.debugOtp = debugOtp;
             this.resendAvailableAt = resendAvailableAt;
             this.smsSent = smsSent;
+            this.otpLength = otpLength;
         }
     }
 }

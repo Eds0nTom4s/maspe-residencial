@@ -38,7 +38,6 @@ services:
       DB_PORT: 5432
       DB_NAME: ${DB_NAME:-restaurante_sandbox_db}
       DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

@@ -48,6 +48,7 @@ class TelefoneOtpServiceIT extends PostgresTestcontainersConfig {
 
         assertThat(result.getChallenge().getId()).isNotNull();
         assertThat(result.getDebugOtp()).isNotBlank();
+        assertThat(result.getDebugOtp()).matches("\\d{4}");
 
         var persisted = challengeRepository.findByIdAndTenant_Id(result.getChallenge().getId(), tenant.getId()).orElseThrow();
         assertThat(persisted.getOtpHash()).isNotBlank();

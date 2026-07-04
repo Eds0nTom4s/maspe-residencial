@@ -77,6 +77,8 @@ class PublicConsumoIdentificadoIT extends PostgresTestcontainersConfig {
         String debugOtp = reqJson.at("/data/debugOtp").asText();
         assertThat(challengeId).isPositive();
         assertThat(debugOtp).isNotBlank();
+        assertThat(reqJson.at("/data/otpLength").asInt()).isEqualTo(4);
+        assertThat(debugOtp).hasSize(reqJson.at("/data/otpLength").asInt());
 
         // verify OTP
         String verifyPayload = """

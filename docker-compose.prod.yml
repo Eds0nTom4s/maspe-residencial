@@ -39,6 +39,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET obrigatório}
       SOCIO_JWT_SECRET: ${SOCIO_JWT_SECRET:-${JWT_SECRET}}
       SOCIO_JWT_ISSUER: ${SOCIO_JWT_ISSUER:-associagest}
+      CONSUMA_OTP_HASH_PEPPER: ${CONSUMA_OTP_HASH_PEPPER:?CONSUMA_OTP_HASH_PEPPER obrigatório}
       APPYPAY_MOCK: ${APPYPAY_MOCK:-false}
       APPYPAY_BASE_URL: ${APPYPAY_BASE_URL:-https://gwy-api.appypay.co.ao/v2.0}
       APPYPAY_TOKEN_URL: ${APPYPAY_TOKEN_URL:-https://login.microsoftonline.com/auth.appypay.co.ao/oauth2/token}
@@ -53,6 +54,12 @@ services:
       TELCOSMS_MOCK: ${TELCOSMS_MOCK:-false}
       TELCOSMS_BASE_URL: ${TELCOSMS_BASE_URL:-https://www.telcosms.co.ao}
       TELCOSMS_API_KEY: ${TELCOSMS_API_KEY:?TELCOSMS_API_KEY obrigatório}
+      CONSUMA_SMS_PROVIDER: ${CONSUMA_SMS_PROVIDER:-telcosms}
+      CONSUMA_SMS_ENABLED: ${CONSUMA_SMS_ENABLED:-true}
+      CONSUMA_SMS_BASE_URL: ${CONSUMA_SMS_BASE_URL:-${TELCOSMS_BASE_URL:-https://www.telcosms.co.ao}}
+      CONSUMA_SMS_API_KEY: ${CONSUMA_SMS_API_KEY:-${TELCOSMS_API_KEY:?TELCOSMS_API_KEY obrigatório}}
+      CONSUMA_SMS_MOCK: ${CONSUMA_SMS_MOCK:-${TELCOSMS_MOCK:-false}}
+      CONSUMA_SMS_SENDER_ID: ${CONSUMA_SMS_SENDER_ID:-CONSUMA}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://host.docker.internal:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}

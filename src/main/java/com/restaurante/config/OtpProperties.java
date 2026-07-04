@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Configuration;
 public class OtpProperties {
 
     private boolean enabled = true;
-    private int length = 6;
+    private int length = 4;
     private int ttlMinutes = 5;
     private int ttlSeconds = 300;
     private int maxAttempts = 5;

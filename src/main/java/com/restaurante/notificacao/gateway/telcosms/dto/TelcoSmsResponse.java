@@ -30,7 +30,13 @@ public class TelcoSmsResponse {
     }
     
     public boolean isSuccess() {
-        return "success".equalsIgnoreCase(status) || "sent".equalsIgnoreCase(status);
+        if (status == null || status.isBlank()) {
+            return false;
+        }
+        String normalized = status.trim().toLowerCase();
+        return "success".equals(normalized)
+                || "sent".equals(normalized)
+                || (normalized.startsWith("200") && normalized.contains("sucesso"));
     }
     
     // Getters e Setters

@@ -111,7 +111,10 @@ public class TelcoSmsGateway implements SmsGateway {
             if (telcoResponse != null && telcoResponse.isSuccess()) {
                 log.info("SMS enviado com sucesso via TelcoSMS para {} - ID: {}", 
                     maskPhone(phoneNumber), telcoResponse.getMessageId());
-                return SmsResponse.success(telcoResponse.getMessage(), telcoResponse.getMessageId());
+                String successMessage = telcoResponse.getMessage() != null
+                    ? telcoResponse.getMessage()
+                    : telcoResponse.getStatus();
+                return SmsResponse.success(successMessage, telcoResponse.getMessageId());
             } else {
                 String errorMsg = telcoResponse != null ? telcoResponse.getMessage() : "Resposta nula";
                 log.warn("Falha ao enviar SMS via TelcoSMS para {}: {}", maskPhone(phoneNumber), errorMsg);

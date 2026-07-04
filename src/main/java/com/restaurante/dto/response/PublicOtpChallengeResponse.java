@@ -11,5 +11,5 @@ public class PublicOtpChallengeResponse {
     private Instant resendAvailableAt;
     private String maskedPhone;
     private String debugOtp;
+    private Integer otpLength;
 }
-

@@ -51,6 +51,7 @@ public class PublicConsumoIdentificadoController {
         resp.setResendAvailableAt(result.getResendAvailableAt());
         resp.setMaskedPhone(result.getMaskedPhone());
         resp.setDebugOtp(result.getDebugOtp());
+        resp.setOtpLength(result.getOtpLength());
         return ResponseEntity.ok(ApiResponse.success("Se o número for válido, enviaremos um código de confirmação.", resp));
     }
 
@@ -99,6 +100,7 @@ public class PublicConsumoIdentificadoController {
         resp.setResendAvailableAt(result.getResendAvailableAt());
         resp.setMaskedPhone(result.getMaskedPhone());
         resp.setDebugOtp(result.getDebugOtp());
+        resp.setOtpLength(result.getOtpLength());
         return ResponseEntity.ok(ApiResponse.success("Se o número for válido, enviaremos um código de confirmação.", resp));
     }
 

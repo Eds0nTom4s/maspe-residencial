@@ -38,9 +38,10 @@ public class NotificacaoService {
      */
     public boolean enviarOtp(String telefone, String codigo) {
         String mensagem = String.format(
-            "Seu código de verificação é: %s\n" +
-            "Válido por 5 minutos.\n" +
-            "Sistema de Restauração",
+            "Codigo de verificacao Consuma: %s\n" +
+            "Valido por 5 minutos.\n" +
+            "Nao partilhe este codigo.\n" +
+            "Consuma",
             codigo
         );
         

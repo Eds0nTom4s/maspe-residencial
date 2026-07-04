@@ -1,0 +1,163 @@
+RELATORIO_WORKTREE_CONSOLIDATION_20260704
+
+1. Identificacao
+
+Data: 2026-07-04, timezone Africa/Luanda.
+Backend branch inicial: backend/integration-platform-public-menu-local-001.
+Backend HEAD inicial: fc9064e0bbf01975e0ce735643516e7b35536c83.
+Backend branch final: backend/integration-platform-public-menu-local-001.
+Backend HEAD final: hash do commit documental informado na entrega final.
+Frontend branch inicial: ui/z-index-governance-001.
+Frontend HEAD inicial: 60f57e07a987ef090820a1a16eb37d7189646b6e.
+Frontend branch final: ui/z-index-governance-001.
+Frontend HEAD final: hash do commit documental informado na entrega final.
+
+2. Objetivo
+
+Organizar os worktrees backend e frontend em blocos coerentes, sem implementar
+funcionalidade nova, separando OTP/SMS, OTP dinamico, UI publica/QR, z-index,
+PDV/Dashboard e documentacao.
+
+3. Inventario backend
+
+Arquivos B1 - OTP/SMS/TelcoSMS contract:
+- src/main/java/com/restaurante/config/OtpProperties.java
+- src/main/java/com/restaurante/consumo/identificacao/service/TelefoneOtpService.java
+- src/main/java/com/restaurante/controller/PublicConsumoIdentificadoController.java
+- src/main/java/com/restaurante/dto/response/PublicOtpChallengeResponse.java
+- src/main/java/com/restaurante/notificacao/gateway/telcosms/TelcoSmsGateway.java
+- src/main/java/com/restaurante/notificacao/gateway/telcosms/dto/TelcoSmsResponse.java
+- src/main/java/com/restaurante/notificacao/service/NotificacaoService.java
+- src/main/resources/application.properties
+- testes OTP/SMS/TelcoSMS relacionados.
+Decisao: versionados no commit backend OTP/SMS.
+
+Arquivos B2 - configuracao ambiente/examples/compose:
+- .env.prod.example
+- .env.sandbox.example
+- .env.sandbox.local.example
+- docker-compose.local.yml
+- docker-compose.prod.yml
+- docker-compose.sandbox-local.yml
+- docker-compose.sandbox.yml
+Decisao: versionados no commit backend OTP/SMS.
+
+Arquivos B3 - docs/relatorios backend:
+- docs/reports/backend/worktree-consolidation-20260704/
+- docs/reports/fullstack/RELATORIO_WORKTREE_CONSOLIDATION_20260704.txt
+Decisao: versionar em commit documental separado.
+
+4. Inventario frontend
+
+Arquivos F1 - OTP dinamico public-menu:
+- src/modules/public/api/publicMenu.service.spec.ts
+- src/modules/public/components/PublicOtpModal.vue
+- src/modules/public/constants/publicOtp.ts
+- src/modules/public/pages/PublicCartPage.vue
+- src/modules/public/types/public.types.ts
+Decisao: versionados no commit frontend OTP dinamico.
+
+Arquivos F2 - UI publica/cardapio/QR visual:
+- componentes publicos de cardapio, paginas publicas QR, i18n publico, QR Codes
+  internos, screenshots e relatorios QR.
+Decisao: isolados no branch ui/pending-public-ui-visuals-20260704.
+
+Arquivos F3 - z-index governance:
+- src/shared/components/feedback/ToastContainer.vue
+- src/shared/components/ui/ConfirmDialog.vue
+- src/styles/tokens/zIndex.ts
+- tailwind.config.ts
+- docs de layering/z-index.
+Decisao: isolados no branch ui/pending-z-index-governance-20260704.
+
+Arquivos F4 - PDV/Dashboard/Turnos:
+- src/modules/app/pages/DashboardPage.vue
+- src/modules/app/pages/PdvPage.vue
+Decisao: isolados no branch ui/pending-app-ops-operational-20260704.
+
+Arquivos F5 - docs/relatorios frontend:
+- docs/reports/frontend/worktree-consolidation-20260704/
+- docs/reports/fullstack/RELATORIO_WORKTREE_CONSOLIDATION_20260704.txt
+Decisao: versionar em commit documental separado.
+
+5. Commit backend OTP/SMS/TelcoSMS
+
+Commit: 67371daebff3c5a7c95eac7a8c3951b71d014893.
+Resultado: OTP publico configuravel, otpLength retornado ao frontend, TelcoSMS
+aceita resposta real de sucesso, falha real de SMS bloqueia fluxo sem mock,
+template OTP usa assinatura Consuma e examples/compose foram alinhados.
+
+Testes:
+- mvn -DskipTests compile: passou.
+- mvn test: passou, 354 testes, 0 falhas, 0 erros, 3 skipped.
+- mvn -DskipTests package: passou.
+- mvn -Dtest=TelcoSmsGatewayTest,NotificacaoServiceTest test: passou, 28 testes.
+- mvn -Pit -Dit.test=TelefoneOtpServiceIT,PublicConsumoIdentificadoIT,PublicConsumoRecuperacaoIT verify: passou, 3 ITs.
+
+6. Commit frontend OTP dinamico
+
+Commit: 78464307e2ed96926fadef0dd3f40422ff10b691.
+Resultado: PublicOtpModal deixou de assumir 6 digitos, usa otpLength retornado
+pelo backend e DEFAULT_PUBLIC_OTP_LENGTH = 4 apenas como fallback defensivo.
+
+Testes:
+- npm run typecheck: passou.
+- npm run test -- src/modules/public/api/publicMenu.service.spec.ts: passou, 3 testes.
+- npm run build: passou.
+- npm run lint: passou.
+
+7. Branches pending criadas
+
+Branch: ui/pending-public-ui-visuals-20260704.
+Categoria: F2.
+Commit: 47572379d79f645c5e027adc5571e6eccfe652f6.
+Conteudo: UI publica/cardapio/QR visual, QR Codes premium/grid, i18n publico,
+componentes publicos, screenshots e relatorios QR.
+Risco: medio/alto; requer validacao visual dedicada antes de integracao.
+
+Branch: ui/pending-z-index-governance-20260704.
+Categoria: F3.
+Commit: cbaf95e513354d16be08c4f881dd17958fac7238.
+Conteudo: escala z-index, toast, modal, overlay, tailwind e docs de layering.
+Risco: medio; pode alterar stacking de modais/toasts/dropdowns.
+
+Branch: ui/pending-app-ops-operational-20260704.
+Categoria: F4.
+Commit: 5045c612ef4d371e9714fdd517ad30ff5fd65152.
+Conteudo: PDV e Dashboard.
+Risco: alto; afeta regras e experiencia operacional, deve ser revisado em fase propria.
+
+8. Docs/relatorios versionados
+
+Commit backend docs: hash informado na entrega final.
+Arquivos backend:
+- docs/reports/backend/worktree-consolidation-20260704/
+- docs/reports/fullstack/RELATORIO_WORKTREE_CONSOLIDATION_20260704.txt
+
+Commit frontend docs: hash informado na entrega final.
+Arquivos frontend:
+- docs/reports/frontend/worktree-consolidation-20260704/
+- docs/reports/fullstack/RELATORIO_WORKTREE_CONSOLIDATION_20260704.txt
+
+9. Worktree final
+
+Backend: esperado limpo apos commit documental, com codigo OTP/SMS versionado.
+Frontend: esperado limpo apos commit documental, com pendencias isoladas em branches.
+
+10. Riscos restantes
+
+- Branch F2 precisa validacao visual e decisao de integracao separada.
+- Branch F3 precisa auditoria de stacking/layers em telas com modal, toast e dropdown.
+- Branch F4 permanece de alto risco por envolver PDV/Dashboard e regras operacionais.
+- Stash de backup foi preservado ate confirmacao final, para nao perder evidencia.
+
+11. Proximas acoes recomendadas
+
+- UI publica/cardapio/QR visual: revisar branch F2 em prompt visual dedicado.
+- z-index governance: revisar branch F3 com matriz de overlays/modais/toasts.
+- PDV/Dashboard/Turnos: revisar branch F4 em prompt operacional proprio.
+- Docs: manter os relatorios de inventario como evidencia da consolidacao.
+
+12. Decisao final
+
+CONSOLIDACAO CONCLUIDA COM PENDENCIAS ISOLADAS.

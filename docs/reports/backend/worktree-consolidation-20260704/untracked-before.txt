@@ -1,0 +1,6 @@
+docs/reports/backend/worktree-consolidation-20260704/branch-before.txt
+docs/reports/backend/worktree-consolidation-20260704/diff-name-status-before.txt
+docs/reports/backend/worktree-consolidation-20260704/head-before.txt
+docs/reports/backend/worktree-consolidation-20260704/status-before.txt
+docs/reports/backend/worktree-consolidation-20260704/untracked-before.txt
+docs/reports/backend/worktree-consolidation-20260704/worktree-before.patch

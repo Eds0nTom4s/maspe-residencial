@@ -258,6 +258,137 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         assertThat(events.getContent().stream().anyMatch(e -> e.getEventType() == OperationalEventType.PEDIDO_STATUS_CHANGED && "FINALIZADO".equals(e.getStatusNovo()))).isTrue();
     }
 
+    @Test
+    @WithMockUser(username = "operator-user")
+    void operator_canAcceptPedido_withoutChangingPaymentOrStartingProduction() throws Exception {
+        Setup setup = setupTenantAndPedido("op-status-7", "OS7");
+        User operator = criarTenantActor(setup.tenant, TenantUserRole.TENANT_OPERATOR, "operator-os7");
+        TenantContextHolder.set(new TenantContext(
+                setup.tenant.getId(), setup.tenant.getTenantCode(), operator.getId(),
+                Set.of(TenantUserRole.TENANT_OPERATOR.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/aceitar"))
+                .andExpect(status().isOk());
+
+        Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
+        assertThat(pedido.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PENDENTE_PAGAMENTO);
+
+        var sub = subPedidoRepository.findByIdAndTenantId(setup.subPedidoId, setup.tenant.getId()).orElseThrow();
+        assertThat(sub.getStatus()).isEqualTo(StatusSubPedido.PENDENTE);
+
+        var events = operationalEventLogRepository.searchByTenantAndFilters(
+                setup.tenant.getId(), setup.pedidoId, null, null,
+                null, null, null, null,
+                org.springframework.data.domain.PageRequest.of(0, 50)
+        );
+        assertThat(events.getContent().stream().anyMatch(e ->
+                e.getEventType() == OperationalEventType.SUBPEDIDO_STATUS_CHANGED
+                        && "PENDENTE".equals(e.getStatusNovo()))).isTrue();
+        assertThat(events.getContent().stream().anyMatch(e ->
+                e.getEventType() == OperationalEventType.PEDIDO_STATUS_CHANGED
+                        && "EM_ANDAMENTO".equals(e.getStatusNovo()))).isTrue();
+    }
+
+    @Test
+    @WithMockUser(username = "operator-user")
+    void acceptPedido_isBlockedWhenAlreadyAccepted_andDoesNotChangePayment() throws Exception {
+        Setup setup = setupTenantAndPedido("op-status-8", "OS8");
+        User operator = criarTenantActor(setup.tenant, TenantUserRole.TENANT_OPERATOR, "operator-os8");
+        TenantContextHolder.set(new TenantContext(
+                setup.tenant.getId(), setup.tenant.getTenantCode(), operator.getId(),
+                Set.of(TenantUserRole.TENANT_OPERATOR.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/aceitar"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/aceitar"))
+                .andExpect(status().isConflict());
+
+        Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
+        assertThat(pedido.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PENDENTE_PAGAMENTO);
+    }
+
+    @Test
+    @WithMockUser(username = "operator-user")
+    void operator_canRejectCreatedNaoPagoPedido_andEventLogIsCreated() throws Exception {
+        Setup setup = setupTenantAndPedido("op-status-9", "OS9");
+        Pedido created = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
+        created.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
+        pedidoRepository.saveAndFlush(created);
+
+        User operator = criarTenantActor(setup.tenant, TenantUserRole.TENANT_OPERATOR, "operator-os9");
+        TenantContextHolder.set(new TenantContext(
+                setup.tenant.getId(), setup.tenant.getTenantCode(), operator.getId(),
+                Set.of(TenantUserRole.TENANT_OPERATOR.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/rejeitar")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motivo\":\"Fora do horário de produção\"}"))
+                .andExpect(status().isOk());
+
+        Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
+        assertThat(pedido.getStatus()).isEqualTo(StatusPedido.CANCELADO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
+
+        var sub = subPedidoRepository.findByIdAndTenantId(setup.subPedidoId, setup.tenant.getId()).orElseThrow();
+        assertThat(sub.getStatus()).isEqualTo(StatusSubPedido.CANCELADO);
+
+        var events = operationalEventLogRepository.searchByTenantAndFilters(
+                setup.tenant.getId(), setup.pedidoId, null, OperationalEventType.PEDIDO_STATUS_CHANGED,
+                null, null, null, null,
+                org.springframework.data.domain.PageRequest.of(0, 20)
+        );
+        assertThat(events.getContent().stream().anyMatch(e -> "CANCELADO".equals(e.getStatusNovo()))).isTrue();
+    }
+
+    @Test
+    @WithMockUser(username = "operator-user")
+    void rejectPedido_isBlockedAfterAccept() throws Exception {
+        Setup setup = setupTenantAndPedido("op-status-10", "O10");
+        Pedido created = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
+        created.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
+        pedidoRepository.saveAndFlush(created);
+
+        User operator = criarTenantActor(setup.tenant, TenantUserRole.TENANT_OPERATOR, "operator-os10");
+        TenantContextHolder.set(new TenantContext(
+                setup.tenant.getId(), setup.tenant.getTenantCode(), operator.getId(),
+                Set.of(TenantUserRole.TENANT_OPERATOR.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/aceitar"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/rejeitar")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motivo\":\"Tarde demais\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @WithMockUser(username = "operator-user")
+    void acceptPedidoFromOtherTenantIsNotFound() throws Exception {
+        Setup tenantA = setupTenantAndPedido("op-status-11a", "11A");
+        Setup tenantB = setupTenantAndPedido("op-status-11b", "11B");
+        User operatorA = criarTenantActor(tenantA.tenant, TenantUserRole.TENANT_OPERATOR, "operator-os11");
+        TenantContextHolder.set(new TenantContext(
+                tenantA.tenant.getId(), tenantA.tenant.getTenantCode(), operatorA.getId(),
+                Set.of(TenantUserRole.TENANT_OPERATOR.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        mockMvc.perform(patch("/tenant/pedidos/" + tenantB.pedidoId + "/aceitar"))
+                .andExpect(status().isNotFound());
+    }
+
     private Setup setupTenantAndPedido(String slug, String tenantCode) throws Exception {
         Tenant tenant = criarTenant("Tenant " + slug, slug, tenantCode);
         Instituicao inst = criarInstituicao(tenant, "Inst " + slug, tenantCode.substring(0, Math.min(3, tenantCode.length())), "NIF-" + tenantCode, "+244900" + Math.abs(slug.hashCode() % 1_000_000));

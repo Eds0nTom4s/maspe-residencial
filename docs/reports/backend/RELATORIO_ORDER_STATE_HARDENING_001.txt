@@ -1,0 +1,116 @@
+RELATORIO_ORDER_STATE_HARDENING_001
+
+1. Identificacao
+
+Data: 2026-07-05
+Timezone: Africa/Luanda
+Backend branch: backend/order-state-hardening-001
+Backend commit base: 3b7d8e25664f7ba59c782d52e4737036bb8c7607
+Backend commit final: ver commit final da entrega
+
+2. Problema corrigido
+
+A UI de Pedidos exibia a acao "Aceitar", mas chamava o endpoint generico
+`PATCH /tenant/pedidos/{id}/status` com `EM_ANDAMENTO`. No backend esse estado
+e derivado de SubPedidos e era bloqueado como transicao direta.
+
+3. Decisao backend
+
+Foram criados comandos explicitos:
+- `PATCH /tenant/pedidos/{id}/aceitar`
+- `PATCH /tenant/pedidos/{id}/rejeitar`
+
+O endpoint legado `/tenant/pedidos/{id}/status` foi preservado para
+compatibilidade, mantendo cancelamento/finalizacao nos fluxos ja existentes.
+
+4. Transicao aceitar
+
+Estado inicial permitido:
+- Pedido `CRIADO`
+- Todos os SubPedidos `CRIADO`
+
+Estado final:
+- SubPedidos `PENDENTE`
+- Pedido derivado para `EM_ANDAMENTO`
+
+Regras:
+- Nao confirma pagamento.
+- Nao inicia preparo/KDS.
+- Preserva `StatusFinanceiroPedido`.
+- Requer tenant atual e role tenant operacional.
+- Requer turno associado `ABERTO` ou `EM_FECHO` quando
+  `consuma.operacao.turno-obrigatorio=true`.
+
+5. Transicao rejeitar
+
+Estado inicial permitido:
+- Pedido `CRIADO`
+- Financeiro `NAO_PAGO`
+
+Estado final:
+- Pedido `CANCELADO`
+- SubPedidos `CANCELADO`
+
+Regras:
+- Nao cria status novo `REJEITADO`.
+- Nao confirma pagamento.
+- Nao estorna pagamento.
+- Bloqueia pagamento em curso/confirmado nesta fase.
+
+6. Auditoria e ator
+
+Os comandos usam `OperationalEventLogService` para registrar:
+- `PEDIDO_STATUS_CHANGED`
+- `SUBPEDIDO_STATUS_CHANGED`
+- `TRANSITION_BLOCKED`
+
+Metadados adicionados:
+- `command`
+- `paymentStatusPreserved`
+- `productionStarted`
+- `tenantTemplate`
+- `pedidoOrigem`
+
+Origem do ator e resolvida por role tenant:
+- `TENANT_CASHIER`
+- `TENANT_OPERATOR`
+- `TENANT_ADMIN`
+- `TENANT_OWNER`
+
+7. Arquivos alterados
+
+- `src/main/java/com/restaurante/controller/TenantPedidoController.java`
+- `src/main/java/com/restaurante/dto/request/RejeitarPedidoRequest.java`
+- `src/main/java/com/restaurante/service/operacional/PedidoStatusTransitionService.java`
+- `src/test/java/com/restaurante/operacional/OperationalStatusTransitionIT.java`
+- `src/test/java/com/restaurante/tenantadmin/TenantPedidoTurnoObrigatorioIT.java`
+
+8. Testes backend
+
+Executados:
+- `mvn -q -DskipTests compile`
+  Resultado: passou.
+- `mvn -q test`
+  Resultado: passou, exit 0. Relatorios Surefire atuais sem falhas/erros.
+- `mvn -q -Pit -Dit.test=OperationalStatusTransitionIT,TenantPedidoTurnoObrigatorioIT test-compile failsafe:integration-test failsafe:verify`
+  Resultado: passou.
+  `OperationalStatusTransitionIT`: 11 testes, 0 falhas, 0 erros.
+  `TenantPedidoTurnoObrigatorioIT`: 2 testes, 0 falhas, 0 erros.
+
+Observacao:
+- Uma tentativa ampla anterior de `mvn -Pit verify` foi interrompida por custo
+  operacional antes desta validacao direcionada. O recorte Failsafe acima cobre
+  as transicoes alteradas e o guard de turno.
+
+9. Riscos restantes
+
+- A policy por template ainda nao bloqueia templates especificos; nesta fase
+  template/origem sao auditados em metadados para permitir hardening posterior.
+- Rejeicao de pedido com `PENDENTE_PAGAMENTO` segue bloqueada ate existir regra
+  explicita de cancelamento/expiracao da ordem de pagamento.
+- Auditoria ainda convive com mecanismos historicos fora de
+  `OperationalEventLog`.
+
+10. Decisao final
+
+APROVADO COM RESSALVAS

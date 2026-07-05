@@ -2,6 +2,7 @@ package com.restaurante.controller;
 
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.request.AtualizarStatusPedidoRequest;
+import com.restaurante.dto.request.RejeitarPedidoRequest;
 import com.restaurante.dto.response.TenantPedidoDetalheResponse;
 import com.restaurante.dto.response.TenantPedidoResumoResponse;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
@@ -95,5 +96,42 @@ public class TenantPedidoController {
         String ua = http != null ? http.getHeader("User-Agent") : null;
         TenantPedidoDetalheResponse resp = pedidoStatusTransitionService.atualizarStatusPedido(id, request.getStatus(), request.getMotivo(), ip, ua);
         return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success("Status atualizado", resp));
+    }
+
+    @PatchMapping("/pedidos/{id}/aceitar")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<TenantPedidoDetalheResponse>> aceitar(
+            @PathVariable Long id,
+            jakarta.servlet.http.HttpServletRequest http
+    ) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        TenantPedidoDetalheResponse resp = pedidoStatusTransitionService.aceitarPedido(id, ip, ua);
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success("Pedido aceite", resp));
+    }
+
+    @PatchMapping("/pedidos/{id}/rejeitar")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<TenantPedidoDetalheResponse>> rejeitar(
+            @PathVariable Long id,
+            @Valid @RequestBody RejeitarPedidoRequest request,
+            jakarta.servlet.http.HttpServletRequest http
+    ) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        TenantPedidoDetalheResponse resp = pedidoStatusTransitionService.rejeitarPedido(id, request.getMotivo(), ip, ua);
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success("Pedido rejeitado", resp));
     }
 }

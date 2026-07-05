@@ -50,6 +50,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -123,6 +124,22 @@ class TenantPedidoTurnoObrigatorioIT extends PostgresTestcontainersConfig {
         assertThat(content).hasSize(1);
         assertThat(content.toString()).contains(pedidoAberto.getNumero());
         assertThat(content.toString()).doesNotContain(pedidoFechado.getNumero());
+    }
+
+    @Test
+    @WithMockUser(username = "tenant-owner")
+    void aceitarPedido_requiresOpenTurnoWhenTurnoObrigatorio() throws Exception {
+        ProvisionarTenantResponse provisioned = provisionTenant();
+        setTenantContext(provisioned);
+
+        Tenant tenant = tenantRepository.findById(provisioned.getTenantId()).orElseThrow();
+        Instituicao instituicao = instituicaoRepository.findById(provisioned.getInstituicaoId()).orElseThrow();
+        UnidadeAtendimento unidade = unidadeAtendimentoRepository.findById(provisioned.getUnidadeAtendimentoId()).orElseThrow();
+        Pedido pedidoSemTurno = criarPedido(tenant, instituicao, unidade, null, "SEM-TURNO");
+
+        mockMvc.perform(patch("/tenant/pedidos/" + pedidoSemTurno.getId() + "/aceitar"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TURNO_ABERTO_OBRIGATORIO"));
     }
 
     private ProvisionarTenantResponse provisionTenant() {

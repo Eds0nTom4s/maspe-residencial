@@ -1,0 +1,79 @@
+RELATORIO_OPERATIONAL_TEMPLATE_POLICY_001
+
+1. Identificacao
+Backend branch: backend/operational-template-policy-hardening-001
+Backend commit base: 1a247e827726a3047052590615a7a881782585b3
+Backend commit final: informado na entrega final
+Frontend branch: ui/operational-template-policy-hardening-001
+Frontend commit base: bebb707557a76b4bb0dac8face00e360125c758a
+Frontend commit final: sem commit frontend; igual ao commit base
+
+2. Objetivo
+Criar uma politica operacional por template para centralizar aceite, rejeicao, pagamento, producao, KDS, caixa e turno.
+
+3. Problema tratado
+As regras existiam em pontos isolados. A fase consolida uma matriz minima sem redesenhar fluxos aprovados.
+
+4. Policy criada/consolidada
+OperationalTemplatePolicy criada no backend e integrada a PedidoPagamentoPolicy e PedidoStatusTransitionService.
+
+5. Templates tratados
+CONSUMA_REST_V1, CONSUMA_PONTO_V1, QR_MESA, QR_PRINCIPAL, PDV_INTERNO, KDS e CAIXA.
+
+6. Matriz operacional
+REST/QR: turno obrigatorio, aceite antes de pagamento, producao aplicavel.
+PONTO: turno obrigatorio, QR publico continua apos aceite, device/operador autenticado pode pagamento imediato quando aplicavel.
+PDV_INTERNO: preparado como origem futura, sem liberar pagamento falso.
+KDS: move producao, nao pagamento.
+CAIXA: confirma pagamento real, nao producao.
+
+7. Integracao com aceite/rejeicao
+Aceitar e rejeitar passam por OperationalTemplatePolicy antes de aplicar regras de status e financeiro ja aprovadas.
+
+8. Integracao com pagamento apos aceite
+PedidoPagamentoPolicy passou a delegar a decisao de aceite antes de pagamento para OperationalTemplatePolicy.
+
+9. Pedido vs pagamento vs producao
+Pedido continua separado de pagamento e producao. Aceite nao paga. Pagamento nao inicia producao. KDS nao mexe em caixa.
+
+10. Atores
+Owner/Admin/Operator/Cashier podem aceitar/rejeitar quando origem permite.
+Cashier/Finance/Gateway/Device POS confirmam pagamento por fluxo real.
+Kitchen/Device KDS movem producao e nao confirmam pagamento.
+
+11. Turno como guard
+Turno permanece obrigatorio para templates operacionais; policy expoe `requiresTurno`.
+
+12. Frontend
+Alterado ou nao alterado: nao alterado.
+Justificativa: backend ainda nao expoe allowedActions/capabilities por pedido; alterar UI agora criaria deducao local ou contrato falso.
+
+13. Testes backend
+mvn -DskipTests compile: passou.
+mvn -Dtest=OperationalTemplatePolicyTest,PedidoPagamentoPolicyTest test: passou.
+mvn test: passou. Resultado: 365 testes, 0 falhas, 0 erros, 3 ignorados.
+mvn -q -Pit -Dit.test=OperationalStatusTransitionIT,PublicQrPagamentoStartIT,DevicePedidoTurnoPolicyIT test-compile failsafe:integration-test failsafe:verify: passou. Resultado Failsafe: 15 concluidos, 0 falhas, 0 erros, 0 ignorados.
+
+14. Testes frontend
+npm run typecheck: passou.
+npm run lint: passou.
+npm run test: passou. Resultado: 14 arquivos, 64 testes.
+npm run build: passou.
+npm run test:e2e: passou. Resultado: 2 testes passados, 1 ignorado.
+
+15. Validacao manual
+Validacao por auditoria de codigo, testes unitarios, ITs focados, suite frontend e documentacao de matriz.
+
+16. Riscos restantes
+Origem de pedido ainda inferida.
+Capabilities ainda nao expostas ao frontend.
+PDV real, KDS completo, gateway real, estorno, conciliacao e fiscal fora desta fase.
+
+17. Proximas fases recomendadas
+Persistir pedidoOrigem.
+Expor allowedActions/capabilities.
+Implementar PDV real e KDS completo por contrato.
+Amarrar caixa/turno/conciliacao e documentos fiscais.
+
+18. Decisao final
+APROVADO COM RESSALVAS

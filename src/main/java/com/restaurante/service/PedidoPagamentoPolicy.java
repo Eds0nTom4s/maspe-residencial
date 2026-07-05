@@ -2,12 +2,18 @@ package com.restaurante.service;
 
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.Pedido;
+import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
+import com.restaurante.service.operacional.OperationalTemplatePolicy;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 @Service
+@RequiredArgsConstructor
 public class PedidoPagamentoPolicy {
+
+    private final OperationalTemplatePolicy operationalTemplatePolicy;
 
     public enum PaymentFlow {
         PUBLIC_QR_GATEWAY,
@@ -45,13 +51,7 @@ public class PedidoPagamentoPolicy {
     }
 
     public boolean exigeAceiteAntesDoPagamento(Pedido pedido, PaymentFlow flow) {
-        if (flow == PaymentFlow.DEVICE_POS) {
-            return false;
-        }
-        if (flow == PaymentFlow.PUBLIC_QR_GATEWAY || flow == PaymentFlow.PUBLIC_QR_MANUAL_ORDER) {
-            return true;
-        }
-        return pedido != null && pedido.getStatus() == StatusPedido.CRIADO;
+        return operationalTemplatePolicy.requiresAcceptanceBeforePayment(pedido, resolveActor(flow));
     }
 
     public boolean pedidoEstaAceiteParaPagamento(Pedido pedido) {
@@ -65,5 +65,14 @@ public class PedidoPagamentoPolicy {
         if (pedido == null) {
             throw new BusinessException("Pedido inválido para pagamento.");
         }
+    }
+
+    private OperationalOrigem resolveActor(PaymentFlow flow) {
+        return switch (flow) {
+            case DEVICE_POS -> OperationalOrigem.DEVICE_POS;
+            case GATEWAY_CONFIRMATION -> OperationalOrigem.GATEWAY;
+            case TENANT_MANUAL_CONFIRMATION, MANUAL_CONFIRMATION -> OperationalOrigem.TENANT_CASHIER;
+            case PUBLIC_QR_GATEWAY, PUBLIC_QR_MANUAL_ORDER -> OperationalOrigem.QR_PUBLICO;
+        };
     }
 }

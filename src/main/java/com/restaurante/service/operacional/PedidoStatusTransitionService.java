@@ -39,6 +39,7 @@ public class PedidoStatusTransitionService {
     private final TenantAdminPedidoService tenantAdminPedidoService;
     private final OperationalEventLogService operationalEventLogService;
     private final OperacaoProperties operacaoProperties;
+    private final OperationalTemplatePolicy operationalTemplatePolicy;
 
     /**
      * Atualiza status operacional do Pedido de forma segura.
@@ -94,6 +95,7 @@ public class PedidoStatusTransitionService {
         TenantContext ctx = requireTenantCommandContext();
         Pedido pedido = loadPedido(ctx, pedidoId);
         validarTurnoObrigatorio(pedido);
+        operationalTemplatePolicy.assertCanAcceptPedido(pedido, resolveOrigem());
 
         StatusPedido statusAnterior = pedido.getStatus();
         StatusFinanceiroPedido financeiroAnterior = pedido.getStatusFinanceiro();
@@ -186,6 +188,7 @@ public class PedidoStatusTransitionService {
         TenantContext ctx = requireTenantCommandContext();
         Pedido pedido = loadPedido(ctx, pedidoId);
         validarTurnoObrigatorio(pedido);
+        operationalTemplatePolicy.assertCanRejectPedido(pedido, resolveOrigem());
 
         if (pedido.getStatus() != StatusPedido.CRIADO) {
             logPedidoCommandBlocked(
@@ -367,6 +370,9 @@ public class PedidoStatusTransitionService {
         if (!operacaoProperties.isTurnoObrigatorio()) {
             return;
         }
+        if (!operationalTemplatePolicy.requiresTurno(pedido)) {
+            return;
+        }
         if (pedido.getTurnoOperacional() == null ||
                 !(pedido.getTurnoOperacional().getStatus() == TurnoOperacionalStatus.ABERTO ||
                         pedido.getTurnoOperacional().getStatus() == TurnoOperacionalStatus.EM_FECHO)) {
@@ -393,26 +399,11 @@ public class PedidoStatusTransitionService {
     }
 
     private String resolveTenantTemplateCode(Pedido pedido) {
-        if (pedido.getTenant() == null || pedido.getTenant().getTemplateCode() == null || pedido.getTenant().getTemplateCode().isBlank()) {
-            return "LEGACY_UNSPECIFIED";
-        }
-        return pedido.getTenant().getTemplateCode();
+        return operationalTemplatePolicy.resolveTemplateCode(pedido);
     }
 
     private String resolvePedidoOrigem(Pedido pedido) {
-        if (pedido.getSessaoParticipante() != null) {
-            return "SESSAO_PARTICIPANTE";
-        }
-        if (pedido.getSessaoConsumo() == null) {
-            return "DIRETO_OU_LEGADO";
-        }
-        if (pedido.getSessaoConsumo().getMesa() != null) {
-            return "QR_MESA";
-        }
-        if (pedido.getSessaoConsumo().getQrCodeSessao() != null) {
-            return "QR_PRINCIPAL";
-        }
-        return "SESSAO_CONSUMO";
+        return operationalTemplatePolicy.resolvePedidoOrigem(pedido, null).name();
     }
 
     private OperationalOrigem resolveOrigem() {

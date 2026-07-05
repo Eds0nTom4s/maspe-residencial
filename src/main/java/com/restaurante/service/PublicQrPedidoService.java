@@ -24,7 +24,6 @@ import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.config.OperacaoProperties;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
-import com.restaurante.model.enums.ComportamentoPedidoNaoPago;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -99,10 +98,6 @@ public class PublicQrPedidoService {
         var pagamentoPolicy = tenantPagamentoPolicyService.obterParaTenant(tenant.getId());
         TenantSessaoConsumoConfig sessaoConfig = tenantSessaoConsumoConfigService.obterParaTenant(tenant.getId());
         DecisaoPedidoPublico decisao = decidirFluxoPedidoPublico(qr, modules, sessaoConfig, pagamentoPolicy, mesa);
-        if (decisao.deveAguardarPagamento() && pagamentoPolicy.getComportamentoPedidoNaoPago() == ComportamentoPedidoNaoPago.BLOQUEAR) {
-            throw new BusinessException("Pagamento obrigatório antes do pedido. Inicie o pagamento para continuar.");
-        }
-
         validarLimiteItensPorPedido(tenant.getId(), request.getItens());
 
         SessaoConsumo sessao = decisao.usarSessao()
@@ -124,8 +119,8 @@ public class PublicQrPedidoService {
             pedido.setSessaoConsumo(sessao);
             pedido.setTurnoOperacional(turnoAberto);
             pedido.setStatus(StatusPedido.CRIADO);
-            pedido.setStatusFinanceiro(decisao.statusFinanceiro());
-            pedido.setTipoPagamento(decisao.tipoPagamento());
+            pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
+            pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
             pedido.setObservacoes(request.getObservacao());
 
             Map<Cozinha, List<PublicQrPedidoItemRequest>> requestsPorCozinha = agruparItensPorCozinha(unidadeAtendimento.getId(), request.getItens(), produtos);
@@ -237,7 +232,7 @@ public class PublicQrPedidoService {
                     .mesaNumero(mesa != null ? mesa.getNumero() : null)
                     .total(pedido.getTotal())
                     .itens(itensResponse)
-                    .mensagem(decisao.deveAguardarPagamento() ? "Pedido criado e aguardando pagamento" : "Pedido criado com sucesso")
+                    .mensagem("Pedido enviado. Aguarde o aceite do estabelecimento para instruções de pagamento.")
                     .build();
         } catch (ConflictException e) {
             throw e;
@@ -300,8 +295,8 @@ public class PublicQrPedidoService {
             return new DecisaoPedidoPublico(
                     false,
                     null,
-                    deveAguardarPagamento ? StatusFinanceiroPedido.PENDENTE_PAGAMENTO : StatusFinanceiroPedido.NAO_PAGO,
-                    deveAguardarPagamento ? TipoPagamentoPedido.PRE_PAGO : TipoPagamentoPedido.POS_PAGO,
+                    StatusFinanceiroPedido.NAO_PAGO,
+                    TipoPagamentoPedido.POS_PAGO,
                     deveAguardarPagamento
             );
         }
@@ -341,8 +336,8 @@ public class PublicQrPedidoService {
         return new DecisaoPedidoPublico(
                 true,
                 tipoSessao,
-                deveAguardarPagamento ? StatusFinanceiroPedido.PENDENTE_PAGAMENTO : StatusFinanceiroPedido.NAO_PAGO,
-                deveAguardarPagamento ? TipoPagamentoPedido.PRE_PAGO : TipoPagamentoPedido.POS_PAGO,
+                StatusFinanceiroPedido.NAO_PAGO,
+                TipoPagamentoPedido.POS_PAGO,
                 deveAguardarPagamento
         );
     }

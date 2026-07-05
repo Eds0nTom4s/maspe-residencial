@@ -53,15 +53,18 @@ public class PedidoFinanceiroService {
     private final PedidoRepository pedidoRepository;
     private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
     private final AuditoriaFinanceiraService auditoriaFinanceiraService;
+    private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
 
     public PedidoFinanceiroService(FundoConsumoService fundoConsumoService,
                                    PedidoRepository pedidoRepository,
                                    ConfiguracaoFinanceiraService configuracaoFinanceiraService,
-                                   AuditoriaFinanceiraService auditoriaFinanceiraService) {
+                                   AuditoriaFinanceiraService auditoriaFinanceiraService,
+                                   PedidoPagamentoPolicy pedidoPagamentoPolicy) {
         this.fundoConsumoService = fundoConsumoService;
         this.pedidoRepository = pedidoRepository;
         this.configuracaoFinanceiraService = configuracaoFinanceiraService;
         this.auditoriaFinanceiraService = auditoriaFinanceiraService;
+        this.pedidoPagamentoPolicy = pedidoPagamentoPolicy;
     }
 
     // Roles com permissão para autorizar pós-pago
@@ -223,6 +226,7 @@ public class PedidoFinanceiroService {
         if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.NAO_PAGO) {
             throw new BusinessException("Pedido já possui status financeiro: " + pedido.getStatusFinanceiro());
         }
+        pedidoPagamentoPolicy.assertPodeConfirmarPagamento(pedido, PedidoPagamentoPolicy.PaymentFlow.TENANT_MANUAL_CONFIRMATION);
 
         pedido.marcarComoPago();
         pedidoRepository.save(pedido);

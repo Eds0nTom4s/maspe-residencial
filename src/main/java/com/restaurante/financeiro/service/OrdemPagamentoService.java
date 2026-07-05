@@ -30,6 +30,7 @@ import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
 import com.restaurante.service.FundoConsumoService;
+import com.restaurante.service.PedidoPagamentoPolicy;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -56,6 +57,7 @@ public class OrdemPagamentoService {
     private final OrdemPagamentoTokenService tokenService;
     private final OperationalEventLogService operationalEventLogService;
     private final ApplicationEventPublisher eventPublisher;
+    private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
 
     @Transactional
     public OrdemPagamento criarOrdemCarregamentoFundo(Tenant tenant,
@@ -142,6 +144,7 @@ public class OrdemPagamentoService {
         if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PAGO) {
             throw new BusinessException("Pedido já está pago.");
         }
+        pedidoPagamentoPolicy.assertPodeIniciarPagamento(pedido, resolvePaymentFlow(origem));
         pagamentoGatewayRepository.findPagamentoConfirmadoPorPedido(pedido.getId(), TipoPagamentoFinanceiro.POS_PAGO)
                 .ifPresent(p -> { throw new BusinessException("Pedido já possui pagamento confirmado."); });
 
@@ -236,6 +239,12 @@ public class OrdemPagamentoService {
         return new DadosOperacionaisPedido(inst, unidade, mesaResolvida);
     }
 
+    private PedidoPagamentoPolicy.PaymentFlow resolvePaymentFlow(OperationalOrigem origem) {
+        return origem == OperationalOrigem.DEVICE_POS
+                ? PedidoPagamentoPolicy.PaymentFlow.DEVICE_POS
+                : PedidoPagamentoPolicy.PaymentFlow.PUBLIC_QR_MANUAL_ORDER;
+    }
+
     private record DadosOperacionaisPedido(Instituicao instituicao, UnidadeAtendimento unidadeAtendimento, Mesa mesa) {
     }
 
@@ -273,6 +282,9 @@ public class OrdemPagamentoService {
         }
         if (valorRecebido == null || valorRecebido.compareTo(ordem.getValor()) < 0) {
             throw new BusinessException("Valor recebido menor que o valor da ordem.");
+        }
+        if (ordem.getTipo() == OrdemPagamentoTipo.PEDIDO) {
+            pedidoPagamentoPolicy.assertPodeConfirmarPagamento(ordem.getPedido(), resolvePaymentFlow(ordem.getCriadoPorOrigem()));
         }
 
         ordem.setStatus(OrdemPagamentoStatus.CONFIRMADA);

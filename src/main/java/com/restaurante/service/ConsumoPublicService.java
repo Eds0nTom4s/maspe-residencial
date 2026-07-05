@@ -43,6 +43,7 @@ public class ConsumoPublicService {
     private final PedidoRepository pedidoRepository;
     private final TenantPaymentMethodService tenantPaymentMethodService;
     private final PaymentMethodPolicyResolutionService policyResolutionService;
+    private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
 
     @Transactional(readOnly = true)
     public GerirConsumoOptionsResponse opcoes(String qrToken) {
@@ -163,6 +164,7 @@ public class ConsumoPublicService {
                 && !pedido.getSessaoConsumo().getUnidadeAtendimento().getId().equals(qr.getUnidadeAtendimento().getId())) {
             throw new ResourceNotFoundException("Pedido não encontrado.");
         }
+        pedidoPagamentoPolicy.assertPodeIniciarPagamento(pedido, PedidoPagamentoPolicy.PaymentFlow.PUBLIC_QR_MANUAL_ORDER);
 
         TurnoOperacional turno = qr.getUnidadeAtendimento() != null
                 ? turnoOperacionalRepository.findOpenByTenantAndInstituicaoAndUnidade(

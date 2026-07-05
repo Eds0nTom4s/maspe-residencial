@@ -178,7 +178,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
 
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus().name()).isEqualTo("CANCELADO");
-        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PENDENTE_PAGAMENTO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
 
         var events = operationalEventLogRepository.searchByTenantAndFilters(
                 setup.tenant.getId(), setup.pedidoId, null, OperationalEventType.PEDIDO_STATUS_CHANGED,
@@ -205,7 +205,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isConflict());
 
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
-        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PENDENTE_PAGAMENTO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
     }
 
     @Test
@@ -244,7 +244,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
 
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedido.FINALIZADO);
-        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PENDENTE_PAGAMENTO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
 
         var sub = subPedidoRepository.findByIdAndTenantId(setup.subPedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(sub.getStatus()).isEqualTo(StatusSubPedido.ENTREGUE);
@@ -274,7 +274,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
 
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);
-        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PENDENTE_PAGAMENTO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
 
         var sub = subPedidoRepository.findByIdAndTenantId(setup.subPedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(sub.getStatus()).isEqualTo(StatusSubPedido.PENDENTE);
@@ -311,7 +311,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
 
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);
-        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PENDENTE_PAGAMENTO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
     }
 
     @Test

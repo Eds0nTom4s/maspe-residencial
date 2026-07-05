@@ -47,6 +47,7 @@ public class PublicQrPagamentoService {
     private final ObjectMapper objectMapper;
     private final TenantPaymentMethodService tenantPaymentMethodService;
     private final PaymentMethodPolicyResolutionService policyResolutionService;
+    private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
 
     @Transactional
     public PublicQrPagamentoResponse iniciarPagamentoPedidoPorQr(
@@ -69,6 +70,7 @@ public class PublicQrPagamentoService {
         if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PAGO) {
             throw new BusinessException("Pedido já está pago.");
         }
+        pedidoPagamentoPolicy.assertPodeIniciarPagamento(pedido, PedidoPagamentoPolicy.PaymentFlow.PUBLIC_QR_GATEWAY);
 
         policyResolutionService.validateGatewayStartQr(
                 tenant.getId(),
@@ -91,6 +93,12 @@ public class PublicQrPagamentoService {
 
         var idemReq = start.request();
         try {
+            boolean hasPending = pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(pedido.getId()).stream()
+                    .anyMatch(p -> p.getStatus() == StatusPagamentoGateway.PENDENTE);
+            if (hasPending) {
+                throw new BusinessException("Já existe pagamento pendente para este pedido.");
+            }
+
             String externalRef = paymentReferenceService.gerarReferenciaPedidoQr(tenant);
 
             Pagamento pagamento = Pagamento.builder()

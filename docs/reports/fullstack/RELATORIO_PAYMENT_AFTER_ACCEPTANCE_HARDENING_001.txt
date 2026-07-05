@@ -1,0 +1,81 @@
+RELATORIO_PAYMENT_AFTER_ACCEPTANCE_HARDENING_001
+
+1. Identificacao
+Backend branch: backend/payment-after-acceptance-hardening-001
+Backend commit base: 8a086268a518ae0a3b231c722e38230cf222f96d
+Backend commit final: informado na entrega final
+Frontend branch: ui/payment-after-acceptance-hardening-001
+Frontend commit base: 04c8861bf53e9d0b1f244a0f8d0c2317dc2e1797
+Frontend commit final: informado na entrega final
+
+2. Objetivo
+Garantir que pedido publico/QR so tenha pagamento criado, exibido ou confirmado apos aceite operacional.
+
+3. Problema tratado
+O fluxo publico podia apresentar acao de pagamento e o backend podia iniciar cobranca para pedido ainda CRIADO.
+
+4. Regra implementada
+Pedido publico nasce NAO_PAGO. Gateway, ordem manual e confirmacao ficam bloqueados ate o pedido sair de CRIADO por aceite.
+
+5. Backend
+Policies: PedidoPagamentoPolicy.
+Services: PublicQrPedidoService, PublicQrPagamentoService, ConsumoPublicService, OrdemPagamentoService, PagamentoConfirmacaoService, PedidoFinanceiroService.
+Controllers: sem novos endpoints; guards nos services dos endpoints existentes.
+DTOs: sem novo DTO; metodoPagamento publico continua ignorado na criacao.
+Tests: PublicQrPedidoIT, PublicQrPagamentoStartIT, OperationalStatusTransitionIT.
+
+6. Frontend
+Public menu: checkout deixa de enviar metodoPagamento e rotula selecao como preferencia.
+Acompanhamento: pagamento aparece como Disponivel apos aceite em CRIADO.
+Pedidos internos: labels separam pedido enviado de pagamento apos aceite.
+Caixa: NAO_PAGO em CRIADO aparece como Disponivel apos aceite.
+Labels: removida linguagem de cobranca definitiva antes do aceite.
+Tests: publicOrderStatus.spec.ts, PublicPaymentStatusCard.spec.ts, PedidosPage.spec.ts.
+
+7. metodoPagamento publico
+Decisao: nao criar pagamento nem persistir como cobranca; UI deixa de enviar no pedido publico.
+Impacto: evita promessa de cobranca antes do aceite. Preferencia visual nao tem contrato financeiro final nesta fase.
+
+8. Pedido vs pagamento
+Antes: pedido publico podia nascer/ser exibido como pagamento pendente.
+Depois: pedido publico nasce NAO_PAGO e so fica elegivel apos aceite.
+Pendencias: contrato futuro para preferencia de pagamento e conciliacao.
+
+9. Templates
+CONSUMA_REST_V1: exige aceite antes do pagamento publico.
+QR_MESA: exige aceite antes do pagamento.
+QR_PRINCIPAL: exige aceite antes do pagamento.
+CONSUMA_PONTO_V1: venda operada por device/POS pode iniciar pagamento imediato quando contrato permitir.
+PDV_INTERNO: fluxo interno diferenciado, sem cliente publico pagando antes do aceite.
+CAIXA: confirma pedido publico apenas apos aceite.
+
+10. Testes backend
+mvn -DskipTests compile: passou.
+mvn -Dtest=PublicQrPedidoIT,PublicQrPagamentoStartIT,OperationalStatusTransitionIT test: falhou por runner errado; ITs exigem Failsafe.
+mvn -q test: passou.
+mvn -q -Pit -Dit.test=PublicQrPedidoIT,PublicQrPagamentoStartIT,OperationalStatusTransitionIT test-compile failsafe:integration-test failsafe:verify: passou.
+
+11. Testes frontend
+npm run typecheck: passou.
+npm run test -- publicOrderStatus PublicPaymentStatusCard PedidosPage: passou.
+npm run lint: passou.
+npm run test: passou.
+npm run build: passou.
+npm run test:e2e: passou com permissao fora do sandbox para localhost; 2 passed, 1 skipped.
+
+12. Validacao manual
+Validacao por leitura de contrato, testes unitarios/IT direcionados, build e Playwright e2e local.
+
+13. Riscos restantes
+Preferencia de pagamento ainda nao possui campo backend persistido.
+Suite Maven ampla com verify pode executar testes fora do escopo se nao houver recorte Failsafe.
+Fluxos gateway real, estorno e conciliacao seguem fora desta fase.
+
+14. Proximas fases recomendadas
+Persistir preferencia de pagamento como campo proprio.
+Definir contrato publico de instrucao de pagamento apos aceite.
+Fechar fluxo de caixa por turno e conciliacao.
+Implementar estorno controlado.
+
+15. Decisao final
+APROVADO COM RESSALVAS

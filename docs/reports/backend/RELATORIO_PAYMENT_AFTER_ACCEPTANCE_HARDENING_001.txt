@@ -1,0 +1,65 @@
+RELATORIO_PAYMENT_AFTER_ACCEPTANCE_HARDENING_001
+
+Identificacao
+Backend branch: backend/payment-after-acceptance-hardening-001
+Backend commit base: 8a086268a518ae0a3b231c722e38230cf222f96d
+Backend commit final: informado na entrega final
+
+Objetivo
+Endurecer a regra de que pedidos publicos/QR so podem iniciar ou confirmar pagamento apos aceite operacional.
+
+Auditoria
+- Criacao de pedido publico: PublicQrPedidoService.
+- Pagamento gateway publico: PublicQrPagamentoService.
+- Ordem manual publica CASH/TPA: ConsumoPublicService e OrdemPagamentoService.
+- Confirmacao gateway: PagamentoConfirmacaoService.
+- Confirmacao manual POS/caixa: OrdemPagamentoService e PedidoFinanceiroService.
+- metodoPagamento publico: nao existe no DTO backend de PublicQrPedidoRequest; payload legado e ignorado pelo Jackson.
+
+Regra implementada
+- Pedido publico nasce com status financeiro NAO_PAGO e tipo POS_PAGO.
+- Pedido publico em CRIADO bloqueia gateway e ordem manual.
+- Pedido aceito EM_ANDAMENTO permite inicio de pagamento.
+- Pedido CANCELADO bloqueia pagamento.
+- Confirmacao manual/gateway tambem valida aceite antes de marcar PAGO.
+- DEVICE_POS preserva regra diferenciada para venda operada.
+
+Policies
+- PedidoPagamentoPolicy.
+
+Services
+- PublicQrPedidoService.
+- PublicQrPagamentoService.
+- ConsumoPublicService.
+- OrdemPagamentoService.
+- PagamentoConfirmacaoService.
+- PedidoFinanceiroService.
+
+Controllers
+- Sem novo endpoint.
+- Endpoints protegidos por service guard:
+  PATCH existente de aceite preservado.
+  POST /public/q/{token}/pedidos/{pedidoId}/pagamentos.
+  POST /public/q/{token}/pedidos/{pedidoId}/ordens-pagamento-manual.
+
+DTOs
+- Sem novo campo.
+- metodoPagamento publico permanece sem efeito financeiro na criacao.
+
+Tests
+- PublicQrPedidoIT ajustado para NAO_PAGO e sem Pagamento criado.
+- PublicQrPagamentoStartIT cobre bloqueio antes do aceite e sucesso apos aceite.
+- OperationalStatusTransitionIT ajustado para preservar NAO_PAGO no aceite.
+
+Validacao
+- mvn -DskipTests compile: passou.
+- mvn -q test: passou.
+- mvn -q -Pit -Dit.test=PublicQrPedidoIT,PublicQrPagamentoStartIT,OperationalStatusTransitionIT test-compile failsafe:integration-test failsafe:verify: passou.
+- mvn -Dtest=PublicQrPedidoIT,PublicQrPagamentoStartIT,OperationalStatusTransitionIT test: falhou conforme esperado porque ITs exigem Failsafe, nao Surefire.
+
+Pendencias
+- Gateway real completo.
+- Estorno.
+- Conciliacao.
+- Caixa por turno completo.
+- Contrato final para preferencia de pagamento.

@@ -11,6 +11,7 @@ import com.restaurante.fiscal.autoissue.event.PaymentConfirmedForFiscalIssueEven
 import com.restaurante.model.enums.FiscalAutoIssueSource;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.repository.PedidoRepository;
+import com.restaurante.service.PedidoPagamentoPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,7 @@ public class PagamentoConfirmacaoService {
     private final PedidoRepository pedidoRepository;
     private final PagamentoEventLogRepository pagamentoEventLogRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
 
     @Transactional
     public boolean confirmarPosPagoPorGateway(Long pagamentoId,
@@ -64,6 +66,7 @@ public class PagamentoConfirmacaoService {
                 !pedido.getTenant().getId().equals(pagamento.getTenant().getId())) {
             throw new IllegalStateException("Tenant mismatch ao confirmar pagamento POS_PAGO.");
         }
+        pedidoPagamentoPolicy.assertPodeConfirmarPagamento(pedido, PedidoPagamentoPolicy.PaymentFlow.GATEWAY_CONFIRMATION);
 
         pagamento.confirmar();
         pagamentoRepository.save(pagamento);

@@ -18,6 +18,7 @@ import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
+import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TipoCozinha;
@@ -101,6 +102,8 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
 
         Long pedidoId = criarPedido(qrA.getToken(), "idem-order-0001", prodA.getId());
         Pedido pedido = pedidoRepository.findById(pedidoId).orElseThrow();
+        assertThat(pedido.getStatus()).isEqualTo(StatusPedido.CRIADO);
+        aceitarPedidoParaPagamento(pedidoId);
 
         String payPayload = """
                 { "metodoPagamento": "REF", "telefone": "+244900000000" }
@@ -140,6 +143,54 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
         ArgumentCaptor<AppyPayChargeRequest> captor = ArgumentCaptor.forClass(AppyPayChargeRequest.class);
         verify(appyPayClient).createCharge(captor.capture());
         assertThat(captor.getValue().getMerchantTransactionId()).isEqualTo(pg.getExternalReference());
+    }
+
+    @Test
+    void cannotStartPaymentBeforeOperationalAcceptance() throws Exception {
+        Tenant tenantA = criarTenant("Banca Aceite", "banca-aceite", "TAC");
+        Instituicao instA = criarInstituicao(tenantA, "Inst Aceite", "IAC", "NIF-PA-003", "+244900010004");
+        UnidadeAtendimento uaA = criarUnidade(instA, "UA Aceite", TipoUnidadeAtendimento.RESTAURANTE);
+        criarCozinhaVinculada(uaA, "Bar Aceite", TipoCozinha.BAR_PREP);
+        CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas-aceite");
+        Produto prodA = criarProduto(tenantA, catA, "AGUA-ACEITE", "Água", new BigDecimal("10.00"));
+        publicarCardapioForTest(tenantA.getId());
+
+        QrCodeOperacional qrA = qrCodeOperacionalService.criarQr(
+                tenantA.getId(), instA.getId(), uaA.getId(), null, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Aceite"
+        );
+
+        Long pedidoId = criarPedido(qrA.getToken(), "idem-order-before-accept", prodA.getId());
+
+        String payPayload = """
+                { "metodoPagamento": "REF", "telefone": "+244900000000" }
+                """;
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("Idempotency-Key", "idem-pay-before-accept");
+
+        ResponseEntity<String> resp = restTemplate.postForEntity(
+                "/public/q/{token}/pedidos/{pedidoId}/pagamentos",
+                new HttpEntity<>(payPayload, headers),
+                String.class,
+                qrA.getToken(),
+                pedidoId
+        );
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(resp.getBody()).contains("Pagamento disponível apenas após aceite do pedido");
+        assertThat(pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(pedidoId)).isEmpty();
+
+        ResponseEntity<String> manualResp = restTemplate.postForEntity(
+                "/public/q/{token}/pedidos/{pedidoId}/ordens-pagamento-manual",
+                new HttpEntity<>("{\"metodoPagamento\":\"CASH\"}", headers),
+                String.class,
+                qrA.getToken(),
+                pedidoId
+        );
+        assertThat(manualResp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(manualResp.getBody()).contains("Pagamento disponível apenas após aceite do pedido");
+
+        verify(appyPayClient, times(0)).createCharge(any());
     }
 
     @Test
@@ -203,6 +254,12 @@ class PublicQrPagamentoStartIT extends PostgresTestcontainersConfig {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode json = objectMapper.readTree(resp.getBody());
         return json.at("/data/pedidoId").asLong();
+    }
+
+    private void aceitarPedidoParaPagamento(Long pedidoId) {
+        Pedido pedido = pedidoRepository.findById(pedidoId).orElseThrow();
+        pedido.setStatus(StatusPedido.EM_ANDAMENTO);
+        pedidoRepository.saveAndFlush(pedido);
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {

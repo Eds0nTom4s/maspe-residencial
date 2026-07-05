@@ -24,6 +24,7 @@ import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.CozinhaRepository;
+import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
@@ -40,7 +41,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -70,6 +70,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired PedidoRepository pedidoRepository;
+    @Autowired PagamentoGatewayRepository pagamentoGatewayRepository;
     @Autowired SubPedidoRepository subPedidoRepository;
     @Autowired SessaoConsumoRepository sessaoConsumoRepository;
     @Autowired TenantCardapioConfigRepository tenantCardapioConfigRepository;
@@ -96,6 +97,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
                 {
                   "clienteNome": "Edson",
                   "clienteTelefone": "+244900000000",
+                  "metodoPagamento": "REF",
                   "observacao": "Sem cebola",
                   "itens": [
                     { "produtoId": %d, "quantidade": 2, "observacao": "Gelado" }
@@ -115,7 +117,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(json.path("success").asBoolean()).isTrue();
         Long pedidoId = json.at("/data/pedidoId").asLong();
         assertThat(pedidoId).isPositive();
-        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
+        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
         assertThat(json.at("/data/total").asText()).isNotBlank();
         assertThat(json.at("/data/itens").isArray()).isTrue();
         assertThat(json.at("/data/itens/0/produtoId").asLong()).isEqualTo(prodA.getId());
@@ -124,15 +126,11 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(pedido.getTenant().getId()).isEqualTo(tenantA.getId());
         assertThat(pedido.getSessaoConsumo().getInstituicao().getId()).isEqualTo(instA.getId());
         assertThat(pedido.getStatus().name()).isEqualTo("CRIADO");
+        assertThat(pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(pedidoId)).isEmpty();
 
         var subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedido.getId());
         assertThat(subs).isNotEmpty();
         assertThat(subs).allMatch(sp -> sp.getUnidadeProducao() != null);
-
-        var kdsIds = subPedidoRepository.findKdsIdsByTenantAndFilters(
-                tenantA.getId(), null, null, null, null, pedido.getNumero(), PageRequest.of(0, 10)
-        );
-        assertThat(kdsIds.getContent()).isEmpty();
     }
 
     @Test
@@ -337,7 +335,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode json = objectMapper.readTree(resp.getBody());
         Long pedidoId = json.at("/data/pedidoId").asLong();
-        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("PENDENTE_PAGAMENTO");
+        assertThat(json.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
 
         Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, tenant.getId()).orElseThrow();
         assertThat(pedido.getSessaoConsumo()).isNull();

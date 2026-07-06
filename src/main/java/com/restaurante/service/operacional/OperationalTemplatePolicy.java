@@ -179,12 +179,15 @@ public class OperationalTemplatePolicy {
         if (resolvedOrigem == PedidoOrigem.DEVICE_KDS || isKdsTemplate(templateCode)) {
             return ProductionFlow.REQUIRED;
         }
+        if (isPontoTemplate(templateCode)) {
+            return ProductionFlow.OPTIONAL;
+        }
         if (resolvedOrigem == PedidoOrigem.QR_MESA
                 || resolvedOrigem == PedidoOrigem.QR_PRINCIPAL
                 || isRestTemplate(templateCode)) {
             return ProductionFlow.REQUIRED;
         }
-        if (isPontoTemplate(templateCode) || resolvedOrigem == PedidoOrigem.DEVICE_POS || resolvedOrigem == PedidoOrigem.PDV_INTERNO) {
+        if (resolvedOrigem == PedidoOrigem.DEVICE_POS || resolvedOrigem == PedidoOrigem.PDV_INTERNO) {
             return ProductionFlow.OPTIONAL;
         }
         if (isCaixaTemplate(templateCode) || resolvedOrigem == PedidoOrigem.CAIXA) {

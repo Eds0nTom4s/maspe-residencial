@@ -244,8 +244,10 @@ public class PedidoAllowedActionsService {
         } else {
             reasons.put(PedidoAllowedAction.MARK_READY, REASON_SUBPEDIDOS);
         }
+        boolean isOptionalKitchen = operationalTemplatePolicy.productionFlow(template, origem) == OperationalTemplatePolicy.ProductionFlow.OPTIONAL;
         if (!subPedidos.isEmpty() && subPedidos.stream().allMatch(sp ->
-                sp.getStatus() == StatusSubPedido.PRONTO || sp.getStatus() == StatusSubPedido.ENTREGUE)) {
+                sp.getStatus() == StatusSubPedido.PRONTO || sp.getStatus() == StatusSubPedido.ENTREGUE ||
+                (isOptionalKitchen && sp.getStatus() == StatusSubPedido.PENDENTE))) {
             // MARK_DELIVERED exige pagamento confirmado — regra contratual da Demo Freezy
             if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
                 reasons.put(PedidoAllowedAction.MARK_DELIVERED, REASON_PAYMENT_NOT_CONFIRMED);

@@ -306,26 +306,31 @@ public class PedidoStatusTransitionService {
     }
 
     private TenantPedidoDetalheResponse finalizarPedido(TenantContext ctx, Pedido pedido, String motivo, String ip, String userAgent) {
-        // Para finalizar pedido, exige que todos os subpedidos estejam PRONTO (ou já ENTREGUE)
+        String template = operationalTemplatePolicy.resolveTemplateCode(pedido);
+        com.restaurante.model.enums.PedidoOrigem origem = operationalTemplatePolicy.resolvePedidoOrigem(pedido, resolveOrigem());
+        boolean isOptionalKitchen = operationalTemplatePolicy.productionFlow(template, origem) == OperationalTemplatePolicy.ProductionFlow.OPTIONAL;
+
+        // Para finalizar pedido, exige que todos os subpedidos estejam PRONTO (ou já ENTREGUE) - bypass PENDENTE se OPTIONAL
         List<SubPedido> subs = getSubPedidosOrThrow(pedido);
         for (SubPedido sp : subs) {
             if (sp.getStatus() == null) {
                 throw new ConflictException("Não é possível finalizar: existe subpedido sem status.");
             }
             if (sp.getStatus() == StatusSubPedido.ENTREGUE) continue;
-            if (sp.getStatus() != StatusSubPedido.PRONTO) {
+            if (sp.getStatus() != StatusSubPedido.PRONTO && !(isOptionalKitchen && sp.getStatus() == StatusSubPedido.PENDENTE)) {
                 throw new ConflictException("Não é possível finalizar: existem subpedidos que não estão PRONTO.");
             }
         }
 
         var now = java.time.LocalDateTime.now();
         for (SubPedido sp : subs) {
-            if (sp.getStatus() == StatusSubPedido.PRONTO) {
+            if (sp.getStatus() == StatusSubPedido.PRONTO || (isOptionalKitchen && sp.getStatus() == StatusSubPedido.PENDENTE)) {
+                String anteriorStatus = sp.getStatus().name();
                 sp.setStatus(StatusSubPedido.ENTREGUE);
                 sp.setEntregueEm(now);
                 operationalEventLogService.logSubPedidoStatusChanged(
                         sp,
-                        StatusSubPedido.PRONTO.name(),
+                        anteriorStatus,
                         StatusSubPedido.ENTREGUE.name(),
                         resolveOrigem(),
                         motivo,

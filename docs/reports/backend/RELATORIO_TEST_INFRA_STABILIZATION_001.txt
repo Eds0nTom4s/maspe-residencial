@@ -1,0 +1,91 @@
+RELATORIO_TEST_INFRA_STABILIZATION_001
+Data: 2026-07-06
+Branch: backend/test-infra-stabilization-001
+Commit base: 02c6fcc83a1fd84e9d9697c9013ab85648f2f6b1
+Commit final: registrado na entrega final
+
+1. Objetivo
+-----------
+Estabilizar `mvn -DskipTests compile`, `mvn test` e `mvn -Pit verify` sem alterar regras de pedido, pagamento, allowedActions, PedidoOrigem, OperationalTemplatePolicy ou comportamento funcional do backend.
+
+2. Problemas encontrados
+------------------------
+- ITs de callback financeiro criavam pedidos publicos via QR e iniciavam pagamento antes do aceite operacional, violando a regra vigente de pagamento apos aceite.
+- O seed sandbox demo tentava criar ordem manual de pagamento para pedido ainda `CRIADO`.
+- O runner Maven herdava `DEBUG` do ambiente, gerando Condition Evaluation Report e logs SQL extensos.
+- Stacks esperados em cenarios negativos apareciam no console Maven e dificultavam identificar falha real.
+
+3. Correcao verify
+------------------
+- Fixtures dos ITs de callback agora aceitam o pedido de setup antes de iniciar pagamento.
+- Seed demo sandbox marca pedidos demo pagos como aceitos antes de criar ordem manual.
+- Surefire/Failsafe forcam propriedades de logging/test runner e redirecionam stdout/stderr para reports Maven.
+- A regra de produto foi preservada: pagamento publico por QR continua exigindo aceite.
+
+4. Surefire/Failsafe
+--------------------
+Config anterior:
+- Logs herdavam variaveis do ambiente.
+- Console recebia stacks de cenarios negativos esperados.
+
+Config final:
+- `debug=false`.
+- `spring.main.banner-mode=off`.
+- `spring.task.scheduling.enabled=false`.
+- logging root/Spring/Hibernate/Flyway/Testcontainers em niveis reduzidos.
+- `redirectTestOutputToFile=true` em Surefire e Failsafe.
+- `consuma.test.runner=surefire` ou `failsafe` para diagnostico.
+
+Resultado:
+- Console Maven ficou legivel.
+- Reports preservam stdout/stderr quando necessario.
+- Verify amplo concluiu com sucesso.
+
+5. Testes unitarios
+-------------------
+`mvn test`: PASS, 379 tests, 0 failures, 0 errors, 3 skipped, 03:27, 2026-07-06T11:35:04+01:00.
+
+6. Testes de integracao
+-----------------------
+Targeted verify:
+`mvn -Pit -Dtest=PedidoPagamentoPolicyTest -Dit.test=PagamentoCallbackInvalidSignatureIT,PagamentoCallbackTenantAwareIT,SandboxDemoSeedRunnerIT verify`: PASS, 4 tests, 0 failures, 0 errors, 03:10.
+
+Verify amplo:
+`mvn -Pit verify`: PASS, Surefire 379 tests / 0 failures / 0 errors / 3 skipped; Failsafe 274 tests / 0 failures / 0 errors / 0 skipped; BUILD SUCCESS, 10:51, 2026-07-06T11:46:06+01:00.
+
+7. Evidencias
+-------------
+- `docs/reports/backend/test-infra-stabilization-001/maven-compile.log`
+- `docs/reports/backend/test-infra-stabilization-001/maven-test.log`
+- `docs/reports/backend/test-infra-stabilization-001/maven-verify.log`
+- `docs/reports/backend/test-infra-stabilization-001/surefire-audit.txt`
+- `docs/reports/backend/test-infra-stabilization-001/failsafe-audit.txt`
+
+8. Arquivos alterados
+---------------------
+- `pom.xml`
+- `src/main/java/com/restaurante/config/SandboxDemoSeedRunner.java`
+- `src/test/java/com/restaurante/financeiro/PagamentoCallbackInvalidSignatureIT.java`
+- `src/test/java/com/restaurante/financeiro/PagamentoCallbackTenantAwareIT.java`
+- `docs/architecture/TEST_VALIDATION_STRATEGY_001.md`
+- `docs/reports/backend/RELATORIO_TEST_INFRA_STABILIZATION_001.txt`
+- `docs/reports/backend/test-infra-stabilization-001/*`
+- `docs/reports/fullstack/RELATORIO_TEST_INFRA_STABILIZATION_001.txt`
+
+9. O que nao foi alterado
+-------------------------
+- Regras de pedido.
+- Pagamento.
+- allowedActions.
+- PedidoOrigem.
+- OperationalTemplatePolicy.
+- Backend funcional fora de setups de teste/seed demo necessario para respeitar politica vigente.
+- Gateway, OTP/SMS, PDV, KDS e caixa real.
+
+10. Risco residual
+------------------
+Ao fim do Failsafe ainda aparece a mensagem nao bloqueante `Surefire is going to kill self fork JVM` no shutdown do fork. O build termina com BUILD SUCCESS e 0 failures/errors; o sintoma indica threads nao-daemon no encerramento, nao regressao funcional.
+
+11. Decisao
+-----------
+APROVADO COM RESSALVAS: verify amplo concluiu com sucesso; ressalva restrita ao aviso nao bloqueante de shutdown do fork JVM.

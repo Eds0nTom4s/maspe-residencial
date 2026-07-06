@@ -20,6 +20,8 @@ import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.model.enums.StatusPedido;
+import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.repository.CategoriaProdutoRepository;
@@ -332,6 +334,7 @@ public class SandboxDemoSeedRunner {
             Pedido pedido = pedidoRepository.findByIdAndTenantId(response.getPedidoId(), tenant.getId())
                     .orElseThrow(() -> new IllegalStateException("Pedido demo não encontrado: " + response.getPedidoId()));
             if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
+                aceitarPedidoDemoParaPagamento(pedido);
                 var sessao = pedido.getSessaoConsumo();
                 var unidade = sessao != null ? sessao.getUnidadeAtendimentoEfetiva() : null;
                 OrdemPagamento ordem = ordemPagamentoService.criarOrdemPagamentoPedido(
@@ -355,6 +358,21 @@ public class SandboxDemoSeedRunner {
                 );
             }
         }
+    }
+
+    private void aceitarPedidoDemoParaPagamento(Pedido pedido) {
+        if (pedido.getStatus() != StatusPedido.CRIADO) {
+            return;
+        }
+        pedido.setStatus(StatusPedido.EM_ANDAMENTO);
+        if (pedido.getSubPedidos() != null) {
+            pedido.getSubPedidos().forEach(subPedido -> {
+                if (subPedido.getStatus() == StatusSubPedido.CRIADO) {
+                    subPedido.setStatus(StatusSubPedido.PENDENTE);
+                }
+            });
+        }
+        pedidoRepository.saveAndFlush(pedido);
     }
 
     private QrCodeOperacional findPrincipalQr(Tenant tenant) {

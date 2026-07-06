@@ -255,9 +255,24 @@
                     <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                     <!-- JUnit5: filtramos apenas testes manuais; ITs explícitos devem falhar com mensagem clara. -->
                     <excludedGroups>manual</excludedGroups>
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <!-- Docker 29+ exige min API v1.40; docker-java/Testcontainers podem cair em v1.32 por padrão. -->
                     <systemPropertyVariables>
                         <api.version>1.44</api.version>
+                        <debug>false</debug>
+                        <spring.main.banner-mode>off</spring.main.banner-mode>
+                        <spring.task.scheduling.enabled>false</spring.task.scheduling.enabled>
+                        <logging.level.root>WARN</logging.level.root>
+                        <logging.level.com.restaurante>OFF</logging.level.com.restaurante>
+                        <logging.level.org.hibernate>ERROR</logging.level.org.hibernate>
+                        <logging.level.org.hibernate.SQL>WARN</logging.level.org.hibernate.SQL>
+                        <logging.level.org.hibernate.type.descriptor.sql.BasicBinder>WARN</logging.level.org.hibernate.type.descriptor.sql.BasicBinder>
+                        <logging.level.org.hibernate.orm.jdbc.bind>WARN</logging.level.org.hibernate.orm.jdbc.bind>
+                        <logging.level.org.flywaydb>WARN</logging.level.org.flywaydb>
+                        <logging.level.org.springframework>WARN</logging.level.org.springframework>
+                        <logging.level.org.springframework.boot.autoconfigure.logging.ConditionEvaluationReportLogger>OFF</logging.level.org.springframework.boot.autoconfigure.logging.ConditionEvaluationReportLogger>
+                        <logging.level.org.testcontainers>WARN</logging.level.org.testcontainers>
+                        <logging.level.tc>WARN</logging.level.tc>
                         <consuma.test.runner>surefire</consuma.test.runner>
                     </systemPropertyVariables>
                 </configuration>
@@ -273,9 +288,24 @@
                     </includes>
                     <!-- JUnit5: executa somente testes marcados como integração -->
                     <groups>it</groups>
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <!-- Mesma proteção de API do Docker que usamos no surefire -->
                     <systemPropertyVariables>
                         <api.version>1.44</api.version>
+                        <debug>false</debug>
+                        <spring.main.banner-mode>off</spring.main.banner-mode>
+                        <spring.task.scheduling.enabled>false</spring.task.scheduling.enabled>
+                        <logging.level.root>WARN</logging.level.root>
+                        <logging.level.com.restaurante>OFF</logging.level.com.restaurante>
+                        <logging.level.org.hibernate>ERROR</logging.level.org.hibernate>
+                        <logging.level.org.hibernate.SQL>WARN</logging.level.org.hibernate.SQL>
+                        <logging.level.org.hibernate.type.descriptor.sql.BasicBinder>WARN</logging.level.org.hibernate.type.descriptor.sql.BasicBinder>
+                        <logging.level.org.hibernate.orm.jdbc.bind>WARN</logging.level.org.hibernate.orm.jdbc.bind>
+                        <logging.level.org.flywaydb>WARN</logging.level.org.flywaydb>
+                        <logging.level.org.springframework>WARN</logging.level.org.springframework>
+                        <logging.level.org.springframework.boot.autoconfigure.logging.ConditionEvaluationReportLogger>OFF</logging.level.org.springframework.boot.autoconfigure.logging.ConditionEvaluationReportLogger>
+                        <logging.level.org.testcontainers>WARN</logging.level.org.testcontainers>
+                        <logging.level.tc>WARN</logging.level.tc>
                         <consuma.test.runner>failsafe</consuma.test.runner>
                     </systemPropertyVariables>
                 </configuration>

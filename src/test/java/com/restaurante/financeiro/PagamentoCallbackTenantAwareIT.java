@@ -20,6 +20,7 @@ import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.enums.CallbackProcessingStatus;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TipoCozinha;
@@ -103,6 +104,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         );
 
         Long pedidoId = criarPedido(qrA.getToken(), "idem-order-0001", prodA.getId());
+        aceitarPedidoParaPagamento(pedidoId);
         iniciarPagamento(qrA.getToken(), pedidoId, "idem-pay-0001");
 
         Pagamento pg = pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(pedidoId).get(0);
@@ -173,6 +175,7 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         );
 
         Long pedidoId = criarPedido(qrA.getToken(), "idem-order-0002", prodA.getId());
+        aceitarPedidoParaPagamento(pedidoId);
         iniciarPagamento(qrA.getToken(), pedidoId, "idem-pay-0002");
 
         Pagamento pg = pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(pedidoId).get(0);
@@ -239,6 +242,12 @@ class PagamentoCallbackTenantAwareIT extends PostgresTestcontainersConfig {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode json = objectMapper.readTree(resp.getBody());
         return json.at("/data/pedidoId").asLong();
+    }
+
+    private void aceitarPedidoParaPagamento(Long pedidoId) {
+        Pedido pedido = pedidoRepository.findById(pedidoId).orElseThrow();
+        pedido.setStatus(StatusPedido.EM_ANDAMENTO);
+        pedidoRepository.saveAndFlush(pedido);
     }
 
     private static HttpHeaders jsonHeaders() {

@@ -20,6 +20,7 @@ import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.CallbackProcessingStatus;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TipoCozinha;
@@ -109,6 +110,7 @@ class PagamentoCallbackInvalidSignatureIT extends PostgresTestcontainersConfig {
         );
 
         Long pedidoId = criarPedido(qrA.getToken(), "idem-order-sig-0001", prodA.getId());
+        aceitarPedidoParaPagamento(pedidoId);
         iniciarPagamento(qrA.getToken(), pedidoId, "idem-pay-sig-0001");
 
         Pagamento pg = pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(pedidoId).get(0);
@@ -177,6 +179,12 @@ class PagamentoCallbackInvalidSignatureIT extends PostgresTestcontainersConfig {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode json = objectMapper.readTree(resp.getBody());
         return json.at("/data/pedidoId").asLong();
+    }
+
+    private void aceitarPedidoParaPagamento(Long pedidoId) {
+        Pedido pedido = pedidoRepository.findById(pedidoId).orElseThrow();
+        pedido.setStatus(StatusPedido.EM_ANDAMENTO);
+        pedidoRepository.saveAndFlush(pedido);
     }
 
     private static HttpHeaders jsonHeaders() {

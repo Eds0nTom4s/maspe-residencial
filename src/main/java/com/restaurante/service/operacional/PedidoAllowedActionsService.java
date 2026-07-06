@@ -41,6 +41,7 @@ public class PedidoAllowedActionsService {
     private static final String REASON_PAYMENT_ORDER_MISSING = "Ordem de pagamento indisponível.";
     private static final String REASON_PAYMENT_ORDER_EXPIRED = "Ordem de pagamento expirada.";
     private static final String REASON_PAYMENT_ORDER_STATUS = "Ordem de pagamento não está aguardando confirmação.";
+    private static final String REASON_PAYMENT_NOT_CONFIRMED = "Entrega permitida apenas após pagamento confirmado.";
 
     private final OperationalTemplatePolicy operationalTemplatePolicy;
     private final OperacaoProperties operacaoProperties;
@@ -245,7 +246,14 @@ public class PedidoAllowedActionsService {
         }
         if (!subPedidos.isEmpty() && subPedidos.stream().allMatch(sp ->
                 sp.getStatus() == StatusSubPedido.PRONTO || sp.getStatus() == StatusSubPedido.ENTREGUE)) {
-            allowed.add(PedidoAllowedAction.MARK_DELIVERED);
+            // MARK_DELIVERED exige pagamento confirmado — regra contratual da Demo Freezy
+            if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
+                reasons.put(PedidoAllowedAction.MARK_DELIVERED, REASON_PAYMENT_NOT_CONFIRMED);
+            } else if (pedido.getStatus() == StatusPedido.FINALIZADO) {
+                reasons.put(PedidoAllowedAction.MARK_DELIVERED, REASON_STATUS_TERMINAL);
+            } else {
+                allowed.add(PedidoAllowedAction.MARK_DELIVERED);
+            }
         } else {
             reasons.put(PedidoAllowedAction.MARK_DELIVERED, REASON_SUBPEDIDOS);
         }

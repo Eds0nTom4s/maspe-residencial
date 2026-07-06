@@ -172,6 +172,24 @@ public class TenantPedidoController {
         return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success("Ordem de pagamento confirmada", resp));
     }
 
+    @PatchMapping("/pedidos/{id}/entregar")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<TenantPedidoDetalheResponse>> entregar(
+            @PathVariable Long id,
+            jakarta.servlet.http.HttpServletRequest http
+    ) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        TenantPedidoDetalheResponse resp = pedidoStatusTransitionService.entregarPedido(id, ip, ua);
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success("Pedido finalizado", resp));
+    }
+
     private OperationalOrigem resolvePaymentOrigem(TenantContext ctx) {
         if (ctx == null) {
             return OperationalOrigem.SYSTEM;

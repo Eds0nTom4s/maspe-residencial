@@ -1,0 +1,95 @@
+RELATORIO_CONSUMA_DEMO_FREEZY_DELIVERY_CONTRACT_001 — BACKEND
+==============================================================
+Data: 2026-07-06
+Branch: backend/consuma-demo-freezy-delivery-contract-001
+Base: backend/payment-order-expiration-001 @ f4600a5d04d9e11475023045f5b957981e838455
+
+==============================================================
+1. AUDITORIA DO CONTRATO EXISTENTE
+==============================================================
+
+Resultados dos greps obrigatórios:
+
+  grep "entregar" → TenantKdsController (subpedido KDS) — não é o endpoint de pedido
+  grep "finalizar" → nenhum endpoint de pedido finalizar
+  grep "FINALIZADO" → StatusPedido.FINALIZADO existe como estado terminal
+  grep "ENTREGUE" → StatusSubPedido.ENTREGUE existe
+  grep "MARK_DELIVERED" → PedidoAllowedAction.MARK_DELIVERED existe; lógica no PedidoAllowedActionsService
+  grep "delivered" → módulo delivery separado (entrega física por estafeta) — não é o contrato de pedido
+  grep "PedidoAllowedAction" → enum completo com MARK_DELIVERED
+  grep "PedidoAllowedActionsService" → usado no TenantAdminPedidoService
+  grep "PedidoStatusTransitionService" → finalizarPedido() existe (via status genérico)
+  grep "TenantPedidoController" → endpoints: listar, detalhe, status, aceitar, rejeitar, payment-order/confirm
+
+CLASSIFICAÇÃO:
+  2. Endpoint PATCH /tenant/pedidos/{id}/entregar NÃO existe (apenas via /status com body)
+  3. MARK_DELIVERED existe em allowedActions, mas SEM verificação de pagamento PAGO
+  Classificação final: Caso 2 + 4 — endpoint genérico/inseguro + allowedAction sem guarda financeira
+
+==============================================================
+2. CONTRATO CRIADO
+==============================================================
+
+FICHEIROS ALTERADOS:
+  src/main/java/com/restaurante/controller/TenantPedidoController.java
+    - PATCH /tenant/pedidos/{id}/entregar (novo endpoint dedicado)
+
+  src/main/java/com/restaurante/service/operacional/PedidoStatusTransitionService.java
+    - entregarPedido() método público com contrato seguro
+    - PedidoAllowedActionsService injectado como dependência
+
+  src/main/java/com/restaurante/service/operacional/PedidoAllowedActionsService.java
+    - MARK_DELIVERED agora exige StatusFinanceiroPedido.PAGO
+    - Bloqueio explícito quando pedido FINALIZADO
+    - Constante REASON_PAYMENT_NOT_CONFIRMED adicionada
+
+FICHEIROS CRIADOS:
+  src/test/java/com/restaurante/service/operacional/PedidoEntregaAllowedActionsTest.java
+    - 10 testes de contrato MARK_DELIVERED
+  docs/architecture/ORDER_DELIVERY_CONTRACT_001.md
+  docs/architecture/diagrams/consuma-demo-freezy-delivery-contract-flow.mmd
+
+==============================================================
+3. TESTES
+==============================================================
+
+mvn test -Dtest="PedidoEntregaAllowedActionsTest,PedidoAllowedActionsServiceTest"
+  Tests run: 22, Failures: 0, Errors: 0, Skipped: 0
+  BUILD SUCCESS
+
+==============================================================
+4. O QUE NÃO FOI ALTERADO
+==============================================================
+
+  - Frontend (nenhuma alteração)
+  - Página pública de acompanhamento
+  - Cardápio público
+  - Gateway de pagamento
+  - Estorno
+  - PDV / Caixa / Fiscal / KDS
+  - OrdemPagamentoService
+  - Fluxo de confirmação de pagamento
+  - StatusPedido enum (FINALIZADO reutilizado)
+  - OperationalTemplatePolicy (sem alteração)
+  - PedidoPagamentoPolicy (sem alteração)
+  - PaymentOrder (sem alteração)
+
+==============================================================
+5. RISCOS RESTANTES
+==============================================================
+
+  R1. Testes de integração (IT) com Docker/Postgres não executados nesta fase.
+  R2. Endpoint entregar não testado via IT contra base real.
+  R3. Concorrência: dois actores a entregar o mesmo pedido simultaneamente
+      (mitgado por @Transactional + verificação de allowedActions, mas sem lock explícito).
+  R4. PedidoAllowedActionsService não avalia MARK_DELIVERED se canMoveProduction=false;
+      o endpoint entregarPedido faz esta verificação como segunda defesa.
+
+==============================================================
+6. DECISÃO FINAL
+==============================================================
+
+  APROVADO COM RESSALVAS
+
+  Ressalva R2: teste IT de integração com DB real pendente.
+  Ressalva R3: lock de concorrência não implementado nesta fase.

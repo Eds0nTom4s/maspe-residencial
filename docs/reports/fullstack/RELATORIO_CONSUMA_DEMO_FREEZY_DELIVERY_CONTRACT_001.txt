@@ -1,0 +1,215 @@
+RELATORIO_CONSUMA_DEMO_FREEZY_DELIVERY_CONTRACT_001 — FULLSTACK
+================================================================
+Data: 2026-07-06
+
+==============================================================
+1. IDENTIFICAÇÃO
+==============================================================
+
+  Backend branch:        backend/consuma-demo-freezy-delivery-contract-001
+  Backend commit base:   f4600a5d04d9e11475023045f5b957981e838455
+  Backend commit final:  (ver git log após commit)
+  Frontend de referência: ui/consuma-demo-freezy-app-pedidos-001
+  Frontend commit:       a6f3a35
+
+==============================================================
+2. OBJECTIVO
+==============================================================
+
+  Validar e criar o contrato mínimo seguro de entrega/finalização de pedido
+  pago para a CONSUMA Demo Freezy V1.
+
+  O frontend já está preparado para consumir:
+    PATCH /tenant/pedidos/{id}/entregar
+
+  O frontend só mostra o botão "Entregar pedido" quando allowedActions contém
+  MARK_DELIVERED. Esta fase garante que o backend expõe o endpoint de forma
+  segura e que MARK_DELIVERED só aparece quando o pagamento está confirmado.
+
+==============================================================
+3. AUDITORIA DO CONTRATO EXISTENTE
+==============================================================
+
+  Endpoint PATCH /tenant/pedidos/{id}/entregar: NÃO EXISTIA
+  MARK_DELIVERED em PedidoAllowedAction: EXISTIA
+  MARK_DELIVERED com guarda de pagamento PAGO: NÃO EXISTIA
+  finalizarPedido() via /status: EXISTIA (genérico, sem guarda dedicada)
+  Estado FINALIZADO: EXISTIA (canónico e derivado de SubPedidos)
+
+==============================================================
+4. DECISÃO
+==============================================================
+
+  Reutilizado:
+    StatusPedido.FINALIZADO (estado terminal existente)
+    finalizarPedido() (lógica interna reutilizada)
+    PedidoAllowedAction.MARK_DELIVERED (enum existente)
+    OperationalEventLogService (auditoria existente)
+    PedidoStatusTransitionService (serviço existente, novo método adicionado)
+
+  Criado:
+    PATCH /tenant/pedidos/{id}/entregar (endpoint dedicado)
+    entregarPedido() (método público no PedidoStatusTransitionService)
+    Guarda de pagamento PAGO no MARK_DELIVERED (PedidoAllowedActionsService)
+    10 testes unitários (PedidoEntregaAllowedActionsTest)
+    Documentação: ORDER_DELIVERY_CONTRACT_001.md
+    Diagrama: consuma-demo-freezy-delivery-contract-flow.mmd
+
+  Justificativa:
+    O endpoint dedicado /entregar é necessário para que o frontend possa
+    consumir um contrato explícito sem depender do /status genérico.
+    A guarda de pagamento PAGO é obrigatória por contrato de governança:
+    "Você NÃO deve finalizar pedido sem pagamento PAGO."
+
+==============================================================
+5. ENDPOINT
+==============================================================
+
+  PATCH /tenant/pedidos/{id}/entregar
+  Authorization: Bearer <token>
+  Roles: TENANT_OWNER, TENANT_ADMIN, TENANT_OPERATOR, TENANT_CASHIER
+  Body: nenhum (sem body)
+  Response: TenantPedidoDetalheResponse com status=FINALIZADO
+
+==============================================================
+6. ESTADO FINAL
+==============================================================
+
+  FINALIZADO — estado canónico existente no projecto.
+  Derivado automaticamente quando todos SubPedidos = ENTREGUE.
+  Nenhum estado novo foi criado.
+
+==============================================================
+7. ALLOWEDACTIONS
+==============================================================
+
+  MARK_DELIVERED aparece quando:
+    - actor: TENANT_OWNER, TENANT_ADMIN, TENANT_OPERATOR (canMoveProduction=true)
+    - turno: ABERTO ou EM_FECHO (se turnoObrigatorio=true)
+    - subpedidos: todos PRONTO ou ENTREGUE
+    - statusFinanceiro: PAGO ← novo requisito contratual
+    - status pedido: não terminal (não FINALIZADO/CANCELADO)
+
+  MARK_DELIVERED NÃO aparece:
+    - pagamento não confirmado → "Entrega permitida apenas após pagamento confirmado."
+    - pedido CRIADO/NAO_PAGO → bloqueado pela guarda financeira
+    - ordem expirada não confirmada → PAGO não atingido, guarda actua
+    - pedido cancelado → estado terminal
+    - pedido já finalizado → estado terminal
+    - cliente público (SYSTEM) → sem permissão de produção
+
+==============================================================
+8. AUDITORIA
+==============================================================
+
+  Evento: PEDIDO_STATUS_CHANGED (reutilizado)
+  Serviço: OperationalEventLogService.logPedidoStatusChanged()
+  
+  Metadata registada:
+    - pedidoId
+    - actor (resolveOrigem())
+    - command = "MARK_DELIVERED"
+    - statusAnterior
+    - statusNovo = FINALIZADO
+    - pedidoOrigem
+    - tenantTemplate
+    - tenant (ctx.tenantId())
+    - timestamp (UTC)
+    - deliveredSubPedidos (lista de ids)
+
+==============================================================
+9. RESPONSES TENANT/PUBLIC
+==============================================================
+
+  GET /tenant/pedidos → status=FINALIZADO, allowedActions=[]
+  GET /tenant/pedidos/{id} → detalhe com status=FINALIZADO
+  GET /public/... → reflecte estado final via derivação dos SubPedidos
+  allowedActions após entrega: sem MARK_DELIVERED, sem CONFIRM_PAYMENT
+
+==============================================================
+10. MERMAID
+==============================================================
+
+  docs/architecture/diagrams/consuma-demo-freezy-delivery-contract-flow.mmd
+
+  Mostra:
+    - Pagamento confirmado → MARK_DELIVERED permitido → operador entrega
+    - Pedido finalizado → acompanhamento público mostra FINALIZADO
+  Bloqueios:
+    - Sem pagamento, pedido cancelado, pedido já finalizado,
+      actor sem permissão, turno fechado, subpedidos não prontos
+
+==============================================================
+11. TESTES BACKEND
+==============================================================
+
+  Ficheiro: PedidoEntregaAllowedActionsTest.java (10 testes)
+  Classe:   PedidoAllowedActionsServiceTest.java (12 testes, regressão)
+
+  mvn test -Dtest="PedidoEntregaAllowedActionsTest,PedidoAllowedActionsServiceTest"
+  Tests run: 22, Failures: 0, Errors: 0, Skipped: 0
+  BUILD SUCCESS
+
+  Cobertura dos 14 cenários do Passo 7:
+    ✅ 1. Sem pagamento PAGO → MARK_DELIVERED ausente
+    ✅ 2. Pedido pago + subpedidos PRONTO → MARK_DELIVERED presente
+    ✅ 3. Pedido pago pode ser entregue/finalizado (fluxo testado)
+    ✅ 4. Entrega altera status pedido (FINALIZADO derivado)
+    ✅ 5. Entrega não altera pagamento (verificação pós-execução)
+    ✅ 6. Entrega não cria gateway (sem chamada em entregarPedido)
+    ✅ 7. Entrega não cria fiscal (sem chamada em entregarPedido)
+    ✅ 8. Entrega não cria caixa (sem chamada em entregarPedido)
+    ✅ 9. Pedido cancelado → sem MARK_DELIVERED
+    ✅ 10. Pedido já finalizado → sem MARK_DELIVERED
+    ✅ 11. Actor sem permissão → sem MARK_DELIVERED
+    🔶 12. Auditoria registra entrega (via IT com DB real — pendente)
+    🔶 13. Public tracking recebe estado final (via IT — pendente)
+    ✅ 14. allowedActions remove MARK_DELIVERED após FINALIZADO
+
+==============================================================
+12. O QUE NÃO FOI ALTERADO
+==============================================================
+
+  Frontend:
+    Branch ui/consuma-demo-freezy-app-pedidos-001 — sem alteração
+    Commit a6f3a35 — sem alteração
+
+  Backend sem alteração:
+    - Página pública de acompanhamento
+    - Cardápio público
+    - Gateway / estorno
+    - PDV / Caixa / Fiscal / KDS
+    - OrdemPagamentoService
+    - OperationalTemplatePolicy
+    - PedidoPagamentoPolicy
+    - PaymentOrder
+    - StatusPedido enum
+    - Fluxo de confirmação de pagamento
+    - Flyway migrations
+
+==============================================================
+13. RISCOS RESTANTES
+==============================================================
+
+  R1. Testes IT com Docker/Postgres não executados nesta fase.
+      Cenários 12 e 13 do Passo 7 dependem de IT.
+  R2. Concorrência: sem lock optimista explícito no entregarPedido.
+      @Transactional + allowedActions como guarda, mas sem row lock.
+  R3. TENANT_FINANCE não tem acesso ao endpoint /entregar por design.
+      Se necessário no futuro, requer RFC separado.
+  R4. canMoveProduction=false bloqueia MARK_DELIVERED na produção de templates
+      KDS/CAIXA. Operador com template CONSUMA_PONTO/CONSUMA_REST tem acesso.
+
+==============================================================
+14. DECISÃO FINAL
+==============================================================
+
+  APROVADO COM RESSALVAS
+
+  Contrato de entrega implementado e testado (22/22 testes unitários OK).
+  Endpoint dedicado PATCH /tenant/pedidos/{id}/entregar criado e seguro.
+  MARK_DELIVERED agora exige pagamento PAGO como autoridade canónica.
+  
+  Ressalvas:
+    - R1: IT com DB real pendente (cenários 12 e 13).
+    - R2: Concorrência sem lock explícito (aceitável para Demo Freezy V1).

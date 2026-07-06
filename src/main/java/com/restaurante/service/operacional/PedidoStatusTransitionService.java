@@ -21,6 +21,7 @@ import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.PedidoService;
+import com.restaurante.service.operacional.PedidoAllowedActionsService;
 import com.restaurante.service.tenantadmin.TenantAdminPedidoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -42,6 +43,7 @@ public class PedidoStatusTransitionService {
     private final OperacaoProperties operacaoProperties;
     private final OperationalTemplatePolicy operationalTemplatePolicy;
     private final OrdemPagamentoService ordemPagamentoService;
+    private final PedidoAllowedActionsService pedidoAllowedActionsService;
 
     /**
      * Atualiza status operacional do Pedido de forma segura.
@@ -179,6 +181,90 @@ public class PedidoStatusTransitionService {
         ordemPagamentoService.garantirOrdemPagamentoPedidoAposAceite(after, resolveOrigem(), ip, userAgent);
 
         return tenantAdminPedidoService.buscarDetalhe(pedidoId);
+    }
+
+    /**
+     * Comando explícito de entrega/finalização de pedido pago — contrato Demo Freezy.
+     *
+     * PATCH /tenant/pedidos/{id}/entregar
+     *
+     * Pré-condições obrigatórias:
+     * 1. Actor autenticado com papel tenant (OWNER, ADMIN, OPERATOR, CASHIER).
+     * 2. Pedido pertence ao tenant do actor.
+     * 3. Pedido não está em estado terminal (FINALIZADO/CANCELADO).
+     * 4. StatusFinanceiro é PAGO — sem pagamento não há entrega.
+     * 5. Todos os subpedidos estão PRONTO ou ENTREGUE.
+     * 6. MARK_DELIVERED está em allowedActions (autoridade do PedidoAllowedActionsService).
+     *
+     * Garantias:
+     * - Não altera pagamento.
+     * - Não cria fiscal, caixa, KDS, nem chama gateway.
+     * - Estado final: FINALIZADO (derivado dos SubPedidos = ENTREGUE).
+     * - Auditoria registra actor, command, pedidoOrigem, tenantTemplate.
+     */
+    @Transactional
+    public TenantPedidoDetalheResponse entregarPedido(Long pedidoId, String ip, String userAgent) {
+        TenantContext ctx = requireTenantCommandContext();
+        Pedido pedido = loadPedido(ctx, pedidoId);
+        validarTurnoObrigatorio(pedido);
+
+        // Guarda financeiro anterior — entrega não pode alterar pagamento
+        StatusFinanceiroPedido financeiroAnterior = pedido.getStatusFinanceiro();
+
+        // Pedido não pode estar em estado terminal
+        if (pedido.getStatus() != null && pedido.getStatus().isTerminal()) {
+            logPedidoCommandBlocked(
+                    pedido,
+                    "MARK_DELIVERED",
+                    "Pedido já está em estado terminal (" + pedido.getStatus().name() + ").",
+                    ip,
+                    userAgent
+            );
+            throw new com.restaurante.exception.ConflictException(
+                    "Pedido já está em estado terminal (" + pedido.getStatus().name() + ")."
+            );
+        }
+
+        // Pagamento obrigatório — regra contratual da Demo Freezy
+        if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
+            logPedidoCommandBlocked(
+                    pedido,
+                    "MARK_DELIVERED",
+                    "Entrega requer pagamento confirmado. Estado financeiro: "
+                            + (pedido.getStatusFinanceiro() != null ? pedido.getStatusFinanceiro().name() : "DESCONHECIDO"),
+                    ip,
+                    userAgent
+            );
+            throw new com.restaurante.exception.ConflictException(
+                    "Entrega não permitida: pagamento não confirmado."
+            );
+        }
+
+        // Validação via allowedActions — MARK_DELIVERED deve estar permitido
+        OperationalOrigem actor = resolveOrigem();
+        PedidoAllowedActionsService.PedidoCapabilities capabilities = pedidoAllowedActionsService.evaluate(pedido, ctx);
+        if (!capabilities.allowedActions().contains(com.restaurante.model.enums.PedidoAllowedAction.MARK_DELIVERED)) {
+            String reason = capabilities.actionReasons().getOrDefault(
+                    com.restaurante.model.enums.PedidoAllowedAction.MARK_DELIVERED,
+                    "MARK_DELIVERED não permitido para este pedido."
+            );
+            logPedidoCommandBlocked(pedido, "MARK_DELIVERED", reason, ip, userAgent);
+            throw new com.restaurante.exception.ConflictException("Entrega não permitida: " + reason);
+        }
+
+        // Executa finalização (reutiliza lógica existente)
+        TenantPedidoDetalheResponse resultado = finalizarPedido(ctx, pedido, "Entrega registada pelo operador", ip, userAgent);
+
+        // Verifica que pagamento não foi alterado
+        Pedido after = pedidoRepository.findByIdAndTenantId(pedido.getId(), ctx.tenantId())
+                .orElseThrow(() -> new com.restaurante.exception.ResourceNotFoundException("Recurso não encontrado."));
+        if (after.getStatusFinanceiro() != financeiroAnterior) {
+            throw new com.restaurante.exception.ConflictException(
+                    "Integridade violada: entrega alterou estado financeiro. Operação revertida."
+            );
+        }
+
+        return resultado;
     }
 
     /**

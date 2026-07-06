@@ -1,0 +1,128 @@
+RELATORIO_PAYMENT_ORDER_EXPIRATION_001
+
+1. Identificacao
+
+Backend branch: backend/payment-order-expiration-001
+Backend commit base: c444fc95f3536f21352965001256bffa9d0422d4
+Backend commit final: informado na entrega final; o hash depende do commit que contem este relatorio
+Frontend branch: ui/test-infra-stabilization-001
+Frontend commit base: 0e9969883d29c417710e60a47d494dc0bf327c59
+Frontend commit final: 0e9969883d29c417710e60a47d494dc0bf327c59
+
+2. Objectivo
+
+Entregar no backend o contrato minimo para ordem de pagamento expiravel do Demo FREEZY / CONSUMA_PONTO, sem alterar frontend nesta fase.
+
+3. Problema tratado
+
+O fluxo aprovado exige que o cliente crie pedido publico `CRIADO / NAO_PAGO`, o operador aceite, o sistema gere ordem de pagamento com prazo, o cliente consiga consultar a ordem e o operador autorizado confirme manualmente o pagamento dentro do prazo. Antes desta fase faltava esse contrato unificado no backend.
+
+4. Modelo implementado
+
+Foi reutilizado `OrdemPagamento`/`ordens_pagamento`, com tipo `PEDIDO`, status proprio, valor total do pedido, metodo `TPA`, `createdAt`, `expiresAt` e confirmacao manual. A ordem e separada de pedido e de pagamento financeiro.
+
+5. Migration
+
+`V76__pedido_payment_order_expiration_indexes.sql` adiciona indice seguro para consulta por tenant, pedido, status e expiracao. Nao cria ordens retroativas, nao altera pedidos antigos e nao marca nenhum financeiro como pago.
+
+6. Configuracao de expiracao
+
+Configuracao geral: `consuma.payment.order.expiration-minutes=${CONSUMA_PAYMENT_ORDER_EXPIRATION_MINUTES:10}`. Sandbox FREEZY preserva override por `CONSUMA_FREEZY_PAYMENT_ORDER_EXPIRATION_MINUTES`. O service usa `PaymentOrderProperties` e `Clock`.
+
+7. Criacao apos aceite
+
+A ordem nasce automaticamente depois do aceite operacional valido, quando o pedido esta `EM_ANDAMENTO`. Antes do aceite nao ha ordem ativa. O aceite nao confirma pagamento, nao cria gateway e nao finaliza pedido.
+
+8. Consulta da ordem
+
+Respostas tenant de pedido e resposta publica QR agora incluem `paymentOrder` com dados minimos: `id`, `status`, `valor`, `moeda`, `metodoPagamento`, `createdAt`, `expiresAt`, `confirmedAt`. O publico nao recebe dados internos de operador.
+
+9. Confirmacao manual
+
+Endpoint: `PATCH /tenant/pedidos/{id}/payment-order/confirm`. A confirmacao exige ator tenant autorizado por policy existente, ordem aguardando, prazo valido, pedido aceito e valor consistente. Ao confirmar, o backend marca ordem `CONFIRMADA`, cria pagamento financeiro confirmado, marca pedido `PAGO` e mantem ciclo operacional aberto.
+
+10. Expiracao
+
+Expiracao derivada por `expiresAt`: leitura e comando mostram/bloqueiam como `EXPIRADA` quando `now > expiresAt`. Nao foi criado scheduler.
+
+11. allowedActions
+
+`VIEW_PAYMENT` foi preservada. `CONFIRM_PAYMENT` aparece apenas para atores tenant autorizados quando o pedido esta aceito, ainda nao pago, possui ordem aguardando e nao expirada. Nao aparece antes do aceite, para ordem expirada ou para cliente publico.
+
+12. Auditoria
+
+Auditoria via `OperationalEventLogService`: criacao da ordem, confirmacao manual e bloqueio por expiracao.
+
+13. Garantias
+
+Pagamento antes do aceite: Bloqueado; nao ha ordem ativa antes do aceite.
+Gateway: Fora do escopo; nao chamado.
+Estorno: Fora do escopo.
+PDV: Fora do escopo.
+Caixa: Caixa completo fora do escopo.
+KDS: Fora do escopo.
+Fiscal: Fora do escopo no endpoint tenant novo.
+Frontend: Sem alteracao.
+
+14. Testes backend
+
+Testes focados:
+- mvn -Dtest=PedidoAllowedActionsServiceTest test: PASS, 12 testes, 0 falhas, 0 erros, 0 ignorados.
+- mvn -Pit -Dit.test=OperationalStatusTransitionIT verify: PASS, 13 ITs, 0 falhas, 0 erros, 0 ignorados; Surefire executado junto com 381 testes, 0 falhas, 0 erros, 3 ignorados.
+- mvn -Pit -Dit.test=DeviceActivationIT verify: PASS, 2 ITs, 0 falhas, 0 erros, 0 ignorados; confirma fixture estabilizada com dados unicos.
+
+Testes obrigatorios finais:
+- mvn -DskipTests compile: PASS, BUILD SUCCESS, 2.996 s, finalizado em 2026-07-06T16:32:31+01:00.
+- mvn test: PASS, BUILD SUCCESS, 381 testes, 0 falhas, 0 erros, 3 ignorados, 03:22 min, finalizado em 2026-07-06T16:35:59+01:00.
+- mvn -Pit verify: PASS, BUILD SUCCESS, Surefire 381 testes, 0 falhas, 0 erros, 3 ignorados; Failsafe 276 testes, 0 falhas, 0 erros, 0 ignorados; 11:29 min, finalizado em 2026-07-06T16:47:36+01:00.
+
+15. Testes frontend, se aplicavel
+
+Nao aplicavel. Nao houve alteracao frontend.
+
+16. E2E, se aplicavel
+
+Nao aplicavel nesta fase. Nao houve alteracao frontend nem suite E2E.
+
+17. Arquivos alterados
+
+Backend:
+- docs/architecture/PAYMENT_ORDER_EXPIRATION_001.md
+- docs/reports/backend/RELATORIO_PAYMENT_ORDER_EXPIRATION_001.txt
+- docs/reports/fullstack/RELATORIO_PAYMENT_ORDER_EXPIRATION_001.txt
+- src/main/java/com/restaurante/config/ClockConfig.java
+- src/main/java/com/restaurante/config/PaymentOrderProperties.java
+- src/main/java/com/restaurante/controller/TenantPedidoController.java
+- src/main/java/com/restaurante/dto/request/ConfirmarPedidoPaymentOrderRequest.java
+- src/main/java/com/restaurante/dto/response/PaymentOrderResponse.java
+- src/main/java/com/restaurante/dto/response/PublicQrPedidoResponse.java
+- src/main/java/com/restaurante/dto/response/TenantPedidoDetalheResponse.java
+- src/main/java/com/restaurante/dto/response/TenantPedidoResumoResponse.java
+- src/main/java/com/restaurante/financeiro/repository/OrdemPagamentoRepository.java
+- src/main/java/com/restaurante/financeiro/service/OrdemPagamentoService.java
+- src/main/java/com/restaurante/model/entity/OrdemPagamento.java
+- src/main/java/com/restaurante/service/ConsumoPublicService.java
+- src/main/java/com/restaurante/service/PublicQrPedidoService.java
+- src/main/java/com/restaurante/service/operacional/PedidoAllowedActionsService.java
+- src/main/java/com/restaurante/service/operacional/PedidoStatusTransitionService.java
+- src/main/java/com/restaurante/service/tenantadmin/TenantAdminPedidoService.java
+- src/main/resources/application.properties
+- src/main/resources/application-sandbox.properties
+- src/main/resources/db/migration/V76__pedido_payment_order_expiration_indexes.sql
+- src/test/java/com/restaurante/device/DeviceActivationIT.java
+- src/test/java/com/restaurante/operacional/OperationalStatusTransitionIT.java
+- src/test/java/com/restaurante/service/operacional/PedidoAllowedActionsServiceTest.java
+
+Frontend:
+- Nenhum.
+
+18. Riscos restantes
+
+- Expiracao derivada nao atualiza fisicamente o status para `EXPIRADA`.
+- Confirmacao manual tenant esta limitada a TPA.
+- UI ainda nao consome `paymentOrder` nem o endpoint de confirmacao.
+- Atores com role apenas `TENANT_OPERATOR` continuam sujeitos a restricao da policy operacional existente.
+
+19. Decisao final
+
+APROVADO COM RESSALVAS

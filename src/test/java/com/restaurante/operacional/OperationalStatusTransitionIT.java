@@ -2,9 +2,14 @@ package com.restaurante.operacional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaurante.dto.request.ConfirmarPedidoPaymentOrderRequest;
+import com.restaurante.financeiro.enums.StatusPagamentoGateway;
+import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
+import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
+import com.restaurante.model.entity.OrdemPagamento;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
@@ -12,7 +17,10 @@ import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.User;
+import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.OperationalEventType;
+import com.restaurante.model.enums.OrdemPagamentoStatus;
+import com.restaurante.model.enums.PedidoAllowedAction;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
@@ -53,6 +61,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -81,6 +90,8 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
     @Autowired PedidoRepository pedidoRepository;
     @Autowired PedidoService pedidoService;
     @Autowired SubPedidoRepository subPedidoRepository;
+    @Autowired OrdemPagamentoRepository ordemPagamentoRepository;
+    @Autowired PagamentoGatewayRepository pagamentoGatewayRepository;
     @Autowired OperationalEventLogRepository operationalEventLogRepository;
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
     @Autowired UserRepository userRepository;
@@ -262,6 +273,8 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
     @WithMockUser(username = "operator-user")
     void operator_canAcceptPedido_withoutChangingPaymentOrStartingProduction() throws Exception {
         Setup setup = setupTenantAndPedido("op-status-7", "OS7");
+        assertThat(ordemPagamentoRepository.findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(setup.tenant.getId(), setup.pedidoId))
+                .isEmpty();
         User operator = criarTenantActor(setup.tenant, TenantUserRole.TENANT_OPERATOR, "operator-os7");
         TenantContextHolder.set(new TenantContext(
                 setup.tenant.getId(), setup.tenant.getTenantCode(), operator.getId(),
@@ -275,9 +288,18 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);
         assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
+        assertThat(pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(setup.pedidoId)).isEmpty();
 
         var sub = subPedidoRepository.findByIdAndTenantId(setup.subPedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(sub.getStatus()).isEqualTo(StatusSubPedido.PENDENTE);
+
+        OrdemPagamento ordem = ordemPagamentoRepository
+                .findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(setup.tenant.getId(), setup.pedidoId)
+                .orElseThrow();
+        assertThat(ordem.getStatus()).isEqualTo(OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO);
+        assertThat(ordem.getValor()).isEqualByComparingTo(pedido.getTotal());
+        assertThat(ordem.getCreatedAt()).isNotNull();
+        assertThat(ordem.getExpiresAt()).isAfter(ordem.getCreatedAt());
 
         var events = operationalEventLogRepository.searchByTenantAndFilters(
                 setup.tenant.getId(), setup.pedidoId, null, null,
@@ -290,6 +312,9 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         assertThat(events.getContent().stream().anyMatch(e ->
                 e.getEventType() == OperationalEventType.PEDIDO_STATUS_CHANGED
                         && "EM_ANDAMENTO".equals(e.getStatusNovo()))).isTrue();
+        assertThat(events.getContent().stream().anyMatch(e ->
+                e.getEventType() == OperationalEventType.ORDEM_PAGAMENTO_CRIADA
+                        && e.getEntityId().equals(ordem.getId()))).isTrue();
     }
 
     @Test
@@ -312,6 +337,123 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);
         assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
+        assertThat(ordemPagamentoRepository.findByTenantIdAndPedidoIdAndStatusOrderByCreatedAtDesc(
+                setup.tenant.getId(),
+                setup.pedidoId,
+                OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO
+        )).hasSize(1);
+    }
+
+    @Test
+    @WithMockUser(username = "owner-user")
+    void owner_canConfirmValidPaymentOrder_andPedidoStaysOperationallyOpen() throws Exception {
+        Setup setup = setupTenantAndPedido("op-status-pay-ok", "P12");
+        User owner = criarTenantActor(setup.tenant, TenantUserRole.TENANT_OWNER, "owner-pay-ok");
+        TenantContextHolder.set(new TenantContext(
+                setup.tenant.getId(), setup.tenant.getTenantCode(), owner.getId(),
+                Set.of(TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/aceitar"))
+                .andExpect(status().isOk());
+
+        String tenantDetail = mockMvc.perform(get("/tenant/pedidos/" + setup.pedidoId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode tenantData = objectMapper.readTree(tenantDetail).at("/data");
+        assertThat(tenantData.at("/paymentOrder/status").asText()).isEqualTo("AGUARDANDO_CONFIRMACAO");
+        assertThat(allowedActionsContain(tenantData, PedidoAllowedAction.CONFIRM_PAYMENT)).isTrue();
+
+        String publicDetail = mockMvc.perform(get("/public/q/" + setup.qrToken + "/pedidos/" + setup.pedidoId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode publicData = objectMapper.readTree(publicDetail).at("/data");
+        assertThat(publicData.at("/paymentOrder/status").asText()).isEqualTo("AGUARDANDO_CONFIRMACAO");
+        assertThat(publicData.at("/paymentOrder/confirmedBy").isMissingNode()).isTrue();
+
+        ConfirmarPedidoPaymentOrderRequest request = new ConfirmarPedidoPaymentOrderRequest();
+        request.setMetodoConfirmado(MetodoPagamentoManual.TPA);
+        request.setReferenciaOperador("TPA-FREEZY-001");
+
+        String confirmJson = mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/payment-order/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode confirmData = objectMapper.readTree(confirmJson).at("/data");
+        assertThat(confirmData.at("/status").asText()).isEqualTo("CONFIRMADA");
+
+        Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
+        assertThat(pedido.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PAGO);
+
+        OrdemPagamento ordem = ordemPagamentoRepository
+                .findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(setup.tenant.getId(), setup.pedidoId)
+                .orElseThrow();
+        assertThat(ordem.getStatus()).isEqualTo(OrdemPagamentoStatus.CONFIRMADA);
+        assertThat(ordem.getConfirmadoPorUser().getId()).isEqualTo(owner.getId());
+
+        var pagamentos = pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(setup.pedidoId);
+        assertThat(pagamentos).hasSize(1);
+        assertThat(pagamentos.getFirst().getStatus()).isEqualTo(StatusPagamentoGateway.CONFIRMADO);
+        assertThat(pagamentos.getFirst().getGatewayChargeId()).isNull();
+        assertThat(pagamentos.getFirst().getExternalReference()).isNull();
+
+        var events = operationalEventLogRepository.searchByTenantAndFilters(
+                setup.tenant.getId(), setup.pedidoId, null, OperationalEventType.ORDEM_PAGAMENTO_CONFIRMADA_MANUAL,
+                null, null, null, null,
+                org.springframework.data.domain.PageRequest.of(0, 20)
+        );
+        assertThat(events.getContent().stream().anyMatch(e -> e.getEntityId().equals(ordem.getId()))).isTrue();
+    }
+
+    @Test
+    @WithMockUser(username = "owner-user")
+    void expiredPaymentOrder_blocksConfirmation_andRemovesConfirmPaymentAction() throws Exception {
+        Setup setup = setupTenantAndPedido("op-status-pay-exp", "P13");
+        User owner = criarTenantActor(setup.tenant, TenantUserRole.TENANT_OWNER, "owner-pay-exp");
+        TenantContextHolder.set(new TenantContext(
+                setup.tenant.getId(), setup.tenant.getTenantCode(), owner.getId(),
+                Set.of(TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/aceitar"))
+                .andExpect(status().isOk());
+
+        OrdemPagamento ordem = ordemPagamentoRepository
+                .findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(setup.tenant.getId(), setup.pedidoId)
+                .orElseThrow();
+        ordem.setExpiresAt(LocalDateTime.now().minusMinutes(1));
+        ordemPagamentoRepository.saveAndFlush(ordem);
+
+        String tenantDetail = mockMvc.perform(get("/tenant/pedidos/" + setup.pedidoId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode tenantData = objectMapper.readTree(tenantDetail).at("/data");
+        assertThat(tenantData.at("/paymentOrder/status").asText()).isEqualTo("EXPIRADA");
+        assertThat(allowedActionsContain(tenantData, PedidoAllowedAction.CONFIRM_PAYMENT)).isFalse();
+        assertThat(tenantData.at("/actionReasons/CONFIRM_PAYMENT").asText()).isEqualTo("Ordem de pagamento expirada.");
+
+        ConfirmarPedidoPaymentOrderRequest request = new ConfirmarPedidoPaymentOrderRequest();
+        request.setMetodoConfirmado(MetodoPagamentoManual.TPA);
+        request.setReferenciaOperador("TPA-EXP");
+
+        mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/payment-order/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict());
+
+        OrdemPagamento expired = ordemPagamentoRepository
+                .findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(setup.tenant.getId(), setup.pedidoId)
+                .orElseThrow();
+        assertThat(expired.getStatus()).isEqualTo(OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO);
+        assertThat(expired.isExpirada(LocalDateTime.now())).isTrue();
+
+        Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
+        assertThat(pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(setup.pedidoId)).isEmpty();
     }
 
     @Test
@@ -419,7 +561,20 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         var subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId);
         Long subPedidoId = subs.getFirst().getId();
 
-        return new Setup(tenant, pedidoId, subPedidoId);
+        return new Setup(tenant, pedidoId, subPedidoId, qr.getToken());
+    }
+
+    private boolean allowedActionsContain(JsonNode data, PedidoAllowedAction action) {
+        JsonNode actions = data.at("/allowedActions");
+        if (!actions.isArray()) {
+            return false;
+        }
+        for (JsonNode item : actions) {
+            if (action.name().equals(item.asText())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {
@@ -503,5 +658,5 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         return user;
     }
 
-    private record Setup(Tenant tenant, Long pedidoId, Long subPedidoId) {}
+    private record Setup(Tenant tenant, Long pedidoId, Long subPedidoId, String qrToken) {}
 }

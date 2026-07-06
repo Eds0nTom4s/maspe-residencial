@@ -6,6 +6,7 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.exception.TurnoObrigatorioException;
+import com.restaurante.financeiro.service.OrdemPagamentoService;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.enums.OperationalEntityType;
@@ -40,6 +41,7 @@ public class PedidoStatusTransitionService {
     private final OperationalEventLogService operationalEventLogService;
     private final OperacaoProperties operacaoProperties;
     private final OperationalTemplatePolicy operationalTemplatePolicy;
+    private final OrdemPagamentoService ordemPagamentoService;
 
     /**
      * Atualiza status operacional do Pedido de forma segura.
@@ -173,6 +175,8 @@ public class PedidoStatusTransitionService {
                 ip,
                 userAgent
         );
+
+        ordemPagamentoService.garantirOrdemPagamentoPedidoAposAceite(after, resolveOrigem(), ip, userAgent);
 
         return tenantAdminPedidoService.buscarDetalhe(pedidoId);
     }

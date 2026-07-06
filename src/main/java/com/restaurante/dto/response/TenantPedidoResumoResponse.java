@@ -38,6 +38,7 @@ public class TenantPedidoResumoResponse {
     private LocalDateTime pagoEm;
 
     private int quantidadeItens;
+    private PaymentOrderResponse paymentOrder;
 
     @Builder.Default
     private Set<PedidoAllowedAction> allowedActions = new LinkedHashSet<>();

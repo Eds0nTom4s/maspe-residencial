@@ -16,6 +16,7 @@ import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
+import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -160,24 +161,26 @@ class DeviceActivationIT extends PostgresTestcontainersConfig {
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),
                 TenantResolutionSource.JWT, true, false
         ));
-        String phone = "+244900" + Math.abs(slug.hashCode() % 1_000_000);
+        String uniqueSlug = UniqueTestData.uniqueSlug(slug);
+        String uniqueTenantCode = UniqueTestData.uniqueTenantCode(tenantCode);
+        String uniqueSigla = UniqueTestData.uniqueInstituicaoSigla(tenantCode);
         return provisioningService.provisionar(
                 ProvisionarTenantRequest.builder()
                         .tenant(ProvisionarTenantRequest.TenantInfo.builder()
-                                .nome("Tenant " + slug)
-                                .slug(slug)
-                                .tenantCode(tenantCode)
+                                .nome("Tenant " + uniqueSlug)
+                                .slug(uniqueSlug)
+                                .tenantCode(uniqueTenantCode)
                                 .tipo(TenantTipo.VENDEDOR_RUA)
                                 .build())
                         .planoCodigo("PILOTO")
                         .templateCodigo("VENDEDOR_RUA")
                         .instituicao(ProvisionarTenantRequest.InstituicaoInfo.builder()
-                                .nome("Inst " + slug)
-                                .sigla(tenantCode)
+                                .nome("Inst " + uniqueSlug)
+                                .sigla(uniqueSigla)
                                 .build())
                         .responsavel(ProvisionarTenantRequest.ResponsavelInfo.builder()
-                                .email(slug + "@owner.com")
-                                .telefone(phone)
+                                .email(UniqueTestData.uniqueEmail(slug + "-owner"))
+                                .telefone(UniqueTestData.uniqueTelefone())
                                 .criarUsuario(true)
                                 .build())
                         .build()

@@ -1,12 +1,16 @@
 package com.restaurante.service.operacional;
 
 import com.restaurante.config.OperacaoProperties;
+import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
 import com.restaurante.model.entity.Mesa;
+import com.restaurante.model.entity.OrdemPagamento;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TurnoOperacional;
+import com.restaurante.model.enums.MetodoPagamentoManual;
+import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.PedidoAllowedAction;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
@@ -16,18 +20,30 @@ import com.restaurante.model.enums.TurnoOperacionalStatus;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
 class PedidoAllowedActionsServiceTest {
 
     private final OperacaoProperties operacaoProperties = new OperacaoProperties();
+    private final OrdemPagamentoRepository ordemPagamentoRepository = Mockito.mock(OrdemPagamentoRepository.class);
+    private final Clock clock = Clock.fixed(Instant.parse("2026-07-06T12:00:00Z"), ZoneOffset.UTC);
     private final PedidoAllowedActionsService service = new PedidoAllowedActionsService(
             new OperationalTemplatePolicy(),
-            operacaoProperties
+            operacaoProperties,
+            ordemPagamentoRepository,
+            clock
     );
 
     @Test
@@ -90,7 +106,7 @@ class PedidoAllowedActionsServiceTest {
     }
 
     @Test
-    void pedidoAceiteRetornaViewPaymentMasNaoConfirmPaymentSemContratoReal() {
+    void pedidoAceiteRetornaViewPaymentMasNaoConfirmPaymentSemOrdem() {
         Pedido pedido = pedido("CONSUMA_REST", StatusPedido.EM_ANDAMENTO, StatusFinanceiroPedido.NAO_PAGO, true, StatusSubPedido.PENDENTE);
 
         PedidoAllowedActionsService.PedidoCapabilities capabilities = service.evaluate(
@@ -102,8 +118,39 @@ class PedidoAllowedActionsServiceTest {
         assertThat(capabilities.allowedActions()).doesNotContain(PedidoAllowedAction.CONFIRM_PAYMENT);
         assertThat(capabilities.actionReasons()).containsEntry(
                 PedidoAllowedAction.CONFIRM_PAYMENT,
-                "Confirmação de pagamento deve ocorrer em fluxo financeiro real."
+                "Ordem de pagamento indisponível."
         );
+    }
+
+    @Test
+    void pedidoAceiteComOrdemValidaRetornaConfirmPaymentParaCaixa() {
+        Pedido pedido = pedido("CONSUMA_REST", StatusPedido.EM_ANDAMENTO, StatusFinanceiroPedido.NAO_PAGO, true, StatusSubPedido.PENDENTE);
+        OrdemPagamento ordem = ordem(pedido, OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO, now().plusMinutes(10));
+        when(ordemPagamentoRepository.findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(1L, 100L))
+                .thenReturn(Optional.of(ordem));
+
+        PedidoAllowedActionsService.PedidoCapabilities capabilities = service.evaluate(
+                pedido,
+                ctx(TenantUserRole.TENANT_CASHIER)
+        );
+
+        assertThat(capabilities.allowedActions()).contains(PedidoAllowedAction.CONFIRM_PAYMENT);
+    }
+
+    @Test
+    void pedidoAceiteComOrdemExpiradaNaoRetornaConfirmPayment() {
+        Pedido pedido = pedido("CONSUMA_REST", StatusPedido.EM_ANDAMENTO, StatusFinanceiroPedido.NAO_PAGO, true, StatusSubPedido.PENDENTE);
+        OrdemPagamento ordem = ordem(pedido, OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO, now().minusMinutes(1));
+        when(ordemPagamentoRepository.findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(1L, 100L))
+                .thenReturn(Optional.of(ordem));
+
+        PedidoAllowedActionsService.PedidoCapabilities capabilities = service.evaluate(
+                pedido,
+                ctx(TenantUserRole.TENANT_CASHIER)
+        );
+
+        assertThat(capabilities.allowedActions()).doesNotContain(PedidoAllowedAction.CONFIRM_PAYMENT);
+        assertThat(capabilities.actionReasons()).containsEntry(PedidoAllowedAction.CONFIRM_PAYMENT, "Ordem de pagamento expirada.");
     }
 
     @Test
@@ -182,6 +229,7 @@ class PedidoAllowedActionsServiceTest {
             StatusSubPedido subPedidoStatus
     ) {
         Tenant tenant = new Tenant();
+        tenant.setId(1L);
         tenant.setTemplateCode(templateCode);
         tenant.setTemplateVersion(1);
 
@@ -194,6 +242,7 @@ class PedidoAllowedActionsServiceTest {
         sessao.setMesa(mesa);
 
         Pedido pedido = new Pedido();
+        pedido.setId(100L);
         pedido.setTenant(tenant);
         pedido.setSessaoConsumo(sessao);
         pedido.setStatus(status);
@@ -208,6 +257,23 @@ class PedidoAllowedActionsServiceTest {
         subPedido.setStatus(subPedidoStatus);
         pedido.setSubPedidos(List.of(subPedido));
         return pedido;
+    }
+
+    private OrdemPagamento ordem(Pedido pedido, OrdemPagamentoStatus status, LocalDateTime expiresAt) {
+        OrdemPagamento ordem = new OrdemPagamento();
+        ordem.setId(200L);
+        ordem.setTenant(pedido.getTenant());
+        ordem.setPedido(pedido);
+        ordem.setStatus(status);
+        ordem.setValor(new BigDecimal("10.00"));
+        ordem.setMoeda("AOA");
+        ordem.setMetodoSolicitado(MetodoPagamentoManual.TPA);
+        ordem.setExpiresAt(expiresAt);
+        return ordem;
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
 
     private TenantContext ctx(TenantUserRole role) {

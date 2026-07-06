@@ -27,6 +27,27 @@ public interface OrdemPagamentoRepository extends JpaRepository<OrdemPagamento, 
 
     Optional<OrdemPagamento> findByIdAndTenantId(Long id, Long tenantId);
 
+    Optional<OrdemPagamento> findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(Long tenantId, Long pedidoId);
+
+    List<OrdemPagamento> findByTenantIdAndPedidoIdAndStatusOrderByCreatedAtDesc(Long tenantId,
+                                                                                 Long pedidoId,
+                                                                                 OrdemPagamentoStatus status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select o
+            from OrdemPagamento o
+              join fetch o.pedido p
+            where o.tenant.id = :tenantId
+              and p.id = :pedidoId
+              and o.tipo = :tipo
+            order by o.createdAt desc
+            """)
+    List<OrdemPagamento> findPedidoOrdersForUpdate(@Param("tenantId") Long tenantId,
+                                                   @Param("pedidoId") Long pedidoId,
+                                                   @Param("tipo") OrdemPagamentoTipo tipo,
+                                                   Pageable pageable);
+
     @Query("""
             select o
             from OrdemPagamento o

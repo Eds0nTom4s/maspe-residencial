@@ -1,6 +1,10 @@
 package com.restaurante.financeiro.service;
 
+import com.restaurante.config.PaymentOrderProperties;
+import com.restaurante.dto.request.ConfirmarPedidoPaymentOrderRequest;
+import com.restaurante.dto.response.PaymentOrderResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
@@ -17,6 +21,7 @@ import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.OperationalEntityType;
 import com.restaurante.model.enums.OperationalEventType;
@@ -24,40 +29,50 @@ import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.OrdemPagamentoTipo;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.fiscal.autoissue.event.PaymentConfirmedForFiscalIssueEvent;
 import com.restaurante.model.enums.FiscalAutoIssueSource;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.service.FundoConsumoService;
 import com.restaurante.service.PedidoPagamentoPolicy;
 import com.restaurante.service.operacional.OperationalEventLogService;
+import com.restaurante.service.operacional.OperationalTemplatePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 public class OrdemPagamentoService {
 
-    private static final int ORDEM_EXPIRES_MINUTES = 30;
+    private static final MetodoPagamentoManual DEFAULT_PEDIDO_PAYMENT_ORDER_METHOD = MetodoPagamentoManual.TPA;
 
     private final OrdemPagamentoRepository ordemPagamentoRepository;
     private final PagamentoGatewayRepository pagamentoGatewayRepository;
     private final PedidoRepository pedidoRepository;
     private final SubPedidoRepository subPedidoRepository;
     private final TransacaoFundoRepository transacaoFundoRepository;
+    private final UserRepository userRepository;
     private final FundoConsumoService fundoConsumoService;
     private final OrdemPagamentoTokenService tokenService;
     private final OperationalEventLogService operationalEventLogService;
     private final ApplicationEventPublisher eventPublisher;
     private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
+    private final PaymentOrderProperties paymentOrderProperties;
+    private final Clock clock;
+    private final OperationalTemplatePolicy operationalTemplatePolicy;
 
     @Transactional
     public OrdemPagamento criarOrdemCarregamentoFundo(Tenant tenant,
@@ -97,7 +112,7 @@ public class OrdemPagamentoService {
         ordem.setFundoConsumo(fundo);
         ordem.setTokenQr(tokenService.gerarTokenQr());
         ordem.setCodigoCurto(tokenService.gerarCodigoCurto());
-        ordem.setExpiresAt(LocalDateTime.now().plusMinutes(ORDEM_EXPIRES_MINUTES));
+        ordem.setExpiresAt(expiresAtFromNow());
         ordem.setCriadoPorOrigem(origem != null ? origem : OperationalOrigem.QR_PUBLICO);
 
         ordem = ordemPagamentoRepository.save(ordem);
@@ -165,7 +180,7 @@ public class OrdemPagamentoService {
         ordem.setFundoConsumo(pedido.getSessaoConsumo() != null ? pedido.getSessaoConsumo().getFundoConsumo() : null);
         ordem.setTokenQr(tokenService.gerarTokenQr());
         ordem.setCodigoCurto(tokenService.gerarCodigoCurto());
-        ordem.setExpiresAt(LocalDateTime.now().plusMinutes(ORDEM_EXPIRES_MINUTES));
+        ordem.setExpiresAt(expiresAtFromNow());
         ordem.setCriadoPorOrigem(origem != null ? origem : OperationalOrigem.QR_PUBLICO);
 
         ordem = ordemPagamentoRepository.save(ordem);
@@ -193,6 +208,246 @@ public class OrdemPagamentoService {
         );
 
         return ordem;
+    }
+
+    @Transactional
+    public OrdemPagamento garantirOrdemPagamentoPedidoAposAceite(Pedido pedido,
+                                                                 OperationalOrigem origem,
+                                                                 String ip,
+                                                                 String userAgent) {
+        if (pedido == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+        if (pedido.getTenant() == null || pedido.getTenant().getId() == null) {
+            throw new ResourceNotFoundException("Recurso não encontrado.");
+        }
+        if (pedido.getStatus() != StatusPedido.EM_ANDAMENTO) {
+            throw new ConflictException("Ordem de pagamento só pode ser gerada após aceite do pedido.");
+        }
+        if (pedido.getStatusFinanceiro() == StatusFinanceiroPedido.PAGO) {
+            throw new ConflictException("Pedido já está pago.");
+        }
+
+        pedidoPagamentoPolicy.assertPodeIniciarPagamento(pedido, PedidoPagamentoPolicy.PaymentFlow.TENANT_MANUAL_CONFIRMATION);
+
+        List<OrdemPagamento> existingOrders = ordemPagamentoRepository.findPedidoOrdersForUpdate(
+                pedido.getTenant().getId(),
+                pedido.getId(),
+                OrdemPagamentoTipo.PEDIDO,
+                PageRequest.of(0, 20)
+        );
+        Optional<OrdemPagamento> existingActive = existingOrders.stream()
+                .filter(o -> o.getStatus() == OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO)
+                .findFirst();
+        if (existingActive.isPresent()) {
+            return existingActive.get();
+        }
+        Optional<OrdemPagamento> existingConfirmed = existingOrders.stream()
+                .filter(o -> o.getStatus() == OrdemPagamentoStatus.CONFIRMADA)
+                .findFirst();
+        if (existingConfirmed.isPresent()) {
+            return existingConfirmed.get();
+        }
+
+        DadosOperacionaisPedido dados = resolverDadosOperacionaisPedido(pedido, null, null, null);
+
+        OrdemPagamento ordem = new OrdemPagamento();
+        ordem.setTenant(pedido.getTenant());
+        ordem.setInstituicao(dados.instituicao());
+        ordem.setUnidadeAtendimento(dados.unidadeAtendimento());
+        ordem.setTurnoOperacional(pedido.getTurnoOperacional());
+        ordem.setTipo(OrdemPagamentoTipo.PEDIDO);
+        ordem.setStatus(OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO);
+        ordem.setMetodoSolicitado(DEFAULT_PEDIDO_PAYMENT_ORDER_METHOD);
+        ordem.setValor(pedido.getTotal());
+        ordem.setMoeda("AOA");
+        ordem.setPedido(pedido);
+        ordem.setSessaoConsumo(pedido.getSessaoConsumo());
+        ordem.setFundoConsumo(pedido.getSessaoConsumo() != null ? pedido.getSessaoConsumo().getFundoConsumo() : null);
+        ordem.setTokenQr(tokenService.gerarTokenQr());
+        ordem.setCodigoCurto(tokenService.gerarCodigoCurto());
+        ordem.setExpiresAt(expiresAtFromNow());
+        ordem.setCriadoPorOrigem(origem != null ? origem : OperationalOrigem.TENANT_OPERATOR);
+
+        ordem = ordemPagamentoRepository.save(ordem);
+
+        operationalEventLogService.logOrdemPagamentoEvent(
+                OperationalEventType.ORDEM_PAGAMENTO_CRIADA,
+                ordem,
+                origem != null ? origem : OperationalOrigem.TENANT_OPERATOR,
+                "Ordem de pagamento criada após aceite do pedido",
+                Map.of(
+                        "command", "CREATE_PAYMENT_ORDER_AFTER_ACCEPT",
+                        "ordemId", ordem.getId(),
+                        "pedidoId", pedido.getId(),
+                        "tipo", ordem.getTipo().name(),
+                        "metodo", ordem.getMetodoSolicitado().name(),
+                        "valor", ordem.getValor(),
+                        "expiresAt", ordem.getExpiresAt(),
+                        "pedidoOrigem", pedido.getPedidoOrigem() != null ? pedido.getPedidoOrigem().name() : "UNKNOWN",
+                        "tenantTemplate", pedido.getTenant().getTemplateCode() != null ? pedido.getTenant().getTemplateCode() : "UNKNOWN"
+                ),
+                ip,
+                userAgent
+        );
+
+        return ordem;
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentOrderResponse buscarPaymentOrderResponseDoPedido(Long tenantId, Long pedidoId) {
+        return ordemPagamentoRepository.findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(tenantId, pedidoId)
+                .map(this::toPaymentOrderResponse)
+                .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<OrdemPagamento> buscarUltimaOrdemPedido(Long tenantId, Long pedidoId) {
+        return ordemPagamentoRepository.findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(tenantId, pedidoId);
+    }
+
+    public OrdemPagamentoStatus statusEfetivo(OrdemPagamento ordem) {
+        if (ordem == null || ordem.getStatus() == null) {
+            return null;
+        }
+        if (ordem.getStatus() == OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO
+                && ordem.isExpirada(now())) {
+            return OrdemPagamentoStatus.EXPIRADA;
+        }
+        return ordem.getStatus();
+    }
+
+    public PaymentOrderResponse toPaymentOrderResponse(OrdemPagamento ordem) {
+        if (ordem == null) {
+            return null;
+        }
+        return PaymentOrderResponse.builder()
+                .id(ordem.getId())
+                .status(statusEfetivo(ordem))
+                .valor(ordem.getValor())
+                .moeda(ordem.getMoeda())
+                .metodoPagamento(ordem.getMetodoSolicitado())
+                .createdAt(ordem.getCreatedAt())
+                .expiresAt(ordem.getExpiresAt())
+                .confirmedAt(ordem.getConfirmadoEm())
+                .build();
+    }
+
+    @Transactional
+    public PaymentOrderResponse confirmarOrdemPedidoPorOperador(Long tenantId,
+                                                                Long pedidoId,
+                                                                Long actorUserId,
+                                                                OperationalOrigem origem,
+                                                                ConfirmarPedidoPaymentOrderRequest request,
+                                                                String ip,
+                                                                String userAgent) {
+        if (tenantId == null || pedidoId == null) {
+            throw new ResourceNotFoundException("Recurso não encontrado.");
+        }
+        OrdemPagamento ordem = ordemPagamentoRepository.findPedidoOrdersForUpdate(
+                        tenantId,
+                        pedidoId,
+                        OrdemPagamentoTipo.PEDIDO,
+                        PageRequest.of(0, 1)
+                ).stream()
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Ordem de pagamento não encontrada."));
+
+        if (ordem.getPedido() == null || !pedidoId.equals(ordem.getPedido().getId())) {
+            throw new ResourceNotFoundException("Ordem de pagamento não encontrada.");
+        }
+
+        Pedido pedido = ordem.getPedido();
+        OperationalOrigem actor = origem != null ? origem : OperationalOrigem.TENANT_CASHIER;
+        String template = operationalTemplatePolicy.resolveTemplateCode(pedido);
+        var pedidoOrigem = operationalTemplatePolicy.resolvePedidoOrigem(pedido, actor);
+        if (!operationalTemplatePolicy.canConfirmPayment(actor, template, pedidoOrigem)) {
+            throw new ConflictException("Template/origem do pedido não permite confirmação de pagamento por este ator.");
+        }
+        pedidoPagamentoPolicy.assertPodeConfirmarPagamento(pedido, PedidoPagamentoPolicy.PaymentFlow.TENANT_MANUAL_CONFIRMATION);
+
+        if (ordem.getStatus() != OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO) {
+            throw new ConflictException("Ordem de pagamento não pode ser confirmada no status: " + ordem.getStatus() + ".");
+        }
+        if (ordem.isExpirada(now())) {
+            operationalEventLogService.logGenericRequiresNew(
+                    OperationalEventType.TRANSITION_BLOCKED,
+                    OperationalEntityType.ORDEM_PAGAMENTO,
+                    ordem.getId(),
+                    actor,
+                    "Confirmação bloqueada: ordem expirada",
+                    Map.of(
+                            "command", "CONFIRM_PAYMENT_ORDER",
+                            "ordemId", ordem.getId(),
+                            "pedidoId", pedido.getId(),
+                            "expiresAt", ordem.getExpiresAt()
+                    ),
+                    ip,
+                    userAgent
+            );
+            throw new ConflictException("Ordem de pagamento expirada.");
+        }
+
+        MetodoPagamentoManual metodo = resolveMetodoConfirmado(request, ordem);
+        if (metodo != MetodoPagamentoManual.TPA) {
+            throw new BusinessException("Confirmação tenant desta fase suporta apenas TPA, sem cash/troco.");
+        }
+        if (pedido.getTotal() == null || ordem.getValor() == null || ordem.getValor().compareTo(pedido.getTotal()) != 0) {
+            throw new ConflictException("Valor da ordem de pagamento não corresponde ao total do pedido.");
+        }
+
+        pagamentoGatewayRepository.findPagamentoConfirmadoPorPedido(pedido.getId(), TipoPagamentoFinanceiro.POS_PAGO)
+                .ifPresent(p -> { throw new ConflictException("Pedido já possui pagamento confirmado."); });
+
+        User confirmedBy = actorUserId != null ? userRepository.findById(actorUserId).orElse(null) : null;
+        ordem.setStatus(OrdemPagamentoStatus.CONFIRMADA);
+        ordem.setConfirmadoEm(now());
+        ordem.setConfirmadoPorUser(confirmedBy);
+        ordem.setReferenciaOperador(request != null ? request.getReferenciaOperador() : null);
+        ordem.setObservacao(request != null ? request.getObservacao() : null);
+        ordemPagamentoRepository.save(ordem);
+
+        Pagamento pagamento = Pagamento.builder()
+                .tenant(ordem.getTenant())
+                .pedido(pedido)
+                .fundoConsumo(null)
+                .ordemPagamento(ordem)
+                .cliente(null)
+                .tipoPagamento(TipoPagamentoFinanceiro.POS_PAGO)
+                .metodo(null)
+                .amount(ordem.getValor())
+                .status(StatusPagamentoGateway.PENDENTE)
+                .externalReference(null)
+                .observacoes("TENANT_MANUAL_" + metodo.name() + " ordemId=" + ordem.getId())
+                .build();
+        pagamento.confirmar();
+        pagamento = pagamentoGatewayRepository.save(pagamento);
+
+        if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
+            pedido.marcarComoPago();
+            pedidoRepository.save(pedido);
+        }
+
+        operationalEventLogService.logOrdemPagamentoEvent(
+                OperationalEventType.ORDEM_PAGAMENTO_CONFIRMADA_MANUAL,
+                ordem,
+                origem != null ? origem : OperationalOrigem.TENANT_CASHIER,
+                "Ordem de pagamento confirmada por operador",
+                Map.of(
+                        "command", "CONFIRM_PAYMENT_ORDER",
+                        "ordemId", ordem.getId(),
+                        "pedidoId", pedido.getId(),
+                        "pagamentoId", pagamento.getId(),
+                        "metodo", metodo.name(),
+                        "valor", ordem.getValor(),
+                        "pedidoOrigem", pedido.getPedidoOrigem() != null ? pedido.getPedidoOrigem().name() : "UNKNOWN",
+                        "tenantTemplate", pedido.getTenant() != null && pedido.getTenant().getTemplateCode() != null
+                                ? pedido.getTenant().getTemplateCode()
+                                : "UNKNOWN"
+                ),
+                ip,
+                userAgent
+        );
+
+        return toPaymentOrderResponse(ordem);
     }
 
     private DadosOperacionaisPedido resolverDadosOperacionaisPedido(Pedido pedido,
@@ -272,7 +527,7 @@ public class OrdemPagamentoService {
             }
             return null;
         }
-        if (ordem.isExpirada(LocalDateTime.now())) {
+        if (ordem.isExpirada(now())) {
             ordem.setStatus(OrdemPagamentoStatus.EXPIRADA);
             ordemPagamentoRepository.save(ordem);
             throw new BusinessException("Ordem expirada.");
@@ -288,7 +543,7 @@ public class OrdemPagamentoService {
         }
 
         ordem.setStatus(OrdemPagamentoStatus.CONFIRMADA);
-        ordem.setConfirmadoEm(LocalDateTime.now());
+        ordem.setConfirmadoEm(now());
         ordem.setReferenciaOperador(referenciaOperador);
         ordem.setObservacao(observacao);
         ordemPagamentoRepository.save(ordem);
@@ -377,5 +632,23 @@ public class OrdemPagamentoService {
                 ordem.getCaixaOperadorSession() != null ? ordem.getCaixaOperadorSession().getId() : null,
                 source
         ));
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.now(clock);
+    }
+
+    private LocalDateTime expiresAtFromNow() {
+        return now().plusMinutes(paymentOrderProperties.effectiveExpirationMinutes());
+    }
+
+    private MetodoPagamentoManual resolveMetodoConfirmado(ConfirmarPedidoPaymentOrderRequest request, OrdemPagamento ordem) {
+        if (request != null && request.getMetodoConfirmado() != null) {
+            return request.getMetodoConfirmado();
+        }
+        if (ordem != null && ordem.getMetodoSolicitado() != null) {
+            return ordem.getMetodoSolicitado();
+        }
+        return DEFAULT_PEDIDO_PAYMENT_ORDER_METHOD;
     }
 }

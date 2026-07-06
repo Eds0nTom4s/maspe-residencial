@@ -1,11 +1,14 @@
 package com.restaurante.service.operacional;
 
 import com.restaurante.config.OperacaoProperties;
+import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
+import com.restaurante.model.entity.OrdemPagamento;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.PedidoAllowedAction;
 import com.restaurante.model.enums.PedidoOrigem;
+import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -15,6 +18,8 @@ import com.restaurante.security.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
@@ -33,10 +38,14 @@ public class PedidoAllowedActionsService {
     private static final String REASON_PAYMENT_REJECT = "Pedido com pagamento em curso ou confirmado não pode ser rejeitado nesta fase.";
     private static final String REASON_PAYMENT_CANCEL = "Pedido pago não pode ser cancelado operacionalmente nesta fase.";
     private static final String REASON_SUBPEDIDOS = "Pedido não possui subpedidos elegíveis para esta ação.";
-    private static final String REASON_PAYMENT_CONTRACT = "Confirmação de pagamento deve ocorrer em fluxo financeiro real.";
+    private static final String REASON_PAYMENT_ORDER_MISSING = "Ordem de pagamento indisponível.";
+    private static final String REASON_PAYMENT_ORDER_EXPIRED = "Ordem de pagamento expirada.";
+    private static final String REASON_PAYMENT_ORDER_STATUS = "Ordem de pagamento não está aguardando confirmação.";
 
     private final OperationalTemplatePolicy operationalTemplatePolicy;
     private final OperacaoProperties operacaoProperties;
+    private final OrdemPagamentoRepository ordemPagamentoRepository;
+    private final Clock clock;
 
     public PedidoCapabilities evaluate(Pedido pedido, TenantContext ctx) {
         if (pedido == null) {
@@ -185,7 +194,20 @@ public class PedidoAllowedActionsService {
             reasons.put(action, "Pagamento disponível apenas após aceite do pedido.");
             return;
         }
-        reasons.put(action, REASON_PAYMENT_CONTRACT);
+        OrdemPagamento ordem = latestPaymentOrder(pedido);
+        if (ordem == null) {
+            reasons.put(action, REASON_PAYMENT_ORDER_MISSING);
+            return;
+        }
+        if (ordem.getStatus() != OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO) {
+            reasons.put(action, REASON_PAYMENT_ORDER_STATUS);
+            return;
+        }
+        if (ordem.isExpirada(LocalDateTime.now(clock))) {
+            reasons.put(action, REASON_PAYMENT_ORDER_EXPIRED);
+            return;
+        }
+        allowed.add(action);
     }
 
     private void maybeAddProduction(
@@ -256,6 +278,15 @@ public class PedidoAllowedActionsService {
 
     private List<SubPedido> subPedidos(Pedido pedido) {
         return pedido.getSubPedidos() != null ? pedido.getSubPedidos() : List.of();
+    }
+
+    private OrdemPagamento latestPaymentOrder(Pedido pedido) {
+        if (pedido == null || pedido.getId() == null || pedido.getTenant() == null || pedido.getTenant().getId() == null) {
+            return null;
+        }
+        return ordemPagamentoRepository
+                .findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(pedido.getTenant().getId(), pedido.getId())
+                .orElse(null);
     }
 
     private OperationalOrigem resolveActor(TenantContext ctx) {

@@ -36,6 +36,7 @@ public class TenantPedidoDetalheResponse {
     private LocalDateTime pagoEm;
 
     private TenantPedidoContextResponse contexto;
+    private PaymentOrderResponse paymentOrder;
 
     @Builder.Default
     private List<ItemResponse> itens = new ArrayList<>();

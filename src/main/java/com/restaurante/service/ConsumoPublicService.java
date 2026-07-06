@@ -217,8 +217,9 @@ public class ConsumoPublicService {
     @Transactional(readOnly = true)
     public OrdemPagamentoStatusResponse statusOrdemPorToken(String tokenOrdem) {
         OrdemPagamento ordem = ordemPagamentoService.buscarPorToken(tokenOrdem);
+        OrdemPagamentoStatus statusEfetivo = ordemPagamentoService.statusEfetivo(ordem);
         OrdemPagamentoStatusResponse resp = new OrdemPagamentoStatusResponse();
-        resp.setStatus(ordem.getStatus());
+        resp.setStatus(statusEfetivo);
         resp.setTipo(ordem.getTipo());
         resp.setOrdemPagamentoId(ordem.getId());
         resp.setValor(ordem.getValor());
@@ -228,16 +229,20 @@ public class ConsumoPublicService {
 
         if (ordem.getTipo() == OrdemPagamentoTipo.FUNDO_CONSUMO && ordem.getSessaoConsumo() != null) {
             resp.setCodigoConsumo(ordem.getSessaoConsumo().getQrCodeSessao());
-            if (ordem.getStatus() == OrdemPagamentoStatus.CONFIRMADA) {
+            if (statusEfetivo == OrdemPagamentoStatus.CONFIRMADA) {
                 resp.setSaldoAtual(fundoConsumoService.consultarSaldoPorToken(ordem.getSessaoConsumo().getQrCodeSessao()));
                 resp.setPodeBaixarQr(true);
                 resp.setMensagem("Ordem confirmada. Fundo creditado.");
+            } else if (statusEfetivo == OrdemPagamentoStatus.EXPIRADA) {
+                resp.setMensagem("Ordem expirada.");
             } else {
                 resp.setMensagem("Aguardando confirmação do operador.");
             }
         } else if (ordem.getTipo() == OrdemPagamentoTipo.PEDIDO) {
-            resp.setMensagem(ordem.getStatus() == OrdemPagamentoStatus.CONFIRMADA
+            resp.setMensagem(statusEfetivo == OrdemPagamentoStatus.CONFIRMADA
                     ? "Ordem confirmada."
+                    : statusEfetivo == OrdemPagamentoStatus.EXPIRADA
+                    ? "Ordem expirada."
                     : "Aguardando confirmação do operador.");
         } else {
             resp.setMensagem("Aguardando confirmação.");

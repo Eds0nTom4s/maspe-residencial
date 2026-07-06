@@ -27,6 +27,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_ordem_pg_status", columnList = "tenant_id, status"),
         @Index(name = "idx_ordem_pg_tipo", columnList = "tenant_id, tipo"),
         @Index(name = "idx_ordem_pg_turno", columnList = "tenant_id, turno_operacional_id"),
+        @Index(name = "idx_ordem_pg_pedido_status_expires", columnList = "tenant_id, pedido_id, status, expires_at"),
         @Index(name = "idx_ordem_pg_token", columnList = "token_qr", unique = true)
 })
 @Data

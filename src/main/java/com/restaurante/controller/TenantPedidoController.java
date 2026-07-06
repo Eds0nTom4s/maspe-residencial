@@ -2,12 +2,17 @@ package com.restaurante.controller;
 
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.request.AtualizarStatusPedidoRequest;
+import com.restaurante.dto.request.ConfirmarPedidoPaymentOrderRequest;
 import com.restaurante.dto.request.RejeitarPedidoRequest;
+import com.restaurante.dto.response.PaymentOrderResponse;
 import com.restaurante.dto.response.TenantPedidoDetalheResponse;
 import com.restaurante.dto.response.TenantPedidoResumoResponse;
+import com.restaurante.financeiro.service.OrdemPagamentoService;
+import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.tenantadmin.TenantAdminPedidoService;
 import com.restaurante.service.operacional.PedidoStatusTransitionService;
@@ -30,6 +35,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/tenant")
@@ -40,6 +47,7 @@ public class TenantPedidoController {
     private final TenantGuard tenantGuard;
     private final TenantAdminPedidoService pedidoService;
     private final PedidoStatusTransitionService pedidoStatusTransitionService;
+    private final OrdemPagamentoService ordemPagamentoService;
 
     @GetMapping("/pedidos")
     @PreAuthorize("isAuthenticated()")
@@ -133,5 +141,50 @@ public class TenantPedidoController {
         String ua = http != null ? http.getHeader("User-Agent") : null;
         TenantPedidoDetalheResponse resp = pedidoStatusTransitionService.rejeitarPedido(id, request.getMotivo(), ip, ua);
         return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success("Pedido rejeitado", resp));
+    }
+
+    @PatchMapping("/pedidos/{id}/payment-order/confirm")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<PaymentOrderResponse>> confirmarPaymentOrder(
+            @PathVariable Long id,
+            @RequestBody(required = false) ConfirmarPedidoPaymentOrderRequest request,
+            jakarta.servlet.http.HttpServletRequest http
+    ) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER,
+                TenantUserRole.TENANT_FINANCE
+        );
+        TenantContext ctx = tenantGuard.requireContext();
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        PaymentOrderResponse resp = ordemPagamentoService.confirmarOrdemPedidoPorOperador(
+                ctx.tenantId(),
+                id,
+                ctx.userId(),
+                resolvePaymentOrigem(ctx),
+                request,
+                ip,
+                ua
+        );
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success("Ordem de pagamento confirmada", resp));
+    }
+
+    private OperationalOrigem resolvePaymentOrigem(TenantContext ctx) {
+        if (ctx == null) {
+            return OperationalOrigem.SYSTEM;
+        }
+        if (ctx.platformAdmin()) {
+            return OperationalOrigem.TENANT_ADMIN;
+        }
+        Set<String> roles = ctx.roles() != null ? ctx.roles() : Collections.emptySet();
+        if (roles.contains(TenantUserRole.TENANT_OWNER.name())) return OperationalOrigem.TENANT_OWNER;
+        if (roles.contains(TenantUserRole.TENANT_ADMIN.name())) return OperationalOrigem.TENANT_ADMIN;
+        if (roles.contains(TenantUserRole.TENANT_FINANCE.name())) return OperationalOrigem.TENANT_FINANCE;
+        if (roles.contains(TenantUserRole.TENANT_CASHIER.name())) return OperationalOrigem.TENANT_CASHIER;
+        if (roles.contains(TenantUserRole.TENANT_OPERATOR.name())) return OperationalOrigem.TENANT_OPERATOR;
+        return OperationalOrigem.SYSTEM;
     }
 }

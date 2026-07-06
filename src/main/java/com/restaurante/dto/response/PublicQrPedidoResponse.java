@@ -29,7 +29,7 @@ public class PublicQrPedidoResponse {
 
     private BigDecimal total;
     private List<PublicQrPedidoItemResponse> itens;
+    private PaymentOrderResponse paymentOrder;
 
     private String mensagem;
 }
-

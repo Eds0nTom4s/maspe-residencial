@@ -7,6 +7,7 @@ import com.restaurante.dto.response.PublicQrPedidoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.financeiro.service.OrdemPagamentoService;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.ItemPedido;
@@ -69,6 +70,7 @@ public class PublicQrPedidoService {
     private final TenantPagamentoPolicyService tenantPagamentoPolicyService;
     private final TenantOperationalModulesService tenantOperationalModulesService;
     private final TenantSessaoConsumoConfigService tenantSessaoConsumoConfigService;
+    private final OrdemPagamentoService ordemPagamentoService;
 
     @Transactional
     public PublicQrPedidoResponse criarPedidoPublicoPorQrToken(String token, String idempotencyKeyHeader, PublicQrPedidoRequest request) {
@@ -247,6 +249,7 @@ public class PublicQrPedidoService {
                     .mesaNumero(mesa != null ? mesa.getNumero() : null)
                     .total(pedido.getTotal())
                     .itens(itensResponse)
+                    .paymentOrder(ordemPagamentoService.buscarPaymentOrderResponseDoPedido(tenant.getId(), pedido.getId()))
                     .mensagem("Pedido enviado. Aguarde o aceite do estabelecimento para instruções de pagamento.")
                     .build();
         } catch (ConflictException e) {
@@ -516,6 +519,9 @@ public class PublicQrPedidoService {
                 .mesaNumero(mesa != null ? mesa.getNumero() : null)
                 .total(pedido.getTotal())
                 .itens(itens)
+                .paymentOrder(pedido.getTenant() != null
+                        ? ordemPagamentoService.buscarPaymentOrderResponseDoPedido(pedido.getTenant().getId(), pedido.getId())
+                        : null)
                 .mensagem("Pedido já criado anteriormente")
                 .build();
     }

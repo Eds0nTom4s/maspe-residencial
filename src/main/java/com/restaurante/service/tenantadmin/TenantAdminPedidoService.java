@@ -5,6 +5,7 @@ import com.restaurante.dto.response.TenantPedidoDetalheResponse;
 import com.restaurante.dto.response.TenantPedidoResumoResponse;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.exception.TurnoObrigatorioException;
+import com.restaurante.financeiro.service.OrdemPagamentoService;
 import com.restaurante.model.entity.ItemPedido;
 import com.restaurante.model.entity.Mesa;
 import com.restaurante.model.entity.Pedido;
@@ -35,6 +36,7 @@ public class TenantAdminPedidoService {
     private final TurnoOperacionalRepository turnoOperacionalRepository;
     private final OperacaoProperties operacaoProperties;
     private final PedidoAllowedActionsService pedidoAllowedActionsService;
+    private final OrdemPagamentoService ordemPagamentoService;
 
     @Transactional(readOnly = true)
     public Page<TenantPedidoResumoResponse> listarPedidos(
@@ -125,6 +127,7 @@ public class TenantAdminPedidoService {
                 .atualizadoEm(p.getUpdatedAt())
                 .pagoEm(p.getPagoEm())
                 .quantidadeItens(p.getItens() != null ? p.getItens().size() : 0)
+                .paymentOrder(ordemPagamentoService.buscarPaymentOrderResponseDoPedido(p.getTenant().getId(), p.getId()))
                 .allowedActions(capabilities.allowedActions())
                 .actionReasons(capabilities.actionReasons())
                 .build();
@@ -192,6 +195,7 @@ public class TenantAdminPedidoService {
                 .atualizadoEm(p.getUpdatedAt())
                 .pagoEm(p.getPagoEm())
                 .contexto(ctx.build())
+                .paymentOrder(ordemPagamentoService.buscarPaymentOrderResponseDoPedido(p.getTenant().getId(), p.getId()))
                 .itens(itens)
                 .subPedidos(subs)
                 .allowedActions(capabilities.allowedActions())

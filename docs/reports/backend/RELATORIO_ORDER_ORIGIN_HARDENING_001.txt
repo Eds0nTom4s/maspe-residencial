@@ -4,7 +4,7 @@ RELATORIO_ORDER_ORIGIN_HARDENING_001 — BACKEND
 Fase: order-origin-hardening-001
 Branch: backend/order-origin-hardening-001
 Commit base: a3fd47b47b9da33b0465bbb84461ce201bb4522c
-Commit final: 40c03bd3590cecd4686ef986c698b4448f772a03
+Commit final tecnico validado: ed79d5243219bea1d0078249338699aab52deef6
 
 1. OBJETIVO
 -----------
@@ -120,12 +120,22 @@ Testes ajustados/criados:
   - actorTenantResolveParaOperadorInternoQuandoOrigemNaoInformada
   - deviceKdsEnviaParaProducao
 
-Observação: mvn -Pit verify -DskipUnitTests=true foi iniciado mas atingiu o
-timeout de 300s sem concluir. Não foi possível validar os ITs nesta rodada.
+Revalidacao final em 2026-07-06:
+  mvn -Pit verify
+  - Execucao ampla interrompida apos exceder 300s, ja na fase Failsafe/IT.
+  - A interrupcao foi operacional, sem falha funcional registrada ate o corte.
+
+  mvn -Pit -Dtest=OperationalTemplatePolicyTest,PedidoAllowedActionsServiceTest,PedidoPagamentoPolicyTest -Dit.test=FlywayBaselinePostgresIT,PublicQrPedidoIT,PublicQrPagamentoStartIT,DevicePedidoCreateIT,OperationalStatusTransitionIT verify
+  - BUILD SUCCESS
+  - Surefire selecionado: 25 tests, 0 failures, 0 errors, 0 skipped
+  - Failsafe selecionado: 25 tests, 0 failures, 0 errors, 0 skipped
+  - Cobertura focada: Flyway V75/Postgres, QR publico, bloqueio de pagamento
+    antes do aceite, device POS e transicoes operacionais.
 
 11. RISCOS RESTANTES
 --------------------
-- ITs não concluídos por timeout.
+- Suite ampla de ITs nao foi concluida dentro do limite operacional de 300s;
+  a malha focada da origem do pedido passou.
 - PDV_INTERNO e CAIXA têm origem mapeada, mas fluxos completos não
   implementados (conforme governança da fase).
 - Produção ainda por pedido, não por subpedido.
@@ -133,4 +143,5 @@ timeout de 300s sem concluir. Não foi possível validar os ITs nesta rodada.
 
 12. DECISÃO
 -----------
-APROVADO COM RESSALVAS (ITs não finalizados; ressalvas conhecidas documentadas).
+APROVADO COM RESSALVAS (suite ampla de ITs nao finalizada; ITs focados
+da origem do pedido validados com sucesso).

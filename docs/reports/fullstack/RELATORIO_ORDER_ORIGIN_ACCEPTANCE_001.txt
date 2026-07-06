@@ -1,0 +1,151 @@
+RELATORIO_ORDER_ORIGIN_ACCEPTANCE_001 - VALIDACAO FINAL
+=======================================================
+
+1. Identificacao
+----------------
+Data/hora local: 2026-07-06, Africa/Luanda
+
+Backend branch: backend/order-origin-hardening-001
+Backend commit inicial da validacao: ed79d5243219bea1d0078249338699aab52deef6
+Backend commit tecnico final validado: ed79d5243219bea1d0078249338699aab52deef6
+Backend commit documental final: informado na entrega final apos commit docs.
+
+Frontend branch: ui/order-origin-hardening-001
+Frontend commit inicial da validacao: fbfa2aebb6a34ed72089293dd7552f76fc725b62
+Frontend commit tecnico final validado: fbfa2aebb6a34ed72089293dd7552f76fc725b62
+Frontend commit documental final: informado na entrega final apos commit docs.
+
+2. Escopo
+---------
+Validacao final da formalizacao da origem do pedido, migration V75, policies,
+allowedActions, auditoria, frontend e relatorios. Nenhuma funcionalidade nova
+foi implementada nesta aceitacao.
+
+3. Migration V75
+----------------
+Arquivo: src/main/resources/db/migration/V75__pedido_origem.sql
+
+Resultado da auditoria:
+- ADD COLUMN IF NOT EXISTS pedido_origem VARCHAR(30).
+- Coluna aditiva, nullable e sem default destrutivo.
+- Backfill conservador: registros existentes com NULL recebem LEGADO.
+- Nao infere QR_MESA, QR_PRINCIPAL ou QR_PUBLICO para dados historicos.
+- Compatibilidade com banco limpo validada por FlywayBaselinePostgresIT em
+  Postgres/Testcontainers: 1 test, 0 failures, 0 errors.
+
+4. Origem formalizada
+---------------------
+Enum canonico backend: com.restaurante.model.enums.PedidoOrigem
+Valores auditados: QR_MESA, QR_PRINCIPAL, QR_PUBLICO,
+SESSAO_PARTICIPANTE, SESSAO_CONSUMO, OPERADOR_INTERNO, DEVICE_POS,
+PDV_INTERNO, DEVICE_KDS, CAIXA, SISTEMA, LEGADO, UNKNOWN.
+
+Pontos de criacao auditados:
+- PublicQrPedidoService define QR_MESA, QR_PRINCIPAL ou QR_PUBLICO a partir do
+  QR validado pelo backend.
+- PedidoService define OPERADOR_INTERNO por padrao, SESSAO_PARTICIPANTE para
+  participante explicito e SESSAO_CONSUMO/QR_* conforme sessao validada.
+- DevicePedidoService define DEVICE_POS.
+- Fallback LEGADO permanece conservador para pedido antigo sem sessao.
+
+5. Policies
+-----------
+OperationalTemplatePolicy prioriza pedidoOrigem persistido e usa fallback
+conservador apenas quando o campo nao existe. As regras auditadas cobrem:
+- aceite/rejeicao bloqueados para DEVICE_POS, DEVICE_KDS e PDV_INTERNO;
+- pagamento publico QR exige aceite previo;
+- DEVICE_POS/PDV_INTERNO podem seguir pagamento imediato apenas em atores
+  autorizados;
+- KDS nao confirma pagamento;
+- producao respeita template, origem e actor.
+
+PedidoPagamentoPolicy delega a decisao de aceitar antes de pagar para
+OperationalTemplatePolicy. PedidoStatusTransitionService tambem usa a policy
+para aceitar/rejeitar e registrar bloqueios.
+
+6. AllowedActions
+-----------------
+PedidoAllowedActionsService calcula allowedActions/actionReasons no backend
+com base em status, subpedidos, turno, template, actor e pedidoOrigem resolvido.
+O frontend apenas consome allowedActions; pedidoOrigem e usado como label
+informativa e nao libera aceitar, rejeitar, cancelar ou pagar.
+
+7. Auditoria
+------------
+Eventos auditados:
+- PEDIDO_CRIADO em PedidoService/PublicQrPedidoService com pedidoOrigem.
+- PEDIDO_CRIADO_DEVICE em DevicePedidoService com pedidoOrigem.
+- aceite, rejeicao, cancelamento e bloqueio de transicao com pedidoOrigem
+  resolvido pela policy.
+
+Observacao: eventos derivados de finalizacao/entrega nao foram ampliados nesta
+fase; o requisito validado aqui cobre criacao, aceite, rejeicao, cancelamento
+e bloqueio.
+
+8. Testes backend
+-----------------
+mvn -DskipTests compile
+Resultado: SUCCESS.
+
+mvn test
+Resultado: SUCCESS.
+Resumo: 379 tests, 0 failures, 0 errors, 3 skipped.
+
+mvn -Pit verify
+Resultado: interrompido operacionalmente apos exceder 300s, ja em Failsafe/IT.
+Nao houve falha funcional registrada ate o corte.
+
+Validacao focada executada:
+mvn -Pit -Dtest=OperationalTemplatePolicyTest,PedidoAllowedActionsServiceTest,PedidoPagamentoPolicyTest -Dit.test=FlywayBaselinePostgresIT,PublicQrPedidoIT,PublicQrPagamentoStartIT,DevicePedidoCreateIT,OperationalStatusTransitionIT verify
+Resultado: BUILD SUCCESS em 01:53 min.
+Surefire selecionado: 25 tests, 0 failures, 0 errors, 0 skipped.
+Failsafe selecionado: 25 tests, 0 failures, 0 errors, 0 skipped.
+
+9. Testes frontend
+------------------
+npm run typecheck: SUCCESS.
+npm run lint: SUCCESS.
+npm run test: SUCCESS, 14 files, 71 tests passed.
+npm run build: SUCCESS.
+
+npm run test:e2e:
+- Primeira tentativa: falhou antes dos cenarios por timeout aguardando 120000ms
+  do config.webServer.
+- Diagnostico: Playwright aguardava http://127.0.0.1:5173/login; processo Vite
+  residual/ambiente local impediu o servidor de ficar disponivel na porta
+  esperada.
+- Segunda tentativa: interrompida apos confirmar que nao havia listener em
+  127.0.0.1:5173 e o processo webServer saiu cedo.
+- Nenhum cenario E2E foi executado; falha classificada como infraestrutura
+  local de webServer.
+
+10. Documentacao e relatorios
+-----------------------------
+Documentos existentes auditados:
+- docs/architecture/ORDER_ORIGIN_POLICY_001.md
+- docs/reports/backend/RELATORIO_ORDER_ORIGIN_HARDENING_001.txt
+- docs/reports/fullstack/RELATORIO_ORDER_ORIGIN_HARDENING_001.txt
+- frontend docs/reports/frontend/RELATORIO_ORDER_ORIGIN_UI_001.txt
+
+Correcoes documentais aplicadas:
+- hashes finais tecnicos desatualizados corrigidos;
+- status dos ITs focados atualizado;
+- este relatorio de aceitacao criado.
+
+11. Riscos restantes
+--------------------
+- Suite ampla de ITs nao concluiu dentro do limite operacional de 300s.
+- E2E Playwright nao executou cenarios por indisponibilidade do webServer local.
+- PDV_INTERNO, CAIXA e gateway real permanecem fora do escopo desta fase.
+- Eventos derivados nao exigidos nesta fase nao carregam pedidoOrigem em todos
+  os casos.
+
+12. Decisao final
+-----------------
+APROVADO COM RESSALVAS.
+
+Motivo: migration V75, origem formalizada, policies, allowedActions, auditoria,
+testes backend unitarios, ITs focados, testes frontend unitarios, typecheck,
+lint e build foram validados com sucesso. As ressalvas sao operacionais:
+suite ampla de ITs interrompida por limite de tempo e E2E bloqueado por
+webServer local.

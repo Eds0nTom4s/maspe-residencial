@@ -4,6 +4,7 @@ RELATORIO_ORDER_ORIGIN_HARDENING_001 — BACKEND
 Fase: order-origin-hardening-001
 Branch: backend/order-origin-hardening-001
 Commit base: a3fd47b47b9da33b0465bbb84461ce201bb4522c
+Commit final: 40c03bd3590cecd4686ef986c698b4448f772a03
 
 1. OBJETIVO
 -----------

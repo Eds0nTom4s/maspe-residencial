@@ -2,6 +2,7 @@ package com.restaurante.dto.response;
 
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
+import com.restaurante.model.enums.PedidoAllowedAction;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -10,7 +11,11 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Data
 @NoArgsConstructor
@@ -35,6 +40,12 @@ public class TenantPedidoDetalheResponse {
 
     @Builder.Default
     private List<SubPedidoResponse> subPedidos = new ArrayList<>();
+
+    @Builder.Default
+    private Set<PedidoAllowedAction> allowedActions = new LinkedHashSet<>();
+
+    @Builder.Default
+    private Map<PedidoAllowedAction, String> actionReasons = new EnumMap<>(PedidoAllowedAction.class);
 
     @Data
     @NoArgsConstructor
@@ -74,4 +85,3 @@ public class TenantPedidoDetalheResponse {
         private List<ItemResponse> itens = new ArrayList<>();
     }
 }
-

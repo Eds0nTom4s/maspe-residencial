@@ -1,0 +1,87 @@
+RELATORIO_ORDER_CAPABILITIES_001
+
+1. Identificacao
+Backend branch: backend/order-capabilities-001
+Backend commit base: e6347aec8c6ee5e78fd041b8b5d2d3504aa8a1a5
+Backend commit final: informado na entrega final
+Frontend branch: ui/order-capabilities-001
+Frontend commit base: bebb707557a76b4bb0dac8face00e360125c758a
+Frontend commit final: informado na entrega final
+
+2. Objetivo
+Expor capabilities/allowedActions por pedido no backend e fazer /app/pedidos consumir esse contrato sem inventar permissoes locais.
+
+3. Problema tratado
+A UI deduzia acoes por status operacional, financeiro, metodo e turno. A regra correta tambem depende de template, origem, subpedidos, ator, role e policy operacional.
+
+4. Contrato criado
+allowedActions: lista de strings estaveis por pedido.
+actionReasons: mapa opcional com motivos de bloqueio por action.
+
+Actions atuais:
+ACCEPT_ORDER, REJECT_ORDER, CANCEL_ORDER, CONFIRM_PAYMENT, VIEW_PAYMENT, VIEW_EXTRACT, START_PREPARATION, MARK_READY, MARK_DELIVERED.
+
+5. Backend
+Enum: PedidoAllowedAction.
+Service: PedidoAllowedActionsService.
+DTO: TenantPedidoResumoResponse e TenantPedidoDetalheResponse.
+Response: listagem, detalhe e respostas de comandos tenant de pedido.
+Policies usadas: OperationalTemplatePolicy; PedidoPagamentoPolicy preservada para comando financeiro; regras de subpedido/status alinhadas ao PedidoStatusTransitionService.
+Tests: PedidoAllowedActionsServiceTest, OperationalTemplatePolicyTest, PedidoPagamentoPolicyTest.
+
+6. Frontend
+Types: PedidoAllowedAction e campos allowedActions/actionReasons em tipos de pedido.
+Service: pedidos.service normaliza contrato e fallback seguro.
+PedidosPage: Aceitar/Rejeitar/Confirmar pagamento dependem de actions backend.
+Fallback: ausencia de allowedActions vira lista vazia e nao libera acao destrutiva.
+Tests: pedidos.service.spec.ts e PedidosPage.spec.ts.
+
+7. Matriz de acoes
+Por status:
+CRIADO + subpedidos CRIADO pode expor ACCEPT_ORDER/REJECT_ORDER. Fora do estado inicial nao expoe ACCEPT_ORDER.
+
+Por pagamento:
+PAGO nao expoe REJECT_ORDER. CONFIRM_PAYMENT nao e permitido nesta fase; VIEW_PAYMENT e exibicao segura.
+
+Por template:
+OperationalTemplatePolicy decide aceitacao, rejeicao, pagamento e producao por template/origem. CAIXA nao recebe producao; KDS/cozinha nao recebe pagamento.
+
+Por ator:
+Owner/Admin/Operator/Cashier podem receber aceite/rejeicao quando estado permite. Finance ve financeiro, mas nao aceita/rejeita. Kitchen/KDS move producao, nao financeiro.
+
+8. Compatibilidade
+Campos novos sao aditivos. Frontend novo trata ausencia como bloqueio seguro. Clientes antigos podem ignorar allowedActions.
+
+9. Testes backend
+mvn -DskipTests compile: passou.
+mvn -Dtest=PedidoAllowedActionsServiceTest,OperationalTemplatePolicyTest,PedidoPagamentoPolicyTest test: passou. Resultado: 21 testes, 0 falhas, 0 erros.
+mvn test: passou. Resultado: 375 testes, 0 falhas, 0 erros, 3 skipped.
+mvn -q -Pit -Dit.test=TenantPedidoControllerIT,OperationalStatusTransitionIT,PublicQrPagamentoStartIT test-compile failsafe:integration-test failsafe:verify: passou. Resultado: 15 testes, 0 falhas, 0 erros, 0 skipped.
+
+10. Testes frontend
+npm run typecheck: passou.
+npm run lint: passou.
+npm run test -- PedidosPage pedidos.service: passou. Resultado: 16 testes, 0 falhas.
+npm run test: passou. Resultado: 14 arquivos, 69 testes, 0 falhas.
+npm run build: passou.
+npm run test:e2e: passou. Resultado: 2 passed, 1 skipped.
+
+11. Validacao manual
+Auditoria dos DTOs/responses tenant de pedido, service frontend, PedidosPage e specs. Status continua exibido, mas permissao destrutiva passa por allowedActions.
+
+12. Riscos restantes
+Origem de pedido ainda inferida.
+CONFIRM_PAYMENT segue sem contrato direto em PedidosPage.
+Actions de producao ainda sao por pedido, nao granular por subpedido.
+VIEW_EXTRACT reservado para fase de caixa/extrato.
+PDV real, KDS completo, gateway real, estorno, conciliacao e fiscal seguem fora desta fase.
+
+13. Proximas fases recomendadas
+Persistir origem do pedido.
+Expor capabilities por subpedido/KDS.
+Fechar contrato tenant seguro para CONFIRM_PAYMENT.
+Ligar VIEW_EXTRACT a turno/caixa.
+Expandir actor/device capabilities para PDV real.
+
+14. Decisao final
+APROVADO COM RESSALVAS

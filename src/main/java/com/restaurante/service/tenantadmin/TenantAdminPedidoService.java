@@ -16,6 +16,7 @@ import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.operacional.PedidoAllowedActionsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -33,6 +34,7 @@ public class TenantAdminPedidoService {
     private final PedidoRepository pedidoRepository;
     private final TurnoOperacionalRepository turnoOperacionalRepository;
     private final OperacaoProperties operacaoProperties;
+    private final PedidoAllowedActionsService pedidoAllowedActionsService;
 
     @Transactional(readOnly = true)
     public Page<TenantPedidoResumoResponse> listarPedidos(
@@ -81,7 +83,7 @@ public class TenantAdminPedidoService {
                     pageable
             );
         }
-        return page.map(this::toResumo);
+        return page.map(p -> toResumo(p, ctx));
     }
 
     @Transactional(readOnly = true)
@@ -89,7 +91,7 @@ public class TenantAdminPedidoService {
         TenantContext ctx = requireTenantContext();
         Pedido p = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, ctx.tenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
-        return toDetalhe(p);
+        return toDetalhe(p, ctx);
     }
 
     private TenantContext requireTenantContext() {
@@ -102,11 +104,12 @@ public class TenantAdminPedidoService {
         return ctx;
     }
 
-    private TenantPedidoResumoResponse toResumo(Pedido p) {
+    private TenantPedidoResumoResponse toResumo(Pedido p, TenantContext tenantContext) {
         SessaoConsumo s = p.getSessaoConsumo();
         Long instId = s != null && s.getInstituicao() != null ? s.getInstituicao().getId() : null;
         Long uaId = s != null && s.getUnidadeAtendimento() != null ? s.getUnidadeAtendimento().getId() : null;
         Mesa mesa = s != null ? s.getMesa() : null;
+        var capabilities = pedidoAllowedActionsService.evaluate(p, tenantContext);
         return TenantPedidoResumoResponse.builder()
                 .id(p.getId())
                 .numero(p.getNumero())
@@ -121,10 +124,12 @@ public class TenantAdminPedidoService {
                 .atualizadoEm(p.getUpdatedAt())
                 .pagoEm(p.getPagoEm())
                 .quantidadeItens(p.getItens() != null ? p.getItens().size() : 0)
+                .allowedActions(capabilities.allowedActions())
+                .actionReasons(capabilities.actionReasons())
                 .build();
     }
 
-    private TenantPedidoDetalheResponse toDetalhe(Pedido p) {
+    private TenantPedidoDetalheResponse toDetalhe(Pedido p, TenantContext tenantContext) {
         SessaoConsumo s = p.getSessaoConsumo();
         var ctx = TenantPedidoDetalheResponse.TenantPedidoContextResponse.builder();
         if (s != null) {
@@ -173,6 +178,7 @@ public class TenantAdminPedidoService {
                         .build())
                 .toList();
 
+        var capabilities = pedidoAllowedActionsService.evaluate(p, tenantContext);
         return TenantPedidoDetalheResponse.builder()
                 .id(p.getId())
                 .numero(p.getNumero())
@@ -186,6 +192,8 @@ public class TenantAdminPedidoService {
                 .contexto(ctx.build())
                 .itens(itens)
                 .subPedidos(subs)
+                .allowedActions(capabilities.allowedActions())
+                .actionReasons(capabilities.actionReasons())
                 .build();
     }
 }

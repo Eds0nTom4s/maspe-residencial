@@ -1,0 +1,76 @@
+RELATORIO_ORDER_CAPABILITIES_001
+
+Identificacao
+Backend branch: backend/order-capabilities-001
+Backend commit base: e6347aec8c6ee5e78fd041b8b5d2d3504aa8a1a5
+Backend commit final: informado na entrega final
+
+Objetivo
+Expor acoes permitidas por pedido tenant a partir de policy operacional backend.
+
+Problema tratado
+A UI precisava deduzir localmente aceite, rejeicao, pagamento e producao a partir de status. Essa deducao era fragil porque ignorava template, origem, turno, ator e financeiro.
+
+Contrato criado
+Campos aditivos em responses tenant de pedido:
+- allowedActions.
+- actionReasons.
+
+Enum
+- PedidoAllowedAction.
+
+Service
+- PedidoAllowedActionsService.
+
+DTO
+- TenantPedidoResumoResponse.
+- TenantPedidoDetalheResponse.
+
+Response
+- GET /tenant/pedidos retorna allowedActions/actionReasons por item.
+- GET /tenant/pedidos/{id} retorna allowedActions/actionReasons no detalhe.
+- Responses de aceitar/rejeitar, por reutilizarem detalhe, tambem retornam actions atualizadas.
+
+Policies usadas
+- OperationalTemplatePolicy.
+- Regras de status/subpedido alinhadas ao PedidoStatusTransitionService.
+- PedidoPagamentoPolicy permanece como policy de comando financeiro.
+
+Matriz de acoes
+Por status:
+- CRIADO com subpedidos CRIADO permite ACCEPT_ORDER e REJECT_ORDER para ator autorizado.
+- Status fora de CRIADO nao permite ACCEPT_ORDER.
+- Pedido terminal nao permite CANCEL_ORDER.
+
+Por pagamento:
+- PAGO nao permite REJECT_ORDER.
+- CONFIRM_PAYMENT nao e retornado como permitido nesta fase.
+- VIEW_PAYMENT e retornado para atores tenant autorizados a consultar pedidos.
+
+Por template:
+- OperationalTemplatePolicy decide se ator pode aceitar/rejeitar, confirmar pagamento ou mover producao.
+- CAIXA nao recebe actions de producao.
+- KDS/cozinha nao recebe action de pagamento.
+
+Por ator:
+- Owner/Admin/Operator/Cashier podem receber ACCEPT_ORDER/REJECT_ORDER quando o estado permite.
+- Finance pode ver pagamento, mas nao aceitar/rejeitar.
+- Kitchen/KDS pode receber actions de producao, nao financeiras.
+
+Testes backend
+- mvn -DskipTests compile: passou.
+- mvn -Dtest=PedidoAllowedActionsServiceTest,OperationalTemplatePolicyTest,PedidoPagamentoPolicyTest test: passou. Resultado: 21 testes, 0 falhas, 0 erros.
+- mvn test: passou. Resultado: 375 testes, 0 falhas, 0 erros, 3 skipped.
+- mvn -q -Pit -Dit.test=TenantPedidoControllerIT,OperationalStatusTransitionIT,PublicQrPagamentoStartIT test-compile failsafe:integration-test failsafe:verify: passou. Resultado: 15 testes, 0 falhas, 0 erros, 0 skipped.
+
+Compatibilidade
+Campo novo e aditivo. Clientes antigos podem ignorar. Valores sao strings estaveis.
+
+Riscos restantes
+- Origem do pedido ainda e inferida.
+- CONFIRM_PAYMENT segue bloqueado como permitido ate haver contrato tenant seguro.
+- Actions de producao sao por pedido, nao por subpedido granular.
+- VIEW_EXTRACT fica reservado.
+
+Decisao final
+APROVADO COM RESSALVAS

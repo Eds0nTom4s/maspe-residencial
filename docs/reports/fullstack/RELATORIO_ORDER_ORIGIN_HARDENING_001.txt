@@ -5,7 +5,7 @@ RELATORIO_ORDER_ORIGIN_HARDENING_001 — FULLSTACK
 ----------------
 Backend branch:     backend/order-origin-hardening-001
 Backend commit base: a3fd47b47b9da33b0465bbb84461ce201bb4522c
-Backend commit final: 69c02950d9707e5b8c2a8cc65b170f6043461dec
+Backend commit final: 25968d7da8ac1fc38adc9d55e42e2d72a0cd86c5
 
 Frontend branch:     ui/order-origin-hardening-001
 Frontend commit base: 008d6a4853ad4fd67f8a625ed497e7ea5302d3a3

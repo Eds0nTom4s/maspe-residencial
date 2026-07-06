@@ -77,6 +77,30 @@ public class OperationalEventLogService {
     }
 
     @Transactional
+    public void logPedidoCriado(Pedido pedido,
+                                OperationalOrigem origem,
+                                String motivo,
+                                Map<String, Object> metadata,
+                                String ip,
+                                String userAgent) {
+        if (pedido == null) throw new ResourceNotFoundException("Recurso não encontrado.");
+        log(
+                OperationalEventType.PEDIDO_CRIADO,
+                OperationalEntityType.PEDIDO,
+                pedido.getId(),
+                pedido,
+                null,
+                null,
+                pedido.getStatus() != null ? pedido.getStatus().name() : null,
+                origem,
+                motivo,
+                metadata,
+                ip,
+                userAgent
+        );
+    }
+
+    @Transactional
     public void logSubPedidoStatusChanged(SubPedido subPedido,
                                          String statusAnterior,
                                          String statusNovo,

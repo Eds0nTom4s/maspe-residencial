@@ -5,6 +5,7 @@ import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.PedidoOrigem;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
@@ -19,20 +20,6 @@ public class OperationalTemplatePolicy {
     public static final String TEMPLATE_KDS = "KDS";
     public static final String TEMPLATE_CAIXA = "CAIXA";
     public static final String TEMPLATE_LEGACY_UNSPECIFIED = "LEGACY_UNSPECIFIED";
-
-    public enum PedidoOrigem {
-        QR_MESA,
-        QR_PRINCIPAL,
-        QR_PUBLICO,
-        SESSAO_PARTICIPANTE,
-        SESSAO_CONSUMO,
-        DIRETO_OU_LEGADO,
-        DEVICE_POS,
-        PDV_INTERNO,
-        KDS,
-        CAIXA,
-        UNKNOWN
-    }
 
     public enum ProductionFlow {
         REQUIRED,
@@ -93,22 +80,35 @@ public class OperationalTemplatePolicy {
     }
 
     public PedidoOrigem resolvePedidoOrigem(Pedido pedido, OperationalOrigem actor) {
+        // 1. Origem explícita persistida tem prioridade máxima.
+        if (pedido != null && pedido.getPedidoOrigem() != null) {
+            return pedido.getPedidoOrigem();
+        }
+
+        // 2. Actor conhecido do dispositivo define a origem quando o campo ainda não foi preenchido.
         if (actor == OperationalOrigem.DEVICE_POS) {
             return PedidoOrigem.DEVICE_POS;
         }
         if (actor == OperationalOrigem.DEVICE_KDS) {
-            return PedidoOrigem.KDS;
+            return PedidoOrigem.DEVICE_KDS;
         }
         if (pedido == null) {
             return PedidoOrigem.UNKNOWN;
         }
+        if (actor != null && isTenantOperator(actor)) {
+            return PedidoOrigem.OPERADOR_INTERNO;
+        }
+        if (actor == OperationalOrigem.SYSTEM) {
+            return PedidoOrigem.SISTEMA;
+        }
+
+        // 3. Fallback conservador para dados legados sem origem explícita.
         if (pedido.getSessaoParticipante() != null) {
             return PedidoOrigem.SESSAO_PARTICIPANTE;
         }
-
         SessaoConsumo sessao = pedido.getSessaoConsumo();
         if (sessao == null) {
-            return PedidoOrigem.DIRETO_OU_LEGADO;
+            return PedidoOrigem.LEGADO;
         }
         if (sessao.getMesa() != null) {
             return PedidoOrigem.QR_MESA;
@@ -117,6 +117,15 @@ public class OperationalTemplatePolicy {
             return PedidoOrigem.QR_PRINCIPAL;
         }
         return PedidoOrigem.SESSAO_CONSUMO;
+    }
+
+    private boolean isTenantOperator(OperationalOrigem actor) {
+        return actor == OperationalOrigem.TENANT_OWNER
+                || actor == OperationalOrigem.TENANT_ADMIN
+                || actor == OperationalOrigem.TENANT_OPERATOR
+                || actor == OperationalOrigem.TENANT_CASHIER
+                || actor == OperationalOrigem.TENANT_FINANCE
+                || actor == OperationalOrigem.TENANT_KITCHEN;
     }
 
     public boolean requiresAcceptanceBeforePayment(Pedido pedido, OperationalOrigem actor) {
@@ -153,7 +162,7 @@ public class OperationalTemplatePolicy {
                     || actor == OperationalOrigem.TENANT_OWNER;
         }
         return isPontoTemplate(templateCode)
-                && origem == PedidoOrigem.DIRETO_OU_LEGADO
+                && origem == PedidoOrigem.OPERADOR_INTERNO
                 && actor == OperationalOrigem.TENANT_OPERATOR;
     }
 
@@ -167,7 +176,7 @@ public class OperationalTemplatePolicy {
 
     public ProductionFlow productionFlow(String templateCode, PedidoOrigem origem) {
         PedidoOrigem resolvedOrigem = origem != null ? origem : PedidoOrigem.UNKNOWN;
-        if (resolvedOrigem == PedidoOrigem.KDS || isKdsTemplate(templateCode)) {
+        if (resolvedOrigem == PedidoOrigem.DEVICE_KDS || isKdsTemplate(templateCode)) {
             return ProductionFlow.REQUIRED;
         }
         if (resolvedOrigem == PedidoOrigem.QR_MESA
@@ -191,7 +200,7 @@ public class OperationalTemplatePolicy {
     public boolean canAccept(OperationalOrigem actor, String templateCode, PedidoOrigem origem) {
         return TENANT_ORDER_OPERATORS.contains(actor)
                 && origem != PedidoOrigem.DEVICE_POS
-                && origem != PedidoOrigem.KDS
+                && origem != PedidoOrigem.DEVICE_KDS
                 && origem != PedidoOrigem.PDV_INTERNO;
     }
 

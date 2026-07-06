@@ -5,6 +5,7 @@ import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.PedidoAllowedAction;
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -44,7 +45,7 @@ public class PedidoAllowedActionsService {
 
         OperationalOrigem actor = resolveActor(ctx);
         String template = operationalTemplatePolicy.resolveTemplateCode(pedido);
-        OperationalTemplatePolicy.PedidoOrigem origem = operationalTemplatePolicy.resolvePedidoOrigem(pedido, actor);
+        PedidoOrigem origem = operationalTemplatePolicy.resolvePedidoOrigem(pedido, actor);
 
         Set<PedidoAllowedAction> allowed = new LinkedHashSet<>();
         Map<PedidoAllowedAction, String> reasons = new EnumMap<>(PedidoAllowedAction.class);
@@ -73,7 +74,7 @@ public class PedidoAllowedActionsService {
             Pedido pedido,
             OperationalOrigem actor,
             String template,
-            OperationalTemplatePolicy.PedidoOrigem origem,
+            PedidoOrigem origem,
             Set<PedidoAllowedAction> allowed,
             Map<PedidoAllowedAction, String> reasons
     ) {
@@ -101,7 +102,7 @@ public class PedidoAllowedActionsService {
             Pedido pedido,
             OperationalOrigem actor,
             String template,
-            OperationalTemplatePolicy.PedidoOrigem origem,
+            PedidoOrigem origem,
             Set<PedidoAllowedAction> allowed,
             Map<PedidoAllowedAction, String> reasons
     ) {
@@ -133,7 +134,7 @@ public class PedidoAllowedActionsService {
             Pedido pedido,
             OperationalOrigem actor,
             String template,
-            OperationalTemplatePolicy.PedidoOrigem origem,
+            PedidoOrigem origem,
             Set<PedidoAllowedAction> allowed,
             Map<PedidoAllowedAction, String> reasons
     ) {
@@ -165,7 +166,7 @@ public class PedidoAllowedActionsService {
             Pedido pedido,
             OperationalOrigem actor,
             String template,
-            OperationalTemplatePolicy.PedidoOrigem origem,
+            PedidoOrigem origem,
             Set<PedidoAllowedAction> allowed,
             Map<PedidoAllowedAction, String> reasons
     ) {
@@ -191,7 +192,7 @@ public class PedidoAllowedActionsService {
             Pedido pedido,
             OperationalOrigem actor,
             String template,
-            OperationalTemplatePolicy.PedidoOrigem origem,
+            PedidoOrigem origem,
             Set<PedidoAllowedAction> allowed,
             Map<PedidoAllowedAction, String> reasons
     ) {

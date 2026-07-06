@@ -5,13 +5,16 @@ import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.PedidoOrigem;
 import org.junit.jupiter.api.Test;
 
-import static com.restaurante.service.operacional.OperationalTemplatePolicy.PedidoOrigem.CAIXA;
-import static com.restaurante.service.operacional.OperationalTemplatePolicy.PedidoOrigem.DEVICE_POS;
-import static com.restaurante.service.operacional.OperationalTemplatePolicy.PedidoOrigem.PDV_INTERNO;
-import static com.restaurante.service.operacional.OperationalTemplatePolicy.PedidoOrigem.QR_MESA;
-import static com.restaurante.service.operacional.OperationalTemplatePolicy.PedidoOrigem.QR_PRINCIPAL;
+import static com.restaurante.model.enums.PedidoOrigem.CAIXA;
+import static com.restaurante.model.enums.PedidoOrigem.DEVICE_KDS;
+import static com.restaurante.model.enums.PedidoOrigem.DEVICE_POS;
+import static com.restaurante.model.enums.PedidoOrigem.OPERADOR_INTERNO;
+import static com.restaurante.model.enums.PedidoOrigem.PDV_INTERNO;
+import static com.restaurante.model.enums.PedidoOrigem.QR_MESA;
+import static com.restaurante.model.enums.PedidoOrigem.QR_PRINCIPAL;
 import static com.restaurante.service.operacional.OperationalTemplatePolicy.ProductionFlow.NONE;
 import static com.restaurante.service.operacional.OperationalTemplatePolicy.ProductionFlow.OPTIONAL;
 import static com.restaurante.service.operacional.OperationalTemplatePolicy.ProductionFlow.REQUIRED;
@@ -84,6 +87,38 @@ class OperationalTemplatePolicyTest {
         assertThat(policy.productionFlow(OperationalTemplatePolicy.TEMPLATE_REST_V1, QR_MESA)).isEqualTo(REQUIRED);
         assertThat(policy.productionFlow(OperationalTemplatePolicy.TEMPLATE_PONTO_V1, DEVICE_POS)).isEqualTo(OPTIONAL);
         assertThat(policy.productionFlow(OperationalTemplatePolicy.TEMPLATE_CAIXA, CAIXA)).isEqualTo(NONE);
+    }
+
+    @Test
+    void pedidoOrigemExplicitaTemPrioridadeSobreInferencia() {
+        Pedido pedido = pedido("CONSUMA_REST", 1, true);
+        pedido.setPedidoOrigem(PedidoOrigem.DEVICE_POS);
+
+        assertThat(policy.resolvePedidoOrigem(pedido, OperationalOrigem.QR_PUBLICO)).isEqualTo(PedidoOrigem.DEVICE_POS);
+    }
+
+    @Test
+    void dadosLegadosSemSessaoRecebemFallbackLegado() {
+        Pedido pedido = pedido("CONSUMA_REST", 1, false);
+        pedido.setSessaoConsumo(null);
+        pedido.setPedidoOrigem(null);
+
+        assertThat(policy.resolvePedidoOrigem(pedido, null)).isEqualTo(PedidoOrigem.LEGADO);
+    }
+
+    @Test
+    void actorTenantResolveParaOperadorInternoQuandoOrigemNaoInformada() {
+        Pedido pedido = pedido("CONSUMA_PONTO", 1, false);
+        pedido.setPedidoOrigem(null);
+
+        assertThat(policy.resolvePedidoOrigem(pedido, OperationalOrigem.TENANT_OPERATOR)).isEqualTo(OPERADOR_INTERNO);
+        assertThat(policy.allowsImmediatePayment(OperationalTemplatePolicy.TEMPLATE_PONTO_V1, OPERADOR_INTERNO, OperationalOrigem.TENANT_OPERATOR)).isTrue();
+    }
+
+    @Test
+    void deviceKdsEnviaParaProducao() {
+        assertThat(policy.productionFlow(OperationalTemplatePolicy.TEMPLATE_KDS, DEVICE_KDS)).isEqualTo(REQUIRED);
+        assertThat(policy.canAccept(OperationalOrigem.TENANT_OPERATOR, OperationalTemplatePolicy.TEMPLATE_KDS, DEVICE_KDS)).isFalse();
     }
 
     private Pedido pedido(String templateCode, Integer templateVersion, boolean mesa) {

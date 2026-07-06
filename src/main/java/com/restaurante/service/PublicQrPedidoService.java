@@ -23,13 +23,14 @@ import com.restaurante.model.entity.TenantSessaoConsumoConfig;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.config.OperacaoProperties;
+import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
 import com.restaurante.model.enums.TipoSessao;
-import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
@@ -119,6 +120,7 @@ public class PublicQrPedidoService {
             pedido.setSessaoConsumo(sessao);
             pedido.setTurnoOperacional(turnoAberto);
             pedido.setStatus(StatusPedido.CRIADO);
+            pedido.setPedidoOrigem(resolveOrigemDoQr(qr));
             pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
             pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
             pedido.setObservacoes(request.getObservacao());
@@ -214,6 +216,19 @@ public class PublicQrPedidoService {
 
             pedido.calcularTotal();
             pedidoRepository.save(pedido);
+
+            operationalEventLogService.logPedidoCriado(
+                    pedido,
+                    OperationalOrigem.QR_PUBLICO,
+                    "Pedido público por QR criado",
+                    Map.of(
+                            "command", "CREATE_PUBLIC_QR_ORDER",
+                            "pedidoOrigem", pedido.getPedidoOrigem() != null ? pedido.getPedidoOrigem().name() : "UNKNOWN",
+                            "qrTipo", qr.getTipo() != null ? qr.getTipo().name() : "UNKNOWN"
+                    ),
+                    null,
+                    null
+            );
 
             if (sessao != null) {
                 sessaoConsumoService.registrarAtividade(sessao, "Pedido público por QR criado: " + pedido.getNumero());
@@ -503,6 +518,17 @@ public class PublicQrPedidoService {
                 .itens(itens)
                 .mensagem("Pedido já criado anteriormente")
                 .build();
+    }
+
+    private PedidoOrigem resolveOrigemDoQr(QrCodeOperacional qr) {
+        if (qr == null || qr.getTipo() == null) {
+            return PedidoOrigem.QR_PUBLICO;
+        }
+        if (qr.getTipo() == QrCodeOperacionalTipo.MESA) {
+            return PedidoOrigem.QR_MESA;
+        }
+        // QR geral do tenant/instituição/unidade/balcão/etc é tratado como QR principal/menu público.
+        return PedidoOrigem.QR_PRINCIPAL;
     }
 
     private record DecisaoPedidoPublico(

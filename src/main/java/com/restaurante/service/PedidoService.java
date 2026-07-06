@@ -16,6 +16,7 @@ import com.restaurante.model.entity.Produto;
 import com.restaurante.consumo.participante.entity.SessaoConsumoParticipante;
 import com.restaurante.consumo.participante.repository.SessaoConsumoParticipanteRepository;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -108,6 +109,15 @@ public class PedidoService {
      */
     @Transactional
     public PedidoResponse criar(CriarPedidoRequest request) {
+        return criar(request, PedidoOrigem.OPERADOR_INTERNO);
+    }
+
+    @Transactional
+    public PedidoResponse criar(CriarPedidoRequest request, PedidoOrigem pedidoOrigem) {
+        PedidoOrigem origemEfetiva = request.getParticipanteId() != null
+                ? PedidoOrigem.SESSAO_PARTICIPANTE
+                : pedidoOrigem;
+
         log.info("=".repeat(80));
         log.info("🆕 CRIANDO NOVO PEDIDO");
         log.info("  ┣ Sessão de Consumo ID: {}", request.getSessaoConsumoId());
@@ -156,6 +166,7 @@ public class PedidoService {
                 .numero(gerarNumeroPedido())
                 .sessaoConsumo(sessaoConsumo)
                 .status(StatusPedido.CRIADO)
+                .pedidoOrigem(origemEfetiva)
                 .statusFinanceiro(StatusFinanceiroPedido.NAO_PAGO)  // Default
                 .tipoPagamento(tipoPagamento)
                 .observacoes(request.getObservacoes())
@@ -301,6 +312,19 @@ public class PedidoService {
         // ✅ Salvar Pedido com SubPedidos (cascade salva tudo)
         pedidoRepository.save(pedido);
 
+        operationalEventLogService.logPedidoCriado(
+                pedido,
+                OperationalOrigem.SYSTEM,
+                "Pedido criado",
+                Map.of(
+                        "command", "CREATE_ORDER",
+                        "pedidoOrigem", origemEfetiva != null ? origemEfetiva.name() : "UNKNOWN",
+                        "tipoPagamento", tipoPagamento != null ? tipoPagamento.name() : "UNKNOWN"
+                ),
+                null,
+                null
+        );
+
         // Sprint 1: Regista actividade na sessão para blindar contra expiração automática
         sessaoConsumoService.registrarAtividade(sessaoConsumo, "Pedido #" + pedido.getNumero() + " criado");
 
@@ -417,7 +441,20 @@ public class PedidoService {
             request.setTipoPagamento(TipoPagamentoPedido.PRE_PAGO);
         }
 
-        return criar(request);
+        return criar(request, PedidoOrigem.SESSAO_CONSUMO);
+    }
+
+    private PedidoOrigem resolveOrigemParaSessaoAnonima(SessaoConsumo sessao) {
+        if (sessao == null) {
+            return PedidoOrigem.QR_PUBLICO;
+        }
+        if (sessao.getMesa() != null) {
+            return PedidoOrigem.QR_MESA;
+        }
+        if (sessao.getQrCodeSessao() != null && !sessao.getQrCodeSessao().isBlank()) {
+            return PedidoOrigem.QR_PRINCIPAL;
+        }
+        return PedidoOrigem.SESSAO_CONSUMO;
     }
 
     @Transactional
@@ -438,7 +475,7 @@ public class PedidoService {
         request.setTipoPagamento(TipoPagamentoPedido.PRE_PAGO);
         request.setQrCodeFundo(qrCodeSessao);
 
-        return criar(request);
+        return criar(request, resolveOrigemParaSessaoAnonima(sessao));
     }
 
     /**
@@ -958,6 +995,7 @@ public class PedidoService {
                 .status(pedido.getStatus())
                 .observacoes(pedido.getObservacoes())
                 .total(pedido.getTotal())
+                .pedidoOrigem(pedido.getPedidoOrigem())
                 .sessaoConsumoId(pedido.getSessaoConsumo() != null ? pedido.getSessaoConsumo().getId() : null)
                 .mesaId(pedido.getSessaoConsumo() != null && pedido.getSessaoConsumo().getMesa() != null
                         ? pedido.getSessaoConsumo().getMesa().getId() : null)

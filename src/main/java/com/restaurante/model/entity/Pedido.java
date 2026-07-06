@@ -1,5 +1,6 @@
 package com.restaurante.model.entity;
 
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
@@ -71,6 +72,14 @@ public class Pedido extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private StatusPedido status = StatusPedido.CRIADO;
+
+    /**
+     * Origem operacional do pedido (canal pelo qual nasceu).
+     * Formalizado na fase order-origin-hardening-001.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pedido_origem", length = 30)
+    private PedidoOrigem pedidoOrigem;
 
     /**
      * Status financeiro (separado do status operacional)
@@ -152,6 +161,11 @@ public class Pedido extends BaseEntity {
         this.total = total;
     }
 
+    public Pedido(String numero, SessaoConsumo sessaoConsumo, StatusPedido status, PedidoOrigem pedidoOrigem, StatusFinanceiroPedido statusFinanceiro, TipoPagamentoPedido tipoPagamento, LocalDateTime pagoEm, String observacoes, List<ItemPedido> itens, List<SubPedido> subPedidos, BigDecimal total) {
+        this(numero, sessaoConsumo, status, statusFinanceiro, tipoPagamento, pagoEm, observacoes, itens, subPedidos, total);
+        this.pedidoOrigem = pedidoOrigem;
+    }
+
     public void setNumero(String numero) { this.numero = numero; }
     public void setSessaoConsumo(SessaoConsumo sessaoConsumo) { this.sessaoConsumo = sessaoConsumo; }
     public TurnoOperacional getTurnoOperacional() { return turnoOperacional; }
@@ -209,6 +223,7 @@ public class Pedido extends BaseEntity {
         private String numero;
         private SessaoConsumo sessaoConsumo;
         private StatusPedido status;
+        private PedidoOrigem pedidoOrigem;
         private StatusFinanceiroPedido statusFinanceiro;
         private TipoPagamentoPedido tipoPagamento;
         private LocalDateTime pagoEm;
@@ -231,6 +246,11 @@ public class Pedido extends BaseEntity {
 
         public PedidoBuilder status(StatusPedido status) {
             this.status = status;
+            return this;
+        }
+
+        public PedidoBuilder pedidoOrigem(PedidoOrigem pedidoOrigem) {
+            this.pedidoOrigem = pedidoOrigem;
             return this;
         }
 
@@ -270,7 +290,7 @@ public class Pedido extends BaseEntity {
         }
 
         public Pedido build() {
-            return new Pedido(this.numero, this.sessaoConsumo, this.status, this.statusFinanceiro, this.tipoPagamento, this.pagoEm, this.observacoes, this.itens, this.subPedidos, this.total);
+            return new Pedido(this.numero, this.sessaoConsumo, this.status, this.pedidoOrigem, this.statusFinanceiro, this.tipoPagamento, this.pagoEm, this.observacoes, this.itens, this.subPedidos, this.total);
         }
     }
 
@@ -288,6 +308,14 @@ public class Pedido extends BaseEntity {
 
     public void setStatus(StatusPedido status) {
         this.status = status;
+    }
+
+    public PedidoOrigem getPedidoOrigem() {
+        return pedidoOrigem;
+    }
+
+    public void setPedidoOrigem(PedidoOrigem pedidoOrigem) {
+        this.pedidoOrigem = pedidoOrigem;
     }
 
     /**

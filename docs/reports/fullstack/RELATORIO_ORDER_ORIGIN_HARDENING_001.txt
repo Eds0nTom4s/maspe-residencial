@@ -1,0 +1,163 @@
+RELATORIO_ORDER_ORIGIN_HARDENING_001 — FULLSTACK
+=================================================
+
+1. IDENTIFICAÇÃO
+----------------
+Backend branch:     backend/order-origin-hardening-001
+Backend commit base: a3fd47b47b9da33b0465bbb84461ce201bb4522c
+Backend commit final: <a preencher apos commit>
+
+Frontend branch:     ui/order-origin-hardening-001
+Frontend commit base: 008d6a4853ad4fd67f8a625ed497e7ea5302d3a3
+Frontend commit final: <a preencher apos commit>
+
+2. OBJETIVO
+-----------
+Formalizar a origem do pedido como dado explícito, estável, auditável e usado
+pelas policies operacionais, sem quebrar compatibilidade e sem implementar
+PDV/KDS/caixa/gateway real.
+
+3. PROBLEMA TRATADO
+-------------------
+A política operacional já existia (OperationalTemplatePolicy), mas a origem do
+pedido ainda era inferida em vários pontos. Regras de aceite, pagamento,
+produção e auditoria dependem da origem; inferência frágil poderia aplicar
+regras erradas (ex.: tratar pedido público como operador interno).
+
+4. ORIGEM ANTES DA FASE
+-----------------------
+- Sem campo persistente na entidade Pedido.
+- OperationalTemplatePolicy usava enum aninhado e inferia origem a partir de
+  sessão/mesa/QR/template.
+- Policies de pagamento e allowedActions usavam template + sessão, sem origem
+  canônica.
+- OperationalEventLog registrava actor e template, mas não pedidoOrigem.
+- Frontend não recebia/exibia origem canônica.
+
+5. ORIGEM DEPOIS DA FASE
+------------------------
+- Campo pedido_origem persistido em pedidos (V75__pedido_origem.sql).
+- Enum canonical top-level PedidoOrigem.
+- Origem determinada pelo backend no momento da criação (QR, device, operador).
+- Policies consomem origem explícita via OperationalTemplatePolicy.
+- allowedActions calculado a partir de origem + template + actor.
+- Eventos de criação/aceite/rejeição/cancelamento/bloqueio registram
+  pedidoOrigem.
+- Frontend reconhece pedidoOrigem e o exibe como label informativa.
+
+6. ENUM / TIPO CRIADO OU CONSOLIDADO
+------------------------------------
+Backend: com.restaurante.model.enums.PedidoOrigem
+  QR_MESA, QR_PRINCIPAL, QR_PUBLICO, SESSAO_PARTICIPANTE,
+  SESSAO_CONSUMO, OPERADOR_INTERNO, DEVICE_POS, PDV_INTERNO,
+  DEVICE_KDS, CAIXA, SISTEMA, LEGADO, UNKNOWN
+
+Frontend: PedidoOrigemBackend (src/modules/app/types/pedidos.types.ts)
+  Mesmos valores, com normalização para label origem discreta.
+
+7. PERSISTÊNCIA / MIGRATION
+---------------------------
+Houve migration: V75__pedido_origem.sql
+  - ADD COLUMN pedido_origem VARCHAR(30)
+  - UPDATE pedido_origem = 'LEGADO' WHERE NULL
+
+Justificativa: dados antigos não podem ser tratados como QR_MESA sem evidência.
+LEGADO é fallback conservador. Coluna nullable preserva rollback seguro.
+
+8. CRIAÇÃO PÚBLICA
+------------------
+QR_MESA:      PublicQrPedidoService, qr.getTipo() == MESA → QR_MESA
+QR_PRINCIPAL: PublicQrPedidoService, QR geral → QR_PRINCIPAL
+PUBLIC_MENU:  Fallback QR_PUBLICO quando tipo nulo
+
+9. CRIAÇÃO TENANT / DEVICE
+--------------------------
+PDV:         PedidoService.criar → OPERADOR_INTERNO por padrão;
+             PDV_INTERNO mapeado para futuro fluxo explícito.
+DEVICE_POS:  DevicePedidoService.criarPedido → DEVICE_POS
+OPERADOR:    PedidoService.criar → OPERADOR_INTERNO
+SISTEMA:     OperationalTemplatePolicy.resolvePedidoOrigem → SISTEMA para actor SYSTEM
+
+10. POLICIES INTEGRADAS
+-----------------------
+OperationalTemplatePolicy:
+  - resolvePedidoOrigem prioriza campo persistido.
+  - requiresAcceptanceBeforePayment, allowsImmediatePayment,
+    productionFlow, canAccept, canReject, canConfirmPayment,
+    canMoveProduction recebem PedidoOrigem explícito.
+
+PedidoPagamentoPolicy:
+  - Consome OperationalTemplatePolicy.requiresAcceptanceBeforePayment(...).
+
+PedidoAllowedActionsService:
+  - evaluate(...) resolve origem e delega a OperationalTemplatePolicy.
+  - allowedActions/actionReasons refletem regras por origem.
+
+PedidoStatusTransitionService:
+  - assertCanAcceptPedido / assertCanRejectPedido via OperationalTemplatePolicy.
+  - Registra pedidoOrigem nos eventos.
+
+11. AUDITORIA / EVENT LOG
+-------------------------
+- OperationalEventType.PEDIDO_CRIADO adicionado.
+- logPedidoCriado(...) usado em PedidoService e PublicQrPedidoService,
+  registrando command, tenantTemplate e pedidoOrigem.
+- Aceite/rejeição/cancelamento/bloqueio já registravam pedidoOrigem;
+  agora a origem é a resolvida pela policy.
+- Device: PEDIDO_CRIADO_DEVICE registra pedidoOrigem.
+
+12. FRONTEND
+------------
+Alterado: SIM
+Justificativa: backend passou a retornar pedidoOrigem; frontend precisou
+atualizar types e service para reconhecer/normalizar o campo. Nenhuma ação
+crítica passou a ser liberada por origem; allowedActions continua mandando.
+
+13. TESTES BACKEND
+------------------
+mvn -DskipTests compile → SUCESSO
+mvn test                → 379 tests, 0 failures, 3 skipped, BUILD SUCCESS
+
+mvn -Pit verify -DskipUnitTests=true → iniciado, mas atingiu timeout de 300s
+sem concluir. Não foi possível validar os ITs nesta rodada.
+
+14. TESTES FRONTEND
+-------------------
+npm run typecheck → SUCESSO
+npm run lint      → SUCESSO
+npm run test      → 71 passed, SUCESSO
+npm run build     → SUCESSO
+
+15. VALIDAÇÃO MANUAL
+--------------------
+- Revisão de git diff confirmou que todos os pontos de criação de pedido
+  definem pedidoOrigem explicitamente.
+- Revisão de OperationalTemplatePolicy confirmou que nenhuma regra depende
+  mais de inferência pura quando a origem está disponível.
+- Revisão do frontend confirmou que pedidoOrigem é usado apenas para label
+  informativa; allowedActions governa as ações.
+
+16. RISCOS RESTANTES
+--------------------
+- ITs não concluídos por timeout.
+- PDV_INTERNO / CAIXA têm origem mapeada, mas fluxos completos não
+  implementados (fora de escopo).
+- Produção ainda movimentada por pedido, não por subpedido.
+- CONFIRM_PAYMENT / VIEW_EXTRACT sem contrato finalizado.
+
+17. PRÓXIMAS FASES RECOMENDADAS
+-------------------------------
+- Finalizar validação dos ITs.
+- Implementar PDV interno real (se aprovado em fase futura).
+- Movimentar produção por subpedido.
+- Formalizar contrato de pagamento manual/caixa.
+- Adicionar índice ou restrição NOT NULL em pedido_origem após maturidade.
+
+18. DECISÃO FINAL
+-----------------
+APROVADO COM RESSALVAS
+
+Motivo: entrega atende aos objetivos da fase, testes unitários/backend passam,
+frontend passa, documentação criada. Ressalva principal: ITs não finalizados
+por timeout; recomenda-se rodada posterior focada em ITs antes de merge para
+branch estável.

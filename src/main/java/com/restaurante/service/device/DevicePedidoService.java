@@ -31,6 +31,7 @@ import com.restaurante.model.entity.DevicePedidoIdempotencyRecord;
 import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DevicePedidoIdempotencyStatus;
 import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -290,6 +291,7 @@ public class DevicePedidoService {
             pedido.setSessaoConsumo(sessao);
             pedido.setTurnoOperacional(turno);
             pedido.setStatus(StatusPedido.CRIADO);
+            pedido.setPedidoOrigem(PedidoOrigem.DEVICE_POS);
             pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
             pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
             pedido.setObservacoes(trimObs(request.getObservacao()));
@@ -401,7 +403,11 @@ public class DevicePedidoService {
                     turno,
                     OperationalOrigem.DEVICE_POS,
                     "Pedido criado pelo POS",
-                    Map.of("deviceId", device.dispositivoId(), "clientRequestId", request.getClientRequestId()),
+                    Map.of(
+                            "deviceId", device.dispositivoId(),
+                            "clientRequestId", request.getClientRequestId(),
+                            "pedidoOrigem", pedido.getPedidoOrigem() != null ? pedido.getPedidoOrigem().name() : "UNKNOWN"
+                    ),
                     ip,
                     userAgent
             );

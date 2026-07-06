@@ -184,7 +184,7 @@ public class PedidoStatusTransitionService {
     }
 
     /**
-     * Comando explícito de entrega/finalização de pedido pago — contrato Demo Freezy.
+     * Comando explícito de entrega/finalização de pedido pago.
      *
      * PATCH /tenant/pedidos/{id}/entregar
      *
@@ -225,7 +225,7 @@ public class PedidoStatusTransitionService {
             );
         }
 
-        // Pagamento obrigatório — regra contratual da Demo Freezy
+        // Pagamento obrigatório para entrega operacional.
         if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
             logPedidoCommandBlocked(
                     pedido,
@@ -310,7 +310,7 @@ public class PedidoStatusTransitionService {
         com.restaurante.model.enums.PedidoOrigem origem = operationalTemplatePolicy.resolvePedidoOrigem(pedido, resolveOrigem());
         boolean isOptionalKitchen = operationalTemplatePolicy.productionFlow(template, origem) == OperationalTemplatePolicy.ProductionFlow.OPTIONAL;
 
-        // Para finalizar pedido, exige que todos os subpedidos estejam PRONTO (ou já ENTREGUE) - bypass PENDENTE se OPTIONAL
+        // Para finalizar pedido, exige PRONTO/ENTREGUE ou PENDENTE quando KitchenFlow é OPTIONAL.
         List<SubPedido> subs = getSubPedidosOrThrow(pedido);
         for (SubPedido sp : subs) {
             if (sp.getStatus() == null) {

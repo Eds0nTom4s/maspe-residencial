@@ -248,7 +248,7 @@ public class PedidoAllowedActionsService {
         if (!subPedidos.isEmpty() && subPedidos.stream().allMatch(sp ->
                 sp.getStatus() == StatusSubPedido.PRONTO || sp.getStatus() == StatusSubPedido.ENTREGUE ||
                 (isOptionalKitchen && sp.getStatus() == StatusSubPedido.PENDENTE))) {
-            // MARK_DELIVERED exige pagamento confirmado — regra contratual da Demo Freezy
+            // MARK_DELIVERED exige pagamento confirmado por contrato operacional.
             if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
                 reasons.put(PedidoAllowedAction.MARK_DELIVERED, REASON_PAYMENT_NOT_CONFIRMED);
             } else if (pedido.getStatus() == StatusPedido.FINALIZADO) {

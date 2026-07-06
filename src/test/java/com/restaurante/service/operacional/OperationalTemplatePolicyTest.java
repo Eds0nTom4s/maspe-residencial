@@ -90,6 +90,16 @@ class OperationalTemplatePolicyTest {
     }
 
     @Test
+    void pontoPublicQrKeepsKitchenOptionalWithoutChangingRestOrKds() {
+        assertThat(policy.productionFlow(OperationalTemplatePolicy.TEMPLATE_PONTO_V1, QR_PRINCIPAL)).isEqualTo(OPTIONAL);
+        assertThat(policy.productionFlow(OperationalTemplatePolicy.TEMPLATE_PONTO_V1, QR_MESA)).isEqualTo(OPTIONAL);
+
+        assertThat(policy.productionFlow(OperationalTemplatePolicy.TEMPLATE_REST_V1, QR_PRINCIPAL)).isEqualTo(REQUIRED);
+        assertThat(policy.productionFlow(OperationalTemplatePolicy.TEMPLATE_REST_V1, QR_MESA)).isEqualTo(REQUIRED);
+        assertThat(policy.productionFlow(OperationalTemplatePolicy.TEMPLATE_KDS, DEVICE_KDS)).isEqualTo(REQUIRED);
+    }
+
+    @Test
     void pedidoOrigemExplicitaTemPrioridadeSobreInferencia() {
         Pedido pedido = pedido("CONSUMA_REST", 1, true);
         pedido.setPedidoOrigem(PedidoOrigem.DEVICE_POS);

@@ -1,0 +1,169 @@
+RELATORIO_CONSUMA_DEMO_FREEZY_HAPPY_PATH_001 — FULLSTACK
+========================================================
+Data: 2026-07-07
+
+1. IDENTIFICAÇÃO
+----------------
+Backend branch: backend/consuma-demo-freezy-happy-path-e2e-001
+Backend commit base: 858f064
+Backend commit anterior: f4d29e2ec067dd5366e5b8cdab39063756aff589
+Backend commit final: commit desta auditoria
+Frontend branch: ui/consuma-demo-freezy-app-pedidos-001
+Frontend commit base: a6f3a350fa616f24ebde8a17e1c2fb9733ecaf2e
+Frontend commit final: 114d604eaa7370646997bb8479e8e3cbdacb2c56
+
+2. OBJETIVO DA AUDITORIA
+------------------------
+Fechar formalmente a baseline CONSUMA Demo Freezy V1 Happy Path, sem criar nova funcionalidade fora do fluxo validado.
+
+3. RESULTADO DA AUDITORIA DO ÚLTIMO PROMPT
+------------------------------------------
+Auditoria concluída.
+O backend foi revisado no diff 858f064..f4d29e2 e recebeu ajustes formais de teste/documentação.
+O frontend de referência foi validado e recebeu ajuste mínimo no E2E de Pedidos para simular turno aberto, em conformidade com o contrato atual da página.
+
+4. DIFF AUDITADO
+----------------
+Backend original:
+- OperationalTemplatePolicy.java
+- PedidoAllowedActionsService.java
+- PedidoStatusTransitionService.java
+- ConsumaDemoFreezyHappyPathIT.java
+
+Backend desta auditoria:
+- ampliou asserções do happy path;
+- adicionou contratos PONTO vs REST/KDS;
+- removeu menções Freezy de comentários de serviço;
+- criou documentação, Mermaid e relatórios.
+
+Frontend desta auditoria:
+- e2e/pedidos.spec.ts ajustado para mockar turno aberto e usar seletor semântico de heading.
+
+5. FLUXO VALIDADO
+-----------------
+Cliente cria pedido via QR Público -> CRIADO / NAO_PAGO -> operador aceita -> ordem de pagamento expirável AGUARDANDO_CONFIRMACAO -> público acompanha -> operador confirma TPA por metodoConfirmado -> ordem CONFIRMADA -> financeiro PAGO -> operador entrega -> subpedidos ENTREGUE -> pedido FINALIZADO -> público vê estado final.
+
+6. OPERATIONAL TEMPLATE POLICY
+------------------------------
+Antes:
+QR principal/mesa podia entrar no REQUIRED antes da exceção PONTO.
+
+Depois:
+CONSUMA_PONTO_V1 tem KitchenFlow/ProductionFlow OPTIONAL.
+CONSUMA_REST_V1, QR_MESA e DEVICE_KDS mantêm REQUIRED quando aplicável.
+
+Decisão:
+Aceite.
+
+Impacto em PONTO:
+Entrega após PAGO sem obrigar KDS/MARK_READY.
+
+Impacto em REST/KDS:
+Sem regressão observada; testes unitários e ITs de produção/KDS passaram.
+
+7. SUBPEDIDOS NO PONTO
+----------------------
+Subpedidos PENDENTE tornam-se ENTREGUE no ato de entrega em CONSUMA_PONTO_V1.
+Pagamento permanece PAGO.
+Pedido global deriva FINALIZADO.
+
+8. PAYMENTORDER
+---------------
+Criada após aceite.
+Nasce AGUARDANDO_CONFIRMACAO.
+Possui expiresAt.
+Confirmação muda para CONFIRMADA.
+Ordem expirada bloqueia confirmação.
+
+9. CONFIRMAÇÃO DE PAGAMENTO
+---------------------------
+Payload validado: metodoConfirmado.
+Actors autorizados cobertos: TENANT_OWNER/TENANT_CASHIER conforme contrato.
+Frontend não inventa ação; respeita allowedActions.
+
+10. ENTREGA/FINALIZAÇÃO
+-----------------------
+MARK_DELIVERED depende de pagamento PAGO e allowedActions.
+Entrega finaliza o pedido sem alterar pagamento e sem gateway/caixa/fiscal/KDS.
+
+11. ALLOWEDACTIONS
+------------------
+CONFIRM_PAYMENT aparece apenas quando a ordem está confirmável.
+MARK_DELIVERED aparece após PAGO e desaparece após FINALIZADO.
+
+12. ACOMPANHAMENTO PÚBLICO
+--------------------------
+Público vê instrução de pagamento, estados humanos e estado final.
+Não recebe confirmedBy nem detalhes internos de actor.
+
+13. TESTES BACKEND
+------------------
+mvn -DskipTests compile: PASS / BUILD SUCCESS
+mvn test: PASS / 394 tests, 0 failures, 0 errors, 3 skipped
+mvn -Pit verify: PASS / Surefire 394 tests, Failsafe 277 tests, 0 failures, 0 errors
+mvn -Pit -Dit.test=ConsumaDemoFreezyHappyPathIT verify: PASS / 1 test
+
+14. TESTES FRONTEND
+-------------------
+npm run typecheck: PASS
+npm run lint: PASS
+npm run test: PASS / 102 tests
+npm run build: PASS
+npm run test:e2e: PASS / 17 passed, 1 skipped
+
+15. E2E REAL
+------------
+Executado: Sim.
+Backend IT real com Postgres/Testcontainers: Sim, ConsumaDemoFreezyHappyPathIT passou.
+Frontend Playwright: Sim, 17 passed, 1 skipped.
+Observação: primeira execução frontend falhou por mock de turno fechado/ausente no spec; corrigido com mock de turno aberto e rerodado com sucesso.
+
+16. MERMAID
+-----------
+Versionado em:
+docs/architecture/diagrams/consuma-demo-freezy-happy-path-flow.mmd
+
+17. DOCUMENTAÇÃO
+----------------
+Versionada em:
+docs/product/CONSUMA_DEMO_FREEZY_HAPPY_PATH_001.md
+
+18. O QUE NÃO FOI ALTERADO
+--------------------------
+- gateway;
+- GPO real;
+- referência bancária real;
+- estorno;
+- PDV;
+- cash/troco;
+- caixa;
+- fiscal;
+- KDS;
+- OTP/SMS;
+- Cardápio Público;
+- Acompanhamento Público;
+- App Pedidos visual/funcional, salvo ajuste de E2E;
+- Delivery;
+- Service;
+- REST demo.
+
+19. RISCOS RESTANTES
+--------------------
+- Sem gateway/adquirente real; confirmação é operacional/manual.
+- Concorrência simultânea de entrega depende das garantias transacionais atuais.
+- A baseline demonstra CONSUMA_PONTO_V1; REST/Delivery/Service permanecem fora da demo.
+
+20. DECISÃO FINAL
+-----------------
+APROVADO PARA MERGE
+
+Critérios atendidos:
+- mvn test passou;
+- mvn -Pit verify passou;
+- frontend typecheck/lint/test/build/test:e2e passou;
+- documentação criada;
+- Mermaid versionado;
+- relatório fullstack criado;
+- sem hardcode Freezy em regra de negócio;
+- REST/KDS sem regressão observada;
+- commits finais previstos para backend e frontend.

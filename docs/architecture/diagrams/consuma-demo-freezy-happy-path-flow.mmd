@@ -1,0 +1,53 @@
+sequenceDiagram
+    autonumber
+    participant Cliente as Cliente publico
+    participant QR as QR Publico / Cardapio Publico
+    participant Pedido as Backend Pedido
+    participant Operador as Operador
+    participant Ordem as Ordem de Pagamento
+    participant Acomp as Acompanhamento Publico
+
+    Cliente->>QR: abre /q/{token}
+    Cliente->>Pedido: cria pedido publico
+    Pedido-->>Cliente: pedido CRIADO / NAO_PAGO
+    Note over Pedido,Ordem: Antes do aceite nao existe paymentOrder
+
+    Operador->>Pedido: aceitar pedido
+    Pedido->>Pedido: subpedidos CRIADO -> PENDENTE
+    Pedido->>Ordem: criar ordem expiravel
+    Ordem-->>Pedido: AGUARDANDO_CONFIRMACAO + expiresAt
+    Pedido-->>Operador: EM_ANDAMENTO / NAO_PAGO
+
+    Cliente->>Acomp: consulta acompanhamento
+    Acomp->>Pedido: detalhe publico
+    Pedido-->>Acomp: instrucao de pagamento sem dados internos do actor
+    Acomp-->>Cliente: paymentOrder AGUARDANDO_CONFIRMACAO
+
+    alt Ordem expirada
+        Operador->>Ordem: confirmar pagamento
+        Ordem-->>Operador: bloqueado
+        Pedido-->>Operador: CONFIRM_PAYMENT removido
+    else Ordem valida
+        Operador->>Ordem: confirmar pagamento TPA
+        Ordem->>Pedido: status CONFIRMADA
+        Pedido->>Pedido: financeiro PAGO
+        Pedido-->>Operador: MARK_DELIVERED permitido
+    end
+
+    alt Sem pagamento PAGO ou actor sem permissao
+        Operador->>Pedido: entregar
+        Pedido-->>Operador: bloqueado por allowedActions
+    else CONSUMA_PONTO_V1 pago
+        Operador->>Pedido: entregar
+        Pedido->>Pedido: subpedidos PENDENTE -> ENTREGUE
+        Pedido->>Pedido: pedido FINALIZADO
+        Pedido-->>Operador: pagamento permanece PAGO
+    end
+
+    Cliente->>Acomp: consulta estado final
+    Acomp->>Pedido: detalhe publico
+    Pedido-->>Acomp: FINALIZADO / PAGO / ordem CONFIRMADA
+    Acomp-->>Cliente: estado final
+
+    Note over Pedido: CONSUMA_PONTO_V1 usa KitchenFlow OPTIONAL.
+    Note over Pedido: CONSUMA_REST_V1, QR_MESA e DEVICE_KDS mantem ProductionFlow REQUIRED quando aplicavel.

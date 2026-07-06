@@ -93,7 +93,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         );
 
         Tenant tenant = tenantRepository.findById(tenantResp.getTenantId()).orElseThrow();
-        tenant.setTemplateCode("CONSUMA_PONTO");
+        tenant.setTemplateCode("CONSUMA_PONTO_V1");
         tenantRepository.saveAndFlush(tenant);
 
         var ua = unidadeAtendimentoRepository.findById(tenantResp.getUnidadeAtendimentoId()).orElseThrow();
@@ -147,6 +147,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         JsonNode createJson = objectMapper.readTree(respCreate);
         long pedidoId = createJson.at("/data/pedidoId").asLong();
+        assertThat(createJson.at("/data/statusOperacional").asText()).isEqualTo("CRIADO");
         assertThat(createJson.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
         assertThat(createJson.at("/data/paymentOrder").isMissingNode() || createJson.at("/data/paymentOrder").isNull()).isTrue();
 
@@ -182,6 +183,15 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
                         .content(abrirTurnoNode.toString()))
                 .andExpect(status().isCreated());
 
+        String respBeforeAccept = mockMvc.perform(get("/tenant/pedidos/" + pedidoId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode beforeAcceptData = objectMapper.readTree(respBeforeAccept).at("/data");
+        assertThat(beforeAcceptData.at("/statusOperacional").asText()).isEqualTo("CRIADO");
+        assertThat(beforeAcceptData.at("/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
+        assertPaymentOrderAbsent(beforeAcceptData);
+        assertAllSubPedidosStatus(beforeAcceptData, "CRIADO");
+
         // 5. Operador aceita o pedido -> gera Ordem de Pagamento
         String respAceitar = mockMvc.perform(patch("/tenant/pedidos/" + pedidoId + "/aceitar"))
                 .andExpect(status().isOk())
@@ -189,6 +199,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         JsonNode aceitarJson = objectMapper.readTree(respAceitar);
         assertThat(aceitarJson.at("/data/statusOperacional").asText()).isEqualTo("EM_ANDAMENTO");
         assertThat(aceitarJson.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
+        assertAllSubPedidosStatus(aceitarJson.at("/data"), "PENDENTE");
         assertThat(aceitarJson.at("/data/paymentOrder/status").asText()).isEqualTo("AGUARDANDO_CONFIRMACAO");
         assertThat(aceitarJson.at("/data/paymentOrder/valor").asDouble()).isEqualTo(500.0);
         assertThat(aceitarJson.at("/data/paymentOrder/expiresAt").asText()).isNotBlank();
@@ -199,7 +210,9 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode acompanharJson = objectMapper.readTree(respAcompanhar);
+        assertThat(acompanharJson.at("/data/statusOperacional").asText()).isEqualTo("EM_ANDAMENTO");
         assertThat(acompanharJson.at("/data/paymentOrder/status").asText()).isEqualTo("AGUARDANDO_CONFIRMACAO");
+        assertThat(acompanharJson.at("/data/paymentOrder/confirmedBy").isMissingNode()).isTrue();
 
         // 7. Operador confirma pagamento
         TenantContextHolder.set(new TenantContext(tenantResp.getTenantId(), tenantResp.getTenantCode(), tenantResp.getOwnerUserId(), Set.of("TENANT_OWNER", "TENANT_CASHIER"), TenantResolutionSource.JWT, false, false));
@@ -215,6 +228,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         JsonNode confirmJson = objectMapper.readTree(respConfirm);
         assertThat(confirmJson.at("/data/status").asText()).isEqualTo("CONFIRMADA");
+        assertThat(confirmJson.at("/data/confirmedAt").asText()).isNotBlank();
 
         // 8. Verifica que allowedActions tem MARK_DELIVERED (pedido PAGO, EM_ANDAMENTO)
         String respGet = mockMvc.perform(get("/tenant/pedidos/" + pedidoId))
@@ -222,13 +236,10 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         JsonNode getJson = objectMapper.readTree(respGet);
         assertThat(getJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
-        boolean hasMarkDelivered = false;
-        for (JsonNode action : getJson.at("/data/allowedActions")) {
-            if ("MARK_DELIVERED".equals(action.asText())) {
-                hasMarkDelivered = true;
-            }
-        }
-        assertThat(hasMarkDelivered).isTrue();
+        assertThat(getJson.at("/data/statusOperacional").asText()).isEqualTo("EM_ANDAMENTO");
+        assertThat(getJson.at("/data/paymentOrder/status").asText()).isEqualTo("CONFIRMADA");
+        assertAllSubPedidosStatus(getJson.at("/data"), "PENDENTE");
+        assertAllowedAction(getJson.at("/data"), "MARK_DELIVERED");
 
         // 9. Operador entrega o pedido
         String respEntregar = mockMvc.perform(patch("/tenant/pedidos/" + pedidoId + "/entregar"))
@@ -237,14 +248,9 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         JsonNode entregarJson = objectMapper.readTree(respEntregar);
         assertThat(entregarJson.at("/data/statusOperacional").asText()).isEqualTo("FINALIZADO");
         assertThat(entregarJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
-        
-        boolean hasMarkDeliveredAfter = false;
-        for (JsonNode action : entregarJson.at("/data/allowedActions")) {
-            if ("MARK_DELIVERED".equals(action.asText())) {
-                hasMarkDeliveredAfter = true;
-            }
-        }
-        assertThat(hasMarkDeliveredAfter).isFalse();
+        assertAllSubPedidosStatus(entregarJson.at("/data"), "ENTREGUE");
+        assertMissingAllowedAction(entregarJson.at("/data"), "MARK_DELIVERED");
+        assertMissingAllowedAction(entregarJson.at("/data"), "CONFIRM_PAYMENT");
 
         // 10. Cliente vê o estado final FINALIZADO
         TenantContextHolder.clear();
@@ -253,6 +259,40 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
                 .andReturn().getResponse().getContentAsString();
         JsonNode acompanharFinalJson = objectMapper.readTree(respAcompanharFinal);
         assertThat(acompanharFinalJson.at("/data/statusOperacional").asText()).isEqualTo("FINALIZADO");
+        assertThat(acompanharFinalJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
         assertThat(acompanharFinalJson.at("/data/paymentOrder/status").asText()).isEqualTo("CONFIRMADA");
+    }
+
+    private void assertPaymentOrderAbsent(JsonNode data) {
+        JsonNode paymentOrder = data.at("/paymentOrder");
+        assertThat(paymentOrder.isMissingNode() || paymentOrder.isNull()).isTrue();
+    }
+
+    private void assertAllSubPedidosStatus(JsonNode data, String expectedStatus) {
+        JsonNode subPedidos = data.at("/subPedidos");
+        assertThat(subPedidos.isArray()).isTrue();
+        int count = 0;
+        for (JsonNode subPedido : subPedidos) {
+            count++;
+            assertThat(subPedido.at("/status").asText()).isEqualTo(expectedStatus);
+        }
+        assertThat(count).isGreaterThan(0);
+    }
+
+    private void assertAllowedAction(JsonNode data, String expectedAction) {
+        assertThat(allowedActionsContain(data, expectedAction)).isTrue();
+    }
+
+    private void assertMissingAllowedAction(JsonNode data, String expectedAction) {
+        assertThat(allowedActionsContain(data, expectedAction)).isFalse();
+    }
+
+    private boolean allowedActionsContain(JsonNode data, String expectedAction) {
+        for (JsonNode action : data.at("/allowedActions")) {
+            if (expectedAction.equals(action.asText())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

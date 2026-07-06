@@ -209,6 +209,31 @@ class PedidoEntregaAllowedActionsTest {
         assertThat(caps.allowedActions()).contains(PedidoAllowedAction.MARK_DELIVERED);
     }
 
+    @Test
+    void pontoPagoComSubPedidoPendenteLiberaMarkDelivered() {
+        Pedido pedido = pedido("CONSUMA_PONTO", StatusPedido.EM_ANDAMENTO,
+                StatusFinanceiroPedido.PAGO, true, StatusSubPedido.PENDENTE);
+
+        PedidoAllowedActionsService.PedidoCapabilities caps = service.evaluate(pedido, ctx(TenantUserRole.TENANT_OWNER));
+
+        assertThat(caps.allowedActions()).contains(PedidoAllowedAction.MARK_DELIVERED);
+        assertThat(caps.actionReasons()).doesNotContainKey(PedidoAllowedAction.MARK_DELIVERED);
+    }
+
+    @Test
+    void restPagoComSubPedidoPendenteNaoLiberaMarkDelivered() {
+        Pedido pedido = pedido("CONSUMA_REST", StatusPedido.EM_ANDAMENTO,
+                StatusFinanceiroPedido.PAGO, true, StatusSubPedido.PENDENTE);
+
+        PedidoAllowedActionsService.PedidoCapabilities caps = service.evaluate(pedido, ctx(TenantUserRole.TENANT_OWNER));
+
+        assertThat(caps.allowedActions()).doesNotContain(PedidoAllowedAction.MARK_DELIVERED);
+        assertThat(caps.actionReasons()).containsEntry(
+                PedidoAllowedAction.MARK_DELIVERED,
+                "Pedido não possui subpedidos elegíveis para esta ação."
+        );
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────────

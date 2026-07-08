@@ -297,6 +297,11 @@ class TurnoOperacionalIT extends PostgresTestcontainersConfig {
                 .isEqualTo("Fecho forcado por subpedido pendente em teste");
         assertThat(resumo.at("/fechoForcadoPolicy/efeitoEmPedidosPagamentosOrdens").asText())
                 .isEqualTo("NAO_ALTERA_ESTADOS");
+        assertThat(resumo.at("/operacional/identificacao/tipoFecho").asText()).isEqualTo("FORCADO");
+        assertThat(resumo.at("/operacional/sessoes/sessoesHerdadas").asLong()).isGreaterThanOrEqualTo(1L);
+        assertThat(resumo.at("/limpezaOperacional/tipo").asText()).isEqualTo("CLASSIFICACAO_SEM_MUTACAO");
+        assertThat(resumo.at("/limpezaOperacional/turnoFechadoComPendencias").asBoolean()).isTrue();
+        assertThat(resumo.at("/limpezaOperacional/pendenciasHerdadas/classificacao").asText()).isEqualTo("COM_PENDENCIAS");
 
         assertThat(operationalEventLogRepository.findByTenantIdAndEventType(
                 prov.getTenantId(), OperationalEventType.TURNO_FECHADO_FORCADO))

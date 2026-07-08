@@ -127,6 +127,19 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
             @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
             @Param("statuses") java.util.Collection<StatusSessaoConsumo> statuses);
 
+    @Query("""
+            select count(distinct s)
+            from SessaoConsumo s
+              join s.pedidos p
+            where s.tenant.id = :tenantId
+              and p.turnoOperacional.id = :turnoId
+              and s.status = :status
+            """)
+    long countDistinctByTenantIdAndPedidoTurnoOperacionalIdAndStatus(
+            @Param("tenantId") Long tenantId,
+            @Param("turnoId") Long turnoId,
+            @Param("status") StatusSessaoConsumo status);
+
     boolean existsByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);
 
     @Query("SELECT s.mesa.id FROM SessaoConsumo s " +

@@ -63,7 +63,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.restaurante.repository.UserRepository;
+import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.model.entity.User;
+import com.restaurante.model.enums.TurnoOperacionalStatus;
 import static com.restaurante.testsupport.MockMvcTenantSupport.*;
 
 @SpringBootTest(
@@ -92,6 +94,7 @@ class TurnoPreFechoFinanceiroAlertasIT extends PostgresTestcontainersConfig {
     @Autowired UserRepository userRepository;
     @Autowired TenantRepository tenantRepository;
     @Autowired CozinhaRepository cozinhaRepository;
+    @Autowired TurnoOperacionalRepository turnoOperacionalRepository;
 
     @AfterEach
     void clear() {
@@ -209,6 +212,10 @@ class TurnoPreFechoFinanceiroAlertasIT extends PostgresTestcontainersConfig {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(forceReq)))
                 .andExpect(status().isConflict());
+
+        var turnoAposBloqueio = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
+        assertThat(turnoAposBloqueio.getStatus()).isEqualTo(TurnoOperacionalStatus.ABERTO);
+        assertThat(turnoAposBloqueio.getResumoJson()).isNull();
 
         assertThat(operationalEventLogRepository.findByTenantIdAndEventType(prov.getTenantId(), OperationalEventType.TURNO_FECHO_BLOQUEADO_ALERTA_FINANCEIRO)).isNotEmpty();
         assertThat(operationalEventLogRepository.findByTenantIdAndEventType(

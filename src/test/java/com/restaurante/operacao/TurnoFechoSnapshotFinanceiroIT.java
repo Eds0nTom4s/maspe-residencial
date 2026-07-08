@@ -41,6 +41,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
@@ -128,10 +129,71 @@ class TurnoFechoSnapshotFinanceiroIT extends PostgresTestcontainersConfig {
         assertThat(fin.at("/integridade/signatureKeyId").asText()).isEqualTo("platform-snapshot-key-v1");
         assertThat(fin.at("/integridade/signatureScope").asText()).isEqualTo("snapshotHash");
 
+        assertThat(root.at("/policyVersion").asText()).isEqualTo("TURNO_EXTRATO_LIMPEZA_OPERACIONAL_001");
+        assertThat(root.at("/operacional/identificacao/tipoFecho").asText()).isEqualTo("NORMAL");
+        assertThat(root.at("/operacional/identificacao/turnoId").asLong()).isEqualTo(turnoId);
+        assertThat(root.at("/operacional/pedidos/pedidosMapeados").asLong()).isZero();
+        assertThat(root.at("/operacional/pagamentos/totalConfirmado").decimalValue())
+                .isEqualByComparingTo(new BigDecimal("15000.00"));
+        assertThat(root.at("/operacional/pagamentos/totalPendente").decimalValue())
+                .isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(root.at("/operacional/ordensPagamento/ordensPagamentoConfirmadas").asLong()).isEqualTo(2L);
+        assertThat(root.at("/operacional/ordensPagamento/ordensPagamentoAtivas").asLong()).isZero();
+        assertThat(root.at("/operacional/auditoria/snapshotFinanceiroHash").asText()).isNotBlank();
+        assertThat(root.at("/limpezaOperacional/tipo").asText()).isEqualTo("CLASSIFICACAO_SEM_MUTACAO");
+        assertThat(root.at("/limpezaOperacional/turnoFechadoComPendencias").asBoolean()).isFalse();
+        assertThat(root.at("/limpezaOperacional/pendenciasHerdadas/classificacao").asText()).isEqualTo("SEM_PENDENCIAS");
+
         // Sanitização: não persistir payload bruto do gateway nem tokens
         assertThat(resumoJson).doesNotContain("gatewayResponse");
         assertThat(resumoJson).doesNotContain("gateway_status_raw");
         assertThat(resumoJson).doesNotContain("deviceToken");
+    }
+
+    @Test
+    @WithMockUser(username = "owner")
+    void fecho_normal_registra_ordem_ativa_pendente_sem_confirmar_valor() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("turno-snap-pendente", "TSP");
+        TenantContextHolder.set(new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        long turnoId = abrirTurno(prov);
+        Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+        Instituicao inst = instituicaoRepository.findById(prov.getInstituicaoId()).orElseThrow();
+        UnidadeAtendimento ua = unidadeAtendimentoRepository.findById(prov.getUnidadeAtendimentoId()).orElseThrow();
+        TurnoOperacional turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
+
+        OrdemPagamento pendente = buildOrdem(tenant, inst, ua, turno, OrdemPagamentoTipo.PEDIDO,
+                MetodoPagamentoManual.TPA, "OP-SNAP-PEND", new BigDecimal("7000.00"));
+        pendente.setStatus(OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO);
+        pendente.setExpiresAt(LocalDateTime.now().minusMinutes(5));
+        ordemPagamentoRepository.saveAndFlush(pendente);
+
+        String closeResp = mockMvc.perform(post("/tenant/operacao/turnos/" + turnoId + "/fechar")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(fecharReq(false))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode root = objectMapper.readTree(objectMapper.readTree(closeResp).at("/data/resumoJson").asText());
+        assertThat(root.at("/operacional/identificacao/tipoFecho").asText()).isEqualTo("NORMAL");
+        assertThat(root.at("/operacional/ordensPagamento/ordensPagamentoAtivas").asLong()).isEqualTo(1L);
+        assertThat(root.at("/operacional/ordensPagamento/ordensPagamentoVencidasAindaAtivas").asLong()).isEqualTo(1L);
+        assertThat(root.at("/operacional/pagamentos/totalConfirmado").decimalValue())
+                .isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(root.at("/operacional/pagamentos/totalPendente").decimalValue())
+                .isEqualByComparingTo(new BigDecimal("7000.00"));
+        assertThat(root.at("/financeiro/totalGeralConfirmado").decimalValue())
+                .isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(root.at("/financeiro/totalPendente").decimalValue())
+                .isEqualByComparingTo(new BigDecimal("7000.00"));
+        assertThat(root.at("/limpezaOperacional/turnoFechadoComPendencias").asBoolean()).isTrue();
+        assertThat(root.at("/limpezaOperacional/pendenciasHerdadas/classificacao").asText()).isEqualTo("COM_PENDENCIAS");
+        assertThat(ordemPagamentoRepository.findById(pendente.getId()).orElseThrow().getStatus())
+                .isEqualTo(OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO);
     }
 
     @Test
@@ -159,6 +221,8 @@ class TurnoFechoSnapshotFinanceiroIT extends PostgresTestcontainersConfig {
         JsonNode fin = root.get("financeiro");
         assertThat(fin.get("snapshotVersion").asText()).isEqualTo("37.1");
         assertThat(fin.at("/observacoes/forcarFecho").asBoolean()).isTrue();
+        assertThat(root.at("/operacional/identificacao/tipoFecho").asText()).isEqualTo("FORCADO");
+        assertThat(root.at("/limpezaOperacional/pendenciasHerdadas/fechoForcado").asBoolean()).isTrue();
         assertThat(root.at("/fechoForcadoPolicy/motivoFechoForcado").asText())
                 .isEqualTo("Fecho forcado para snapshot financeiro");
     }

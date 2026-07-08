@@ -1,0 +1,32 @@
+RELATORIO_SESSAO_CONSUMO_AUTO_CLOSURE_PONTO_001 — BACKEND
+=========================================================
+
+Branch: backend/consuma-ponto-sessao-consumo-auto-closure-001
+Commit base: 6df9089f7262eb5b25772c4bac78e5a0e68916ee
+Commit final: 3c41cb2
+
+OBJECTIVO
+---------
+Implementar auto-fecho da SessaoConsumo para fluxo CONSUMA PONTO.
+Eliminar sessões abertas esquecidas que bloqueiam pré-fecho do turno.
+
+FICHEIROS ALTERADOS
+-------------------
++ src/main/java/com/restaurante/service/SessaoConsumoAutoClosureService.java  [NOVO]
+M src/main/java/com/restaurante/service/PedidoService.java
+M src/main/java/com/restaurante/service/PedidoFinanceiroService.java
+M src/main/java/com/restaurante/financeiro/repository/OrdemPagamentoRepository.java
+M src/test/java/com/restaurante/qr/ConsumaDemoFreezyHappyPathIT.java
++ src/test/java/com/restaurante/service/SessaoConsumoAutoClosureServiceTest.java  [NOVO]
++ docs/architecture/SESSAO_CONSUMO_AUTO_CLOSURE_PONTO_001.md  [NOVO]
++ docs/architecture/diagrams/sessao-consumo-auto-closure-ponto-flow.mmd  [NOVO]
+
+TESTES BACKEND
+--------------
+SessaoConsumoAutoClosureServiceTest: 20/20 PASS
+BUILD: SUCCESS
+Tempo: ~52s
+
+DECISÃO
+-------
+APROVADO

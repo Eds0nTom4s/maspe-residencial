@@ -257,13 +257,79 @@ class TurnoOperacionalIT extends PostgresTestcontainersConfig {
                         .content(objectMapper.writeValueAsString(closeReq)))
                 .andExpect(status().isConflict());
 
-        // força fecho com OWNER -> ok
-        FecharTurnoRequest forceReq = fecharReq(true);
-        forceReq.setObservacao("forcado");
+        TenantContextHolder.set(new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OPERATOR.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+        FecharTurnoRequest deniedReq = fecharReq(true);
+        deniedReq.setMotivoFechoForcado("Fecho forcado negado para operador");
         mockMvc.perform(post("/tenant/operacao/turnos/" + turnoId + "/fechar")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(deniedReq)))
+                .andExpect(status().isForbidden());
+
+        TenantContextHolder.set(new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        // força fecho com OWNER -> ok, sem alterar pedidos/subpedidos/sessão
+        FecharTurnoRequest forceReq = fecharReq(true);
+        forceReq.setMotivoFechoForcado("Fecho forcado por subpedido pendente em teste");
+        String forceResp = mockMvc.perform(post("/tenant/operacao/turnos/" + turnoId + "/fechar")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(forceReq)))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(sessaoConsumoRepository.findById(sessao.getId()).orElseThrow().getStatus())
+                .isEqualTo(StatusSessaoConsumo.ABERTA);
+        assertThat(pedidoRepository.findById(pedido.getId()).orElseThrow().getStatus())
+                .isEqualTo(StatusPedido.CRIADO);
+        assertThat(subPedidoRepository.findById(sp.getId()).orElseThrow().getStatus())
+                .isEqualTo(StatusSubPedido.EM_PREPARACAO);
+
+        JsonNode resumo = objectMapper.readTree(objectMapper.readTree(forceResp).at("/data/resumoJson").asText());
+        assertThat(resumo.at("/fechoForcadoPolicy/policy").asText()).isEqualTo("TURNO_FECHO_FORCADO_POLICY_001");
+        assertThat(resumo.at("/fechoForcadoPolicy/motivoFechoForcado").asText())
+                .isEqualTo("Fecho forcado por subpedido pendente em teste");
+        assertThat(resumo.at("/fechoForcadoPolicy/efeitoEmPedidosPagamentosOrdens").asText())
+                .isEqualTo("NAO_ALTERA_ESTADOS");
+
+        assertThat(operationalEventLogRepository.findByTenantIdAndEventType(
+                prov.getTenantId(), OperationalEventType.TURNO_FECHADO_FORCADO))
+                .anySatisfy(event -> assertThat(event.getMetadataJson())
+                        .contains("TURNO_FECHO_FORCADO_POLICY_001", "motivoFechoForcado", "NAO_ALTERA_ESTADOS"));
+    }
+
+    @Test
+    @WithMockUser(username = "owner")
+    void forced_close_requires_motivo_with_minimum_length_even_without_blockers() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("op-turno-force-reason", "OTR");
+        TenantContextHolder.set(new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of(Role.ROLE_GERENTE.name(), TenantUserRole.TENANT_OWNER.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        String openResp = mockMvc.perform(post("/tenant/operacao/turnos/abrir")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(abrirReq(prov.getInstituicaoId(), prov.getUnidadeAtendimentoId()))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long turnoId = objectMapper.readTree(openResp).at("/data/id").asLong();
+
+        FecharTurnoRequest shortReason = fecharReq(true);
+        shortReason.setMotivoFechoForcado("curto");
+        mockMvc.perform(post("/tenant/operacao/turnos/" + turnoId + "/fechar")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(shortReason)))
+                .andExpect(status().isConflict());
+
+        assertThat(turnoOperacionalRepository.findById(turnoId).orElseThrow().getStatus())
+                .isEqualTo(com.restaurante.model.enums.TurnoOperacionalStatus.ABERTO);
     }
 
     @Test

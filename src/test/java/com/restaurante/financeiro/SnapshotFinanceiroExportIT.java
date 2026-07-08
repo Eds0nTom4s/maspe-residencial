@@ -339,7 +339,7 @@ class SnapshotFinanceiroExportIT extends PostgresTestcontainersConfig {
     private void fecharTurno(long turnoId, boolean forcar) throws Exception {
         FecharTurnoRequest req = new FecharTurnoRequest();
         req.setForcarFecho(forcar);
-        if (forcar) req.setObservacao("forcado");
+        if (forcar) req.setMotivoFechoForcado("Fecho forcado para export financeiro");
         req.setChecklist(List.of(
                 boolItem("PEDIDOS_PENDENTES_VERIFICADOS", true),
                 boolItem("PAGAMENTOS_PENDENTES_VERIFICADOS", true),

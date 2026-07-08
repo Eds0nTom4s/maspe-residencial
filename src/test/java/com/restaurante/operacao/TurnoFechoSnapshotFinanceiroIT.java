@@ -147,7 +147,7 @@ class TurnoFechoSnapshotFinanceiroIT extends PostgresTestcontainersConfig {
         long turnoId = abrirTurno(prov);
 
         FecharTurnoRequest closeReq = fecharReq(true);
-        closeReq.setObservacao("forcado");
+        closeReq.setMotivoFechoForcado("Fecho forcado para snapshot financeiro");
         String closeResp = mockMvc.perform(post("/tenant/operacao/turnos/" + turnoId + "/fechar")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(closeReq)))
@@ -159,6 +159,8 @@ class TurnoFechoSnapshotFinanceiroIT extends PostgresTestcontainersConfig {
         JsonNode fin = root.get("financeiro");
         assertThat(fin.get("snapshotVersion").asText()).isEqualTo("37.1");
         assertThat(fin.at("/observacoes/forcarFecho").asBoolean()).isTrue();
+        assertThat(root.at("/fechoForcadoPolicy/motivoFechoForcado").asText())
+                .isEqualTo("Fecho forcado para snapshot financeiro");
     }
 
     private long abrirTurno(ProvisionarTenantResponse prov) throws Exception {

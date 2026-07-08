@@ -115,6 +115,18 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
             @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
             @Param("statuses") java.util.Collection<StatusSessaoConsumo> statuses);
 
+    @Query("""
+            select s
+            from SessaoConsumo s
+            where s.tenant.id = :tenantId
+              and s.unidadeAtendimento.id = :unidadeAtendimentoId
+              and s.status in :statuses
+            """)
+    List<SessaoConsumo> findByTenantIdAndUnidadeAtendimentoIdAndStatusIn(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("statuses") java.util.Collection<StatusSessaoConsumo> statuses);
+
     boolean existsByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);
 
     @Query("SELECT s.mesa.id FROM SessaoConsumo s " +

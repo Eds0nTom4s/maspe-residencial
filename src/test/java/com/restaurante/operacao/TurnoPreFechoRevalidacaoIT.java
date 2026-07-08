@@ -182,6 +182,51 @@ class TurnoPreFechoRevalidacaoIT extends PostgresTestcontainersConfig {
         assertThat(pre.at("/data/podeFechar").asBoolean()).isTrue();
     }
 
+    @Test
+    @Transactional
+    @DisplayName("B2. Fecho forcado tenta auto-fecho PONTO elegivel antes de fechar turno")
+    void cenarioB2_fechoForcadoTentaAutoFechoPontoAntesDeFechar() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("pre-fecho-B2");
+        User owner = userOf(prov);
+        long turnoId = abrirTurno(prov, owner);
+
+        publicarCardapio(prov);
+        long pedidoId = criarPedidoQr(prov, turnoId);
+        Pedido pedido = pedidoRepository.findById(pedidoId).orElseThrow();
+        SessaoConsumo sessao = pedido.getSessaoConsumo();
+        assertThat(sessao).isNotNull();
+        assertThat(sessao.getStatus()).isEqualTo(StatusSessaoConsumo.ABERTA);
+
+        List<SubPedido> sps = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId);
+        sps.forEach(s -> s.setStatus(StatusSubPedido.ENTREGUE));
+        subPedidoRepository.saveAllAndFlush(sps);
+        pedido.setStatus(StatusPedido.FINALIZADO);
+        pedido.setStatusFinanceiro(StatusFinanceiroPedido.PAGO);
+        pedidoRepository.saveAndFlush(pedido);
+
+        var preAntes = getPreFecho(prov, owner, turnoId);
+        assertThat(preAntes.at("/data/sessoesAbertas").asLong()).isGreaterThan(0);
+
+        setTenantCtx(prov);
+        FecharTurnoRequest req = fecharReq(true);
+        req.setMotivoFechoForcado("Fecho forcado apos resolucao PONTO elegivel");
+        String closeResp = mockMvc.perform(post("/tenant/operacao/turnos/" + turnoId + "/fechar")
+                        .with(tenantHeaders(prov.getTenantId(), prov.getTenantCode()))
+                        .with(authUser(owner, TenantUserRole.TENANT_OWNER.name()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        SessaoConsumo sessaoAtualizada = sessaoConsumoRepository.findById(sessao.getId()).orElseThrow();
+        assertThat(sessaoAtualizada.getStatus()).isEqualTo(StatusSessaoConsumo.ENCERRADA);
+
+        var root = objectMapper.readTree(objectMapper.readTree(closeResp).at("/data/resumoJson").asText());
+        assertThat(root.at("/sessoesAbertas").asLong()).isZero();
+        assertThat(root.at("/fechoForcadoPolicy/sessoesAutoFechoTentadas").asLong()).isGreaterThanOrEqualTo(1);
+        assertThat(root.at("/fechoForcadoPolicy/sessoesAutoFechadas").asLong()).isGreaterThanOrEqualTo(1);
+    }
+
     // =======================================================================
     // CENARIO C - sessao AGUARDANDO_PAGAMENTO tambem bloqueia pre-fecho
     // =======================================================================
@@ -515,6 +560,17 @@ class TurnoPreFechoRevalidacaoIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(resp);
+    }
+
+    private FecharTurnoRequest fecharReq(boolean forcar) {
+        FecharTurnoRequest req = new FecharTurnoRequest();
+        req.setForcarFecho(forcar);
+        req.setChecklist(List.of(
+                boolItem("PEDIDOS_PENDENTES_VERIFICADOS", true),
+                boolItem("PAGAMENTOS_PENDENTES_VERIFICADOS", true),
+                boolItem("SUBPEDIDOS_EM_ABERTO_VERIFICADOS", true)
+        ));
+        return req;
     }
 
     private ChecklistItemRespostaRequest boolItem(String codigo, boolean v) {

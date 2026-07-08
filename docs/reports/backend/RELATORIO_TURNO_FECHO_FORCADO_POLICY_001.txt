@@ -1,0 +1,106 @@
+RELATORIO_TURNO_FECHO_FORCADO_POLICY_001
+
+1. Identificacao
+Backend branch: backend/consuma-turno-fecho-forcado-policy-001
+Backend commit base: 0b6c908b53133dc80599a01f32fcfc9896103b18
+Backend commit final: este commit da fase; SHA exacto informado na entrega final
+Frontend de referencia: ui/consuma-demo-freezy-app-pedidos-001 / 114d604eaa7370646997bb8479e8e3cbdacb2c56
+Frontend alterado: Nao
+
+2. Objectivo
+Consolidar o fecho forcado de turno como acao controlada, justificada, auditada e baseada no pre-fecho existente.
+
+3. Fecho forcado antes
+TurnoOperacionalService aceitava forcarFecho com observacao nao vazia. A role superior ja existia em TurnoOperacionalPolicy, mas a politica nao classificava bloqueios, nao tentava auto-fecho PONTO antes da decisao e nao registrava consequencias operacionais detalhadas.
+
+4. Politica implementada
+O fluxo agora calcula pre-fecho, valida role superior, valida motivo, tenta auto-fechar sessoes PONTO elegiveis, recalcula pre-fecho, bloqueia alerta financeiro critico, registra metadata da politica e fecha o turno preservando pendencias.
+
+5. Roles
+Fecho normal: TENANT_OWNER, TENANT_ADMIN, TENANT_OPERATOR, TENANT_CASHIER.
+Fecho forcado: TENANT_OWNER, TENANT_ADMIN e PLATFORM_ADMIN quando aplicavel pelo contexto platform admin.
+TENANT_OPERATOR e TENANT_CASHIER nao podem forcar fecho.
+
+6. Motivo obrigatorio
+Campo: motivoFechoForcado.
+Fallback: observacao, para compatibilidade backend.
+Minimo: 10 caracteres.
+Maximo: 500 caracteres.
+Persistencia: observacaoFecho, OperationalEventLog.metadataJson e resumo_json.fechoForcadoPolicy.
+
+7. Bloqueios ignoraveis
+Sessoes abertas nao elegiveis, pedidos nao terminais, subpedidos nao terminais, dispositivos offline e pagamentos pendentes nao criticos podem ser herdados com motivo e role superior.
+
+8. Bloqueios nao ignoraveis
+ALERTA_FINANCEIRO_CRITICO_BLOQUEANTE quando alertasFinanceiros.bloqueiaFecho=true.
+Continuam bloqueantes por regras existentes: turno FECHADO/CANCELADO, recurso inexistente, tenant/unidade invalido e falha de snapshot financeiro.
+
+9. Sessoes abertas
+Estados considerados para tentativa: ABERTA e AGUARDANDO_PAGAMENTO.
+PONTO elegivel: pode ser auto-encerrada por SessaoConsumoAutoClosureService.
+PONTO nao elegivel: permanece aberta e auditada.
+REST/KDS: nao e auto-encerrada pela regra PONTO.
+
+10. Pedidos
+Fecho forcado nao finaliza, nao cancela e nao altera pedidos. Pendencias sao registradas em pendenciasHerdadas.pedidosNaoTerminais.
+
+11. Pagamentos
+Fecho forcado nao confirma pagamento, nao expira ordem, nao cria estorno, nao cria caixa e nao implementa gateway. Pendencias financeiras permanecem como estao.
+
+12. Pre-fecho
+Motor usado: TurnoResumoService.calcularPreFecho.
+O pre-fecho e recalculado apos tentativa de auto-fecho PONTO antes de classificar bloqueios.
+
+13. Auditoria
+Eventos:
+TURNO_FECHADO_FORCADO para sucesso.
+TURNO_FECHO_BLOQUEADO_ALERTA_FINANCEIRO para bloqueio nao ignoravel financeiro.
+Metadata inclui actor, roles, motivo, bloqueios, avisos, tentativas de auto-fecho PONTO e pendencias herdadas.
+
+14. Extrato
+Nao alterado. O snapshot financeiro existente permanece em resumo_json.financeiro. A politica fica em resumo_json.fechoForcadoPolicy.
+
+15. Testes backend
+mvn -DskipTests compile: SUCCESS.
+mvn -Dtest=*SessaoConsumo* test: SUCCESS, 24 testes, 0 falhas, 0 erros, 0 skipped.
+mvn -Pit -DskipITs=false -Dit.test=*Turno* test-compile failsafe:integration-test failsafe:verify: SUCCESS, 25 testes, 0 falhas, 0 erros, 0 skipped; aviso de fork JVM no encerramento, sem falha.
+mvn -Pit -DskipITs=false -Dit.test=*ConsumaDemoFreezy* test-compile failsafe:integration-test failsafe:verify: SUCCESS, 1 teste, 0 falhas, 0 erros, 0 skipped.
+mvn -Pit -DskipITs=false -Dit.test=TurnoOperacionalIT,TurnoPreFechoRevalidacaoIT,TurnoPreFechoFinanceiroAlertasIT,TurnoFechoSnapshotFinanceiroIT test-compile failsafe:integration-test failsafe:verify: SUCCESS, 18 testes, 0 falhas, 0 erros, 0 skipped.
+mvn test: SUCCESS, 414 testes, 0 falhas, 0 erros, 3 skipped.
+mvn -Pit verify: SUCCESS, Surefire 414 testes, 0 falhas, 0 erros, 3 skipped; Failsafe 286 testes, 0 falhas, 0 erros, 0 skipped. Aviso de fork JVM no encerramento, sem falha.
+
+Observacao: comandos focados com padrao *Turno* e *ConsumaDemoFreezy* foram executados via Failsafe porque no pom os ITs sao opt-in por profile it; Surefire executa apenas *Test.
+
+16. Testes frontend
+N/A. Frontend nao foi alterado.
+
+17. Mermaid
+Criado docs/architecture/diagrams/turno-fecho-forcado-policy-flow.mmd.
+
+18. Documentacao
+Criado docs/architecture/TURNO_FECHO_FORCADO_POLICY_001.md.
+
+19. Arquivos alterados
+src/main/java/com/restaurante/dto/request/FecharTurnoRequest.java
+src/main/java/com/restaurante/repository/SessaoConsumoRepository.java
+src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java
+src/test/java/com/restaurante/financeiro/SnapshotFinanceiroExportIT.java
+src/test/java/com/restaurante/operacao/TurnoFechoSnapshotFinanceiroIT.java
+src/test/java/com/restaurante/operacao/TurnoOperacionalIT.java
+src/test/java/com/restaurante/operacao/TurnoPreFechoFinanceiroAlertasIT.java
+src/test/java/com/restaurante/operacao/TurnoPreFechoRevalidacaoIT.java
+docs/architecture/diagrams/turno-fecho-forcado-policy-flow.mmd
+docs/architecture/TURNO_FECHO_FORCADO_POLICY_001.md
+docs/reports/backend/RELATORIO_TURNO_FECHO_FORCADO_POLICY_001.txt
+docs/reports/fullstack/RELATORIO_TURNO_FECHO_FORCADO_POLICY_001.txt
+
+20. O que nao foi alterado
+frontend; Gestao de Turnos visual; Cardapio Publico; Acompanhamento Publico; App Pedidos; extrato financeiro; gateway; estorno; PDV; caixa; fiscal; KDS; REST demo; SERVICE; DELIVERY.
+
+21. Riscos restantes
+Frontend ainda deve receber fase propria para expor motivoFechoForcado e pendencias herdadas explicitamente.
+Pendencias herdadas estao auditadas em metadata, mas nao ha feature nova de transferencia para turno seguinte.
+Novas regras financeiras criticas devem ampliar a lista de bloqueios nao ignoraveis no futuro.
+
+22. Decisao final
+APROVADO

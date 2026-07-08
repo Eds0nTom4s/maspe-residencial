@@ -199,7 +199,22 @@ class TurnoPreFechoFinanceiroAlertasIT extends PostgresTestcontainersConfig {
                         .content(objectMapper.writeValueAsString(closeReq)))
                 .andExpect(status().isConflict());
 
+        FecharTurnoRequest forceReq = new FecharTurnoRequest();
+        forceReq.setForcarFecho(true);
+        forceReq.setMotivoFechoForcado("Fecho forcado bloqueado por alerta financeiro critico");
+        forceReq.setChecklist(List.of());
+        mockMvc.perform(post("/tenant/operacao/turnos/" + turnoId + "/fechar")
+                        .with(tenantHeaders(prov.getTenantId(), prov.getTenantCode()))
+                        .with(authUser(ownerUser, TenantUserRole.TENANT_OWNER.name()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(forceReq)))
+                .andExpect(status().isConflict());
+
         assertThat(operationalEventLogRepository.findByTenantIdAndEventType(prov.getTenantId(), OperationalEventType.TURNO_FECHO_BLOQUEADO_ALERTA_FINANCEIRO)).isNotEmpty();
+        assertThat(operationalEventLogRepository.findByTenantIdAndEventType(
+                prov.getTenantId(), OperationalEventType.TURNO_FECHO_BLOQUEADO_ALERTA_FINANCEIRO))
+                .anySatisfy(event -> assertThat(event.getMetadataJson())
+                        .contains("ALERTA_FINANCEIRO_CRITICO_BLOQUEANTE"));
     }
 
     private AbrirTurnoRequest abrirReq(Long instId, Long uaId) {

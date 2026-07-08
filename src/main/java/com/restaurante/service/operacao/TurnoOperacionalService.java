@@ -21,6 +21,7 @@ import com.restaurante.financeiro.snapshot.dto.SnapshotIntegridadeResponse;
 import com.restaurante.financeiro.snapshot.dto.SnapshotSignatureResult;
 import com.restaurante.model.entity.ChecklistOperacionalRun;
 import com.restaurante.model.entity.Instituicao;
+import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
@@ -28,15 +29,18 @@ import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.ChecklistTipo;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.OperationalEventType;
+import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.TurnoOperacionalStatus;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.ChecklistOperacionalRunRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
+import com.restaurante.service.SessaoConsumoAutoClosureService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,10 +57,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Comparator;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class TurnoOperacionalService {
+
+    private static final int MOTIVO_FECHO_FORCADO_MIN_LENGTH = 10;
+    private static final int MOTIVO_FECHO_FORCADO_MAX_LENGTH = 500;
+    private static final Set<StatusSessaoConsumo> SESSOES_OPERACIONALMENTE_ABERTAS =
+            Set.of(StatusSessaoConsumo.ABERTA, StatusSessaoConsumo.AGUARDANDO_PAGAMENTO);
 
     private final OperacaoProperties operacaoProperties;
     private final TurnoOperacionalPolicy policy;
@@ -69,6 +79,8 @@ public class TurnoOperacionalService {
     private final CanonicalJsonHashService canonicalJsonHashService;
     private final SnapshotIntegridadeProperties snapshotIntegridadeProperties;
     private final SnapshotSignatureService snapshotSignatureService;
+    private final SessaoConsumoRepository sessaoConsumoRepository;
+    private final SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService;
 
     private final TenantRepository tenantRepository;
     private final InstituicaoRepository instituicaoRepository;
@@ -228,42 +240,57 @@ public class TurnoOperacionalService {
 
         TurnoPreFechoResponse pre = resumoService.calcularPreFecho(turno);
         boolean forcar = Boolean.TRUE.equals(request.getForcarFecho());
-        if (!pre.isPodeFechar() && !forcar) {
+        String motivoFechoForcado = null;
+        ForceAutoClosureResult autoClosureResult = ForceAutoClosureResult.empty();
+        Map<String, Object> fechoForcadoPolicyMetadata = null;
+
+        if (forcar) {
+            policy.assertCanForceClose(ctx);
+            motivoFechoForcado = validarMotivoFechoForcado(request);
+            autoClosureResult = tentarAutoFechoSessoesPontoElegiveis(turno);
+            if (autoClosureResult.tentadas() > 0) {
+                pre = resumoService.calcularPreFecho(turno);
+            }
+
+            List<String> bloqueiosNaoIgnoraveis = bloqueiosNaoIgnoraveis(pre);
+            if (!bloqueiosNaoIgnoraveis.isEmpty()) {
+                logFechoForcadoBloqueado(turno, ctx, motivoFechoForcado, pre, bloqueiosNaoIgnoraveis,
+                        autoClosureResult, ip, userAgent);
+                throw new ConflictException("Fecho forçado bloqueado por pendência não ignorável.");
+            }
+
+            fechoForcadoPolicyMetadata = buildFechoForcadoPolicyMetadata(ctx, turno, pre, motivoFechoForcado,
+                    bloqueiosNaoIgnoraveis, autoClosureResult);
+        } else if (!pre.isPodeFechar()) {
             if (pre.getAlertasFinanceiros() != null && pre.getAlertasFinanceiros().isBloqueiaFecho()) {
+                Map<String, Object> metadata = new HashMap<>();
+                metadata.put("totalPendentes", pre.getAlertasFinanceiros().getTotalPagamentosPendentes());
+                metadata.put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
+                metadata.put("valorPendente", pre.getAlertasFinanceiros().getValorPendente());
                 operationalEventLogService.logTurnoEvent(
                         OperationalEventType.TURNO_FECHO_BLOQUEADO_ALERTA_FINANCEIRO,
                         turno,
                         resolveOrigemFromRoles(ctx),
                         "Fecho bloqueado por alerta financeiro crítico",
-                        new HashMap<>() {{
-                            put("totalPendentes", pre.getAlertasFinanceiros().getTotalPagamentosPendentes());
-                            put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
-                            put("valorPendente", pre.getAlertasFinanceiros().getValorPendente());
-                        }},
+                        metadata,
                         ip,
                         userAgent
                 );
             }
             throw new ConflictException("Existem pendências bloqueantes para fechar o turno.");
         }
-        if (forcar) {
-            policy.assertCanForceClose(ctx);
-            if (request.getObservacao() == null || request.getObservacao().isBlank()) {
-                throw new ConflictException("Observação obrigatória para fecho forçado.");
-            }
-        }
 
         User actor = userRepository.findById(ctx.userId()).orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
         LocalDateTime fechadoEm = LocalDateTime.now();
         turno.setFechadoPor(actor);
         turno.setFechadoEm(fechadoEm);
-        turno.setObservacaoFecho(request.getObservacao());
+        turno.setObservacaoFecho(forcar ? motivoFechoForcado : request.getObservacao());
         turno.setStatus(TurnoOperacionalStatus.FECHADO);
 
         // Snapshot financeiro congelado no fecho (Prompt 37.1)
         RelatorioCaixaTurnoResponse relatorio = relatorioCaixaTurnoService.gerarRelatorio(ctx.tenantId(), turno.getId());
         ResumoFinanceiroFechoTurnoSnapshot snapshot = buildFinanceiroSnapshot(turno, pre, relatorio, fechadoEm, forcar);
-        turno.setResumoJson(toResumoJsonComSnapshot(turno.getResumoJson(), pre, snapshot));
+        turno.setResumoJson(toResumoJsonComSnapshot(turno.getResumoJson(), pre, snapshot, fechoForcadoPolicyMetadata));
 
         turnoOperacionalRepository.save(turno);
 
@@ -284,38 +311,23 @@ public class TurnoOperacionalService {
                 turno,
                 resolveOrigemFromRoles(ctx),
                 forcar ? "Turno fechado (forçado)" : "Turno fechado",
-                new HashMap<>() {{
-                    put("bloqueios", pre.getBloqueios());
-                    put("avisos", pre.getAvisos());
-                    put("financeiroSnapshotPersistido", true);
-                    put("snapshotVersion", snapshot.getSnapshotVersion());
-                    put("totalGeralConfirmado", relatorio.getTotalGeralConfirmado());
-                    put("totalPendente", relatorio.getTotalPendente());
-                    if (pre.getAlertasFinanceiros() != null) {
-                        put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
-                    }
-                    if (snapshot.getIntegridade() != null) {
-                        put("snapshotHash", snapshot.getIntegridade().getSnapshotHash());
-                        put("hashAlgorithm", snapshot.getIntegridade().getHashAlgorithm());
-                        put("canonicalizationVersion", snapshot.getIntegridade().getCanonicalizationVersion());
-                    }
-                }},
+                buildTurnoFechadoMetadata(pre, relatorio, snapshot, fechoForcadoPolicyMetadata),
                 ip,
                 userAgent
         );
 
         if (pre.getAlertasFinanceiros() != null && pre.getAlertasFinanceiros().getTotalPagamentosPendentes() > 0) {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("totalPendentes", pre.getAlertasFinanceiros().getTotalPagamentosPendentes());
+            metadata.put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
+            metadata.put("valorPendente", pre.getAlertasFinanceiros().getValorPendente());
+            metadata.put("forcarFecho", forcar);
             operationalEventLogService.logTurnoEvent(
                     OperationalEventType.TURNO_FECHADO_COM_ALERTA_FINANCEIRO,
                     turno,
                     resolveOrigemFromRoles(ctx),
                     "Turno fechado com alertas financeiros pendentes",
-                    new HashMap<>() {{
-                        put("totalPendentes", pre.getAlertasFinanceiros().getTotalPagamentosPendentes());
-                        put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
-                        put("valorPendente", pre.getAlertasFinanceiros().getValorPendente());
-                        put("forcarFecho", forcar);
-                    }},
+                    metadata,
                     ip,
                     userAgent
             );
@@ -388,7 +400,8 @@ public class TurnoOperacionalService {
 
     private String toResumoJsonComSnapshot(String existingResumoJson,
                                           TurnoPreFechoResponse pre,
-                                          ResumoFinanceiroFechoTurnoSnapshot snapshot) {
+                                          ResumoFinanceiroFechoTurnoSnapshot snapshot,
+                                          Map<String, Object> fechoForcadoPolicyMetadata) {
         try {
             ObjectNode root = readResumoJsonOrCreateObject(existingResumoJson);
 
@@ -399,6 +412,9 @@ public class TurnoOperacionalService {
 
             // Snapshot financeiro em chave dedicada, sem listas pesadas.
             root.set("financeiro", objectMapper.valueToTree(snapshot));
+            if (fechoForcadoPolicyMetadata != null && !fechoForcadoPolicyMetadata.isEmpty()) {
+                root.set("fechoForcadoPolicy", objectMapper.valueToTree(fechoForcadoPolicyMetadata));
+            }
 
             return objectMapper.writeValueAsString(root);
         } catch (Exception e) {
@@ -522,6 +538,191 @@ public class TurnoOperacionalService {
         return s;
     }
 
+    private String validarMotivoFechoForcado(FecharTurnoRequest request) {
+        String motivo = request.getMotivoFechoForcado();
+        if (motivo == null || motivo.isBlank()) {
+            motivo = request.getObservacao();
+        }
+        if (motivo == null || motivo.isBlank()) {
+            throw new ConflictException("Motivo obrigatório para fecho forçado.");
+        }
+        String normalized = motivo.trim();
+        if (normalized.length() < MOTIVO_FECHO_FORCADO_MIN_LENGTH) {
+            throw new ConflictException("Motivo do fecho forçado deve ter pelo menos 10 caracteres.");
+        }
+        if (normalized.length() > MOTIVO_FECHO_FORCADO_MAX_LENGTH) {
+            throw new ConflictException("Motivo do fecho forçado deve ter no máximo 500 caracteres.");
+        }
+        return normalized;
+    }
+
+    private ForceAutoClosureResult tentarAutoFechoSessoesPontoElegiveis(TurnoOperacional turno) {
+        if (turno.getTenant() == null || turno.getUnidadeAtendimento() == null) {
+            return ForceAutoClosureResult.empty();
+        }
+
+        List<SessaoConsumo> sessoes = sessaoConsumoRepository.findByTenantIdAndUnidadeAtendimentoIdAndStatusIn(
+                turno.getTenant().getId(),
+                turno.getUnidadeAtendimento().getId(),
+                SESSOES_OPERACIONALMENTE_ABERTAS
+        );
+        if (sessoes.isEmpty()) {
+            return ForceAutoClosureResult.empty();
+        }
+
+        List<Long> encerradas = new ArrayList<>();
+        for (SessaoConsumo sessao : sessoes) {
+            StatusSessaoConsumo statusAntes = sessao.getStatus();
+            sessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo(sessao.getId());
+            SessaoConsumo atualizada = sessaoConsumoRepository.findByIdAndTenantId(
+                    sessao.getId(),
+                    turno.getTenant().getId()
+            ).orElse(null);
+            if (atualizada != null
+                    && atualizada.getStatus() == StatusSessaoConsumo.ENCERRADA
+                    && statusAntes != StatusSessaoConsumo.ENCERRADA) {
+                encerradas.add(atualizada.getId());
+            }
+        }
+        return new ForceAutoClosureResult(sessoes.size(), encerradas.size(), encerradas);
+    }
+
+    private List<String> bloqueiosNaoIgnoraveis(TurnoPreFechoResponse pre) {
+        List<String> bloqueios = new ArrayList<>();
+        if (pre.getAlertasFinanceiros() != null && pre.getAlertasFinanceiros().isBloqueiaFecho()) {
+            bloqueios.add("ALERTA_FINANCEIRO_CRITICO_BLOQUEANTE");
+        }
+        return bloqueios;
+    }
+
+    private void logFechoForcadoBloqueado(TurnoOperacional turno,
+                                          TenantContext ctx,
+                                          String motivoFechoForcado,
+                                          TurnoPreFechoResponse pre,
+                                          List<String> bloqueiosNaoIgnoraveis,
+                                          ForceAutoClosureResult autoClosureResult,
+                                          String ip,
+                                          String userAgent) {
+        Map<String, Object> metadata = buildFechoForcadoPolicyMetadata(ctx, turno, pre, motivoFechoForcado,
+                bloqueiosNaoIgnoraveis, autoClosureResult);
+        metadata.put("forcarFecho", true);
+        metadata.put("resultado", "BLOQUEADO");
+        if (pre.getAlertasFinanceiros() != null) {
+            metadata.put("totalPendentes", pre.getAlertasFinanceiros().getTotalPagamentosPendentes());
+            metadata.put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
+            metadata.put("valorPendente", pre.getAlertasFinanceiros().getValorPendente());
+        }
+        operationalEventLogService.logTurnoEvent(
+                OperationalEventType.TURNO_FECHO_BLOQUEADO_ALERTA_FINANCEIRO,
+                turno,
+                resolveOrigemFromRoles(ctx),
+                "Fecho forçado bloqueado por pendência não ignorável",
+                metadata,
+                ip,
+                userAgent
+        );
+    }
+
+    private Map<String, Object> buildFechoForcadoPolicyMetadata(TenantContext ctx,
+                                                                TurnoOperacional turno,
+                                                                TurnoPreFechoResponse pre,
+                                                                String motivoFechoForcado,
+                                                                List<String> bloqueiosNaoIgnoraveis,
+                                                                ForceAutoClosureResult autoClosureResult) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("policy", "TURNO_FECHO_FORCADO_POLICY_001");
+        metadata.put("forcarFecho", true);
+        metadata.put("motivoFechoForcado", motivoFechoForcado);
+        metadata.put("actorUserId", ctx.userId());
+        metadata.put("actorRoles", ctx.roles());
+        metadata.put("tenantId", turno.getTenant() != null ? turno.getTenant().getId() : null);
+        metadata.put("turnoId", turno.getId());
+        metadata.put("unidadeAtendimentoId", turno.getUnidadeAtendimento() != null ? turno.getUnidadeAtendimento().getId() : null);
+        metadata.put("bloqueiosPreFecho", pre.getBloqueios());
+        metadata.put("bloqueiosIgnorados", bloqueiosIgnorados(pre, bloqueiosNaoIgnoraveis));
+        metadata.put("bloqueiosNaoIgnoraveis", bloqueiosNaoIgnoraveis);
+        metadata.put("avisosFlexiveis", pre.getAvisos());
+        metadata.put("sessoesAutoFechoTentadas", autoClosureResult.tentadas());
+        metadata.put("sessoesAutoFechadas", autoClosureResult.encerradas());
+        metadata.put("sessoesAutoFechadasIds", autoClosureResult.encerradasIds());
+        metadata.put("pendenciasHerdadas", pendenciasHerdadas(pre));
+        metadata.put("efeitoEmPedidosPagamentosOrdens", "NAO_ALTERA_ESTADOS");
+        metadata.put("preFechoRecalculadoAposAutoFecho", autoClosureResult.tentadas() > 0);
+        return metadata;
+    }
+
+    private List<String> bloqueiosIgnorados(TurnoPreFechoResponse pre, List<String> bloqueiosNaoIgnoraveis) {
+        if (pre.getBloqueios() == null || pre.getBloqueios().isEmpty()) {
+            return List.of();
+        }
+        if (bloqueiosNaoIgnoraveis == null || bloqueiosNaoIgnoraveis.isEmpty()) {
+            return new ArrayList<>(pre.getBloqueios());
+        }
+        List<String> ignorados = new ArrayList<>();
+        for (String bloqueio : pre.getBloqueios()) {
+            if (bloqueio == null || !bloqueio.toLowerCase().contains("pagamentos críticos")) {
+                ignorados.add(bloqueio);
+            }
+        }
+        return ignorados;
+    }
+
+    private Map<String, Object> pendenciasHerdadas(TurnoPreFechoResponse pre) {
+        Map<String, Object> pendencias = new HashMap<>();
+        pendencias.put("sessoesAbertas", pre.getSessoesAbertas());
+        pendencias.put("pedidosNaoTerminais", countNonTerminal(pre.getPedidosPorStatus(), Set.of("FINALIZADO", "CANCELADO")));
+        pendencias.put("subPedidosNaoTerminais", countNonTerminal(pre.getSubPedidosPorStatus(), Set.of("ENTREGUE", "CANCELADO")));
+        pendencias.put("pagamentosPendentes", pre.getPagamentosPorStatus() != null
+                ? pre.getPagamentosPorStatus().getOrDefault("PENDENTE", 0L)
+                : 0L);
+        pendencias.put("dispositivosOffline", pre.getDispositivosOffline());
+        if (pre.getAlertasFinanceiros() != null) {
+            pendencias.put("alertasFinanceirosPendentes", pre.getAlertasFinanceiros().getTotalPagamentosPendentes());
+            pendencias.put("alertasFinanceirosCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
+            pendencias.put("alertaFinanceiroBloqueiaFecho", pre.getAlertasFinanceiros().isBloqueiaFecho());
+        }
+        return pendencias;
+    }
+
+    private long countNonTerminal(Map<String, Long> porStatus, Set<String> terminais) {
+        if (porStatus == null || porStatus.isEmpty()) {
+            return 0L;
+        }
+        long total = 0L;
+        for (Map.Entry<String, Long> entry : porStatus.entrySet()) {
+            if (!terminais.contains(entry.getKey())) {
+                total += entry.getValue() != null ? entry.getValue() : 0L;
+            }
+        }
+        return total;
+    }
+
+    private Map<String, Object> buildTurnoFechadoMetadata(TurnoPreFechoResponse pre,
+                                                          RelatorioCaixaTurnoResponse relatorio,
+                                                          ResumoFinanceiroFechoTurnoSnapshot snapshot,
+                                                          Map<String, Object> fechoForcadoPolicyMetadata) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("bloqueios", pre.getBloqueios());
+        metadata.put("avisos", pre.getAvisos());
+        metadata.put("financeiroSnapshotPersistido", true);
+        metadata.put("snapshotVersion", snapshot.getSnapshotVersion());
+        metadata.put("totalGeralConfirmado", relatorio.getTotalGeralConfirmado());
+        metadata.put("totalPendente", relatorio.getTotalPendente());
+        if (pre.getAlertasFinanceiros() != null) {
+            metadata.put("totalCriticos", pre.getAlertasFinanceiros().getTotalCriticos());
+        }
+        if (snapshot.getIntegridade() != null) {
+            metadata.put("snapshotHash", snapshot.getIntegridade().getSnapshotHash());
+            metadata.put("hashAlgorithm", snapshot.getIntegridade().getHashAlgorithm());
+            metadata.put("canonicalizationVersion", snapshot.getIntegridade().getCanonicalizationVersion());
+        }
+        if (fechoForcadoPolicyMetadata != null && !fechoForcadoPolicyMetadata.isEmpty()) {
+            metadata.putAll(fechoForcadoPolicyMetadata);
+            metadata.put("resultado", "FECHADO_FORCADO");
+        }
+        return metadata;
+    }
+
     private OperationalOrigem resolveOrigemFromRoles(TenantContext ctx) {
         if (ctx == null || ctx.roles() == null) return OperationalOrigem.SYSTEM;
         if (ctx.roles().contains("TENANT_ADMIN") || ctx.roles().contains("TENANT_OWNER")) return OperationalOrigem.TENANT_ADMIN;
@@ -529,5 +730,11 @@ public class TurnoOperacionalService {
         if (ctx.roles().contains("TENANT_CASHIER")) return OperationalOrigem.TENANT_CASHIER;
         if (ctx.roles().contains("TENANT_KITCHEN")) return OperationalOrigem.TENANT_KITCHEN;
         return OperationalOrigem.TENANT_OPERATOR;
+    }
+
+    private record ForceAutoClosureResult(int tentadas, int encerradas, List<Long> encerradasIds) {
+        static ForceAutoClosureResult empty() {
+            return new ForceAutoClosureResult(0, 0, List.of());
+        }
     }
 }

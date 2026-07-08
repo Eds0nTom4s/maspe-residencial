@@ -9,9 +9,9 @@ import java.util.List;
 @Data
 public class FecharTurnoRequest {
     private String observacao;
+    private String motivoFechoForcado;
     @NotNull
     private Boolean forcarFecho = false;
     @Valid
     private List<ChecklistItemRespostaRequest> checklist;
 }
-

@@ -27,6 +27,8 @@ public interface OrdemPagamentoRepository extends JpaRepository<OrdemPagamento, 
 
     Optional<OrdemPagamento> findByIdAndTenantId(Long id, Long tenantId);
 
+    boolean existsBySessaoConsumoIdAndStatusIn(Long sessaoId, List<OrdemPagamentoStatus> statuses);
+
     Optional<OrdemPagamento> findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(Long tenantId, Long pedidoId);
 
     List<OrdemPagamento> findByTenantIdAndPedidoIdAndStatusOrderByCreatedAtDesc(Long tenantId,

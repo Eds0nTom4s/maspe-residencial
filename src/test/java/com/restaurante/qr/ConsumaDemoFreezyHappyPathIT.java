@@ -7,6 +7,7 @@ import com.restaurante.dto.request.ProdutoRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Produto;
+import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.entity.TenantCardapioConfig;
@@ -60,6 +61,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
+    @Autowired com.restaurante.repository.PedidoRepository pedidoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired CozinhaRepository cozinhaRepository;
     @Autowired TenantCardapioConfigRepository tenantCardapioConfigRepository;
@@ -261,6 +263,10 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         assertThat(acompanharFinalJson.at("/data/statusOperacional").asText()).isEqualTo("FINALIZADO");
         assertThat(acompanharFinalJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
         assertThat(acompanharFinalJson.at("/data/paymentOrder/status").asText()).isEqualTo("CONFIRMADA");
+        // 11. Valida Auto-Closure da Sessão de Consumo
+        Pedido pedidoFinal = pedidoRepository.findById(pedidoId).orElseThrow();
+        assertThat(pedidoFinal.getSessaoConsumo()).isNotNull();
+        assertThat(pedidoFinal.getSessaoConsumo().getStatus().name()).isEqualTo("ENCERRADA");
     }
 
     private void assertPaymentOrderAbsent(JsonNode data) {

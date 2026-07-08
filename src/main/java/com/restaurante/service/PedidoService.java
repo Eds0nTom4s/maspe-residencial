@@ -70,6 +70,7 @@ public class PedidoService {
     private final SessaoConsumoService sessaoConsumoService;
     private final SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository;
     private final OperationalEventLogService operationalEventLogService;
+    private final SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService;
 
     public PedidoService(PedidoRepository pedidoRepository,
                          SessaoConsumoRepository sessaoConsumoRepository,
@@ -82,7 +83,8 @@ public class PedidoService {
                          NotificacaoService notificacaoService,
                          @org.springframework.context.annotation.Lazy SessaoConsumoService sessaoConsumoService,
                          SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository,
-                         OperationalEventLogService operationalEventLogService) {
+                         OperationalEventLogService operationalEventLogService,
+                         @org.springframework.context.annotation.Lazy SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService) {
         this.pedidoRepository = pedidoRepository;
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.produtoService = produtoService;
@@ -95,6 +97,7 @@ public class PedidoService {
         this.sessaoConsumoService = sessaoConsumoService;
         this.sessaoConsumoParticipanteRepository = sessaoConsumoParticipanteRepository;
         this.operationalEventLogService = operationalEventLogService;
+        this.sessaoConsumoAutoClosureService = sessaoConsumoAutoClosureService;
     }
 
     /**
@@ -661,6 +664,13 @@ public class PedidoService {
                 "Status recalculado automaticamente baseado em SubPedidos");
             
             log.info("Pedido {} status alterado: {} → {}", pedido.getNumero(), statusAnterior, novoStatus);
+
+            // Avaliar auto-fecho da sessão se o pedido atingiu estado terminal
+            if (novoStatus == StatusPedido.FINALIZADO || novoStatus == StatusPedido.CANCELADO) {
+                if (pedido.getSessaoConsumo() != null) {
+                    sessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo(pedido.getSessaoConsumo().getId());
+                }
+            }
         }
         
         return novoStatus;

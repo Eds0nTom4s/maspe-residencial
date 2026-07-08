@@ -54,17 +54,20 @@ public class PedidoFinanceiroService {
     private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
     private final AuditoriaFinanceiraService auditoriaFinanceiraService;
     private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
+    private final SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService;
 
     public PedidoFinanceiroService(FundoConsumoService fundoConsumoService,
                                    PedidoRepository pedidoRepository,
                                    ConfiguracaoFinanceiraService configuracaoFinanceiraService,
                                    AuditoriaFinanceiraService auditoriaFinanceiraService,
-                                   PedidoPagamentoPolicy pedidoPagamentoPolicy) {
+                                   PedidoPagamentoPolicy pedidoPagamentoPolicy,
+                                   @org.springframework.context.annotation.Lazy SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService) {
         this.fundoConsumoService = fundoConsumoService;
         this.pedidoRepository = pedidoRepository;
         this.configuracaoFinanceiraService = configuracaoFinanceiraService;
         this.auditoriaFinanceiraService = auditoriaFinanceiraService;
         this.pedidoPagamentoPolicy = pedidoPagamentoPolicy;
+        this.sessaoConsumoAutoClosureService = sessaoConsumoAutoClosureService;
     }
 
     // Roles com permissão para autorizar pós-pago
@@ -242,6 +245,11 @@ public class PedidoFinanceiroService {
                 usuarioRole);
 
         log.info("Pagamento pós-pago confirmado para pedido {}", pedidoId);
+
+        // Avaliar auto-fecho
+        if (pedido.getSessaoConsumo() != null) {
+            sessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo(pedido.getSessaoConsumo().getId());
+        }
     }
 
     /**
@@ -295,6 +303,11 @@ public class PedidoFinanceiroService {
                 motivo);
 
         log.info("Estorno concluído para pedido {} - Motivo: {}", pedidoId, motivo);
+
+        // Avaliar auto-fecho
+        if (pedido.getSessaoConsumo() != null) {
+            sessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo(pedido.getSessaoConsumo().getId());
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,25 @@
+flowchart TD
+    A[Turno ABERTO] --> B[Sessao PONTO ABERTA]
+    B --> C[Pedido PONTO recebido]
+    C --> D{Pedido resolvido?}
+    D -- Nao: CRIADO ou EM_ANDAMENTO --> X1[Bloqueio duro: pedido nao terminal]
+    D -- Sim: FINALIZADO ou CANCELADO --> E{Financeiro resolvido?}
+    E -- Nao: NAO_PAGO ou PENDENTE_PAGAMENTO --> X2[Bloqueio duro: pagamento pendente ou alerta financeiro critico]
+    E -- Sim: PAGO ou cancelado sem pendencia --> F{Ordem ativa?}
+    F -- Sim: AGUARDANDO_CONFIRMACAO --> X3[Bloqueio duro: ordem ativa via alerta financeiro/pre-fecho]
+    F -- Nao --> G[SessaoConsumoAutoClosureService]
+    G --> H[Sessao PONTO ENCERRADA]
+    H --> I[Pre-fecho recalculado]
+    I --> J[Sessao ENCERRADA excluida de sessoesAbertas]
+    J --> K{Outras pendencias?}
+    K -- Nao --> L[Turno pronto para fecho normal]
+    K -- Sim --> M[Bloqueio ou aviso conforme regra real]
+
+    N[Sessao ABERTA legitima] --> X4[Bloqueio duro: sessoesAbertas]
+    O[Sessao AGUARDANDO_PAGAMENTO] --> X4
+    P[Sessao EXPIRADA] --> I
+    Q[Subpedido nao terminal REST/KDS] --> X5[Bloqueio duro: subpedido nao terminal]
+    R[Pedido REST/KDS nao terminal] --> X1
+    S[Dispositivo offline] --> W1[Aviso flexivel: heartbeat stale]
+    T[Pagamento pendente nao critico] --> W2[Aviso financeiro]
+    U[Pagamento pendente critico] --> X2

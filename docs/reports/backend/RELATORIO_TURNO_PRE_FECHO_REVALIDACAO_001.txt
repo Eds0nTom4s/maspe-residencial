@@ -1,0 +1,247 @@
+RELATORIO_TURNO_PRE_FECHO_REVALIDACAO_001
+
+1. Identificacao
+Backend branch: backend/consuma-turno-pre-fecho-revalidacao-001
+Backend commit base: 28191871a4936176a161f002e53aefd8f55cb947
+Backend commit final: registrado na entrega final
+Frontend de referencia: ui/consuma-demo-freezy-app-pedidos-001 @ 114d604eaa7370646997bb8479e8e3cbdacb2c56
+Frontend alterado: nao
+
+2. Objectivo
+Revalidar o pre-fecho de turno apos o auto-fecho de sessao PONTO, garantindo que sessao ENCERRADA nao bloqueia `sessoesAbertas`.
+
+3. Contexto da auditoria anterior
+Sessoes de consumo esquecidas abertas bloqueavam o fecho normal. O fecho forcado encerrava o turno, mas nao limpava sessoes na unidade, contaminando o proximo turno.
+
+4. Auto-fecho de sessao PONTO
+Implementado: sim, em SessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo.
+Revalidado: sim, por TurnoPreFechoRevalidacaoIT e ConsumaDemoFreezyHappyPathIT.
+
+5. Pre-fecho de turno
+Controller: src/main/java/com/restaurante/controller/TenantOperacaoController.java
+Service: src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java e TurnoResumoService.java
+DTO: src/main/java/com/restaurante/dto/response/TurnoPreFechoResponse.java
+Queries:
+- PedidoRepository.countByTenantIdAndTurnoOperacionalIdAndStatus
+- PedidoRepository.countNonTerminalByTenantIdAndTurnoOperacionalId
+- SubPedidoRepository.countByTenantIdAndPedidoTurnoOperacionalIdAndStatus
+- SubPedidoRepository.countNonTerminalByTenantIdAndPedidoTurnoOperacionalId
+- PagamentoGatewayRepository.countByTenantIdAndPedidoTurnoOperacionalIdAndStatus
+- SessaoConsumoRepository.countByTenantIdAndUnidadeAtendimentoIdAndStatusIn
+- DispositivoOperacionalRepository.countOfflineByTenantAndUnidadeAtendimento
+- PagamentoPendenteQueryService.alertasPorTurno
+Indicadores: pedidos por status, subpedidos por status, pagamentos por status, sessoesAbertas, dispositivosOffline, alertasFinanceiros, bloqueios, avisos, podeFechar.
+
+6. Sessoes abertas
+Estados contados: ABERTA, AGUARDANDO_PAGAMENTO.
+Estados excluidos: ENCERRADA, EXPIRADA.
+Decisao: contar apenas sessoes operacionalmente abertas.
+
+7. Bloqueios duros
+Subpedido nao terminal, pedido nao terminal, sessao ABERTA/AGUARDANDO_PAGAMENTO e alerta financeiro critico bloqueante.
+
+8. Alertas flexiveis
+Pagamento pendente nao critico, dispositivo offline e alerta financeiro nao bloqueante.
+
+9. CONSUMA PONTO
+Pedido rapido finalizado ou cancelado sem pendencias pode encerrar a sessao automaticamente. Sessao PONTO resolvida deixa de bloquear o pre-fecho. Pedido nao terminal, pagamento pendente e ordem ativa continuam preservados como pendencias reais.
+
+10. REST/KDS
+Nao foi relaxado. Sessao REST/KDS aberta e subpedido obrigatorio nao terminal continuam bloqueando conforme regra existente.
+
+11. OrdemPagamento
+AGUARDANDO_CONFIRMACAO impede auto-fecho e se manifesta como pendencia financeira/ordem ativa conforme fluxo existente. CONFIRMADA permite o fechamento automatico quando as demais condicoes estao satisfeitas.
+
+12. Pedidos e SubPedidos
+Pedidos CRIADO/EM_ANDAMENTO bloqueiam. Pedidos FINALIZADO/CANCELADO sao terminais. Subpedidos diferentes de ENTREGUE/CANCELADO bloqueiam.
+
+13. Dispositivos offline
+Contados por heartbeat stale e tratados como aviso flexivel na regra atual.
+
+14. Auditoria de pre-fecho actual
+Item: endpoint de pre-fecho
+Classe/arquivo: TenantOperacaoController.java
+Regra actual: GET /tenant/operacao/turnos/{turnoId}/pre-fecho
+Consulta: delega para TurnoOperacionalService.preFecho
+Bloqueia fecho: indiretamente
+E alerta: nao
+Risco: baixo
+
+Item: service de pre-fecho
+Classe/arquivo: TurnoResumoService.java
+Regra actual: calcula indicadores, bloqueios e avisos
+Consulta: repositories de pedido, subpedido, pagamento, sessao e dispositivo
+Bloqueia fecho: sim
+E alerta: sim
+Risco: medio se contador misturar estados encerrados
+
+Item: DTO de pre-fecho
+Classe/arquivo: TurnoPreFechoResponse.java
+Regra actual: agrega bloqueios, avisos, contadores e alertas financeiros
+Consulta: n/a
+Bloqueia fecho: via podeFechar
+E alerta: via avisos
+Risco: medio por nao separar todos os indicadores por categoria
+
+Item: sessoesAbertas
+Classe/arquivo: SessaoConsumoRepository.java
+Regra actual: status in ABERTA, AGUARDANDO_PAGAMENTO
+Consulta: countByTenantIdAndUnidadeAtendimentoIdAndStatusIn
+Bloqueia fecho: sim
+E alerta: nao
+Risco: baixo apos ajuste
+
+15. Classificacao dos indicadores
+Indicador: sessoes abertas
+Origem: SessaoConsumoRepository
+Como e calculado: count por tenant, unidade e status in ABERTA/AGUARDANDO_PAGAMENTO
+Estado considerado: ABERTA, AGUARDANDO_PAGAMENTO
+Bloqueia fecho normal: sim
+Pode ser ignorado no fecho forcado: sim, pela regra existente de forcarFecho
+Risco: bloqueio indevido se ENCERRADA entrar
+Decisao: bloqueio duro
+
+Indicador: pedidos nao terminais
+Origem: PedidoRepository
+Como e calculado: status not in FINALIZADO/CANCELADO por turno
+Estado considerado: CRIADO, EM_ANDAMENTO
+Bloqueia fecho normal: sim
+Pode ser ignorado no fecho forcado: sim
+Risco: pedido irregular sem sessao ainda bloqueia corretamente
+Decisao: bloqueio duro
+
+Indicador: subpedidos nao terminais
+Origem: SubPedidoRepository
+Como e calculado: status not in ENTREGUE/CANCELADO por turno
+Estado considerado: CRIADO, PENDENTE, EM_PREPARACAO, PRONTO
+Bloqueia fecho normal: sim
+Pode ser ignorado no fecho forcado: sim
+Risco: REST/KDS precisa preservar esta barreira
+Decisao: bloqueio duro
+
+Indicador: pagamentos pendentes
+Origem: PagamentoGatewayRepository e PagamentoPendenteQueryService
+Como e calculado: status PENDENTE e idade/criticidade
+Estado considerado: PENDENTE
+Bloqueia fecho normal: apenas se alerta financeiro critico bloquear
+Pode ser ignorado no fecho forcado: sim
+Risco: pendencia financeira real
+Decisao: indicador financeiro, aviso ou bloqueio critico
+
+Indicador: ordens de pagamento ativas
+Origem: OrdemPagamentoRepository no auto-fecho
+Como e calculado: exists status AGUARDANDO_CONFIRMACAO por sessao
+Estado considerado: AGUARDANDO_CONFIRMACAO
+Bloqueia fecho normal: indiretamente por manter sessao/pedido pendente
+Pode ser ignorado no fecho forcado: sim
+Risco: cliente ainda nao pagou
+Decisao: bloqueio legitimo
+
+Indicador: ordens expiradas
+Origem: OrdemPagamentoStatus
+Como e calculado: status EXPIRADA nao e ordem ativa para auto-fecho
+Estado considerado: EXPIRADA
+Bloqueia fecho normal: nao por si so
+Pode ser ignorado no fecho forcado: n/a
+Risco: precisa ser interpretada junto do pedido/financeiro
+Decisao: indicador financeiro
+
+Indicador: dispositivos offline
+Origem: DispositivoOperacionalRepository
+Como e calculado: heartbeat anterior ao cutoff
+Estado considerado: offline por stale heartbeat
+Bloqueia fecho normal: nao
+Pode ser ignorado no fecho forcado: n/a
+Risco: operacao sem sincronizacao
+Decisao: alerta flexivel
+
+Indicador: pedidos mapeados
+Origem: pedidosPorStatus
+Como e calculado: count por StatusPedido
+Estado considerado: todos os status
+Bloqueia fecho normal: nao diretamente
+Pode ser ignorado no fecho forcado: n/a
+Risco: estatistica inconsistente se turno ausente
+Decisao: informacao estatistica
+
+Indicador: pagamentos mapeados
+Origem: pagamentosPorStatus
+Como e calculado: count por StatusPagamentoGateway
+Estado considerado: PENDENTE, CONFIRMADO, FALHOU, ESTORNADO
+Bloqueia fecho normal: nao diretamente
+Pode ser ignorado no fecho forcado: n/a
+Risco: divergencia financeira
+Decisao: indicador financeiro
+
+Indicador: divergencias financeiras
+Origem: alertasFinanceiros/resumoCaixa
+Como e calculado: servicos financeiros existentes
+Estado considerado: pendencias e criticidade
+Bloqueia fecho normal: quando critico e configurado para bloquear
+Pode ser ignorado no fecho forcado: sim
+Risco: fechamento com pagamento pendente
+Decisao: indicador financeiro
+
+Indicador: sessoes expiradas
+Origem: SessaoConsumo.status
+Como e calculado: status EXPIRADA
+Estado considerado: EXPIRADA
+Bloqueia fecho normal: nao no contador de abertas
+Pode ser ignorado no fecho forcado: n/a
+Risco: abandono operacional a auditar
+Decisao: informacao operacional
+
+Indicador: sessoes encerradas
+Origem: SessaoConsumo.status
+Como e calculado: status ENCERRADA
+Estado considerado: ENCERRADA
+Bloqueia fecho normal: nao
+Pode ser ignorado no fecho forcado: n/a
+Risco: baixo
+Decisao: excluida de sessoesAbertas
+
+Indicador: sessoes sem pedido
+Origem: SessaoConsumoAutoClosureService e pre-fecho agregado
+Como e calculado: auto-fecho nao encerra sessao vazia; pre-fecho conta se ABERTA/AGUARDANDO_PAGAMENTO
+Estado considerado: depende do status da sessao
+Bloqueia fecho normal: sim se ABERTA/AGUARDANDO_PAGAMENTO
+Pode ser ignorado no fecho forcado: sim
+Risco: abandono operacional
+Decisao: nao mascarar
+
+16. Testes backend
+- mvn -Pit -Dit.test=TurnoPreFechoRevalidacaoIT failsafe:integration-test failsafe:verify: PASS, 7 testes, 0 falhas, 0 erros, 0 skipped.
+- mvn -DskipTests compile: PASS, build success.
+- mvn test: PASS, 414 testes, 0 falhas, 0 erros, 3 skipped.
+- mvn -Pit verify: PASS, 414 testes Surefire com 0 falhas, 0 erros, 3 skipped; 284 testes Failsafe com 0 falhas, 0 erros, 0 skipped.
+- mvn -Dtest='*Turno*' test: BUILD FAILURE esperado pelo guard RequireFailsafeRunnerCondition; o padrao seleciona ITs e o projeto exige Failsafe para testes de integracao. Resultado reportado: 9 testes, 0 falhas, 9 erros de runner errado, 0 skipped.
+- mvn -Pit -Dit.test='*Turno*' failsafe:integration-test failsafe:verify: PASS, 23 testes, 0 falhas, 0 erros, 0 skipped.
+- mvn -Dtest='*SessaoConsumo*' test: PASS, 24 testes, 0 falhas, 0 erros, 0 skipped.
+- mvn -Dtest='*ConsumaDemoFreezy*' test: BUILD FAILURE esperado pelo guard RequireFailsafeRunnerCondition; ConsumaDemoFreezyHappyPathIT deve rodar no Failsafe. Resultado reportado: 1 teste, 0 falhas, 1 erro de runner errado, 0 skipped.
+- mvn -Dit.test='*ConsumaDemoFreezy*' failsafe:integration-test: BUILD SUCCESS tecnico, mas sem execucao porque o perfil it nao estava ativo; Maven reportou "Tests are skipped".
+- mvn -Pit -Dit.test='*ConsumaDemoFreezy*' failsafe:integration-test failsafe:verify: PASS, 1 teste, 0 falhas, 0 erros, 0 skipped.
+
+17. Mermaid
+Criado: docs/architecture/diagrams/turno-pre-fecho-after-sessao-auto-closure-flow.mmd
+
+18. Documentacao
+Criado: docs/architecture/TURNO_PRE_FECHO_REVALIDACAO_001.md
+
+19. Arquivos alterados
+- src/main/java/com/restaurante/repository/SessaoConsumoRepository.java
+- src/main/java/com/restaurante/service/operacao/TurnoResumoService.java
+- src/test/java/com/restaurante/operacao/TurnoPreFechoRevalidacaoIT.java
+- src/test/java/com/restaurante/qr/ConsumaDemoFreezyHappyPathIT.java
+- docs/architecture/TURNO_PRE_FECHO_REVALIDACAO_001.md
+- docs/architecture/diagrams/turno-pre-fecho-after-sessao-auto-closure-flow.mmd
+- docs/reports/backend/RELATORIO_TURNO_PRE_FECHO_REVALIDACAO_001.txt
+- docs/reports/fullstack/RELATORIO_TURNO_PRE_FECHO_REVALIDACAO_001.txt
+
+20. O que nao foi alterado
+frontend, Gestao de Turnos visual, Cardapio Publico, Acompanhamento Publico, App Pedidos, fecho forcado, extrato, gateway, estorno, PDV, caixa, fiscal, KDS, REST demo, SERVICE, DELIVERY.
+
+21. Riscos restantes
+DTO sem breakdown detalhado por status de sessao; ordem expirada interpretada por relacao com pedido/financeiro; sessoes sem pedido dependem de leitura operacional existente.
+
+22. Decisao final
+APROVADO COM RESSALVAS. A regra funcional e a bateria ampla passaram; a ressalva e operacional de comandos focados Surefire que selecionam ITs e sao bloqueados pelo guard existente do projeto.

@@ -96,6 +96,25 @@ public interface SessaoConsumoRepository extends JpaRepository<SessaoConsumo, Lo
 
     long countByTenantIdAndUnidadeAtendimentoIdAndStatus(Long tenantId, Long unidadeAtendimentoId, StatusSessaoConsumo status);
 
+    /**
+     * Conta sessões operacionalmente abertas (ABERTA ou AGUARDANDO_PAGAMENTO) numa unidade.
+     * Usado pelo pré-fecho de turno para identificar sessões que ainda bloqueiam o fecho.
+     *
+     * <p>ENCERRADA e EXPIRADA são excluídas — sessão auto-encerrada pelo
+     * {@code SessaoConsumoAutoClosureService} não deve continuar a bloquear o pré-fecho.
+     */
+    @Query("""
+            select count(s)
+            from SessaoConsumo s
+            where s.tenant.id = :tenantId
+              and s.unidadeAtendimento.id = :unidadeAtendimentoId
+              and s.status in :statuses
+            """)
+    long countByTenantIdAndUnidadeAtendimentoIdAndStatusIn(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("statuses") java.util.Collection<StatusSessaoConsumo> statuses);
+
     boolean existsByTenantIdAndMesaIdAndStatus(Long tenantId, Long mesaId, StatusSessaoConsumo status);
 
     @Query("SELECT s.mesa.id FROM SessaoConsumo s " +

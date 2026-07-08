@@ -267,6 +267,31 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         Pedido pedidoFinal = pedidoRepository.findById(pedidoId).orElseThrow();
         assertThat(pedidoFinal.getSessaoConsumo()).isNotNull();
         assertThat(pedidoFinal.getSessaoConsumo().getStatus().name()).isEqualTo("ENCERRADA");
+
+        // 12. Valida que o pré-fecho não conta mais essa sessão como aberta
+        //     Requer TenantContext de operador para aceder ao endpoint de turno
+        TenantContextHolder.set(new TenantContext(tenantResp.getTenantId(), tenantResp.getTenantCode(),
+                tenantResp.getOwnerUserId(),
+                Set.of("TENANT_OWNER", "TENANT_OPERATOR", "TENANT_CASHIER"),
+                TenantResolutionSource.JWT, false, false));
+        // Buscar o turno aberto
+        String turnoResp = mockMvc.perform(get("/tenant/operacao/turnos")
+                        .param("instituicaoId", String.valueOf(ua.getInstituicao().getId()))
+                        .param("unidadeAtendimentoId", String.valueOf(ua.getId())))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long turnoId = objectMapper.readTree(turnoResp).at("/data/content/0/id").asLong();
+
+        if (turnoId > 0) {
+            String preFechoResp = mockMvc.perform(get("/tenant/operacao/turnos/" + turnoId + "/pre-fecho"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            long sessoesAbertas = objectMapper.readTree(preFechoResp).at("/data/sessoesAbertas").asLong();
+            assertThat(sessoesAbertas)
+                    .as("Sessão encerrada automaticamente não deve contar como aberta no pré-fecho")
+                    .isZero();
+        }
+
     }
 
     private void assertPaymentOrderAbsent(JsonNode data) {

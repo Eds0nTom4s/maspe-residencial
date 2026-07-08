@@ -1,0 +1,91 @@
+RELATORIO_TURNO_PRE_FECHO_REVALIDACAO_001
+
+1. Identificacao
+Backend branch: backend/consuma-turno-pre-fecho-revalidacao-001
+Backend commit base: 28191871a4936176a161f002e53aefd8f55cb947
+Backend commit final: registrado na entrega final
+Frontend de referencia: ui/consuma-demo-freezy-app-pedidos-001 @ 114d604eaa7370646997bb8479e8e3cbdacb2c56
+Frontend alterado: N/A - nao alterado
+
+2. Objectivo
+Revalidar o pre-fecho de turno apos auto-fecho de sessao de consumo no CONSUMA PONTO.
+
+3. Contexto da auditoria anterior
+Pedido PONTO resolvido podia deixar sessao aberta e bloquear o turno. O auto-fecho aprovado passou a encerrar sessoes PONTO elegiveis.
+
+4. Auto-fecho de sessao PONTO
+Implementado: sim, fase anterior.
+Revalidado: sim, com teste focado do pre-fecho e assercao no happy path Demo Freezy.
+
+5. Pre-fecho de turno
+Service: TurnoOperacionalService.preFecho e TurnoResumoService.calcularPreFecho.
+DTO: TurnoPreFechoResponse.
+Queries: PedidoRepository, SubPedidoRepository, PagamentoGatewayRepository, SessaoConsumoRepository, DispositivoOperacionalRepository e PagamentoPendenteQueryService.
+Indicadores: pedidos, subpedidos, pagamentos, sessoes abertas, dispositivos offline, alertas financeiros, bloqueios e avisos.
+
+6. Sessoes abertas
+Estados contados: ABERTA, AGUARDANDO_PAGAMENTO.
+Estados excluidos: ENCERRADA, EXPIRADA.
+Decisao: sessao auto-encerrada nao bloqueia pre-fecho.
+
+7. Bloqueios duros
+Subpedido nao terminal; pedido nao terminal; sessao ABERTA/AGUARDANDO_PAGAMENTO; alerta financeiro critico configurado para bloquear.
+
+8. Alertas flexiveis
+Pagamento pendente nao critico; dispositivo offline; alertas financeiros nao bloqueantes.
+
+9. CONSUMA PONTO
+Pedido rapido finalizado nao deixa sessao aberta quando todas as pendencias estao resolvidas. Pedido com pagamento pendente, ordem ativa ou estado nao terminal continua bloqueando.
+
+10. REST/KDS
+Nao alterado. REST/KDS continua protegido por sessao aberta, pedido/subpedido nao terminal e regras de producao existentes.
+
+11. OrdemPagamento
+AGUARDANDO_CONFIRMACAO impede auto-fecho. CONFIRMADA libera auto-fecho quando pedido, financeiro e subpedidos estao resolvidos.
+
+12. Pedidos e SubPedidos
+Pedidos FINALIZADO/CANCELADO sao terminais. Subpedidos ENTREGUE/CANCELADO sao terminais. Demais estados bloqueiam pre-fecho.
+
+13. Dispositivos offline
+Continuam como aviso flexivel pelo criterio de heartbeat stale.
+
+14. Testes backend
+- Focado direto: `mvn -Pit -Dit.test=TurnoPreFechoRevalidacaoIT failsafe:integration-test failsafe:verify` - PASS, 7 testes, 0 falhas, 0 erros, 0 skipped.
+- `mvn -DskipTests compile` - PASS, build success.
+- `mvn test` - PASS, 414 testes, 0 falhas, 0 erros, 3 skipped.
+- `mvn -Pit verify` - PASS, 414 testes Surefire com 0 falhas, 0 erros, 3 skipped; 284 testes Failsafe com 0 falhas, 0 erros, 0 skipped.
+- `mvn -Dtest='*Turno*' test` - BUILD FAILURE esperado pelo guard RequireFailsafeRunnerCondition; o padrao seleciona ITs e o projeto exige Failsafe para testes de integracao. Resultado reportado: 9 testes, 0 falhas, 9 erros de runner errado, 0 skipped.
+- Equivalente real: `mvn -Pit -Dit.test='*Turno*' failsafe:integration-test failsafe:verify` - PASS, 23 testes, 0 falhas, 0 erros, 0 skipped.
+- `mvn -Dtest='*SessaoConsumo*' test` - PASS, 24 testes, 0 falhas, 0 erros, 0 skipped.
+- `mvn -Dtest='*ConsumaDemoFreezy*' test` - BUILD FAILURE esperado pelo guard RequireFailsafeRunnerCondition; ConsumaDemoFreezyHappyPathIT deve rodar no Failsafe. Resultado reportado: 1 teste, 0 falhas, 1 erro de runner errado, 0 skipped.
+- `mvn -Dit.test='*ConsumaDemoFreezy*' failsafe:integration-test` - BUILD SUCCESS tecnico, mas sem execucao porque o perfil it nao estava ativo; Maven reportou "Tests are skipped".
+- Equivalente real: `mvn -Pit -Dit.test='*ConsumaDemoFreezy*' failsafe:integration-test failsafe:verify` - PASS, 1 teste, 0 falhas, 0 erros, 0 skipped.
+
+15. Testes frontend
+N/A. Frontend nao foi alterado.
+
+16. Mermaid
+Criado: docs/architecture/diagrams/turno-pre-fecho-after-sessao-auto-closure-flow.mmd
+
+17. Documentacao
+Criado: docs/architecture/TURNO_PRE_FECHO_REVALIDACAO_001.md
+
+18. Arquivos alterados
+Backend:
+- src/main/java/com/restaurante/repository/SessaoConsumoRepository.java
+- src/main/java/com/restaurante/service/operacao/TurnoResumoService.java
+- src/test/java/com/restaurante/operacao/TurnoPreFechoRevalidacaoIT.java
+- src/test/java/com/restaurante/qr/ConsumaDemoFreezyHappyPathIT.java
+- docs/architecture/TURNO_PRE_FECHO_REVALIDACAO_001.md
+- docs/architecture/diagrams/turno-pre-fecho-after-sessao-auto-closure-flow.mmd
+- docs/reports/backend/RELATORIO_TURNO_PRE_FECHO_REVALIDACAO_001.txt
+- docs/reports/fullstack/RELATORIO_TURNO_PRE_FECHO_REVALIDACAO_001.txt
+
+19. O que nao foi alterado
+frontend; Gestao de Turnos visual; Cardapio Publico; Acompanhamento Publico; App Pedidos; fecho forcado; extrato; gateway; estorno; PDV; caixa; fiscal; KDS; REST demo; SERVICE; DELIVERY.
+
+20. Riscos restantes
+O DTO nao detalha sessoes por status. Ordens expiradas nao possuem indicador proprio no pre-fecho. Sessao sem pedido nao e auto-fechada por esta regra e deve seguir visivel como pendencia quando aberta.
+
+21. Decisao final
+APROVADO COM RESSALVAS. A regra funcional e a bateria ampla passaram; a ressalva e operacional de comandos focados Surefire que selecionam ITs e sao bloqueados pelo guard existente do projeto.

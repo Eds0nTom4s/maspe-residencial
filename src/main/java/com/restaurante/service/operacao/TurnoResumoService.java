@@ -21,7 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -67,10 +69,16 @@ public class TurnoResumoService {
         }
         resp.setPagamentosPorStatus(pagPorStatus);
 
-        long sessoesAbertas = sessaoConsumoRepository.countByTenantIdAndUnidadeAtendimentoIdAndStatus(
-                turno.getTenant().getId(), turno.getUnidadeAtendimento().getId(), StatusSessaoConsumo.ABERTA
-        );
-        resp.setSessoesAbertas(sessoesAbertas);
+        // Sessões operacionalmente abertas: ABERTA + AGUARDANDO_PAGAMENTO
+        // ENCERRADA e EXPIRADA são excluídas — sessão auto-encerrada pelo
+        // SessaoConsumoAutoClosureService não deve continuar a bloquear o pré-fecho.
+        long sessoesOperacionaisAbertas = sessaoConsumoRepository
+                .countByTenantIdAndUnidadeAtendimentoIdAndStatusIn(
+                        turno.getTenant().getId(),
+                        turno.getUnidadeAtendimento().getId(),
+                        Set.of(StatusSessaoConsumo.ABERTA, StatusSessaoConsumo.AGUARDANDO_PAGAMENTO)
+                );
+        resp.setSessoesAbertas(sessoesOperacionaisAbertas);
 
         LocalDateTime cutoff = LocalDateTime.now().minusMinutes(operacaoProperties.getDeviceOfflineMinutes());
         long offline = dispositivoOperacionalRepository.countOfflineByTenantAndUnidadeAtendimento(
@@ -94,8 +102,10 @@ public class TurnoResumoService {
             resp.getBloqueios().add("Existem pedidos em aberto (não terminais): " + pedidosNaoTerminais);
         }
 
-        if (sessoesAbertas > 0) {
-            resp.getBloqueios().add("Existem sessões de consumo ABERTAS: " + sessoesAbertas);
+        // Bloqueio: sessões operacionalmente abertas (ABERTA ou AGUARDANDO_PAGAMENTO)
+        if (sessoesOperacionaisAbertas > 0) {
+            resp.getBloqueios().add("Existem sessões de consumo operacionalmente abertas (ABERTA/AGUARDANDO_PAGAMENTO): "
+                    + sessoesOperacionaisAbertas);
         }
 
         long pagamentosPendentes = pagPorStatus.getOrDefault(StatusPagamentoGateway.PENDENTE.name(), 0L);

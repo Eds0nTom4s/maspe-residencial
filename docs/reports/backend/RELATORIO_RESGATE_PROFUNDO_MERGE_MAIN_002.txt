@@ -1,0 +1,241 @@
+RELATORIO_RESGATE_PROFUNDO_MERGE_MAIN_002
+
+1. Identificacao
+
+Branch alvo:
+main
+
+Branch origem:
+backend/consuma-turnos-sessoes-operacao-consolidacao-001
+
+Commit aprovado:
+5003d6499f9022d7d4b5036dfd0de4c1ca61f701
+
+Backup anterior:
+/tmp/consuma-merge-rescue-20260709-014146
+
+Backup reforcado:
+/tmp/consuma-merge-deep-rescue-20260709-015054
+
+Commit main antes do resgate:
+567b3125eb8c4396486eee081184a81af20834f0
+
+Merge commit:
+f8119f50994bad08b9e8b70f1100a5307afe93be
+
+Commit tecnico apos estabilizacao do merge:
+a379aa85f966c89565a5c30bd11281ab811e42de
+
+2. Problema inicial
+
+Havia merge aberto em main.
+
+MERGE_HEAD inicial:
+5003d6499f9022d7d4b5036dfd0de4c1ca61f701
+
+HEAD inicial de main/origin/main:
+567b3125eb8c4396486eee081184a81af20834f0
+
+Arquivos bloqueadores reportados:
+- src/main/java/com/restaurante/financeiro/service/PagamentoCallbackService.java
+- src/main/java/com/restaurante/financeiro/service/PagamentoGatewayService.java
+
+Arquivos em conflito nao resolvido no momento do resgate:
+Nenhum arquivo U.
+
+3. Resgate profundo
+
+Foi criado backup reforcado em:
+/tmp/consuma-merge-deep-rescue-20260709-015054
+
+Conteudo registrado no backup:
+- status completo;
+- porcelain status;
+- diff working tree;
+- diff staged;
+- logs;
+- HEAD/MERGE_HEAD/ORIG_HEAD;
+- lista de arquivos modificados tracked;
+- lista de arquivos staged;
+- lista de arquivos untracked;
+- lista de arquivos unmerged;
+- copia dos arquivos tracked modificados.
+
+Contagens no backup:
+- modified tracked: 8
+- staged files: 1958
+- untracked files: 0
+- unmerged files: 0
+
+Arquivos tracked copiados:
+- compile_errors.txt
+- src/main/java/com/restaurante/financeiro/service/PagamentoGatewayService.java
+- src/main/java/com/restaurante/model/entity/Pedido.java
+- src/main/java/com/restaurante/repository/ProdutoRepository.java
+- src/main/java/com/restaurante/service/ProdutoService.java
+- src/main/java/com/restaurante/store/service/StoreCatalogService.java
+- src/test/java/com/restaurante/store/StoreCatalogServiceTest.java
+- src/test/java/com/restaurante/store/StoreCheckoutServiceTest.java
+
+Metodo de resgate:
+- restauracao dos tracked modificados a partir da lista do backup;
+- git merge --abort.
+
+Hard reset usado:
+Nao.
+
+Observacao:
+Apos o abort apareceram .env.prod, .env.sandbox e .env.sandbox.local como arquivos locais preservados. Eles nao foram lidos, alterados, apagados, movidos ou adicionados ao indice. Apos o merge limpo, passaram a ser ignorados pela .gitignore resultante.
+
+4. Alinhamento da main
+
+Antes do merge limpo:
+git rev-list --left-right --count main...origin/main
+Resultado:
+0 0
+
+main e origin/main estavam alinhadas em:
+567b3125eb8c4396486eee081184a81af20834f0
+
+5. Merge controlado
+
+Comando:
+git merge --no-ff backend/consuma-turnos-sessoes-operacao-consolidacao-001
+
+Conflitos encontrados:
+12 arquivos.
+
+Arquivos com conflito:
+- src/main/java/com/restaurante/config/SecurityConfig.java
+- src/main/java/com/restaurante/financeiro/gateway/appypay/AppyPayHmacValidator.java
+- src/main/java/com/restaurante/financeiro/gateway/appypay/AppyPayProperties.java
+- src/main/java/com/restaurante/financeiro/repository/PagamentoGatewayRepository.java
+- src/main/java/com/restaurante/financeiro/service/PagamentoCallbackService.java
+- src/main/java/com/restaurante/financeiro/service/PagamentoGatewayService.java
+- src/main/java/com/restaurante/model/entity/Produto.java
+- src/main/java/com/restaurante/model/enums/CategoriaProdutoLegacy.java
+- src/main/java/com/restaurante/repository/ProdutoRepository.java
+- src/main/java/com/restaurante/service/PedidoFinanceiroService.java
+- src/main/resources/application.properties
+- src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+
+Decisoes principais:
+- SecurityConfig preservou a estrutura tenant/device/auth provider da branch origem e integrou rotas Store/Socio com SocioAuthFilter via ObjectProvider.
+- AppyPayProperties preservou a base da branch origem e integrou returnUrl e propriedades de reconciliacao.
+- Produto preservou modelo tenant-aware/categoria legacy e integrou galeria de imagens e variacoes Store.
+- CategoriaProdutoLegacy recebeu categorias Store: VESTUARIO, EQUIPAMENTO_DESPORTIVO, ACESSORIO e COLECCIONAVEL.
+- ProdutoRepository preservou consultas tenant-aware e integrou consulta Store por categoria/disponivel/ativo.
+- PagamentoGatewayRepository preservou consultas tenant/polling/search e integrou locks/reconciliacao Store.
+- PagamentoCallbackService preservou auditoria raw callback, tenant guard e PagamentoConfirmacaoService, integrando confirmacao Store quando tipo STORE_PEDIDO.
+- PagamentoGatewayService preservou atividade de sessao/tenant e passou a usar appyPayProperties.getReturnUrl() nas requisicoes AppyPay.
+- AppyPayReconciliationService manteve confirmacao por tipo: PRE_PAGO, POS_PAGO e STORE_PEDIDO.
+- PedidoFinanceiroService preservou regra POS_PAGO por perfil/regra da branch origem.
+- application.properties preservou blocos Store/Socio e blocos device/operacional/sessao.
+- AppyPayHmacValidator preservou a regra da branch origem de assinatura desabilitada quando webhookSignatureRequired=false.
+- MockMaker preservou mock-maker-subclass.
+
+6. Estabilizacao pos-merge
+
+Commit tecnico:
+a379aa85f966c89565a5c30bd11281ab811e42de
+
+Mensagem:
+fix(backend): estabiliza merge main com schema store
+
+Arquivos ajustados:
+- src/main/java/com/restaurante/service/ProdutoService.java
+- src/main/java/com/restaurante/store/security/SocioAuthFilter.java
+- src/test/resources/application.properties
+- src/main/resources/db/migration/V77__store_schema_reconciliation.sql
+
+Motivos:
+- mapear slugs das categorias Store no ProdutoService;
+- permitir que testes @WebMvcTest inicializem contexto sem repositorios JPA Store/Socio, mantendo comportamento runtime quando repositorios existem;
+- adicionar valores dummy de Store/Socio JWT apenas para contexto de teste;
+- reconciliar schema Store em migracao Flyway versionada e idempotente, pois o SQL Store antigo usava padrao de nome nao aplicado pela cadeia normal do Flyway.
+
+7. Testes backend
+
+Comando:
+mvn -DskipTests compile
+Resultado:
+BUILD SUCCESS.
+
+Comando:
+mvn -Dtest=ProdutoServiceTest,CaixaOperadorEvidenceServiceTest test
+Resultado:
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0.
+
+Comando:
+mvn -Dtest=ProdutoControllerTest,TenantProdutoControllerTest test
+Resultado:
+Tests run: 13, Failures: 0, Errors: 0, Skipped: 0.
+
+Comando:
+mvn -DskipITs=false -Dit.test=FlywayBaselinePostgresIT failsafe:integration-test failsafe:verify
+Resultado:
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0.
+
+Comando:
+mvn test
+Resultado:
+Tests run: 432, Failures: 0, Errors: 0, Skipped: 3.
+
+Comando:
+mvn -Pit verify
+Resultado:
+BUILD SUCCESS.
+Surefire: Tests run: 432, Failures: 0, Errors: 0, Skipped: 3.
+Failsafe: Tests run: 287, Failures: 0, Errors: 0, Skipped: 0.
+
+Comando final antes do primeiro push:
+mvn -DskipTests compile
+Resultado:
+BUILD SUCCESS.
+
+8. Confirmacao remota
+
+Primeiro push executado:
+git push origin main
+
+Resultado:
+main enviada de 567b312 para a379aa8.
+
+Confirmacoes apos fetch:
+- main: a379aa85f966c89565a5c30bd11281ab811e42de
+- origin/main: a379aa85f966c89565a5c30bd11281ab811e42de
+- HEAD: a379aa85f966c89565a5c30bd11281ab811e42de
+- git rev-list --left-right --count main...origin/main: 0 0
+
+Commit aprovado presente em main local:
+Sim.
+
+Commit aprovado presente em origin/main:
+Sim.
+
+Tag local:
+consuma-turnos-sessoes-operacao-v1
+
+Tag remota:
+consuma-turnos-sessoes-operacao-v1 -> 5003d6499f9022d7d4b5036dfd0de4c1ca61f701
+
+9. O que nao foi alterado
+
+- Docker nao foi alterado.
+- Deploy nao foi executado.
+- Banco de dados local/remoto nao foi alterado por comando operacional.
+- Volumes nao foram alterados.
+- Frontend nao foi alterado.
+- Secrets nao foram lidos nem alterados.
+- Arquivos .env locais foram preservados fora do indice.
+- Nao foi usado git clean.
+
+10. Riscos restantes
+
+- A migracao V77 introduz reconciliacao idempotente do schema Store na cadeia Flyway versionada; validacao automatizada passou em FlywayBaselinePostgresIT e mvn -Pit verify.
+- Nenhum deploy Docker foi feito nesta fase; ambientes locais/remotos devem aplicar a migracao via fluxo normal da aplicacao.
+- O merge reuniu uma branch operacional ampla com um commit Store recente em main; a suite completa passou, mas recomenda-se smoke test manual do Store/Socio em ambiente atualizado.
+
+11. Decisao final
+
+REPOSITORIO RESGATADO E MERGE CONCLUIDO.

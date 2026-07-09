@@ -1,0 +1,208 @@
+RELATORIO_CONSUMA_BACKEND_IT_FIX_006_C_QUERIES_JSONB_KDS_BOOTSTRAP_2026_06_02
+=============================================================================
+
+1. Resumo executivo
+Subfase concluida com lote-alvo verde e revalidacoes de baseline preservadas.
+As falhas restantes do lote consolidado estavam concentradas em:
+- autenticacao ausente nos ITs de payment policy template/bootstrap;
+- auditoria operacional tentando gravar dentro de transacoes read-only em fluxos de preview/view;
+- colisao eventual de fixture/bootstrap na geracao de NIF de instituicao;
+- assercao fragil no IT de preview que fazia busca textual no JSON inteiro.
+
+Resultado final:
+- lote consolidado da subfase: verde;
+- mvn clean test: verde;
+- DockerAvailabilityIT: verde;
+- TenantCorePersistenceIT: verde;
+- lote 1 reexecutado: verde;
+- lote device/offline reexecutado: verde.
+
+2. Branch e commit inicial
+Branch: restauracao-antes-da-loja
+HEAD inicial:
+- a803469 Fix IT device auth secrets and 401 handling
+- 993dc74 Fix IT security pipeline, payment query and platform RBAC expectation
+- 6fed85e Resolve autostash conflicts after IT stabilization merge
+- 115940e Resolve merge conflicts preserving IT stabilization and Flyway hardening
+- ea809af IT_FIX_004_NORMALIZAR_DETECCAO_DOCKER_TESTCONTAINERS_2026_05_31
+
+3. Estado inicial do lote-alvo
+Primeira execucao do lote-alvo desta subfase:
+- completed=19
+- failures=3
+- errors=0
+- skipped=0
+
+Falhas iniciais:
+- PaymentPolicyTemplateBootstrapIT: 1 falha
+- PaymentPolicyRolloutPreviewIT: 2 falhas
+
+Passavam desde o inicio:
+- ProducaoKdsRbacIT
+- ProducaoKdsDeviceScopeIT
+- PlatformBusinessTemplateControllerIT
+- PlatformFinanceiroControllerIT
+- TenantFinanceiroControllerIT
+
+4. Ranking das causas
+1. Fixture funcional / bootstrap:
+   geracao eventual de NIF duplicado em instituicoes durante provisionamento/template.
+2. Expectativa incorreta / setup de teste:
+   ITs de payment-policy chamavam endpoints com @PreAuthorize("isAuthenticated()") sem principal autenticado.
+3. KDS/bootstrap / fluxo funcional:
+   preview de rollout persistia auditoria em transacao read-only, quebrando o contrato operacional do fluxo.
+4. Optional/ResourceNotFound:
+   nao houve falha residual apos correcoes; mantido sob validacao.
+5. Query PostgreSQL:
+   nenhuma nova falha residual observada nesta subfase apos revalidacoes.
+6. jsonb:
+   nenhuma nova falha residual observada nesta subfase apos revalidacoes.
+
+5. Arquivos alterados
+- src/main/java/com/restaurante/businesstemplate/support/BusinessTemplateProvisioningSupport.java
+- src/main/java/com/restaurante/repository/InstituicaoRepository.java
+- src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/PaymentMethodPolicyRolloutService.java
+- src/main/java/com/restaurante/device/capability/template/service/DeviceCapabilityRolloutService.java
+- src/main/java/com/restaurante/service/tenant/offline/TenantOfflineSyncReplayService.java
+- src/main/java/com/restaurante/device/capability/service/DeviceCapabilityService.java
+- src/main/java/com/restaurante/financeiro/caixa/service/CaixaOperadorSessionService.java
+- src/main/java/com/restaurante/consumo/participante/service/SessaoParticipanteExtendedListService.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyTemplateBootstrapIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutPreviewIT.java
+
+6. Correcoes de query
+Nenhuma correcao adicional de query foi necessaria nesta subfase.
+As validacoes de PlatformFinanceiroControllerIT e TenantFinanceiroControllerIT permaneceram verdes no lote consolidado.
+
+7. Correcoes de jsonb
+Nenhuma correcao adicional de mapping jsonb foi necessaria nesta subfase.
+Os fluxos com metadata_json permaneceram verdes nos ITs de payment policy/bootstrap apos reexecucao.
+
+8. Correcoes de KDS/bootstrap
+- Corrigido o fluxo de auditoria em previews/views read-only com novas variantes REQUIRES_NEW no OperationalEventLogService:
+  - logGenericRequiresNew(...)
+  - logPublicEventRequiresNew(...)
+- Fluxos read-only atualizados para usar auditoria em transacao propria:
+  - PaymentMethodPolicyRolloutService.preview
+  - DeviceCapabilityRolloutService.preview
+  - TenantOfflineSyncReplayService.preview
+  - TenantOfflineSyncReplayService.exportDiagnostic
+  - DeviceCapabilityService
+  - CaixaOperadorSessionService.requireOpenForDevice
+  - SessaoParticipanteExtendedListService.getJobHealth
+- Preservada a auditoria operacional sem violar readOnly.
+
+9. Correcoes de fixtures funcionais
+- InstituicaoRepository recebeu existsByNif(String nif).
+- BusinessTemplateProvisioningSupport passou a gerar NIF com retry e verificacao de existencia para evitar colisao de fixture/bootstrap.
+- ITs PaymentPolicyTemplateBootstrapIT e PaymentPolicyRolloutPreviewIT receberam @WithMockUser(username = "owner") para atender o contrato real de autenticacao.
+- PaymentPolicyRolloutPreviewIT passou a validar deviceIds estruturalmente em /data/deviceResults, removendo a assercao fragil por substring no JSON inteiro.
+
+10. O que NAO foi alterado
+- Nao foi trocado PostgreSQL por H2 nos ITs.
+- Nao foram removidos filtros de seguranca.
+- Nao foi desligado Spring Security.
+- Nao foram removidas constraints.
+- Nao houve alteracao de migration.
+- Nao houve conversao de jsonb para text.
+- Nao foram removidos filtros de query para “fazer teste passar”.
+
+11. Resultados por bloco
+Queries:
+- PlatformFinanceiroControllerIT: verde
+- TenantFinanceiroControllerIT: verde
+- sem erro residual de PostgreSQL optional parameter nesta subfase
+
+jsonb:
+- PlatformBusinessTemplateControllerIT: verde
+- PaymentPolicyTemplateBootstrapIT: verde
+- PaymentPolicyRolloutPreviewIT: verde
+- sem erro residual de metadata_json/jsonb nesta subfase
+
+KDS/bootstrap:
+- ProducaoKdsRbacIT: verde
+- ProducaoKdsDeviceScopeIT: verde
+- PlatformBusinessTemplateControllerIT: verde
+- preview/bootstrap de payment policy: verde
+
+12. Resultado do lote consolidado desta subfase
+Comando:
+mvn -Pit -DskipTests=false -Dit.test="ProducaoKdsRbacIT,ProducaoKdsDeviceScopeIT,PlatformBusinessTemplateControllerIT,PlatformFinanceiroControllerIT,TenantFinanceiroControllerIT,PaymentPolicyRolloutPreviewIT,PaymentPolicyTemplateBootstrapIT" test-compile failsafe:integration-test failsafe:verify
+
+Resultado:
+- Tests run: 19
+- Failures: 0
+- Errors: 0
+- Skipped: 0
+- BUILD SUCCESS
+
+13. Resultado de mvn clean test
+Comando:
+mvn clean test
+
+Resultado:
+- Tests run: 331
+- Failures: 0
+- Errors: 0
+- Skipped: 3
+- BUILD SUCCESS
+
+14. Resultado de DockerAvailabilityIT
+Comando:
+mvn -Pit -DskipTests=false -Dit.test=DockerAvailabilityIT test-compile failsafe:integration-test failsafe:verify
+
+Resultado:
+- Tests run: 1
+- Failures: 0
+- Errors: 0
+- Skipped: 0
+- BUILD SUCCESS
+
+15. Resultado de TenantCorePersistenceIT
+Comando:
+mvn -Pit -DskipTests=false -Dit.test=TenantCorePersistenceIT test-compile failsafe:integration-test failsafe:verify
+
+Resultado:
+- Tests run: 7
+- Failures: 0
+- Errors: 0
+- Skipped: 0
+- BUILD SUCCESS
+
+16. Resultado do lote 1 reexecutado
+Comando:
+mvn -Pit -DskipTests=false -Dit.test=TenantRoleAuthorizationIT,DispositivoOperacionalTenantAdminIT,PlatformBusinessTemplateControllerIT,PlatformFinanceiroControllerIT,TenantFinanceiroControllerIT test-compile failsafe:integration-test failsafe:verify
+
+Resultado:
+- Tests run: 21
+- Failures: 0
+- Errors: 0
+- Skipped: 0
+- BUILD SUCCESS
+
+17. Resultado do lote IT-FIX-006-B reexecutado
+Comando:
+mvn -Pit -DskipTests=false -Dit.test="DeviceReadOnlySyncIT,DeviceOfflineSyncSessionIT,DeviceOfflineSyncCapabilitiesIT,DeviceOfflineSyncIdempotencyIT,DeviceOfflineSyncSessionSecurityIT,DevicePedidoCreateIT,DevicePedidoTurnoRequiredIT,DeviceOfflinePayloadLimitsIT,DeviceOfflineSecurityIT,CaixaOperadorDeviceIT,DispositivoOperacionalTenantAdminIT" test-compile failsafe:integration-test failsafe:verify
+
+Resultado:
+- Tests run: 21
+- Failures: 0
+- Errors: 0
+- Skipped: 0
+- BUILD SUCCESS
+
+18. Pendencias
+- Nenhuma pendencia funcional aberta dentro do escopo desta subfase.
+- Permanecem apenas warnings esperados de ambiente/test bootstrap (ex.: mensagens de deprecacao Hibernate e warnings de configuracao mock), sem impacto no resultado.
+
+19. Riscos
+- Baixo risco residual em outros fluxos read-only que futuramente venham a introduzir auditoria sem usar as variantes REQUIRES_NEW; o padrao correto agora esta estabelecido no service.
+- Baixo risco residual de fixtures futuras se novas geracoes de identificadores exclusivos forem implementadas sem retry/exists guard.
+
+20. Decisao final
+APROVADO
+
+21. Proximo passo recomendado
+- Prosseguir para a proxima subfase/IT-FIX-007 com foco apenas em falhas novas ou residuais fora deste lote.
+- Se desejado, consolidar o padrao de auditoria read-only em guideline interno para evitar regressao em novos services.

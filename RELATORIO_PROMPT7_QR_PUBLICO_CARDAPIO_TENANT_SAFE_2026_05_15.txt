@@ -1,0 +1,146 @@
+RELATÓRIO TÉCNICO — PROMPT 7 (QR PÚBLICO + CARDÁPIO TENANT-SAFE)
+Data: 2026-05-15
+Sistema: CONSUMA (Backend Spring Boot / PostgreSQL / Flyway)
+
+1) RESUMO EXECUTIVO
+- Entregue a fundação de QR operacional tenant-safe com token público aleatório, não enumerável e revogável.
+- Entregues endpoints públicos para:
+  - resolver QR por token (metadados públicos)
+  - carregar cardápio público (categorias + produtos) filtrado estritamente pelo tenant do QR
+- Mantidos fluxos legados (QrCodeToken / endpoints públicos antigos) sem remoção/refatoração agressiva.
+- Testes de isolamento por tenant executados com PostgreSQL/Testcontainers e Flyway (migrations V1..V6).
+
+2) ESTADO ENCONTRADO (ANTES)
+- Já existiam: Tenant Core (V2), vínculo Instituicao→Tenant (V3), catálogo tenant-aware consolidado (V4/V5), TenantContext infra (Prompt 4).
+- Bloqueador ainda aberto: fluxo público por QR/cardápio precisava ser tenant-safe.
+- QR legado era previsível/enumerável e o cardápio público poderia expor dados globais.
+
+3) ENTIDADE CRIADA
+3.1) Entidade
+- QrCodeOperacional
+  - Tabela: qr_codes_operacionais
+  - Relações:
+    - tenant_id (obrigatório)
+    - instituicao_id (obrigatório)
+    - unidade_atendimento_id (opcional)
+    - mesa_id (opcional)
+  - Campos relevantes: token (unique), tipo, nome, ativo, revogado, revogado_em
+
+3.2) Enum
+- QrCodeOperacionalTipo
+
+4) MIGRATION (FLYWAY)
+- V6__create_qr_code_operacional.sql
+  - Cria tabela qr_codes_operacionais
+  - Cria unique(token) e índices
+  - Cria FKs para tenants/instituicoes/unidades_atendimento/mesas
+  - NÃO altera QrCodeToken legado
+
+5) ESTRATÉGIA DE TOKEN (SEGURANÇA PÚBLICA)
+- Token gerado via SecureRandom com alfabeto sem caracteres ambíguos.
+- Formato: prefixo "q_" + corpo randômico.
+- QR revogado/inativo/tenant não-ATIVO → resposta 404 (falha fechada) para evitar leak de existência do token.
+
+6) REPOSITORY
+- QrCodeOperacionalRepository
+  - findByToken(...)
+  - findByTokenAndAtivoTrueAndRevogadoFalse(...)
+  - existsByToken(...)
+
+7) SERVICE
+- QrCodeOperacionalService
+  - gerarTokenUnico()
+  - criarQr(...) (uso interno/admin; valida consistência tenant↔instituicao↔unidade↔mesa)
+  - resolverPublico(token) (retorna QrPublicContext; valida QR ativo/não revogado + tenant ATIVO)
+  - carregarCardapioPublicoPorQrToken(token) (carrega categorias/produtos do tenant do QR)
+  - revogar(qrId)
+
+8) DTOs PÚBLICOS
+- QrPublicContext (metadados públicos do QR)
+- PublicCardapioResponse
+- PublicCategoriaProdutoResponse
+- PublicProdutoResponse
+
+9) CONTROLLER PÚBLICO
+- PublicQrController
+  - GET /api/public/q/{token}
+  - GET /api/public/q/{token}/cardapio
+Observação:
+- Endpoints públicos não exigem JWT e não dependem de TenantContext.
+- O tenant é resolvido exclusivamente pelo token público do QR.
+
+10) SECURITY CONFIG
+- Já existia permitAll para /api/public/** e /public/**.
+- Não foi necessário abrir endpoints adicionais.
+
+11) TESTES (POSTGRESQL/TESTCONTAINERS)
+Criados:
+- PublicQrCardapioIT
+  - valida que cardápio por QR não vaza produtos entre tenants
+  - valida 404 para token inválido e QR revogado (falha fechada)
+  - valida resolução de metadados públicos por token
+- QrTokenGenerationIT
+  - valida formato prefixado e baixa probabilidade de colisão em múltiplas gerações (smoke)
+
+12) COMANDOS EXECUTADOS
+- mvn -q -DskipTests compile
+- mvn test
+
+13) RESULTADO DOS COMANDOS
+- BUILD SUCCESS (testes executados com sucesso)
+
+14) ARQUIVOS CRIADOS/ALTERADOS (PROMPT 7)
+Backend:
+- src/main/java/com/restaurante/model/enums/QrCodeOperacionalTipo.java
+- src/main/java/com/restaurante/model/entity/QrCodeOperacional.java
+- src/main/resources/db/migration/V6__create_qr_code_operacional.sql
+- src/main/java/com/restaurante/repository/QrCodeOperacionalRepository.java
+- src/main/java/com/restaurante/dto/response/QrPublicContext.java
+- src/main/java/com/restaurante/dto/response/PublicCardapioResponse.java
+- src/main/java/com/restaurante/dto/response/PublicCategoriaProdutoResponse.java
+- src/main/java/com/restaurante/dto/response/PublicProdutoResponse.java
+- src/main/java/com/restaurante/service/QrCodeOperacionalService.java
+- src/main/java/com/restaurante/controller/PublicQrController.java
+
+Testes:
+- src/test/java/com/restaurante/qr/PublicQrCardapioIT.java
+- src/test/java/com/restaurante/qr/QrTokenGenerationIT.java
+
+Documentação:
+- docs/tenant-core/07-qr-publico-cardapio-tenant-safe.md
+
+15) DECISÕES TÉCNICAS IMPORTANTES
+- Resposta 404 para tokens inválidos/revogados/inativos/tenant não-ATIVO (evitar enumeration + leak de existência).
+- Cardápio público filtrado por tenant via repositórios tenant-aware já existentes (CategoriaProduto/Produto).
+- Não integrar QR_TOKEN ao TenantResolver nesta fase (fora do escopo; infra preparada para fase futura).
+- Não remover nem migrar completamente QR legado nesta fase (coexistência controlada).
+
+16) RISCOS RESTANTES / LIMITAÇÕES
+- Ainda existe QR legado previsível/enumerável em paralelo (não removido).
+- Ainda não existe criação de pedido por QR tenant-safe (somente leitura de cardápio).
+- Ainda não existe fluxo de revogação/admin endpoint (revogar é apenas método de service; endpoint pode vir em fase de provisionamento/admin).
+
+17) CHECKLIST DE ACEITAÇÃO (PROMPT 7)
+[OK] V6__create_qr_code_operacional.sql existe
+[OK] QrCodeOperacional existe
+[OK] token aleatório e único (não enumerável)
+[OK] QR ativo e não revogado resolve contexto público
+[OK] QR revogado/inativo não retorna cardápio (404)
+[OK] cardápio público por QR retorna apenas produtos do tenant do QR
+[OK] categorias públicas vêm de CategoriaProduto (entidade)
+[OK] Produto.categoriaProduto usado no cardápio público
+[OK] endpoint /api/public/q/{token} existe
+[OK] endpoint /api/public/q/{token}/cardapio existe
+[OK] endpoints públicos permitidos no SecurityConfig (via /api/public/**)
+[OK] QR legado preservado (não removido)
+[OK] PublicCardapioController legado preservado (não alterado aqui)
+[OK] testes de isolamento passam
+[OK] Pedido/Pagamento/SessaoConsumo não foram refatorados nesta fase
+
+18) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 8 — Criar Pedido por QR tenant-safe (SessaoConsumo + Pedido inicial), incluindo:
+  - resolução QR → Instituicao/Unidade/Mesa
+  - validações de tenant ativo e scoping
+  - criação idempotente/segura de sessão/pedido
+  - hardening contra cross-tenant e replay
+

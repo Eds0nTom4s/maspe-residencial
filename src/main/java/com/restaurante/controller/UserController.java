@@ -5,6 +5,7 @@ import com.restaurante.dto.request.AtualizarUsuarioRequest;
 import com.restaurante.dto.request.CriarUsuarioRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.UserResponse;
+import com.restaurante.model.enums.Role;
 import com.restaurante.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -39,9 +40,12 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Listar utilizadores", description = "Retorna página de utilizadores cadastrados")
     public ResponseEntity<ApiResponse<Page<UserResponse>>> listarUsuarios(
+            @RequestParam(required = false) Role role,
+            @RequestParam(required = false) Boolean ativo,
+            @RequestParam(required = false) String busca,
             @PageableDefault(size = 20) Pageable pageable) {
         log.info("GET /api/usuarios");
-        return ResponseEntity.ok(ApiResponse.success("Utilizadores listados", userService.listarTodos(pageable)));
+        return ResponseEntity.ok(ApiResponse.success("Utilizadores listados", userService.listarTodos(pageable, role, ativo, busca)));
     }
 
     @GetMapping("/{id}")
@@ -153,4 +157,3 @@ public class UserController {
                 .body(ApiResponse.error("Fluxo de reset por email não está configurado neste ambiente. Use PATCH /usuarios/{id}/senha."));
     }
 }
-

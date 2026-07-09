@@ -73,9 +73,6 @@ class SubPedidoStateMachineTest {
     @Mock
     private com.restaurante.notificacao.service.NotificacaoService notificacaoService;
 
-    @Mock
-    private com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService;
-
     private SubPedidoService subPedidoService;
 
     private Cozinha cozinha;
@@ -95,8 +92,7 @@ class SubPedidoStateMachineTest {
                 eventLogService,
                 transicaoEstadoValidator,
                 pedidoService,
-                notificacaoService,
-                webSocketNotificacaoService
+                notificacaoService
         );
 
         cozinha = Cozinha.builder()
@@ -150,7 +146,8 @@ class SubPedidoStateMachineTest {
     }
 
     private void mockBuscarESalvar(SubPedido subPedidoAtual, SubPedido subPedidoSalvo) {
-        when(subPedidoRepository.findByIdWithDetails(subPedidoAtual.getId())).thenReturn(java.util.Optional.of(subPedidoAtual));
+        when(subPedidoRepository.findByIdWithDetails(subPedidoAtual.getId()))
+                .thenReturn(java.util.Optional.of(subPedidoAtual));
         when(subPedidoRepository.save(any(SubPedido.class))).thenReturn(subPedidoSalvo);
     }
 

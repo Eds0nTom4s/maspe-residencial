@@ -3,17 +3,16 @@ package com.restaurante.service;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.*;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.notificacao.service.NotificacaoService;
-import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.validator.TransicaoEstadoValidator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -41,9 +40,8 @@ import java.util.stream.Collectors;
  * - Registrar eventos de auditoria
  */
 @Service
+@Slf4j
 public class SubPedidoService {
-
-    private static final Logger log = LoggerFactory.getLogger(SubPedidoService.class);
 
     private final SubPedidoRepository subPedidoRepository;
     private final CozinhaRepository cozinhaRepository;
@@ -52,7 +50,6 @@ public class SubPedidoService {
     private final TransicaoEstadoValidator transicaoValidator;
     private final PedidoService pedidoService; // Injeção lazy para evitar circular dependency
     private final NotificacaoService notificacaoService;
-    private final WebSocketNotificacaoService webSocketNotificacaoService;
 
     public SubPedidoService(
         SubPedidoRepository subPedidoRepository,
@@ -61,8 +58,7 @@ public class SubPedidoService {
         EventLogService eventLogService,
         TransicaoEstadoValidator transicaoValidator,
         @Lazy PedidoService pedidoService, // LAZY: evita dependência circular
-        NotificacaoService notificacaoService,
-        WebSocketNotificacaoService webSocketNotificacaoService
+        NotificacaoService notificacaoService
     ) {
         this.subPedidoRepository = subPedidoRepository;
         this.cozinhaRepository = cozinhaRepository;
@@ -71,14 +67,13 @@ public class SubPedidoService {
         this.transicaoValidator = transicaoValidator;
         this.pedidoService = pedidoService;
         this.notificacaoService = notificacaoService;
-        this.webSocketNotificacaoService = webSocketNotificacaoService;
     }
 
     /**
      * LÓGICA DE ROTEAMENTO AUTOMÁTICO
      * Determina qual cozinha deve preparar baseado na categoria do produto
      */
-    public TipoCozinha determinarTipoCozinha(CategoriaProduto categoria) {
+    public TipoCozinha determinarTipoCozinha(CategoriaProdutoLegacy categoria) {
         return switch (categoria) {
             case ENTRADA, PRATO_PRINCIPAL, ACOMPANHAMENTO, LANCHE -> TipoCozinha.CENTRAL;
             case PIZZA -> TipoCozinha.PIZZARIA;
@@ -102,7 +97,7 @@ public class SubPedidoService {
      * Busca cozinha ativa do tipo adequado vinculada à unidade de atendimento
      */
     @Transactional(readOnly = true)
-    public Cozinha determinarCozinha(CategoriaProduto categoria, Long unidadeAtendimentoId) {
+    public Cozinha determinarCozinha(CategoriaProdutoLegacy categoria, Long unidadeAtendimentoId) {
         TipoCozinha tipoCozinha = determinarTipoCozinha(categoria);
         
         log.debug("Determinando cozinha para categoria {} -> tipo {}", categoria, tipoCozinha);
@@ -136,6 +131,43 @@ public class SubPedidoService {
     }
 
     /**
+     * Overload incremental (Prompt 6):
+     * - Preferir categoriaProduto (entidade) como fonte principal.
+     * - Manter fallback para enum legado enquanto rotas de produção não existem.
+     */
+    @Transactional(readOnly = true)
+    public Cozinha determinarCozinha(Produto produto, Long unidadeAtendimentoId) {
+        CategoriaProdutoLegacy legacy = produto != null ? produto.getCategoria() : null;
+        if (produto != null && produto.getCategoriaProduto() != null) {
+            CategoriaProdutoLegacy derived = slugToLegacyEnum(produto.getCategoriaProduto().getSlug());
+            if (derived != null) {
+                legacy = derived;
+            }
+        }
+        if (legacy == null) {
+            legacy = CategoriaProdutoLegacy.OUTROS;
+        }
+        return determinarCozinha(legacy, unidadeAtendimentoId);
+    }
+
+    private static CategoriaProdutoLegacy slugToLegacyEnum(String slug) {
+        if (slug == null) return null;
+        return switch (slug) {
+            case "entrada" -> CategoriaProdutoLegacy.ENTRADA;
+            case "prato-principal" -> CategoriaProdutoLegacy.PRATO_PRINCIPAL;
+            case "acompanhamento" -> CategoriaProdutoLegacy.ACOMPANHAMENTO;
+            case "sobremesa" -> CategoriaProdutoLegacy.SOBREMESA;
+            case "bebida-alcoolica" -> CategoriaProdutoLegacy.BEBIDA_ALCOOLICA;
+            case "bebida-nao-alcoolica" -> CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA;
+            case "lanche" -> CategoriaProdutoLegacy.LANCHE;
+            case "pizza" -> CategoriaProdutoLegacy.PIZZA;
+            case "outros" -> CategoriaProdutoLegacy.OUTROS;
+            case "geral" -> CategoriaProdutoLegacy.OUTROS;
+            default -> null;
+        };
+    }
+
+    /**
      * Cria SubPedido (sempre CRIADO inicialmente)
      */
     @Transactional
@@ -160,13 +192,6 @@ public class SubPedidoService {
         eventLogService.registrarEventoSubPedido(
             subPedidoSalvo, null, StatusSubPedido.CRIADO, 
             null, "SubPedido criado", 0L);
-        
-        // Notifica WebSocket (novo item na fila da cozinha)
-        try {
-            webSocketNotificacaoService.notificarNovoSubPedido(subPedidoSalvo, "system");
-        } catch (Exception e) {
-            log.error("Falha ao notificar novo subpedido via WebSocket: {}", e.getMessage());
-        }
         
         log.info("SubPedido criado - ID: {} (Status: CRIADO)", subPedidoSalvo.getId());
         return subPedidoSalvo;
@@ -254,21 +279,6 @@ public class SubPedidoService {
             subPedidoSalvo, estadoAtual, novoStatus, 
             null, motivo != null ? motivo : "Transição de estado", 
             tempoTransacao);
-            
-        // NOTIFICAR MUDANÇA (WebSocket)
-        try {
-            if (novoStatus == StatusSubPedido.CANCELADO) {
-                webSocketNotificacaoService.notificarCancelamentoSubPedido(
-                    subPedidoSalvo, estadoAtual, "system", motivo != null ? motivo : "Cancelado"
-                );
-            } else {
-                webSocketNotificacaoService.notificarMudancaStatusSubPedido(
-                    subPedidoSalvo, estadoAtual, "system", motivo != null ? motivo : "Mudança de status"
-                );
-            }
-        } catch (Exception e) {
-            log.error("Erro ao notificar mudança de status via WebSocket: {}", e.getMessage());
-        }
         
         log.info("SubPedido {} atualizado: {} → {} ({}ms)", id, estadoAtual, novoStatus, tempoTransacao);
         
@@ -306,13 +316,6 @@ public class SubPedidoService {
         log.info("Marcando SubPedido {} como PRONTO", id);
         SubPedido subPedido = alterarStatus(id, StatusSubPedido.PRONTO, "Preparação finalizada");
         
-        // Notifica WebSocket com prioridade ALTA
-        try {
-            webSocketNotificacaoService.notificarSubPedidoPronto(subPedido, "cozinha");
-        } catch (Exception e) {
-            log.error("Erro ao notificar subpedido PRONTO via WebSocket: {}", e.getMessage());
-        }
-        
         // Enviar notificação SMS para o cliente
         try {
             Pedido pedido = subPedido.getPedido();
@@ -321,11 +324,10 @@ public class SubPedidoService {
                 : null;
             
             if (telefoneCliente != null) {
-                String resumoItens = subPedido.getItens().stream()
-                    .map(item -> item.getQuantidade() + "x " + item.getProduto().getNome())
-                    .collect(Collectors.joining(", "));
-
-                notificacaoService.enviarNotificacaoPedidoPronto(telefoneCliente, pedido.getNumero(), resumoItens);
+                String itens = subPedido.getItens().stream()
+                    .map(item -> item.getProduto().getNome() + " x" + item.getQuantidade())
+                    .collect(java.util.stream.Collectors.joining(", "));
+                notificacaoService.enviarNotificacaoPedidoPronto(telefoneCliente, pedido.getNumero(), itens);
                 log.info("Notificação de pedido pronto enviada para {} - Pedido: {}", telefoneCliente, pedido.getNumero());
             } else {
                 log.warn("Cliente sem telefone cadastrado - notificação não enviada");

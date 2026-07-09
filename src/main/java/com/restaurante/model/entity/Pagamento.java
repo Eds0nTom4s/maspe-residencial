@@ -1,6 +1,7 @@
 package com.restaurante.model.entity;
 
 import com.restaurante.financeiro.enums.MetodoPagamentoAppyPay;
+import com.restaurante.financeiro.enums.PagamentoPollingStatus;
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import jakarta.persistence.*;
@@ -29,6 +30,7 @@ import java.util.Objects;
  */
 @Entity
 @Table(name = "pagamentos_gateway", indexes = {
+    @Index(name = "idx_pagamento_tenant", columnList = "tenant_id"),
     @Index(name = "idx_pagamento_pedido", columnList = "pedido_id"),
     @Index(name = "idx_pagamento_fundo", columnList = "fundo_consumo_id"),
     @Index(name = "idx_pagamento_status", columnList = "status"),
@@ -36,6 +38,10 @@ import java.util.Objects;
     @Index(name = "idx_pagamento_gateway_charge", columnList = "gateway_charge_id")
 })
 public class Pagamento extends BaseEntity {
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
 
     /**
      * Pedido relacionado (nullable)
@@ -52,6 +58,14 @@ public class Pagamento extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "fundo_consumo_id")
     private FundoConsumo fundoConsumo;
+
+    /**
+     * OrdemPagamento relacionada (opcional)
+     * Usado principalmente para pagamentos manuais (CASH/TPA) criados a partir de uma OrdemPagamento.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ordem_pagamento_id")
+    private OrdemPagamento ordemPagamento;
 
     /**
      * Cliente relacionado (opcional)
@@ -132,6 +146,38 @@ public class Pagamento extends BaseEntity {
     @Column(length = 500)
     private String observacoes;
 
+    // ── Polling (rede de segurança do callback) ───────────────────────────────
+    @Column(name = "polling_enabled", nullable = false)
+    private boolean pollingEnabled = true;
+
+    @Column(name = "polling_attempts", nullable = false)
+    private int pollingAttempts = 0;
+
+    @Column(name = "last_polling_attempt_at")
+    private LocalDateTime lastPollingAttemptAt;
+
+    @Column(name = "next_polling_attempt_at")
+    private LocalDateTime nextPollingAttemptAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "polling_status", length = 50)
+    private PagamentoPollingStatus pollingStatus;
+
+    @Column(name = "polling_last_error_code", length = 100)
+    private String pollingLastErrorCode;
+
+    @Column(name = "polling_last_error_message", columnDefinition = "TEXT")
+    private String pollingLastErrorMessage;
+
+    @Column(name = "gateway_status_last_checked_at")
+    private LocalDateTime gatewayStatusLastCheckedAt;
+
+    @Column(name = "gateway_status_raw", columnDefinition = "TEXT")
+    private String gatewayStatusRaw;
+
+    @Column(name = "expires_at")
+    private LocalDateTime expiresAt;
+
     // ── Constructors ──────────────────────────────────────────────────────────
     public Pagamento() {}
 
@@ -160,7 +206,9 @@ public class Pagamento extends BaseEntity {
     // ── Getters ───────────────────────────────────────────────────────────────
     public Pedido getPedido() { return pedido; }
     public FundoConsumo getFundoConsumo() { return fundoConsumo; }
+    public OrdemPagamento getOrdemPagamento() { return ordemPagamento; }
     public Cliente getCliente() { return cliente; }
+    public Tenant getTenant() { return tenant; }
     public TipoPagamentoFinanceiro getTipoPagamento() { return tipoPagamento; }
     public MetodoPagamentoAppyPay getMetodo() { return metodo; }
     public BigDecimal getAmount() { return amount; }
@@ -176,7 +224,9 @@ public class Pagamento extends BaseEntity {
     // ── Setters ───────────────────────────────────────────────────────────────
     public void setPedido(Pedido pedido) { this.pedido = pedido; }
     public void setFundoConsumo(FundoConsumo fundoConsumo) { this.fundoConsumo = fundoConsumo; }
+    public void setOrdemPagamento(OrdemPagamento ordemPagamento) { this.ordemPagamento = ordemPagamento; }
     public void setCliente(Cliente cliente) { this.cliente = cliente; }
+    public void setTenant(Tenant tenant) { this.tenant = tenant; }
     public void setTipoPagamento(TipoPagamentoFinanceiro tipoPagamento) { this.tipoPagamento = tipoPagamento; }
     public void setMetodo(MetodoPagamentoAppyPay metodo) { this.metodo = metodo; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
@@ -188,6 +238,26 @@ public class Pagamento extends BaseEntity {
     public void setConfirmedAt(LocalDateTime confirmedAt) { this.confirmedAt = confirmedAt; }
     public void setGatewayResponse(String gatewayResponse) { this.gatewayResponse = gatewayResponse; }
     public void setObservacoes(String observacoes) { this.observacoes = observacoes; }
+    public boolean isPollingEnabled() { return pollingEnabled; }
+    public void setPollingEnabled(boolean pollingEnabled) { this.pollingEnabled = pollingEnabled; }
+    public int getPollingAttempts() { return pollingAttempts; }
+    public void setPollingAttempts(int pollingAttempts) { this.pollingAttempts = pollingAttempts; }
+    public LocalDateTime getLastPollingAttemptAt() { return lastPollingAttemptAt; }
+    public void setLastPollingAttemptAt(LocalDateTime lastPollingAttemptAt) { this.lastPollingAttemptAt = lastPollingAttemptAt; }
+    public LocalDateTime getNextPollingAttemptAt() { return nextPollingAttemptAt; }
+    public void setNextPollingAttemptAt(LocalDateTime nextPollingAttemptAt) { this.nextPollingAttemptAt = nextPollingAttemptAt; }
+    public PagamentoPollingStatus getPollingStatus() { return pollingStatus; }
+    public void setPollingStatus(PagamentoPollingStatus pollingStatus) { this.pollingStatus = pollingStatus; }
+    public String getPollingLastErrorCode() { return pollingLastErrorCode; }
+    public void setPollingLastErrorCode(String pollingLastErrorCode) { this.pollingLastErrorCode = pollingLastErrorCode; }
+    public String getPollingLastErrorMessage() { return pollingLastErrorMessage; }
+    public void setPollingLastErrorMessage(String pollingLastErrorMessage) { this.pollingLastErrorMessage = pollingLastErrorMessage; }
+    public LocalDateTime getGatewayStatusLastCheckedAt() { return gatewayStatusLastCheckedAt; }
+    public void setGatewayStatusLastCheckedAt(LocalDateTime gatewayStatusLastCheckedAt) { this.gatewayStatusLastCheckedAt = gatewayStatusLastCheckedAt; }
+    public String getGatewayStatusRaw() { return gatewayStatusRaw; }
+    public void setGatewayStatusRaw(String gatewayStatusRaw) { this.gatewayStatusRaw = gatewayStatusRaw; }
+    public LocalDateTime getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(LocalDateTime expiresAt) { this.expiresAt = expiresAt; }
 
     // ── equals / hashCode ─────────────────────────────────────────────────────
     @Override
@@ -209,8 +279,10 @@ public class Pagamento extends BaseEntity {
     public static Builder builder() { return new Builder(); }
 
     public static class Builder {
+        private Tenant tenant;
         private Pedido pedido;
         private FundoConsumo fundoConsumo;
+        private OrdemPagamento ordemPagamento;
         private Cliente cliente;
         private TipoPagamentoFinanceiro tipoPagamento;
         private MetodoPagamentoAppyPay metodo;
@@ -224,8 +296,10 @@ public class Pagamento extends BaseEntity {
         private String gatewayResponse;
         private String observacoes;
 
+        public Builder tenant(Tenant tenant) { this.tenant = tenant; return this; }
         public Builder pedido(Pedido pedido) { this.pedido = pedido; return this; }
         public Builder fundoConsumo(FundoConsumo fundoConsumo) { this.fundoConsumo = fundoConsumo; return this; }
+        public Builder ordemPagamento(OrdemPagamento ordemPagamento) { this.ordemPagamento = ordemPagamento; return this; }
         public Builder cliente(Cliente cliente) { this.cliente = cliente; return this; }
         public Builder tipoPagamento(TipoPagamentoFinanceiro tipoPagamento) { this.tipoPagamento = tipoPagamento; return this; }
         public Builder metodo(MetodoPagamentoAppyPay metodo) { this.metodo = metodo; return this; }
@@ -240,9 +314,12 @@ public class Pagamento extends BaseEntity {
         public Builder observacoes(String observacoes) { this.observacoes = observacoes; return this; }
 
         public Pagamento build() {
-            return new Pagamento(pedido, fundoConsumo, cliente, tipoPagamento, metodo, amount, status,
+            Pagamento p = new Pagamento(pedido, fundoConsumo, cliente, tipoPagamento, metodo, amount, status,
                     externalReference, gatewayChargeId, entidade, referencia,
                     confirmedAt, gatewayResponse, observacoes);
+            p.setTenant(tenant);
+            p.setOrdemPagamento(ordemPagamento);
+            return p;
         }
     }
 

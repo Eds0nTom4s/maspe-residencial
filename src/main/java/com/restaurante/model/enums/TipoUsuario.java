@@ -6,6 +6,7 @@ package com.restaurante.model.enums;
 public enum TipoUsuario {
     CLIENTE("Cliente"),
     ATENDENTE("Atendente"),
+    COZINHA("Cozinha"),
     GERENTE("Gerente"),
     ADMIN("Administrador");
 

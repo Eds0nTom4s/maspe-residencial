@@ -11,6 +11,7 @@ package com.restaurante.model.enums;
  */
 public enum Role {
     ROLE_CLIENTE("Cliente"),
+    ROLE_COURIER("Courier"),
     ROLE_ATENDENTE("Atendente"),
     ROLE_GERENTE("Gerente"),
     ROLE_COZINHA("Cozinha"),

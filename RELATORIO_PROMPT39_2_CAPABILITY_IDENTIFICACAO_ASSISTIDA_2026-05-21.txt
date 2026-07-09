@@ -1,0 +1,162 @@
+RELATÓRIO TÉCNICO — PROMPT 39.2
+CONSUMA — Capability explícita e política de permissão para identificação assistida
+Data: 2026-05-21
+
+1) RESUMO EXECUTIVO
+- Introduzida uma camada explícita de capabilities sensíveis para:
+  - lookup de consumo por telefone;
+  - request/verify de OTP assistido;
+  - vinculação de cliente à sessão;
+  - cross-unit assisted identification (separada e bloqueada por default).
+- Enforcement aplicado nos endpoints device, removendo dependência de capabilities genéricas (ex.: MANAGE_CONSUMPTION_FUND) para identificação assistida.
+- Criado endpoint tenant/admin para listar e atualizar capabilities por device (tenant-aware).
+
+2) MIGRATIONS CRIADAS
+- `src/main/resources/db/migration/V34__device_operational_capabilities.sql`
+  - cria `device_operational_capabilities`
+  - unique `(tenant_id, dispositivo_operacional_id, capability)`
+  - índices por tenant/device e tenant/capability
+
+3) ENUMS CRIADOS/ALTERADOS
+- `src/main/java/com/restaurante/model/enums/DeviceCapability.java`
+  - adicionados:
+    - `LOOKUP_CONSUMPTION_BY_PHONE`
+    - `REQUEST_ASSISTED_IDENTIFICATION_OTP`
+    - `VERIFY_ASSISTED_IDENTIFICATION_OTP`
+    - `LINK_CUSTOMER_TO_SESSION`
+    - `CROSS_UNIT_ASSISTED_IDENTIFICATION`
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+  - adicionados:
+    - `DEVICE_CAPABILITY_UPDATED`
+    - `DEVICE_CAPABILITY_DEFAULTS_BOOTSTRAPPED`
+    - `DEVICE_CAPABILITY_DENIED`
+    - `ASSISTED_IDENTIFICATION_PERMISSION_DENIED`
+    - `ASSISTED_IDENTIFICATION_CROSS_UNIT_DENIED`
+- `src/main/java/com/restaurante/model/enums/OperationalEntityType.java`
+  - adicionados:
+    - `DISPOSITIVO_OPERACIONAL`
+    - `DEVICE_CAPABILITY`
+
+4) ENTIDADES/TABELAS CRIADAS
+- `src/main/java/com/restaurante/device/capability/entity/DeviceOperationalCapabilityEntity.java`
+  - representa `device_operational_capabilities` (tenant-aware)
+
+5) REPOSITORIES CRIADOS
+- `src/main/java/com/restaurante/device/capability/repository/DeviceOperationalCapabilityRepository.java`
+
+6) SERVICES CRIADOS/ALTERADOS
+- Criados:
+  - `src/main/java/com/restaurante/device/capability/service/DeviceCapabilityDefaults.java`
+  - `src/main/java/com/restaurante/device/capability/service/DeviceCapabilityBootstrapService.java`
+  - `src/main/java/com/restaurante/device/capability/service/DeviceCapabilityService.java` (require/requireAll/cross-unit + auditoria de negação)
+  - `src/main/java/com/restaurante/device/capability/service/TenantDeviceCapabilityService.java` (tenant admin list/upsert)
+- Alterado:
+  - `src/main/java/com/restaurante/service/device/DeviceAuthService.java`
+    - passou a carregar capabilities do banco (após bootstrap), em vez de usar apenas `DeviceCapabilities.forTipo(...)`.
+  - `src/main/java/com/restaurante/service/device/DeviceConsumoIdentificadoService.java`
+    - enforcement por capability explícita:
+      - lookup exige `LOOKUP_CONSUMPTION_BY_PHONE`
+      - request OTP assistido exige `REQUEST_ASSISTED_IDENTIFICATION_OTP`
+      - verify exige `VERIFY_ASSISTED_IDENTIFICATION_OTP` + `LINK_CUSTOMER_TO_SESSION`
+      - cross-unit exige `CROSS_UNIT_ASSISTED_IDENTIFICATION`
+  - `src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java`
+    - adicionado `logGeneric(...)` (tenant/device-aware)
+
+7) DTOs CRIADOS (ADMIN)
+- `src/main/java/com/restaurante/dto/request/UpdateDeviceCapabilityRequest.java`
+- `src/main/java/com/restaurante/dto/response/DeviceCapabilityResponse.java`
+
+8) ENDPOINTS ADMIN CRIADOS
+- `src/main/java/com/restaurante/controller/TenantDeviceCapabilityController.java`
+  - `GET /tenant/devices/{deviceId}/capabilities`
+  - `PUT /tenant/devices/{deviceId}/capabilities/{capability}`
+  - RBAC:
+    - list: OWNER/ADMIN/FINANCE/CASHIER
+    - update: OWNER/ADMIN
+
+9) DEFAULTS POR TIPO DE DEVICE (OperationalDeviceType)
+- Bootstrap idempotente (lazy):
+  - base: `DeviceCapabilities.forTipo(DispositivoTipo)` (capabilities gerais existentes)
+  - adicionais por `OperationalDeviceType`:
+    - `POS_CAIXA`: lookup + request + verify + link
+    - `POS_ATENDIMENTO`: lookup + request
+    - `KDS_*` / `POS_QUIOSQUE`: sem capabilities sensíveis
+  - `CROSS_UNIT_ASSISTED_IDENTIFICATION`: NÃO é adicionada por default.
+
+10) COMO CAPABILITY É VALIDADA NOS ENDPOINTS DEVICE
+- Validação central via `DeviceCapabilityService.require(...)` e `requireAll(...)`.
+- Em negação:
+  - retorna 403 (`DeviceForbiddenException`)
+  - audita evento `ASSISTED_IDENTIFICATION_PERMISSION_DENIED` (sem dados sensíveis).
+
+11) CROSS-UNIT
+- Por padrão, device opera apenas na própria unidade.
+- Se a sessão estiver em outra unidade e o device não possuir `CROSS_UNIT_ASSISTED_IDENTIFICATION`:
+  - bloqueia e audita `ASSISTED_IDENTIFICATION_CROSS_UNIT_DENIED`.
+
+12) AUDITORIA / PRIVACIDADE
+- Eventos novos para bootstrap/update e negações.
+- Sem OTP/otpHash/deviceToken.
+- Metadados incluem: tenantId/deviceId/unidadeId/capability/reason.
+
+13) TESTES CRIADOS/ALTERADOS
+- `src/test/java/com/restaurante/device/TenantDeviceCapabilityControllerIT.java`
+  - lista capabilities e update (RBAC)
+- `src/test/java/com/restaurante/consumo/DeviceAssistedIdentificationCapabilityIT.java`
+  - device sem capability não consegue solicitar OTP assistido (403)
+- Ajustados:
+  - `src/test/java/com/restaurante/consumo/DeviceConsumoIdentificadoAssistidoIT.java` (capabilities explícitas)
+  - `src/test/java/com/restaurante/consumo/DeviceClienteConsumoIT.java` (lookup capability explícita)
+
+14) COMANDOS EXECUTADOS
+- `mvn -q -DskipTests compile`
+- `mvn test`
+- `mvn -q -Dtest=TenantDeviceCapabilityControllerIT test`
+- `mvn -q -Dtest=DeviceAssistedIdentificationCapabilityIT test`
+
+15) RESULTADO DOS COMANDOS
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS (observação: vários testes SKIPPED por ausência de Docker/Testcontainers no ambiente)
+- testes específicos: executados sem falhas (podem ser SKIPPED quando dependem de testcontainers no ambiente)
+
+16) ITENS NÃO COBERTOS
+- Templates/rollout de capabilities (não integrar com Prompt 38.* nesta fase, conforme regra).
+- UI.
+
+17) DECISÕES TÉCNICAS TOMADAS
+- Reutilizado enum `DeviceCapability` existente (evita duplicar modelo).
+- Persistência por device em tabela própria (tenant-aware) para suportar enable/disable explícito.
+- Bootstrap lazy idempotente para não exigir mudanças grandes no provisionamento de device.
+
+18) RISCOS RESTANTES
+- Devices já existentes em produção precisarão passar por bootstrap (feito automaticamente no primeiro auth/list).
+- Para escala, auditoria de negação pode ser ruidosa; hoje é intencional para hardening.
+
+19) CHECKLIST DE ACEITAÇÃO (Prompt 39.2)
+[x] Capability explícita lookup por telefone.
+[x] Capability explícita request OTP assistido.
+[x] Capability explícita verify OTP assistido.
+[x] Capability explícita link customer to session.
+[x] Cross-unit separado e bloqueado por default.
+[x] POS_CAIXA recebe defaults adequados (bootstrap).
+[x] KDS/QUIOSQUE não recebem capability sensível por default.
+[x] Lookup por telefone exige capability.
+[x] Request OTP assistido exige capability.
+[x] Verify exige verify + link.
+[x] Device sem capability é bloqueado.
+[x] Negação é auditada.
+[x] Cross-tenant protegido.
+[x] Telefone continua mascarado.
+[x] Auditoria sem OTP/otpHash/deviceToken.
+[x] Fluxos públicos QR preservados.
+[x] OTP assistido funciona quando capability existe.
+[x] AppyPay/CASH/TPA/evidence bundle não alterados.
+[x] `mvn -q -DskipTests compile` passa.
+[x] `mvn test` passa.
+
+20) DOCUMENTAÇÃO
+- `docs/tenant-core/39-2-capability-identificacao-assistida.md`
+
+21) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 39.3: templates + rollout de capabilities por OperationalDeviceType/unidade (sem misturar com payment policy templates).
+

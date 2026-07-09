@@ -1,0 +1,230 @@
+CONSUMA — PROMPT 43.2
+NOTAS DE CRÉDITO/DÉBITO INTERNAS E IMPACTO FISCAL DE AJUSTES (TAX CORE)
+Data: 2026-05-24 (Africa/Luanda)
+
+================================================================================
+1) OBJETIVO
+================================================================================
+Implementar uma ponte formal entre:
+- ajuste operacional aprovado (Prompt 42.2: CaixaOperadorAdjustment); e
+- fiscalidade interna/preparatória (Prompt 43/43.1: FiscalDocument, taxEvidence),
+
+sem editar o FiscalDocument original e sem integrar com AGT/SAF‑T/faturação certificada.
+
+O resultado é:
+- avaliação fiscal formal (assessment) para decidir se há impacto fiscal;
+- emissão de documento corretivo interno (nota interna de crédito/débito) quando aplicável;
+- evidência consolidada no Evidence Bundle (taxEvidence) para bundles novos.
+
+IMPORTANTE: “documento fiscal interno” e “notas internas” NÃO são fatura fiscal oficial/certificada.
+
+================================================================================
+2) ESCOPO IMPLEMENTADO
+================================================================================
+- FiscalAdjustmentAssessment: entidade para governar a decisão de impacto fiscal por ajuste aprovado.
+- TenantFiscalCorrectionPolicy (MVP): política por tenant para auto-avaliar (assessment) e controlar defaults.
+- Correções internas via FiscalDocument:
+  - INTERNAL_CREDIT_NOTE
+  - INTERNAL_DEBIT_NOTE
+  - referência ao documento original + vínculo a adjustment/assessment.
+- Endpoints tenant/admin para:
+  - listar/detalhar assessments;
+  - marcar “sem impacto”;
+  - exigir nota interna de crédito/débito;
+  - emitir nota interna de crédito/débito.
+- Integração no taxEvidence (Evidence Bundle) com:
+  - lista de assessments e correções;
+  - métricas/contagens;
+  - warnings de governança;
+  - hashes determinísticos.
+
+================================================================================
+3) NÃO IMPLEMENTADO (POR DESIGN)
+================================================================================
+- Integração oficial com AGT.
+- SAF‑T.
+- Faturação eletrónica certificada / QR fiscal oficial / assinatura fiscal oficial.
+- Submissão fiscal automática oficial.
+- Emissão fiscal offline (reserva de numeração local).
+- Correção por “MANUAL_LINES” / “PROPORTIONAL_BY_ORIGINAL_LINES” (MVP fica em SINGLE_ADJUSTMENT_LINE).
+- Recalcular Evidence Bundles antigos.
+- Alterar AppyPay callback/polling estruturalmente.
+- Alterar confirmação de pagamento.
+- Reverter pagamento por falha fiscal/corretiva.
+- Editar FiscalDocument original (imutável por regra).
+
+================================================================================
+4) MIGRATIONS CRIADAS
+================================================================================
+- src/main/resources/db/migration/V52__fiscal_corrections_internal.sql
+  - CREATE TABLE fiscal_adjustment_assessments
+  - CREATE TABLE tenant_fiscal_correction_policies
+  - ALTER TABLE fiscal_documents ADD:
+    - original_fiscal_document_id
+    - correction_reason
+    - correction_source
+    - caixa_operador_adjustment_id
+    - fiscal_adjustment_assessment_id
+  - índices e FKs correspondentes
+
+================================================================================
+5) ENTIDADES / ENUMS (NOVOS OU ATUALIZADOS)
+================================================================================
+Entidades:
+- src/main/java/com/restaurante/model/entity/FiscalAdjustmentAssessment.java
+- src/main/java/com/restaurante/model/entity/TenantFiscalCorrectionPolicy.java
+- src/main/java/com/restaurante/model/entity/FiscalDocument.java (atualizado p/ correções internas)
+
+Enums:
+- src/main/java/com/restaurante/model/enums/FiscalAdjustmentAssessmentStatus.java
+- src/main/java/com/restaurante/model/enums/FiscalAdjustmentImpactType.java
+- src/main/java/com/restaurante/model/enums/FiscalCorrectionSource.java
+- src/main/java/com/restaurante/model/enums/FiscalCorrectionLineMode.java
+- src/main/java/com/restaurante/model/enums/TenantFiscalCorrectionPolicyStatus.java
+- src/main/java/com/restaurante/model/enums/FiscalDocumentType.java (adicionados INTERNAL_CREDIT_NOTE/INTERNAL_DEBIT_NOTE)
+- src/main/java/com/restaurante/model/enums/OperationalEventType.java (eventos fiscais 43.2)
+- src/main/java/com/restaurante/model/enums/OperationalEntityType.java (tipos para auditoria/entidades fiscais, quando aplicável)
+
+================================================================================
+6) REPOSITÓRIOS / SERVICES
+================================================================================
+Repositórios:
+- src/main/java/com/restaurante/fiscal/repository/FiscalAdjustmentAssessmentRepository.java
+- src/main/java/com/restaurante/fiscal/repository/TenantFiscalCorrectionPolicyRepository.java
+- src/main/java/com/restaurante/fiscal/repository/FiscalDocumentRepository.java (atualizado para suportar correções/queries)
+
+Services:
+- src/main/java/com/restaurante/fiscal/corrections/service/TenantFiscalCorrectionPolicyService.java
+- src/main/java/com/restaurante/fiscal/corrections/service/FiscalAdjustmentAssessmentService.java
+- src/main/java/com/restaurante/fiscal/corrections/service/FiscalCorrectionCalculationService.java
+- src/main/java/com/restaurante/fiscal/corrections/service/FiscalCorrectionAdminService.java
+- src/main/java/com/restaurante/fiscal/evidence/service/TaxEvidenceService.java (atualizado p/ assessments/correções)
+
+================================================================================
+7) ENDPOINTS IMPLEMENTADOS (TENANT/ADMIN)
+================================================================================
+Controller:
+- src/main/java/com/restaurante/controller/TenantFiscalCorrectionsController.java
+
+Rotas:
+- GET  /tenant/fiscal/adjustment-assessments
+- GET  /tenant/fiscal/adjustment-assessments/{assessmentId}
+- POST /tenant/fiscal/adjustment-assessments/{assessmentId}/mark-no-impact
+- POST /tenant/fiscal/adjustment-assessments/{assessmentId}/require-credit-note
+- POST /tenant/fiscal/adjustment-assessments/{assessmentId}/require-debit-note
+- POST /tenant/fiscal/adjustment-assessments/{assessmentId}/issue-credit-note
+- POST /tenant/fiscal/adjustment-assessments/{assessmentId}/issue-debit-note
+
+Regras de acesso:
+- Roles: TENANT_OWNER / TENANT_ADMIN / TENANT_FINANCE.
+
+================================================================================
+8) INTEGRAÇÃO COM AJUSTE OPERACIONAL (Prompt 42.2)
+================================================================================
+Quando um CaixaOperadorAdjustment é aprovado:
+- publica evento AFTER_COMMIT:
+  - src/main/java/com/restaurante/fiscal/corrections/event/CaixaOperadorAdjustmentApprovedForFiscalAssessmentEvent.java
+- listener cria o assessment (quando fiscalidade estiver habilitada/policy permitir):
+  - src/main/java/com/restaurante/fiscal/corrections/listener/FiscalAdjustmentAssessmentOnAdjustmentApprovedListener.java
+
+Importante:
+- falha fiscal NÃO reverte o ajuste operacional aprovado;
+- não altera CaixaOperadorSession nem FiscalDocument original.
+
+================================================================================
+9) INTEGRAÇÃO COM AppyPay / CASH / TPA
+================================================================================
+- Nenhuma alteração estrutural em callback/polling do AppyPay.
+- Prompt 43.2 atua após existirem:
+  - um ajuste operacional aprovado (caixa) e/ou
+  - documento fiscal interno já emitido (Prompt 43/43.1).
+- CASH/TPA continuam inalterados; correções fiscais internas são operações administrativas/financeiras tenant-side.
+
+================================================================================
+10) REGRAS DE CÁLCULO (MVP)
+================================================================================
+Correções internas suportadas no MVP:
+- FiscalCorrectionLineMode.SINGLE_ADJUSTMENT_LINE
+
+Interpretação:
+- request.amount é tratado como GROSS (total) da correção; net/tax são derivados usando a lógica do Prompt 43.
+
+Restrições:
+- se o FiscalDocument original tiver múltiplas taxas, SINGLE_ADJUSTMENT_LINE falha (exige correção por linhas; não implementado no MVP).
+
+================================================================================
+11) EVIDENCE BUNDLE / taxEvidence
+================================================================================
+Alterações principais:
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/TaxEvidenceSectionDTO.java (novos campos de correção/assessment)
+- src/main/java/com/restaurante/fiscal/evidence/service/TaxEvidenceService.java:
+  - inclui assessments;
+  - inclui correctionDocuments (credit/debit notes internas);
+  - warnings quando:
+    - assessment pendente;
+    - assessment requer nota e ainda não emitida;
+  - documentHash canônico passa a incluir campos de correção (sem expor texto livre completo).
+
+Compatibilidade:
+- bundles antigos continuam legíveis (sem recalcular histórico).
+
+================================================================================
+12) AUDITORIA (SANITIZADA)
+================================================================================
+Eventos adicionados:
+- FISCAL_ADJUSTMENT_ASSESSMENT_CREATED
+- FISCAL_ADJUSTMENT_ASSESSMENT_MARKED_NO_IMPACT
+- FISCAL_ADJUSTMENT_ASSESSMENT_REQUIRES_CREDIT_NOTE
+- FISCAL_ADJUSTMENT_ASSESSMENT_REQUIRES_DEBIT_NOTE
+- FISCAL_ADJUSTMENT_ASSESSMENT_CANCELLED
+- FISCAL_ADJUSTMENT_ASSESSMENT_SKIPPED
+- FISCAL_INTERNAL_CREDIT_NOTE_ISSUED
+- FISCAL_INTERNAL_DEBIT_NOTE_ISSUED
+- FISCAL_CORRECTION_EVIDENCE_ATTACHED_TO_BUNDLE (quando aplicável)
+
+Sanitização:
+- sem AppyPay raw, sem dados de cartão, sem token de device, sem telefone completo.
+
+================================================================================
+13) TESTES (NOVOS/ALTERADOS) E RESULTADOS
+================================================================================
+Testes novos/alterados (Prompt 43.2):
+- src/test/java/com/restaurante/fiscal/corrections/FiscalAdjustmentAssessmentServiceTest.java
+- src/test/java/com/restaurante/fiscal/corrections/FiscalCorrectionDocumentServiceTest.java
+- src/test/java/com/restaurante/fiscal/corrections/TaxEvidenceCorrectionTest.java
+
+Execuções:
+- mvn -q -DskipTests compile  => OK (exit code 0)
+- mvn test                   => BUILD SUCCESS
+  - Tests run: 505, Failures: 0, Errors: 0, Skipped: 223
+
+Observação:
+- Alguns ITs usam Testcontainers; sem Docker no ambiente, esses testes ficam SKIPPED (build permanece verde).
+
+================================================================================
+14) COMANDOS EXECUTADOS
+================================================================================
+- mvn -q -DskipTests compile
+- mvn -q -Dtest=FiscalAdjustmentAssessmentServiceTest test
+- mvn -q -Dtest=FiscalCorrectionDocumentServiceTest test
+- mvn -q -Dtest=TaxEvidenceCorrectionTest test
+- mvn test
+
+================================================================================
+15) STATUS FINAL
+================================================================================
+PROMPT 43.2: CONCLUÍDO.
+- Migrations aplicáveis criadas.
+- Assessment e correções internas implementados.
+- taxEvidence expandido sem quebrar compatibilidade.
+- AppyPay e confirmação de pagamento não foram alterados estruturalmente.
+- mvn compile OK; mvn test OK.
+
+================================================================================
+16) PENDÊNCIAS FUTURAS RECOMENDADAS
+================================================================================
+- Suportar correções com múltiplas taxas:
+  - PROPORTIONAL_BY_ORIGINAL_LINES e/ou MANUAL_LINES.
+- Expor endpoints de gestão do TenantFiscalCorrectionPolicy (se necessário operacionalmente).
+- Etapa própria para correções fiscais oficiais/certificadas (AGT/SAF‑T), mantendo separação do core interno.
+

@@ -53,15 +53,21 @@ public class PedidoFinanceiroService {
     private final PedidoRepository pedidoRepository;
     private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
     private final AuditoriaFinanceiraService auditoriaFinanceiraService;
+    private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
+    private final SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService;
 
     public PedidoFinanceiroService(FundoConsumoService fundoConsumoService,
                                    PedidoRepository pedidoRepository,
                                    ConfiguracaoFinanceiraService configuracaoFinanceiraService,
-                                   AuditoriaFinanceiraService auditoriaFinanceiraService) {
+                                   AuditoriaFinanceiraService auditoriaFinanceiraService,
+                                   PedidoPagamentoPolicy pedidoPagamentoPolicy,
+                                   @org.springframework.context.annotation.Lazy SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService) {
         this.fundoConsumoService = fundoConsumoService;
         this.pedidoRepository = pedidoRepository;
         this.configuracaoFinanceiraService = configuracaoFinanceiraService;
         this.auditoriaFinanceiraService = auditoriaFinanceiraService;
+        this.pedidoPagamentoPolicy = pedidoPagamentoPolicy;
+        this.sessaoConsumoAutoClosureService = sessaoConsumoAutoClosureService;
     }
 
     // Roles com permissão para autorizar pós-pago
@@ -143,8 +149,11 @@ public class PedidoFinanceiroService {
      * Verifica se roles permitem autorizar pós-pago.
      */
     public void autorizarPosPago(Set<String> roles) {
-        // Bloqueio Global: Pedidos Pós-Pago não são permitidos no ecosistema
-        throw new PosPagoNaoPermitidoException("Pedidos do tipo Pós-Pago foram desativados. Todos os pedidos devem ser pagos no ato da compra (Pré-Pago).");
+        boolean temPermissao = roles.stream().anyMatch(ROLES_AUTORIZAM_POS_PAGO::contains);
+        
+        if (!temPermissao) {
+            throw new PosPagoNaoPermitidoException();
+        }
     }
 
     /**
@@ -220,6 +229,7 @@ public class PedidoFinanceiroService {
         if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.NAO_PAGO) {
             throw new BusinessException("Pedido já possui status financeiro: " + pedido.getStatusFinanceiro());
         }
+        pedidoPagamentoPolicy.assertPodeConfirmarPagamento(pedido, PedidoPagamentoPolicy.PaymentFlow.TENANT_MANUAL_CONFIRMATION);
 
         pedido.marcarComoPago();
         pedidoRepository.save(pedido);
@@ -235,6 +245,11 @@ public class PedidoFinanceiroService {
                 usuarioRole);
 
         log.info("Pagamento pós-pago confirmado para pedido {}", pedidoId);
+
+        // Avaliar auto-fecho
+        if (pedido.getSessaoConsumo() != null) {
+            sessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo(pedido.getSessaoConsumo().getId());
+        }
     }
 
     /**
@@ -288,6 +303,11 @@ public class PedidoFinanceiroService {
                 motivo);
 
         log.info("Estorno concluído para pedido {} - Motivo: {}", pedidoId, motivo);
+
+        // Avaliar auto-fecho
+        if (pedido.getSessaoConsumo() != null) {
+            sessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo(pedido.getSessaoConsumo().getId());
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────

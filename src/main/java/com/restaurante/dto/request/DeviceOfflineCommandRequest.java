@@ -1,0 +1,103 @@
+package com.restaurante.dto.request;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.restaurante.model.enums.DeviceOfflineCommandType;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
+import java.time.Instant;
+import java.util.List;
+
+public class DeviceOfflineCommandRequest {
+
+    @NotBlank
+    private String clientRequestId;
+
+    /**
+     * Referência local opcional. Default = clientRequestId.
+     * Usada apenas para resolução de dependências dentro do batch.
+     */
+    private String localRef;
+
+    /**
+     * Lista opcional de dependências (clientRequestId/localRef) que devem estar RESOLVIDAS antes deste comando.
+     * Se ausente, pode ser inferida do payload para comandos conhecidos.
+     */
+    private List<String> dependsOn;
+
+    @NotNull
+    private DeviceOfflineCommandType commandType;
+
+    @NotBlank
+    private String commandVersion;
+
+    private Instant localCreatedAt;
+    private Long localSequence;
+
+    @NotNull
+    private JsonNode payload;
+
+    public String getClientRequestId() {
+        return clientRequestId;
+    }
+
+    public void setClientRequestId(String clientRequestId) {
+        this.clientRequestId = clientRequestId;
+    }
+
+    public String getLocalRef() {
+        return localRef;
+    }
+
+    public void setLocalRef(String localRef) {
+        this.localRef = localRef;
+    }
+
+    public List<String> getDependsOn() {
+        return dependsOn;
+    }
+
+    public void setDependsOn(List<String> dependsOn) {
+        this.dependsOn = dependsOn;
+    }
+
+    public DeviceOfflineCommandType getCommandType() {
+        return commandType;
+    }
+
+    public void setCommandType(DeviceOfflineCommandType commandType) {
+        this.commandType = commandType;
+    }
+
+    public String getCommandVersion() {
+        return commandVersion;
+    }
+
+    public void setCommandVersion(String commandVersion) {
+        this.commandVersion = commandVersion;
+    }
+
+    public Instant getLocalCreatedAt() {
+        return localCreatedAt;
+    }
+
+    public void setLocalCreatedAt(Instant localCreatedAt) {
+        this.localCreatedAt = localCreatedAt;
+    }
+
+    public Long getLocalSequence() {
+        return localSequence;
+    }
+
+    public void setLocalSequence(Long localSequence) {
+        this.localSequence = localSequence;
+    }
+
+    public JsonNode getPayload() {
+        return payload;
+    }
+
+    public void setPayload(JsonNode payload) {
+        this.payload = payload;
+    }
+}

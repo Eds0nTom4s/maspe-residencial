@@ -12,7 +12,7 @@ import java.util.Set;
 public class RegisterRequest {
 
     @NotBlank(message = "Username é obrigatório")
-    @Size(min = 3, max = 50, message = "Username deve ter entre 3 e 50 caracteres")
+    @Size(min = 3, max = 120, message = "Username deve ter entre 3 e 120 caracteres")
     private String username;
 
     @NotBlank(message = "Password é obrigatório")

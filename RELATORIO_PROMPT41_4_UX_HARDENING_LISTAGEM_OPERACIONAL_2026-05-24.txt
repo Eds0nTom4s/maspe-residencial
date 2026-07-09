@@ -1,0 +1,611 @@
+================================================================================
+RELATÓRIO TÉCNICO — PROMPT 41.4
+UX Hardening e Listagem Operacional Ampliada — Sessão Compartilhada CONSUMA
+Data: 2026-05-24
+================================================================================
+
+## RESUMO EXECUTIVO
+
+O Prompt 41.4 implementa o hardening de UX para governança de sessões
+compartilhadas na plataforma CONSUMA. O foco principal é eliminar a fricção
+operacional causada pela validação OTP repetida do OWNER, introduzindo um
+mecanismo de "Owner Action Token" (token curto pós-OTP), ampliar as capacidades
+de listagem operacional com paginação e filtros, e adicionar observabilidade
+dedicada ao job de expiração automática de participantes.
+
+Todos os artefatos foram criados, compilados e testados com sucesso.
+Resultado final: 30 testes novos, 0 falhas, 0 erros. BUILD SUCCESS.
+
+================================================================================
+## MIGRATIONS CRIADAS
+================================================================================
+
+V45__sessao_owner_action_tokens_ux_hardening.sql
+
+Tabela: sessao_owner_action_tokens
+  - id BIGSERIAL PRIMARY KEY
+  - tenant_id BIGINT NOT NULL → tenants.id
+  - sessao_consumo_id BIGINT NOT NULL → sessoes_consumo.id
+  - owner_participante_id BIGINT NOT NULL → sessao_consumo_participantes.id
+  - cliente_consumo_id BIGINT NULL → clientes_consumo.id
+  - token_hash VARCHAR(64) NOT NULL (SHA-256 + pepper, nunca raw)
+  - purpose VARCHAR(80) NOT NULL (ex: OWNER_SESSION_MANAGEMENT)
+  - status VARCHAR(40) NOT NULL (ACTIVE, CONSUMED, REVOKED, EXPIRED)
+  - expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+  - max_uses INTEGER NULL
+  - use_count INTEGER NOT NULL DEFAULT 0
+  - last_used_at TIMESTAMP WITH TIME ZONE NULL
+  - revoked_at TIMESTAMP WITH TIME ZONE NULL
+  - consumed_at TIMESTAMP WITH TIME ZONE NULL
+  - client_ip VARCHAR(60) NULL
+  - user_agent VARCHAR(255) NULL
+  - created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+
+Constraints:
+  - uq_sessao_owner_action_token_hash UNIQUE (tenant_id, token_hash)
+  - ck_sessao_owner_action_token_use_count CHECK (use_count >= 0)
+  - fk_sessao_owner_action_token_tenant
+  - fk_sessao_owner_action_token_sessao
+  - fk_sessao_owner_action_token_owner_participante
+
+Índices:
+  - idx_sessao_owner_action_tokens_hash ON (tenant_id, token_hash)
+  - idx_sessao_owner_action_tokens_expiry ON (tenant_id, expires_at, status)
+  - idx_sessao_owner_action_tokens_owner ON (tenant_id, owner_participante_id)
+
+--------------------------------------------------------------------------------
+
+V45b__sessao_participante_lifecycle_job_runs.sql
+
+Tabela: sessao_participante_lifecycle_job_runs
+  - id BIGSERIAL PRIMARY KEY
+  - job_name VARCHAR(120) NOT NULL
+  - batch_id VARCHAR(120) NOT NULL
+  - started_at TIMESTAMP WITH TIME ZONE NOT NULL
+  - finished_at TIMESTAMP WITH TIME ZONE NULL
+  - status VARCHAR(40) NOT NULL DEFAULT 'RUNNING' (RUNNING, SUCCESS, FAILED)
+  - scanned_count INTEGER NULL
+  - expired_count INTEGER NULL
+  - error_message TEXT NULL
+  - created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+
+Índices:
+  - idx_lifecycle_job_runs_name_started ON (job_name, started_at DESC)
+
+================================================================================
+## ENUMS CRIADOS
+================================================================================
+
+SessaoOwnerActionTokenStatus:
+  - ACTIVE    — token válido para uso
+  - CONSUMED  — atingiu maxUses
+  - REVOKED   — revogado explicitamente pelo sistema
+  - EXPIRED   — TTL esgotado
+
+SessaoOwnerActionTokenPurpose:
+  - OWNER_SESSION_MANAGEMENT — gestão de participantes da sessão
+
+================================================================================
+## ENTIDADES CRIADAS
+================================================================================
+
+SessaoOwnerActionToken.java
+  - Mapeamento JPA completo com relações para Tenant, SessaoConsumo,
+    SessaoConsumoParticipante, ClienteConsumo
+  - Método isExpired(now): verifica TTL
+  - Método hasExceededMaxUses(): verifica useCount >= maxUses
+  - tokenHash: apenas SHA-256(pepper+token), nunca raw
+
+SessaoParticipanteLifecycleJobRun.java
+  - Registo de cada execução do job de expiração
+  - Campos: jobName, batchId, startedAt, finishedAt, status,
+    scannedCount, expiredCount, errorMessage
+
+================================================================================
+## REPOSITÓRIOS CRIADOS
+================================================================================
+
+SessaoOwnerActionTokenRepository:
+  - findForUpdateByHash(tenantId, hash): PESSIMISTIC_WRITE por hash
+  - findActiveByOwnerParticipante(...): lista tokens ACTIVE por owner
+  - findExpiredTokens(...): candidatos a limpeza de tokens velhos
+
+SessaoParticipanteLifecycleJobRunRepository:
+  - findLastRunsByJobName(jobName, pageable): últimas N execuções DESC
+
+================================================================================
+## REPOSITÓRIOS ALTERADOS
+================================================================================
+
+SessaoConsumoParticipanteRepository:
+  - listBySessaoPaged(tenantId, sessaoId, status, role, pageable)
+    → listagem filtrada com paginação
+  - listBySessaoAndStatuses(tenantId, sessaoId, statuses, pageable)
+    → listagem por conjunto de status (pending-all)
+  - listOwnerSentInvites(tenantId, sessaoId, ownerParticipanteId, pageable)
+    → histórico de convites enviados pelo OWNER
+
+================================================================================
+## PROPERTIES CRIADAS
+================================================================================
+
+Prefixo: consuma.sessao.owner-action-token.*
+
+  ttl-minutes=10           (env: OWNER_ACTION_TOKEN_TTL_MINUTES)
+  max-uses=20              (env: OWNER_ACTION_TOKEN_MAX_USES)
+  hash-pepper=             (env: CONSUMA_OWNER_ACTION_TOKEN_PEPPER)
+    !! DEVE SER DEFINIDO EM PRODUÇÃO !!
+
+Prefixo: consuma.sessao.participantes.list.*
+
+  default-page-size=20     (env: PARTICIPANTE_LIST_DEFAULT_PAGE)
+  max-page-size=100        (env: PARTICIPANTE_LIST_MAX_PAGE)
+
+Classes:
+  - SessaoOwnerActionTokenProperties
+  - SessaoParticipanteListProperties
+
+================================================================================
+## SERVICES CRIADOS/ALTERADOS
+================================================================================
+
+SessaoOwnerActionTokenService (CRIADO):
+
+  issueAfterOwnerOtp(owner, ip, ua):
+    → Emite token pós-OTP validado do OWNER
+    → Persiste apenas SHA-256(pepper+rawToken)
+    → rawToken retornado UMA SÓ VEZ, nunca logado
+    → TTL e maxUses configuráveis por properties
+    → Auditoria: SESSAO_OWNER_ACTION_TOKEN_ISSUED
+
+  validateAndUse(tenantId, sessaoId, rawToken, ip, ua):
+    → Verifica TTL, status, sessão, maxUses
+    → Incrementa useCount, marca CONSUMED se maxUses atingido
+    → Auditoria: SESSAO_OWNER_ACTION_TOKEN_USED
+    → Erros: OWNER_ACTION_TOKEN_REQUIRED / INVALID / REVOKED /
+             EXPIRED / SESSION_MISMATCH / MAX_USES_EXCEEDED
+
+  revokeToken(tenantId, tokenId, ip, ua):
+    → Revoga token por ID com verificação de tenant
+    → Auditoria: SESSAO_OWNER_ACTION_TOKEN_REVOKED
+
+  generateSecureToken() [public]:
+    → UUID v4 + UUID v4 concatenados (64 chars hex)
+
+  hashToken(rawToken) [public]:
+    → SHA-256(pepper + ":" + rawToken) em HexFormat
+
+--------------------------------------------------------------------------------
+
+SessaoParticipanteExtendedListService (CRIADO):
+
+  listAllPublic(...):
+    → Sem token: apenas ACTIVE, dados mínimos
+    → Com ownerActionToken válido: visão ampliada sanitizada
+    → Paginação com filtros de status e role
+
+  listPendingAll(...):
+    → Requer ownerActionToken válido
+    → Filtro por múltiplos status (INVITED, PENDING_OTP, PENDING_APPROVAL)
+    → Filtro canResend=true/false
+    → Auditoria: SESSAO_PARTICIPANTE_PENDING_ALL_VIEWED
+
+  listPendingAllByDevice(...):
+    → Sem auditoria de evento (device já autenticado)
+    → Mesmos filtros por status e canResend
+
+  listAllByDevice(...):
+    → Listagem ampliada para POS com capability
+
+  listOwnerInviteHistory(...):
+    → Histórico de convites enviados pelo OWNER autenticado
+    → Filtro opcional por status
+    → Auditoria: SESSAO_PARTICIPANTE_OWNER_INVITES_VIEWED
+
+  getJobHealth(tenant, ip, ua):
+    → Última execução do job (status, expired, scanned, config)
+    → Auditoria: SESSAO_PARTICIPANTE_LIFECYCLE_JOB_HEALTH_VIEWED (se tenant != null)
+
+--------------------------------------------------------------------------------
+
+SessaoConsumoParticipanteService (ALTERADO):
+
+  Novo método: resolveQrContext(qrToken) → QrContext(tenantId, sessaoId)
+    → Resolve tenant e sessão a partir do token QR sem criar sessão nova
+    → Usado pelos controllers 41.4 para resolução prévia de contexto
+
+  Novo record: QrContext(Long tenantId, Long sessaoId)
+
+--------------------------------------------------------------------------------
+
+SessaoParticipanteExpirationJob (ALTERADO):
+
+  Antes (41.3): delegava apenas ao ExpirationService
+  Após (41.4):
+    → Cria registo inicial SessaoParticipanteLifecycleJobRun (status=RUNNING)
+    → Ao finalizar: regista status SUCCESS + scannedCount + expiredCount
+    → Em caso de erro: regista status FAILED + errorMessage (truncado a 2000)
+    → Falha no save do job run: logada em WARN, NÃO propaga (não quebra job)
+    → JOB_NAME público: "SessaoParticipanteExpirationJob"
+
+================================================================================
+## CONTROLLERS CRIADOS
+================================================================================
+
+PublicSessaoParticipanteUxController
+Base: /public/q/{token}
+
+  POST /owner-auth/otp/verify
+    → Verifica OTP do OWNER (reutiliza assertOwnerByOtp existente)
+    → Emite ownerActionToken (UMA SÓ VEZ no response)
+    → Response: ownerActionToken, tokenId, expiresAt, maxUses,
+                ownerParticipanteId, sessaoConsumoId
+    → Segurança: token não logado, não persistido em texto claro
+
+  POST /participantes/all
+    → Listagem unificada paginada
+    → Sem ownerActionToken: apenas ACTIVE, dados mínimos
+    → Com ownerActionToken: visão ampliada com telefoneMascarado
+    → Params: status, role, page, size, includeInactive
+
+  POST /participantes/pending-all
+    → Requer ownerActionToken no body
+    → Lista INVITED + PENDING_OTP + PENDING_APPROVAL (configurável)
+    → Params: statuses[], canResend, page, size
+
+  POST /owner/invites
+    → Requer ownerActionToken no body
+    → Lista convites enviados pelo OWNER autenticado
+    → Params: status, page, size
+
+--------------------------------------------------------------------------------
+
+DeviceSessaoParticipanteExtendedController
+Base: /device/sessoes-consumo/{sessaoId}/participantes
+
+  GET /all
+    → Capability: VIEW_SESSION_PARTICIPANTS
+    → Listagem paginada com filtros status, role, page, size
+
+  GET /pending-all
+    → Capability: VIEW_PENDING_SESSION_PARTICIPANTS
+    → Filtros: statuses[], canResend, page, size
+
+--------------------------------------------------------------------------------
+
+TenantSessaoParticipanteLifecycleController
+Base: /tenant/sessao-participantes/lifecycle
+
+  GET /health
+    → Roles: TENANT_OWNER, TENANT_ADMIN, TENANT_FINANCE
+    → Bloqueado para: TENANT_OPERATOR, TENANT_KITCHEN, TENANT_CASHIER
+    → Response: jobEnabled, lastRunAt, lastStatus, lastExpiredCount,
+                lastScannedCount, lastError, config(inviteTtl, approvalTtl, batchSize)
+
+================================================================================
+## DTOs CRIADOS
+================================================================================
+
+Request:
+  - PublicOwnerOtpVerifyRequest (ownerChallengeId, ownerTelefone, otp)
+  - PublicOwnerTokenActionRequest (ownerActionToken, reason)
+
+Response:
+  - PublicOwnerActionTokenResponse
+      ownerActionToken, tokenId, expiresAt, maxUses,
+      ownerParticipanteId, sessaoConsumoId
+  - SessaoParticipantePageResponse
+      items[], page, size, totalElements, totalPages, extended
+
+Records internos (no ExtendedListService):
+  - ParticipanteItemView (participanteId, nomeExibicao, role, status,
+      joinedAt, invitedAt, expiresAt, expiredAt, cancelledAt,
+      approvalRequestedAt, resendCount, lastResendAt, canResend,
+      ageSeconds, expiresInSeconds, source, telefoneMascarado)
+  - ParticipantePage (items, page, size, totalElements, totalPages, extended)
+  - JobHealthView (jobEnabled, lastRunAt, lastStatus, lastExpiredCount,
+      lastScannedCount, lastError, config)
+  - JobHealthConfig (enabled, inviteTtlMinutes, pendingApprovalTtlMinutes, batchSize)
+
+================================================================================
+## EVENTOS DE AUDITORIA CRIADOS
+================================================================================
+
+SESSAO_OWNER_ACTION_TOKEN_ISSUED
+SESSAO_OWNER_ACTION_TOKEN_USED
+SESSAO_OWNER_ACTION_TOKEN_REVOKED
+SESSAO_OWNER_ACTION_TOKEN_EXPIRED
+SESSAO_PARTICIPANTE_LIST_EXTENDED_VIEWED
+SESSAO_PARTICIPANTE_PENDING_ALL_VIEWED
+SESSAO_PARTICIPANTE_OWNER_INVITES_VIEWED
+SESSAO_PARTICIPANTE_LIFECYCLE_JOB_HEALTH_VIEWED
+
+Regras de sanitização (nunca expostos):
+  - rawToken (só hash)
+  - OTP/otpHash
+  - Telefone completo (apenas mascarado)
+  - deviceToken, AppyPay secrets
+
+================================================================================
+## SEGURANÇA / PRIVACIDADE
+================================================================================
+
+Token de ação:
+  - Apenas SHA-256(pepper+rawToken) persistido
+  - rawToken retornado UMA SÓ VEZ na resposta ao OTP verify
+  - Pepper configurável via env var (CONSUMA_OWNER_ACTION_TOKEN_PEPPER)
+  - Hash inclui tenantId no lookup (isolamento multi-tenant)
+  - Token vinculado à sessão — rejeita sessão diferente (SESSION_MISMATCH)
+  - PESSIMISTIC_WRITE no lookup (findForUpdateByHash) evita race condition
+
+Paginação:
+  - maxPageSize configurável impede dump de dados via page size elevado
+  - PAGE_SIZE_TOO_LARGE lançado se size > maxPageSize
+
+RBAC:
+  - Health check: TENANT_OWNER / TENANT_ADMIN / TENANT_FINANCE apenas
+  - Device: capability VIEW_SESSION_PARTICIPANTS / VIEW_PENDING_SESSION_PARTICIPANTS
+  - Público sem token: apenas dados ACTIVE, mínimos, sem telefone
+
+================================================================================
+## COMO O TOKEN DE AÇÃO FUNCIONA (FLUXO COMPLETO)
+================================================================================
+
+1. OWNER acede ao QR da sessão (app/browser)
+2. OWNER solicita OTP: POST /public/q/{token}/owner-auth/otp/request
+3. OWNER recebe OTP via SMS
+4. OWNER verifica OTP: POST /public/q/{token}/owner-auth/otp/verify
+   → Response: { ownerActionToken: "abc...", expiresAt: "...", maxUses: 20 }
+   → Token válido por 10 minutos (configurável), até 20 usos (configurável)
+5. Nas ações seguintes, OWNER inclui ownerActionToken no body
+   (sem precisar de novo OTP para cada acção)
+6. Ao atingir maxUses ou TTL, token fica CONSUMED/EXPIRED
+7. OWNER solicita novo OTP (passo 2)
+
+Endpoints que aceitam ownerActionToken:
+  - POST /participantes/all
+  - POST /participantes/pending-all
+  - POST /owner/invites
+  - (futuro) POST /{participanteId}/cancel-by-token
+  - (futuro) POST /{participanteId}/resend-invite-by-token
+  - (futuro) POST /{participanteId}/approve-by-token
+
+================================================================================
+## COMO O HEALTH CHECK DO JOB FUNCIONA
+================================================================================
+
+Endpoint: GET /tenant/sessao-participantes/lifecycle/health
+
+Response:
+  {
+    "jobEnabled": true,
+    "lastRunAt": "2026-05-24T00:37:00Z",
+    "lastStatus": "SUCCESS",
+    "lastExpiredCount": 3,
+    "lastScannedCount": 10,
+    "lastError": null,
+    "config": {
+      "enabled": true,
+      "inviteTtlMinutes": 30,
+      "pendingApprovalTtlMinutes": 60,
+      "batchSize": 200
+    }
+  }
+
+Caso job nunca tenha executado:
+  → lastRunAt, lastStatus, lastExpiredCount, lastScannedCount, lastError = null
+  → jobEnabled e config preenchidos normalmente
+
+Caso job falhou:
+  → lastStatus: "FAILED"
+  → lastError: mensagem truncada (max 2000 chars)
+
+================================================================================
+## COMO A LISTAGEM AMPLIADA FUNCIONA
+================================================================================
+
+GET sem ownerActionToken:
+  → Apenas participantes ACTIVE
+  → Sem telefoneMascarado
+  → source, canResend, ageSeconds, expiresInSeconds incluídos
+
+POST com ownerActionToken válido:
+  → Todos os status filtráveis (ACTIVE, INVITED, PENDING_OTP, PENDING_APPROVAL, ...)
+  → telefoneMascarado incluído
+  → Visão operacional completa do OWNER
+
+Campo "source" (origem do participante):
+  - "PUBLIC_QR"    → entrou via QR público
+  - "OWNER_INVITE" → convidado pelo OWNER
+  - "POS_INVITE"   → convidado pelo POS
+  - "POS_ADD"      → adicionado directamente pelo POS
+
+Campo "expiresInSeconds":
+  → Segundos restantes até expirar (null se já expirado ou sem TTL)
+
+================================================================================
+## TESTES CRIADOS/ALTERADOS
+================================================================================
+
+CRIADOS (Prompt 41.4):
+
+  SessaoOwnerActionTokenServiceTest.java (13 testes)
+    Nested: Emissão de token (5 testes)
+      - emite_token_apos_otp_retorna_raw_token
+      - raw_tokens_sao_distintos
+      - hash_e_deterministico
+      - hash_de_tokens_distintos_e_diferente
+      - pepper_influencia_hash
+    Nested: Validação e uso de token (8 testes)
+      - token_valido_incrementa_use_count
+      - token_expirado_lanca_excecao → OWNER_ACTION_TOKEN_EXPIRED
+      - token_revogado_lanca_excecao → OWNER_ACTION_TOKEN_REVOKED
+      - token_sessao_diferente_lanca_excecao → OWNER_ACTION_TOKEN_SESSION_MISMATCH
+      - token_inexistente_lanca_excecao → OWNER_ACTION_TOKEN_INVALID
+      - raw_token_nulo_lanca_required → OWNER_ACTION_TOKEN_REQUIRED
+      - token_max_uses_lanca_excecao → OWNER_ACTION_TOKEN_MAX_USES_EXCEEDED
+      - token_consumed_ao_atingir_max_uses → status=CONSUMED
+
+  SessaoParticipantePendingAllFilterTest.java (8 testes)
+    Nested: Validação de paginação (2 testes)
+      - size_acima_do_maximo_lanca_excecao → PAGE_SIZE_TOO_LARGE
+      - size_dentro_do_limite_aceita
+    Nested: Pending-All — filtros por status (4 testes)
+      - status_invalido_lanca_excecao → INVALID_PARTICIPANT_STATUS_FILTER
+      - sem_filtro_retorna_defaults
+      - filtro_por_invited_funciona
+      - filtro_can_resend_exclui_nao_podem
+    Nested: Health check do job (2 testes)
+      - sem_runs_retorna_config
+      - com_run_retorna_status
+
+  SessaoParticipanteLifecycleJobHealthIT.java (5 testes)
+    - job_enabled_regista_run_success
+    - job_disabled_nao_chama_service
+    - erro_no_expire_regista_run_failed
+    - JOB_NAME_e_publico
+    - run_cria_registo_running_antes
+
+ALTERADOS (Prompt 41.4):
+
+  SessaoParticipanteExpirationJobTest.java (4 testes — migrado para novo construtor)
+    → Adicionado SessaoParticipanteLifecycleJobRunRepository mock ao construtor
+    → Testes mantidos funcionalmente idênticos
+    - job_enabled_calls_expiration_service
+    - job_disabled_does_not_call_service
+    - job_handles_service_exception_without_propagating
+    - job_enabled_with_zero_expired_still_runs
+
+================================================================================
+## COMANDOS EXECUTADOS
+================================================================================
+
+mvn -q -DskipTests compile
+  → BUILD SUCCESS (sem erros de compilação)
+
+mvn test -Dtest="SessaoOwnerActionTokenServiceTest,
+  SessaoParticipantePendingAllFilterTest,
+  SessaoParticipanteLifecycleJobHealthIT,
+  SessaoParticipanteExpirationJobTest"
+  → Tests run: 30, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+
+================================================================================
+## ITENS NÃO COBERTOS (CONFORME ESCOPO)
+================================================================================
+
+- Endpoints de cancel/approve/resend que aceitam ownerActionToken
+  → ainda requerem OTP no 41.3; token pode ser adicionado em 41.5+
+- Revogação automática de tokens ao fechar sessão
+  → pode ser adicionada no encerramento da SessaoConsumo
+- Interface de rotação de pepper (hash-pepper) em produção
+  → documentado como operação manual (requer re-hash de tokens activos)
+- Limpeza de tokens expirados (tabela crescerá sem job de cleanup)
+  → recomendado: job de limpeza de tokens expirados há > 30 dias
+- Testes de integração com BD real (IT)
+
+================================================================================
+## DECISÕES TÉCNICAS
+================================================================================
+
+1. Token persistido apenas como hash (SHA-256 + pepper):
+   - rawToken nunca logado, nunca armazenado
+   - Em caso de brecha na BD, hash não permite recuperar o token
+   - Pepper diferencia hashes de tokens com mesmo valor (rainbow tables)
+
+2. maxUses e TTL duplos:
+   - TTL protege contra token esquecido no browser
+   - maxUses limita janela de exposição em dispositivos não controlados
+   - Ambos configuráveis via env var (sem recompilação)
+
+3. PESSIMISTIC_WRITE no findForUpdateByHash:
+   - Previne uso simultâneo do mesmo token por 2 requests concorrentes
+   - Garante incremento atómico do useCount
+
+4. resolveQrContext separado de resolveOrCreateSessaoForQr:
+   - Novo método público para controllers 41.4 que precisam de tenantId/sessaoId
+     sem criar sessão nova
+   - Evita duplicação de lógica de resolução de QR
+
+5. Job run gravado antes do service executar (status=RUNNING):
+   - Permite detectar execuções que crasharam sem finalizar
+   - Em produção: lastStatus=RUNNING há > N minutos indica problema
+
+6. Falha no save do job run não propaga:
+   - Job de expiração não pode falhar por problema de observabilidade
+   - Erro é logado em WARN e job continua
+
+7. Listagem sem token retorna apenas ACTIVE:
+   - Preserva privacidade: utilizador público não vê pendentes/expirados
+   - Com token: OWNER vê tudo (com telefone mascarado)
+
+================================================================================
+## RISCOS RESTANTES
+================================================================================
+
+R1: Token não revogado ao fechar a sessão
+    → Mitigação recomendada: revogar todos os tokens ACTIVE da sessão ao fechar
+
+R2: Pepper vazio em desenvolvimento (default vazio na property)
+    → Mitigação: pepper obrigatório deve ser validado em startup de produção
+    → Acção: adicionar @NotBlank + ProfileCondition no config de prod
+
+R3: Tabela sessao_owner_action_tokens cresce sem limpeza
+    → Mitigação recomendada: job de limpeza de tokens EXPIRED/CONSUMED há > 30 dias
+
+R4: Race condition no validateAndUse com múltiplos requests simultâneos
+    → Mitigado: PESSIMISTIC_WRITE garante serialização por hash
+
+R5: lastStatus=RUNNING indica crash do job (monitorização externa necessária)
+    → Recomendado: alerta se RUNNING há > 5 minutos
+
+================================================================================
+## CHECKLIST DE ACEITAÇÃO
+================================================================================
+
+[x] OTP do OWNER verificado uma vez emite ownerActionToken
+[x] rawToken não é logado, não é persistido em texto claro
+[x] Token persistido como SHA-256(pepper+rawToken)
+[x] Token tem TTL configurável (default: 10 min)
+[x] Token tem maxUses configurável (default: 20)
+[x] Token expirado retorna OWNER_ACTION_TOKEN_EXPIRED
+[x] Token revogado retorna OWNER_ACTION_TOKEN_REVOKED
+[x] Token de sessão diferente retorna OWNER_ACTION_TOKEN_SESSION_MISMATCH
+[x] Token com maxUses atingido retorna OWNER_ACTION_TOKEN_MAX_USES_EXCEEDED
+[x] useCount é incrementado a cada uso
+[x] Token fica CONSUMED ao atingir maxUses no último uso
+[x] Listagem sem token retorna apenas ACTIVE (sem telefone)
+[x] Listagem com token retorna visão ampliada (com telefone mascarado)
+[x] pending-all filtra por status (INVITED, PENDING_OTP, PENDING_APPROVAL)
+[x] pending-all filtra por canResend=true
+[x] Status inválido no filtro retorna INVALID_PARTICIPANT_STATUS_FILTER
+[x] page size acima do máximo retorna PAGE_SIZE_TOO_LARGE
+[x] Histórico de convites do OWNER listado por ownerParticipanteId
+[x] source indica origem do participante (PUBLIC_QR, OWNER_INVITE, POS_INVITE, POS_ADD)
+[x] expiresInSeconds calculado em tempo real na resposta
+[x] ageSeconds calculado em tempo real na resposta
+[x] Job de expiração regista runs em BD (status RUNNING → SUCCESS/FAILED)
+[x] Falha no save do job run não propaga (NÃO quebra job)
+[x] JOB_NAME público e acessível externamente
+[x] Health check retorna última execução, config e status
+[x] Health check restrito a TENANT_OWNER / TENANT_ADMIN / TENANT_FINANCE
+[x] Device GET /all requer capability VIEW_SESSION_PARTICIPANTS
+[x] Device GET /pending-all requer capability VIEW_PENDING_SESSION_PARTICIPANTS
+[x] Auditoria sanitizada (sem raw token, sem OTP, sem telefone completo)
+[x] Fluxos 41.1, 41.2, 41.3 continuam funcionando
+[x] mvn -q -DskipTests compile passa
+[x] mvn test -Dtest="..." passa (30 testes, 0 falhas)
+
+================================================================================
+## PRÓXIMO PROMPT RECOMENDADO — 41.5
+================================================================================
+
+41.5 — Ações de gestão via ownerActionToken (sem OTP repetido):
+  - cancel-by-token: OWNER cancela convite/pendência com ownerActionToken
+  - approve-by-token: OWNER aprova pendência com ownerActionToken
+  - reject-by-token: OWNER rejeita pendência com ownerActionToken
+  - resend-invite-by-token: OWNER reenvia convite com ownerActionToken
+  - Revogar todos os ownerActionTokens ao fechar a sessão
+  - Job de limpeza de tokens expirados/consumed antigos
+  - Validação em startup: pepper obrigatório em produção
+
+================================================================================

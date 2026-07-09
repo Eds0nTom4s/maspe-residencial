@@ -1,0 +1,580 @@
+package com.restaurante.config;
+
+import com.restaurante.businesstemplate.BusinessTemplateService;
+import com.restaurante.businesstemplate.dto.BusinessTemplateProvisionRequest;
+import com.restaurante.dto.request.PublicQrPedidoItemRequest;
+import com.restaurante.dto.request.PublicQrPedidoRequest;
+import com.restaurante.dto.response.PublicQrPedidoResponse;
+import com.restaurante.financeiro.service.OrdemPagamentoService;
+import com.restaurante.inventory.service.TenantInventoryPolicyService;
+import com.restaurante.model.entity.CategoriaProduto;
+import com.restaurante.model.entity.Cozinha;
+import com.restaurante.model.entity.OrdemPagamento;
+import com.restaurante.model.entity.Pedido;
+import com.restaurante.model.entity.Produto;
+import com.restaurante.model.entity.QrCodeOperacional;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantCardapioConfig;
+import com.restaurante.model.entity.TenantUser;
+import com.restaurante.model.entity.TurnoOperacional;
+import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.User;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
+import com.restaurante.model.enums.MetodoPagamentoManual;
+import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.model.enums.StatusPedido;
+import com.restaurante.model.enums.StatusSubPedido;
+import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TenantTipo;
+import com.restaurante.model.enums.TipoCozinha;
+import com.restaurante.model.enums.TurnoOperacionalStatus;
+import com.restaurante.model.enums.TurnoOperacionalTipo;
+import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.repository.CozinhaRepository;
+import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.QrCodeOperacionalRepository;
+import com.restaurante.repository.TenantCardapioConfigRepository;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.repository.TurnoOperacionalRepository;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
+import com.restaurante.repository.UserRepository;
+import com.restaurante.security.tenant.TenantContext;
+import com.restaurante.security.tenant.TenantContextHolder;
+import com.restaurante.security.tenant.TenantResolutionSource;
+import com.restaurante.service.PublicQrPedidoService;
+import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.annotation.Profile;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+
+@Component
+@Profile("sandbox")
+@ConditionalOnProperty(prefix = "consuma.sandbox.demo-seed", name = "enabled", havingValue = "true")
+@Order(110)
+@RequiredArgsConstructor
+public class SandboxDemoSeedRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(SandboxDemoSeedRunner.class);
+
+    public static final String REST_SLUG = "consuma-rest-demo";
+    public static final String PONTO_SLUG = "consuma-ponto-demo";
+    public static final String FREEZY_SLUG = "freezy-demo";
+    public static final String REST_CODE = "CONSUMA_REST_DEMO";
+    public static final String PONTO_CODE = "CONSUMA_PONTO_DEMO";
+    public static final String FREEZY_CODE = "FREEZY_DEMO";
+    public static final String OWNER_EMAIL = "demo@consuma.local";
+    public static final String OWNER_PASSWORD = "DemoConsuma@2026";
+    public static final String FREEZY_OPERATOR_EMAIL = "operador.freezy@consuma.local";
+    public static final String FREEZY_OPERATOR_PASSWORD = "FreezyDemo@2026";
+    public static final int FREEZY_PAYMENT_ORDER_EXPIRATION_MINUTES = 10;
+
+    private final BusinessTemplateService businessTemplateService;
+    private final TenantRepository tenantRepository;
+    private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+    private final CategoriaProdutoRepository categoriaProdutoRepository;
+    private final ProdutoRepository produtoRepository;
+    private final QrCodeOperacionalRepository qrCodeOperacionalRepository;
+    private final CozinhaRepository cozinhaRepository;
+    private final PublicQrPedidoService publicQrPedidoService;
+    private final OrdemPagamentoService ordemPagamentoService;
+    private final PedidoRepository pedidoRepository;
+    private final TenantInventoryPolicyService tenantInventoryPolicyService;
+    private final TenantCardapioConfigRepository tenantCardapioConfigRepository;
+    private final TenantUserRepository tenantUserRepository;
+    private final TurnoOperacionalRepository turnoOperacionalRepository;
+    private final UserRepository userRepository;
+
+    @EventListener(ApplicationReadyEvent.class)
+    @Transactional
+    public void seedOnReady() {
+        seedDemoTenants();
+    }
+
+    @Transactional
+    public void seedDemoTenants() {
+        Tenant rest = ensureTenant("CONSUMA_REST_V1", restRequest(), REST_SLUG);
+        Tenant ponto = ensureTenant("CONSUMA_PONTO_V1", pontoRequest(), PONTO_SLUG);
+        Tenant freezy = ensureTenant("CONSUMA_PONTO_V1", freezyRequest(), FREEZY_SLUG);
+
+        disableStockControlForDemo(rest);
+        disableStockControlForDemo(ponto);
+        disableStockControlForDemo(freezy);
+
+        ensureOperationalKitchens(rest);
+        ensureOperationalKitchens(ponto);
+        ensureOperationalKitchens(freezy);
+
+        List<Produto> restProducts = ensureRestCatalog(rest);
+        List<Produto> pontoProducts = ensurePontoCatalog(ponto);
+        ensureFreezyDemoConfig(freezy);
+
+        setCardapioPublicado(rest, true);
+        setCardapioPublicado(ponto, true);
+        seedOrder(rest, restProducts, "demo-rest-pago", true, MetodoPagamentoManual.TPA);
+        seedOrder(rest, restProducts, "demo-rest-aberto", false, null);
+        seedOrder(ponto, pontoProducts, "demo-ponto-pago", true, MetodoPagamentoManual.CASH);
+        seedOrder(ponto, pontoProducts, "demo-ponto-aberto", false, null);
+        setCardapioPublicado(rest, false);
+        setCardapioPublicado(ponto, false);
+
+        log.info(
+                "[sandbox-demo-seed] tenants demo garantidos: restSlug={}, pontoSlug={}, freezySlug={}, freezyPaymentOrderExpirationMinutes={}",
+                REST_SLUG,
+                PONTO_SLUG,
+                FREEZY_SLUG,
+                FREEZY_PAYMENT_ORDER_EXPIRATION_MINUTES
+        );
+    }
+
+    private void setCardapioPublicado(Tenant tenant, boolean publicado) {
+        TenantCardapioConfig config = tenantCardapioConfigRepository.findByTenantId(tenant.getId())
+                .orElseGet(() -> {
+                    TenantCardapioConfig created = new TenantCardapioConfig();
+                    created.setTenant(tenant);
+                    return created;
+                });
+        LocalDateTime now = LocalDateTime.now();
+        config.setCardapioPublicado(publicado);
+        config.setCardapioAtualizadoEm(now);
+        if (publicado) {
+            config.setCardapioPublicadoEm(now);
+            config.setCardapioMotivoDespublicacao(null);
+        } else {
+            config.setCardapioDespublicadoEm(now);
+            config.setCardapioMotivoDespublicacao("Seed demo sandbox finalizado: cardápio inicia despublicado.");
+        }
+        tenantCardapioConfigRepository.saveAndFlush(config);
+    }
+
+    private Tenant ensureTenant(String templateCode, BusinessTemplateProvisionRequest request, String slug) {
+        return tenantRepository.findBySlug(slug).orElseGet(() -> {
+            Optional<TenantContext> previous = TenantContextHolder.get();
+            try {
+                TenantContextHolder.set(new TenantContext(
+                        null, null, 0L, Set.of("ROLE_ADMIN"),
+                        TenantResolutionSource.JWT, true, false
+                ));
+                businessTemplateService.provision(templateCode, request);
+                return tenantRepository.findBySlug(slug)
+                        .orElseThrow(() -> new IllegalStateException("Tenant demo não criado: " + slug));
+            } finally {
+                if (previous.isPresent()) {
+                    TenantContextHolder.set(previous.get());
+                } else {
+                    TenantContextHolder.clear();
+                }
+            }
+        });
+    }
+
+    private void disableStockControlForDemo(Tenant tenant) {
+        var policy = tenantInventoryPolicyService.getOrCreateDefault(tenant);
+        policy.setStockControlEnabled(Boolean.FALSE);
+    }
+
+    private BusinessTemplateProvisionRequest restRequest() {
+        return BusinessTemplateProvisionRequest.builder()
+                .planoCodigo("PILOTO")
+                .tenant(BusinessTemplateProvisionRequest.TenantInfo.builder()
+                        .nomeNegocio("CONSUMA Rest Demo")
+                        .slug(REST_SLUG)
+                        .tenantCode(REST_CODE)
+                        .tipo(TenantTipo.RESTAURANTE)
+                        .telefone("+244930000101")
+                        .email("rest.demo@consuma.local")
+                        .build())
+                .owner(owner())
+                .rest(BusinessTemplateProvisionRequest.RestOptions.builder()
+                        .temMesas(true)
+                        .quantidadeMesas(6)
+                        .gerarQrPorMesa(true)
+                        .temBarSeparado(true)
+                        .exigeTurnoAberto(false)
+                        .entrega(BusinessTemplateProvisionRequest.RestDeliveryOption.MANUAL)
+                        .build())
+                .build();
+    }
+
+    private BusinessTemplateProvisionRequest pontoRequest() {
+        return BusinessTemplateProvisionRequest.builder()
+                .planoCodigo("PILOTO")
+                .tenant(BusinessTemplateProvisionRequest.TenantInfo.builder()
+                        .nomeNegocio("CONSUMA Ponto Demo")
+                        .slug(PONTO_SLUG)
+                        .tenantCode(PONTO_CODE)
+                        .tipo(TenantTipo.VENDEDOR_RUA)
+                        .telefone("+244930000202")
+                        .email("ponto.demo@consuma.local")
+                        .build())
+                .owner(owner())
+                .ponto(BusinessTemplateProvisionRequest.PontoOptions.builder()
+                        .entregaManual(true)
+                        .allowPickup(true)
+                        .build())
+                .build();
+    }
+
+    private BusinessTemplateProvisionRequest freezyRequest() {
+        return BusinessTemplateProvisionRequest.builder()
+                .planoCodigo("PILOTO")
+                .tenant(BusinessTemplateProvisionRequest.TenantInfo.builder()
+                        .nomeNegocio("FREEZY")
+                        .slug(FREEZY_SLUG)
+                        .tenantCode(FREEZY_CODE)
+                        .tipo(TenantTipo.VENDEDOR_RUA)
+                        .telefone("+244930000303")
+                        .email("freezy.demo@consuma.local")
+                        .build())
+                .owner(freezyOperator())
+                .ponto(BusinessTemplateProvisionRequest.PontoOptions.builder()
+                        .entregaManual(true)
+                        .allowPickup(true)
+                        .build())
+                .build();
+    }
+
+    private BusinessTemplateProvisionRequest.OwnerInfo owner() {
+        return BusinessTemplateProvisionRequest.OwnerInfo.builder()
+                .nome("Operador Demo CONSUMA")
+                .telefone("+244930000000")
+                .email(OWNER_EMAIL)
+                .senhaTemporaria(OWNER_PASSWORD)
+                .build();
+    }
+
+    private BusinessTemplateProvisionRequest.OwnerInfo freezyOperator() {
+        return BusinessTemplateProvisionRequest.OwnerInfo.builder()
+                .nome("Operador FREEZY")
+                .telefone("+244930000303")
+                .email(FREEZY_OPERATOR_EMAIL)
+                .senhaTemporaria(FREEZY_OPERATOR_PASSWORD)
+                .build();
+    }
+
+    private void ensureOperationalKitchens(Tenant tenant) {
+        List<UnidadeAtendimento> unidades = unidadeAtendimentoRepository.findByTenantId(tenant.getId());
+        for (UnidadeAtendimento ua : unidades) {
+            if ("CONSUMA_REST".equals(tenant.getTemplateCode())) {
+                linkKitchen(ua, TipoCozinha.CENTRAL, "Demo " + tenant.getTenantCode() + " Cozinha Central");
+                linkKitchen(ua, TipoCozinha.BAR_PREP, "Demo " + tenant.getTenantCode() + " Bar");
+                linkKitchen(ua, TipoCozinha.CONFEITARIA, "Demo " + tenant.getTenantCode() + " Confeitaria");
+            } else {
+                linkKitchen(ua, TipoCozinha.CENTRAL, "Demo " + tenant.getTenantCode() + " Preparação");
+                linkKitchen(ua, TipoCozinha.BAR_PREP, "Demo " + tenant.getTenantCode() + " Bebidas");
+            }
+            unidadeAtendimentoRepository.saveAndFlush(ua);
+        }
+    }
+
+    private void linkKitchen(UnidadeAtendimento ua, TipoCozinha tipo, String nome) {
+        Cozinha cozinha = cozinhaRepository.findByNomeIgnoreCase(nome)
+                .orElseGet(() -> {
+                    Cozinha c = new Cozinha();
+                    c.setNome(nome);
+                    c.setTipo(tipo);
+                    c.setAtiva(true);
+                    c.setDescricao("Recurso operacional criado pelo seed demo sandbox.");
+                    return cozinhaRepository.saveAndFlush(c);
+                });
+        ua.adicionarCozinha(cozinha);
+    }
+
+    private List<Produto> ensureRestCatalog(Tenant tenant) {
+        CategoriaProduto comidas = ensureCategory(tenant, "Comidas", "comidas", 10);
+        CategoriaProduto bebidas = ensureCategory(tenant, "Bebidas", "bebidas", 20);
+        CategoriaProduto sobremesas = ensureCategory(tenant, "Sobremesas", "sobremesas", 30);
+        ensureCategory(tenant, "Promoções", "promocoes", 40);
+        return List.of(
+                ensureProduct(tenant, comidas, "REST-MUAMBA", "Muamba de Galinha", "Prato demo CONSUMA Rest", "4500.00", CategoriaProdutoLegacy.PRATO_PRINCIPAL, 25),
+                ensureProduct(tenant, comidas, "REST-FUNGE", "Funge com Calulu", "Especialidade angolana demo", "3800.00", CategoriaProdutoLegacy.PRATO_PRINCIPAL, 20),
+                ensureProduct(tenant, bebidas, "REST-SUMO", "Sumo Natural", "Bebida demo", "1200.00", CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, 5),
+                ensureProduct(tenant, sobremesas, "REST-MOUSSE", "Mousse de Maracujá", "Sobremesa demo", "1500.00", CategoriaProdutoLegacy.SOBREMESA, 8)
+        );
+    }
+
+    private List<Produto> ensurePontoCatalog(Tenant tenant) {
+        CategoriaProduto geral = ensureCategory(tenant, "Geral", "geral", 10);
+        CategoriaProduto destaques = ensureCategory(tenant, "Destaques", "destaques", 20);
+        CategoriaProduto promocoes = ensureCategory(tenant, "Promoções", "promocoes", 30);
+        return List.of(
+                ensureProduct(tenant, geral, "PONTO-COXINHA", "Coxinha", "Lanche demo CONSUMA Ponto", "700.00", CategoriaProdutoLegacy.LANCHE, 8),
+                ensureProduct(tenant, destaques, "PONTO-SANDES", "Sandes Mista", "Produto destaque demo", "1200.00", CategoriaProdutoLegacy.LANCHE, 10),
+                ensureProduct(tenant, promocoes, "PONTO-SUMO", "Sumo Fresco", "Bebida demo", "600.00", CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, 3)
+        );
+    }
+
+    private void ensureFreezyDemoConfig(Tenant tenant) {
+        List<UnidadeAtendimento> unidades = unidadeAtendimentoRepository.findByTenantId(tenant.getId());
+        if (unidades.isEmpty()) {
+            throw new IllegalStateException("Unidade FREEZY não encontrada após provisionamento.");
+        }
+
+        UnidadeAtendimento unidade = unidades.get(0);
+        unidade.setNome("FREEZY Principal");
+        unidade.setAtiva(true);
+        unidadeAtendimentoRepository.saveAndFlush(unidade);
+
+        ensureTenantUserRole(tenant, unidade, TenantUserRole.TENANT_OPERATOR);
+        ensureFreezyCatalog(tenant);
+        setCardapioPublicado(tenant, true);
+        QrCodeOperacional qr = findPrincipalQr(tenant);
+        qr.setNome("QR Público FREEZY");
+        qr.setAtivo(true);
+        qr.setRevogado(false);
+        qr.setRevogadoEm(null);
+        qrCodeOperacionalRepository.saveAndFlush(qr);
+        ensureFreezyTurnoAberto(tenant, unidade);
+    }
+
+    private void ensureTenantUserRole(Tenant tenant, UnidadeAtendimento unidade, TenantUserRole role) {
+        User operador = userRepository.findByEmail(FREEZY_OPERATOR_EMAIL)
+                .orElseThrow(() -> new IllegalStateException("Operador FREEZY não encontrado: " + FREEZY_OPERATOR_EMAIL));
+
+        boolean exists = tenantUserRepository.existsByTenantIdAndUserIdAndRoleAndEstado(
+                tenant.getId(),
+                operador.getId(),
+                role,
+                TenantUserEstado.ATIVO
+        );
+        if (exists) {
+            return;
+        }
+
+        TenantUser tenantUser = new TenantUser();
+        tenantUser.setTenant(tenant);
+        tenantUser.setUser(operador);
+        tenantUser.setRole(role);
+        tenantUser.setEstado(TenantUserEstado.ATIVO);
+        tenantUser.setUnidadeAtendimentoDefault(unidade);
+        tenantUserRepository.saveAndFlush(tenantUser);
+    }
+
+    private void ensureFreezyCatalog(Tenant tenant) {
+        Set<String> activeCategorySlugs = Set.of("gelados", "bebidas", "combos");
+        Set<String> activeProductCodes = Set.of(
+                "FREEZY-GELADO-BAUNILHA",
+                "FREEZY-GELADO-CHOCOLATE",
+                "FREEZY-GELADO-MORANGO",
+                "FREEZY-AGUA",
+                "FREEZY-REFRIGERANTE",
+                "FREEZY-COMBO"
+        );
+
+        categoriaProdutoRepository.findByTenantId(tenant.getId()).forEach(categoria -> {
+            boolean active = activeCategorySlugs.contains(categoria.getSlug());
+            categoria.setAtivo(active);
+            if (!active && categoria.getDescricao() == null) {
+                categoria.setDescricao("Categoria inativa no cardápio controlado do Demo FREEZY.");
+            }
+            categoriaProdutoRepository.save(categoria);
+        });
+        produtoRepository.findByTenantId(tenant.getId()).forEach(produto -> {
+            boolean active = activeProductCodes.contains(produto.getCodigo());
+            if (!active) {
+                produto.setAtivo(false);
+                produto.setDisponivel(false);
+                produtoRepository.save(produto);
+            }
+        });
+
+        CategoriaProduto gelados = ensureCategory(tenant, "Gelados", "gelados", 10);
+        CategoriaProduto bebidas = ensureCategory(tenant, "Bebidas", "bebidas", 20);
+        CategoriaProduto combos = ensureCategory(tenant, "Combos", "combos", 30);
+
+        List.of(gelados, bebidas, combos).forEach(categoria -> {
+            categoria.setAtivo(true);
+            categoriaProdutoRepository.save(categoria);
+        });
+
+        ensureProduct(tenant, gelados, "FREEZY-GELADO-BAUNILHA", "Gelado de Baunilha", "Gelado artesanal de baunilha para o Demo FREEZY.", "1200.00", CategoriaProdutoLegacy.SOBREMESA, 3);
+        ensureProduct(tenant, gelados, "FREEZY-GELADO-CHOCOLATE", "Gelado de Chocolate", "Gelado artesanal de chocolate para o Demo FREEZY.", "1300.00", CategoriaProdutoLegacy.SOBREMESA, 3);
+        ensureProduct(tenant, gelados, "FREEZY-GELADO-MORANGO", "Gelado de Morango", "Gelado artesanal de morango para o Demo FREEZY.", "1300.00", CategoriaProdutoLegacy.SOBREMESA, 3);
+        ensureProduct(tenant, bebidas, "FREEZY-AGUA", "Água", "Água mineral 500ml.", "500.00", CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, 1);
+        ensureProduct(tenant, bebidas, "FREEZY-REFRIGERANTE", "Refrigerante", "Refrigerante lata.", "800.00", CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA, 1);
+        ensureProduct(tenant, combos, "FREEZY-COMBO", "Combo FREEZY", "Dois gelados e uma bebida.", "3000.00", CategoriaProdutoLegacy.LANCHE, 5);
+
+        produtoRepository.findByTenantId(tenant.getId()).forEach(produto -> {
+            if (activeProductCodes.contains(produto.getCodigo())) {
+                produto.setAtivo(true);
+                produto.setDisponivel(true);
+                produtoRepository.save(produto);
+            }
+        });
+        produtoRepository.flush();
+        categoriaProdutoRepository.flush();
+    }
+
+    private void ensureFreezyTurnoAberto(Tenant tenant, UnidadeAtendimento unidade) {
+        var instituicao = unidade.getInstituicao();
+        if (turnoOperacionalRepository.findOpenByTenantAndInstituicaoAndUnidade(
+                tenant.getId(),
+                instituicao.getId(),
+                unidade.getId()
+        ).isPresent()) {
+            return;
+        }
+
+        User operador = userRepository.findByEmail(FREEZY_OPERATOR_EMAIL)
+                .orElseThrow(() -> new IllegalStateException("Operador FREEZY não encontrado: " + FREEZY_OPERATOR_EMAIL));
+        TurnoOperacional turno = new TurnoOperacional();
+        turno.setTenant(tenant);
+        turno.setInstituicao(instituicao);
+        turno.setUnidadeAtendimento(unidade);
+        turno.setAbertoPor(operador);
+        turno.setStatus(TurnoOperacionalStatus.ABERTO);
+        turno.setTipo(TurnoOperacionalTipo.DIARIO);
+        turno.setNome("Turno Demo FREEZY");
+        turno.setAbertoEm(LocalDateTime.now().minusMinutes(10));
+        turno.setObservacaoAbertura("Turno aberto pelo seed controlado do Demo FREEZY.");
+        turnoOperacionalRepository.saveAndFlush(turno);
+    }
+
+    private CategoriaProduto ensureCategory(Tenant tenant, String nome, String slug, int ordem) {
+        String normalized = slug.toLowerCase(Locale.ROOT);
+        CategoriaProduto categoria = categoriaProdutoRepository.findBySlugAndTenantId(normalized, tenant.getId())
+                .orElseGet(() -> {
+                    CategoriaProduto c = new CategoriaProduto();
+                    c.setTenant(tenant);
+                    c.setNome(nome);
+                    c.setSlug(normalized);
+                    c.setOrdem(ordem);
+                    c.setAtivo(true);
+                    return categoriaProdutoRepository.saveAndFlush(c);
+                });
+        categoria.setNome(nome);
+        categoria.setOrdem(ordem);
+        categoria.setAtivo(true);
+        return categoriaProdutoRepository.saveAndFlush(categoria);
+    }
+
+    private Produto ensureProduct(Tenant tenant,
+                                  CategoriaProduto categoria,
+                                  String codigo,
+                                  String nome,
+                                  String descricao,
+                                  String preco,
+                                  CategoriaProdutoLegacy legacy,
+                                  int tempoPreparoMinutos) {
+        Produto produto = produtoRepository.findByCodigoAndTenantId(codigo, tenant.getId())
+                .orElseGet(() -> {
+                    Produto p = new Produto();
+                    p.setTenant(tenant);
+                    p.setCategoriaProduto(categoria);
+                    p.setCategoria(legacy);
+                    p.setCodigo(codigo);
+                    p.setNome(nome);
+                    p.setDescricao(descricao);
+                    p.setPreco(new BigDecimal(preco));
+                    p.setTempoPreparoMinutos(tempoPreparoMinutos);
+                    p.setDisponivel(true);
+                    p.setAtivo(true);
+                    return produtoRepository.saveAndFlush(p);
+                });
+        produto.setCategoriaProduto(categoria);
+        produto.setCategoria(legacy);
+        produto.setNome(nome);
+        produto.setDescricao(descricao);
+        produto.setPreco(new BigDecimal(preco));
+        produto.setTempoPreparoMinutos(tempoPreparoMinutos);
+        produto.setDisponivel(true);
+        produto.setAtivo(true);
+        return produtoRepository.saveAndFlush(produto);
+    }
+
+    private void seedOrder(Tenant tenant,
+                           List<Produto> produtos,
+                           String suffix,
+                           boolean confirmarPagamento,
+                           MetodoPagamentoManual metodoPagamento) {
+        String idempotencyKey = tenant.getTenantCode() + "-" + suffix;
+        PublicQrPedidoResponse response = publicQrPedidoService.criarPedidoPublicoPorQrToken(
+                findPrincipalQr(tenant).getToken(),
+                idempotencyKey,
+                PublicQrPedidoRequest.builder()
+                        .idempotencyKey(idempotencyKey)
+                        .clienteNome("Cliente Demo")
+                        .clienteTelefone("+244930123456")
+                        .observacao("Pedido criado pelo seed demo sandbox.")
+                        .itens(List.of(
+                                PublicQrPedidoItemRequest.builder()
+                                        .produtoId(produtos.get(0).getId())
+                                        .quantidade(1)
+                                        .build(),
+                                PublicQrPedidoItemRequest.builder()
+                                        .produtoId(produtos.get(Math.min(1, produtos.size() - 1)).getId())
+                                        .quantidade(1)
+                                        .build()
+                        ))
+                        .build()
+        );
+
+        if (confirmarPagamento) {
+            Pedido pedido = pedidoRepository.findByIdAndTenantId(response.getPedidoId(), tenant.getId())
+                    .orElseThrow(() -> new IllegalStateException("Pedido demo não encontrado: " + response.getPedidoId()));
+            if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
+                aceitarPedidoDemoParaPagamento(pedido);
+                var sessao = pedido.getSessaoConsumo();
+                var unidade = sessao != null ? sessao.getUnidadeAtendimentoEfetiva() : null;
+                OrdemPagamento ordem = ordemPagamentoService.criarOrdemPagamentoPedido(
+                        tenant,
+                        sessao != null ? sessao.getInstituicao() : null,
+                        unidade,
+                        sessao != null ? sessao.getMesa() : null,
+                        pedido.getTurnoOperacional(),
+                        pedido,
+                        metodoPagamento,
+                        OperationalOrigem.QR_PUBLICO,
+                        "127.0.0.1",
+                        "sandbox-demo-seed"
+                );
+                ordemPagamentoService.aplicarConfirmacaoManualOrdem(
+                        ordem,
+                        metodoPagamento,
+                        ordem.getValor(),
+                        "SANDBOX-DEMO-SEED",
+                        "Confirmação criada pelo seed demo sandbox."
+                );
+            }
+        }
+    }
+
+    private void aceitarPedidoDemoParaPagamento(Pedido pedido) {
+        if (pedido.getStatus() != StatusPedido.CRIADO) {
+            return;
+        }
+        pedido.setStatus(StatusPedido.EM_ANDAMENTO);
+        if (pedido.getSubPedidos() != null) {
+            pedido.getSubPedidos().forEach(subPedido -> {
+                if (subPedido.getStatus() == StatusSubPedido.CRIADO) {
+                    subPedido.setStatus(StatusSubPedido.PENDENTE);
+                }
+            });
+        }
+        pedidoRepository.saveAndFlush(pedido);
+    }
+
+    private QrCodeOperacional findPrincipalQr(Tenant tenant) {
+        return qrCodeOperacionalRepository.findByTenantIdAndAtivoTrueAndRevogadoFalse(tenant.getId())
+                .stream()
+                .filter(q -> q.getUnidadeAtendimento() != null && q.getMesa() == null)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("QR principal demo não encontrado para tenant " + tenant.getSlug()));
+    }
+}

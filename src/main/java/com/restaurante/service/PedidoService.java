@@ -13,15 +13,22 @@ import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
+import com.restaurante.consumo.participante.entity.SessaoConsumoParticipante;
+import com.restaurante.consumo.participante.repository.SessaoConsumoParticipanteRepository;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
+import com.restaurante.model.enums.OperationalEntityType;
+import com.restaurante.model.enums.OperationalEventType;
+import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
+import com.restaurante.service.operacional.OperationalEventLogService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -61,6 +68,9 @@ public class PedidoService {
     private final NotificacaoService notificacaoService;
     @org.springframework.context.annotation.Lazy
     private final SessaoConsumoService sessaoConsumoService;
+    private final SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository;
+    private final OperationalEventLogService operationalEventLogService;
+    private final SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService;
 
     public PedidoService(PedidoRepository pedidoRepository,
                          SessaoConsumoRepository sessaoConsumoRepository,
@@ -71,7 +81,10 @@ public class PedidoService {
                          PedidoFinanceiroService pedidoFinanceiroService,
                          FundoConsumoService fundoConsumoService,
                          NotificacaoService notificacaoService,
-                         @org.springframework.context.annotation.Lazy SessaoConsumoService sessaoConsumoService) {
+                         @org.springframework.context.annotation.Lazy SessaoConsumoService sessaoConsumoService,
+                         SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository,
+                         OperationalEventLogService operationalEventLogService,
+                         @org.springframework.context.annotation.Lazy SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService) {
         this.pedidoRepository = pedidoRepository;
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.produtoService = produtoService;
@@ -82,6 +95,9 @@ public class PedidoService {
         this.fundoConsumoService = fundoConsumoService;
         this.notificacaoService = notificacaoService;
         this.sessaoConsumoService = sessaoConsumoService;
+        this.sessaoConsumoParticipanteRepository = sessaoConsumoParticipanteRepository;
+        this.operationalEventLogService = operationalEventLogService;
+        this.sessaoConsumoAutoClosureService = sessaoConsumoAutoClosureService;
     }
 
     /**
@@ -96,6 +112,15 @@ public class PedidoService {
      */
     @Transactional
     public PedidoResponse criar(CriarPedidoRequest request) {
+        return criar(request, PedidoOrigem.OPERADOR_INTERNO);
+    }
+
+    @Transactional
+    public PedidoResponse criar(CriarPedidoRequest request, PedidoOrigem pedidoOrigem) {
+        PedidoOrigem origemEfetiva = request.getParticipanteId() != null
+                ? PedidoOrigem.SESSAO_PARTICIPANTE
+                : pedidoOrigem;
+
         log.info("=".repeat(80));
         log.info("🆕 CRIANDO NOVO PEDIDO");
         log.info("  ┣ Sessão de Consumo ID: {}", request.getSessaoConsumoId());
@@ -144,10 +169,40 @@ public class PedidoService {
                 .numero(gerarNumeroPedido())
                 .sessaoConsumo(sessaoConsumo)
                 .status(StatusPedido.CRIADO)
+                .pedidoOrigem(origemEfetiva)
                 .statusFinanceiro(StatusFinanceiroPedido.NAO_PAGO)  // Default
                 .tipoPagamento(tipoPagamento)
                 .observacoes(request.getObservacoes())
                 .build();
+
+        // Prompt 41: atribuição opcional do pedido a um participante ACTIVE da sessão
+        SessaoConsumoParticipante participanteAtribuido = null;
+        if (request.getParticipanteId() != null) {
+            SessaoConsumoParticipante participante = sessaoConsumoParticipanteRepository
+                    .findByTenant_IdAndId(sessaoConsumo.getTenant().getId(), request.getParticipanteId())
+                    .orElseThrow(() -> new BusinessException("SESSAO_PARTICIPANTE_NOT_FOUND"));
+            if (!participante.getSessaoConsumo().getId().equals(sessaoConsumo.getId())) {
+                throw new BusinessException("SESSAO_PARTICIPANTE_WRONG_SESSION");
+            }
+            if (!participante.isActive()) {
+                if (participante.getStatus() == com.restaurante.model.enums.SessaoParticipanteStatus.PENDING_APPROVAL) {
+                    throw new BusinessException("PARTICIPANT_PENDING_APPROVAL");
+                }
+                if (participante.getStatus() == com.restaurante.model.enums.SessaoParticipanteStatus.INVITED) {
+                    throw new BusinessException("PARTICIPANT_INVITED_NOT_ACCEPTED");
+                }
+                if (participante.getStatus() == com.restaurante.model.enums.SessaoParticipanteStatus.REJECTED) {
+                    throw new BusinessException("PARTICIPANT_REJECTED");
+                }
+                throw new BusinessException("SESSAO_PARTICIPANTE_NOT_ACTIVE");
+            }
+            if (participante.getRole() == com.restaurante.model.enums.SessaoParticipanteRole.GUEST) {
+                throw new BusinessException("PARTICIPANT_ROLE_NOT_ALLOWED_TO_ORDER");
+            }
+            pedido.setSessaoParticipante(participante);
+            pedido.setClienteConsumo(participante.getClienteConsumo());
+            participanteAtribuido = participante;
+        }
 
         log.info("📄 PEDIDO CRIADO");
         log.info("  ┣ Número: {}", pedido.getNumero());
@@ -173,7 +228,7 @@ public class PedidoService {
             if (ua == null) {
                 throw new BusinessException("Sessão ID=" + sessaoConsumo.getId() + " não possui unidade de atendimento configurada");
             }
-            Cozinha cozinha = subPedidoService.determinarCozinha(produto.getCategoria(), ua.getId());
+            Cozinha cozinha = subPedidoService.determinarCozinha(produto, ua.getId());
             
             // ✅ VALIDAÇÃO CRÍTICA: Cozinha deve estar ATIVA
             if (cozinha.getAtiva() == null || !cozinha.getAtiva()) {
@@ -189,6 +244,30 @@ public class PedidoService {
 
         // Salvar pedido VAZIO primeiro (sem itens ainda)
         pedido = pedidoRepository.save(pedido);
+
+        if (participanteAtribuido != null) {
+            operationalEventLogService.logPublicEvent(
+                    sessaoConsumo.getTenant(),
+                    sessaoConsumo.getInstituicao(),
+                    sessaoConsumo.getUnidadeAtendimento(),
+                    sessaoConsumo.getMesa(),
+                    null,
+                    OperationalEventType.PEDIDO_ATRIBUIDO_PARTICIPANTE,
+                    OperationalEntityType.PEDIDO,
+                    pedido.getId(),
+                    OperationalOrigem.QR_PUBLICO,
+                    "Pedido atribuído a participante",
+                    Map.of(
+                            "tenantId", sessaoConsumo.getTenant().getId(),
+                            "sessaoConsumoId", sessaoConsumo.getId(),
+                            "pedidoId", pedido.getId(),
+                            "participanteId", participanteAtribuido.getId(),
+                            "clienteConsumoId", participanteAtribuido.getClienteConsumo() != null ? participanteAtribuido.getClienteConsumo().getId() : null
+                    ),
+                    null,
+                    null
+            );
+        }
 
         // Criar SubPedidos primeiro, DEPOIS criar ItemPedidos com subPedido já associado
         int contadorSubPedido = 1;
@@ -235,6 +314,22 @@ public class PedidoService {
         
         // ✅ Salvar Pedido com SubPedidos (cascade salva tudo)
         pedidoRepository.save(pedido);
+
+        operationalEventLogService.logPedidoCriado(
+                pedido,
+                OperationalOrigem.SYSTEM,
+                "Pedido criado",
+                Map.of(
+                        "command", "CREATE_ORDER",
+                        "pedidoOrigem", origemEfetiva != null ? origemEfetiva.name() : "UNKNOWN",
+                        "tipoPagamento", tipoPagamento != null ? tipoPagamento.name() : "UNKNOWN"
+                ),
+                null,
+                null
+        );
+
+        // Sprint 1: Regista actividade na sessão para blindar contra expiração automática
+        sessaoConsumoService.registrarAtividade(sessaoConsumo, "Pedido #" + pedido.getNumero() + " criado");
 
         log.info("📦 SUBPEDIDOS CRIADOS");
         log.info("  ┣ Total de SubPedidos: {}", requestsPorCozinha.size());
@@ -349,7 +444,41 @@ public class PedidoService {
             request.setTipoPagamento(TipoPagamentoPedido.PRE_PAGO);
         }
 
-        return criar(request);
+        return criar(request, PedidoOrigem.SESSAO_CONSUMO);
+    }
+
+    private PedidoOrigem resolveOrigemParaSessaoAnonima(SessaoConsumo sessao) {
+        if (sessao == null) {
+            return PedidoOrigem.QR_PUBLICO;
+        }
+        if (sessao.getMesa() != null) {
+            return PedidoOrigem.QR_MESA;
+        }
+        if (sessao.getQrCodeSessao() != null && !sessao.getQrCodeSessao().isBlank()) {
+            return PedidoOrigem.QR_PRINCIPAL;
+        }
+        return PedidoOrigem.SESSAO_CONSUMO;
+    }
+
+    @Transactional
+    public PedidoResponse criarPedidoAnonimo(CriarPedidoRequest request, String qrCodeSessao) {
+        log.info("Sessão anónima {} solicitando criação de pedido", qrCodeSessao);
+
+        SessaoConsumo sessao = sessaoConsumoRepository.findByQrCodeSessao(qrCodeSessao)
+                .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada"));
+
+        if (!Boolean.TRUE.equals(sessao.getModoAnonimo())) {
+            throw new BusinessException("Sessão informada não é anónima.");
+        }
+        if (!sessao.isAberta()) {
+            throw new BusinessException("Sessão anónima não está ABERTA. Status: " + sessao.getStatus());
+        }
+
+        request.setSessaoConsumoId(sessao.getId());
+        request.setTipoPagamento(TipoPagamentoPedido.PRE_PAGO);
+        request.setQrCodeFundo(qrCodeSessao);
+
+        return criar(request, resolveOrigemParaSessaoAnonima(sessao));
     }
 
     /**
@@ -372,6 +501,21 @@ public class PedidoService {
         }
 
         return pedidoRepository.findBySessaoConsumoId(sessaoOpt.get().getId(), Pageable.unpaged())
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<PedidoResponse> listarPedidosPorSessaoAnonima(String qrCodeSessao) {
+        SessaoConsumo sessao = sessaoConsumoRepository.findByQrCodeSessao(qrCodeSessao)
+                .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada"));
+
+        if (!Boolean.TRUE.equals(sessao.getModoAnonimo())) {
+            throw new BusinessException("Sessão informada não é anónima.");
+        }
+
+        return pedidoRepository.findBySessaoConsumoId(sessao.getId(), Pageable.unpaged())
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
@@ -520,6 +664,13 @@ public class PedidoService {
                 "Status recalculado automaticamente baseado em SubPedidos");
             
             log.info("Pedido {} status alterado: {} → {}", pedido.getNumero(), statusAnterior, novoStatus);
+
+            // Avaliar auto-fecho da sessão se o pedido atingiu estado terminal
+            if (novoStatus == StatusPedido.FINALIZADO || novoStatus == StatusPedido.CANCELADO) {
+                if (pedido.getSessaoConsumo() != null) {
+                    sessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo(pedido.getSessaoConsumo().getId());
+                }
+            }
         }
         
         return novoStatus;
@@ -854,6 +1005,7 @@ public class PedidoService {
                 .status(pedido.getStatus())
                 .observacoes(pedido.getObservacoes())
                 .total(pedido.getTotal())
+                .pedidoOrigem(pedido.getPedidoOrigem())
                 .sessaoConsumoId(pedido.getSessaoConsumo() != null ? pedido.getSessaoConsumo().getId() : null)
                 .mesaId(pedido.getSessaoConsumo() != null && pedido.getSessaoConsumo().getMesa() != null
                         ? pedido.getSessaoConsumo().getMesa().getId() : null)

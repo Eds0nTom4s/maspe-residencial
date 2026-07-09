@@ -1,6 +1,6 @@
 package com.restaurante.dto.request;
 
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -34,8 +34,13 @@ public class ProdutoRequest {
     @DecimalMin(value = "0.01", message = "Preço deve ser maior que zero")
     private BigDecimal preco;
 
-    @NotNull(message = "Categoria é obrigatória")
-    private CategoriaProduto categoria;
+    private CategoriaProdutoLegacy categoria;
+
+    /**
+     * Nova referência tenant-aware: categoria_produto_id (CategoriaProduto entidade).
+     * Preferida nos endpoints tenant-aware.
+     */
+    private Long categoriaProdutoId;
 
     private String urlImagem;
 
@@ -61,8 +66,12 @@ public class ProdutoRequest {
         return preco;
     }
     
-    public CategoriaProduto getCategoria() {
+    public CategoriaProdutoLegacy getCategoria() {
         return categoria;
+    }
+
+    public Long getCategoriaProdutoId() {
+        return categoriaProdutoId;
     }
     
     public String getUrlImagem() {

@@ -1,12 +1,15 @@
 package com.restaurante.model.entity;
 
 import com.restaurante.model.enums.StatusSessaoConsumo;
+import com.restaurante.model.enums.SessaoIdentificacaoStatus;
+import com.restaurante.model.enums.SessaoParticipantEntryPolicy;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import java.util.Objects;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -40,7 +43,9 @@ import java.util.UUID;
     @Index(name = "idx_sessao_mesa", columnList = "mesa_id"),
     @Index(name = "idx_sessao_status", columnList = "status"),
     @Index(name = "idx_sessao_cliente", columnList = "cliente_id"),
-    @Index(name = "idx_sessao_aberta_em", columnList = "aberta_em")
+    @Index(name = "idx_sessao_aberta_em", columnList = "aberta_em"),
+    @Index(name = "idx_sessao_instituicao", columnList = "instituicao_id"),
+    @Index(name = "idx_sessao_tenant", columnList = "tenant_id")
 })
 public class SessaoConsumo extends BaseEntity {
 
@@ -77,11 +82,56 @@ public class SessaoConsumo extends BaseEntity {
     private UnidadeAtendimento unidadeAtendimento;
 
     /**
+     * Tenant proprietário da sessão (escopo direto multi-tenant).
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
+
+    /**
+     * Instituição proprietária da sessão.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "instituicao_id")
+    private Instituicao instituicao;
+
+    /**
      * Cliente identificado (opcional — nulo no fluxo anônimo).
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cliente_id")
     private Cliente cliente;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cliente_consumo_id")
+    private com.restaurante.consumo.identificacao.entity.ClienteConsumo clienteConsumo;
+
+    @Column(name = "telefone_identificado", length = 30)
+    private String telefoneIdentificado;
+
+    @Column(name = "telefone_identificado_em")
+    private Instant telefoneIdentificadoEm;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "identificacao_status", length = 30)
+    private SessaoIdentificacaoStatus identificacaoStatus;
+
+    @Column(name = "identificado_por_otp", nullable = false)
+    private boolean identificadoPorOtp = false;
+
+    // Prompt 41.2: política de entrada para sessão compartilhada
+    @Enumerated(EnumType.STRING)
+    @Column(name = "participant_entry_policy", nullable = false, length = 50)
+    private SessaoParticipantEntryPolicy participantEntryPolicy = SessaoParticipantEntryPolicy.OTP_AUTO_JOIN;
+
+    @Column(name = "participant_policy_updated_at")
+    private Instant participantPolicyUpdatedAt;
+
+    @Column(name = "participant_policy_updated_by_cliente_id")
+    private Long participantPolicyUpdatedByClienteId;
+
+    @Column(name = "participant_policy_updated_by_device_id")
+    private Long participantPolicyUpdatedByDeviceId;
 
     /**
      * Atendente que abriu a sessão (opcional).
@@ -95,6 +145,23 @@ public class SessaoConsumo extends BaseEntity {
      */
     @Column(name = "aberta_em", nullable = false)
     private LocalDateTime abertaEm = LocalDateTime.now();
+
+    /**
+     * Timestamp da última actividade operacional registada nesta sessão.
+     *
+     * <p>Critério usado pelo {@code SessaoExpiracaoScheduler} para determinar
+     * inatividade real, em substituição ao simples {@code abertaEm}.
+     * Actualizado sempre que:
+     * <ul>
+     *   <li>Um pedido é criado ou muda de estado.</li>
+     *   <li>O FundoConsumo recebe crédito, débito ou estorno.</li>
+     *   <li>Um pagamento é criado ou confirmado.</li>
+     * </ul>
+     *
+     * <p>Inicializado com o mesmo valor de {@code abertaEm} na criação da sessão.
+     */
+    @Column(name = "ultima_atividade_em", nullable = false)
+    private LocalDateTime ultimaAtividadeEm = LocalDateTime.now();
 
     /**
      * Timestamp de encerramento da sessão (null enquanto ABERTA).
@@ -148,14 +215,18 @@ public class SessaoConsumo extends BaseEntity {
 
     public SessaoConsumo() {}
 
-    public SessaoConsumo(String qrCodeSessao, FundoConsumo fundoConsumo, Mesa mesa, UnidadeAtendimento unidadeAtendimento, Cliente cliente, Atendente aberturaPor, LocalDateTime abertaEm, LocalDateTime fechadaEm, StatusSessaoConsumo status, Boolean modoAnonimo, List<Pedido> pedidos, com.restaurante.model.enums.TipoSessao tipoSessao, List<EventoSessao> eventos) {
+    public SessaoConsumo(String qrCodeSessao, FundoConsumo fundoConsumo, Mesa mesa, UnidadeAtendimento unidadeAtendimento, Tenant tenant, Instituicao instituicao, Cliente cliente, Atendente aberturaPor, LocalDateTime abertaEm, LocalDateTime fechadaEm, StatusSessaoConsumo status, Boolean modoAnonimo, List<Pedido> pedidos, com.restaurante.model.enums.TipoSessao tipoSessao, List<EventoSessao> eventos) {
         this.qrCodeSessao = qrCodeSessao != null ? qrCodeSessao : UUID.randomUUID().toString();
         this.fundoConsumo = fundoConsumo;
         this.mesa = mesa;
         this.unidadeAtendimento = unidadeAtendimento;
+        this.tenant = tenant;
+        this.instituicao = instituicao;
         this.cliente = cliente;
         this.aberturaPor = aberturaPor;
-        this.abertaEm = abertaEm != null ? abertaEm : LocalDateTime.now();
+        LocalDateTime agora = abertaEm != null ? abertaEm : LocalDateTime.now();
+        this.abertaEm = agora;
+        this.ultimaAtividadeEm = agora; // Sempre inicializado junto com abertaEm
         this.fechadaEm = fechadaEm;
         this.status = status != null ? status : StatusSessaoConsumo.ABERTA;
         this.modoAnonimo = modoAnonimo != null ? modoAnonimo : false;
@@ -175,16 +246,52 @@ public class SessaoConsumo extends BaseEntity {
     
     public UnidadeAtendimento getUnidadeAtendimento() { return unidadeAtendimento; }
     public void setUnidadeAtendimento(UnidadeAtendimento unidadeAtendimento) { this.unidadeAtendimento = unidadeAtendimento; }
+
+    public Tenant getTenant() { return tenant; }
+    public void setTenant(Tenant tenant) { this.tenant = tenant; }
+
+    public Instituicao getInstituicao() { return instituicao; }
+    public void setInstituicao(Instituicao instituicao) { this.instituicao = instituicao; }
     
     public Cliente getCliente() { return cliente; }
     public void setCliente(Cliente cliente) { this.cliente = cliente; }
+
+    public com.restaurante.consumo.identificacao.entity.ClienteConsumo getClienteConsumo() { return clienteConsumo; }
+    public void setClienteConsumo(com.restaurante.consumo.identificacao.entity.ClienteConsumo clienteConsumo) { this.clienteConsumo = clienteConsumo; }
+
+    public String getTelefoneIdentificado() { return telefoneIdentificado; }
+    public void setTelefoneIdentificado(String telefoneIdentificado) { this.telefoneIdentificado = telefoneIdentificado; }
+
+    public Instant getTelefoneIdentificadoEm() { return telefoneIdentificadoEm; }
+    public void setTelefoneIdentificadoEm(Instant telefoneIdentificadoEm) { this.telefoneIdentificadoEm = telefoneIdentificadoEm; }
+
+    public SessaoIdentificacaoStatus getIdentificacaoStatus() { return identificacaoStatus; }
+    public void setIdentificacaoStatus(SessaoIdentificacaoStatus identificacaoStatus) { this.identificacaoStatus = identificacaoStatus; }
+
+    public boolean isIdentificadoPorOtp() { return identificadoPorOtp; }
+    public void setIdentificadoPorOtp(boolean identificadoPorOtp) { this.identificadoPorOtp = identificadoPorOtp; }
+
+    public SessaoParticipantEntryPolicy getParticipantEntryPolicy() { return participantEntryPolicy; }
+    public void setParticipantEntryPolicy(SessaoParticipantEntryPolicy participantEntryPolicy) { this.participantEntryPolicy = participantEntryPolicy; }
+
+    public Instant getParticipantPolicyUpdatedAt() { return participantPolicyUpdatedAt; }
+    public void setParticipantPolicyUpdatedAt(Instant participantPolicyUpdatedAt) { this.participantPolicyUpdatedAt = participantPolicyUpdatedAt; }
+
+    public Long getParticipantPolicyUpdatedByClienteId() { return participantPolicyUpdatedByClienteId; }
+    public void setParticipantPolicyUpdatedByClienteId(Long participantPolicyUpdatedByClienteId) { this.participantPolicyUpdatedByClienteId = participantPolicyUpdatedByClienteId; }
+
+    public Long getParticipantPolicyUpdatedByDeviceId() { return participantPolicyUpdatedByDeviceId; }
+    public void setParticipantPolicyUpdatedByDeviceId(Long participantPolicyUpdatedByDeviceId) { this.participantPolicyUpdatedByDeviceId = participantPolicyUpdatedByDeviceId; }
     
     public Atendente getAberturaPor() { return aberturaPor; }
     public void setAberturaPor(Atendente aberturaPor) { this.aberturaPor = aberturaPor; }
     
     public LocalDateTime getAbertaEm() { return abertaEm; }
     public void setAbertaEm(LocalDateTime abertaEm) { this.abertaEm = abertaEm; }
-    
+
+    public LocalDateTime getUltimaAtividadeEm() { return ultimaAtividadeEm; }
+    public void setUltimaAtividadeEm(LocalDateTime ultimaAtividadeEm) { this.ultimaAtividadeEm = ultimaAtividadeEm; }
+
     public LocalDateTime getFechadaEm() { return fechadaEm; }
     public void setFechadaEm(LocalDateTime fechadaEm) { this.fechadaEm = fechadaEm; }
     
@@ -223,9 +330,12 @@ public class SessaoConsumo extends BaseEntity {
         private FundoConsumo fundoConsumo;
         private Mesa mesa;
         private UnidadeAtendimento unidadeAtendimento;
+        private Tenant tenant;
+        private Instituicao instituicao;
         private Cliente cliente;
         private Atendente aberturaPor;
         private LocalDateTime abertaEm;
+        private LocalDateTime ultimaAtividadeEm;
         private LocalDateTime fechadaEm;
         private StatusSessaoConsumo status;
         private Boolean modoAnonimo;
@@ -255,6 +365,16 @@ public class SessaoConsumo extends BaseEntity {
             return this;
         }
 
+        public SessaoConsumoBuilder tenant(Tenant tenant) {
+            this.tenant = tenant;
+            return this;
+        }
+
+        public SessaoConsumoBuilder instituicao(Instituicao instituicao) {
+            this.instituicao = instituicao;
+            return this;
+        }
+
         public SessaoConsumoBuilder cliente(Cliente cliente) {
             this.cliente = cliente;
             return this;
@@ -267,6 +387,11 @@ public class SessaoConsumo extends BaseEntity {
 
         public SessaoConsumoBuilder abertaEm(LocalDateTime abertaEm) {
             this.abertaEm = abertaEm;
+            return this;
+        }
+
+        public SessaoConsumoBuilder ultimaAtividadeEm(LocalDateTime ultimaAtividadeEm) {
+            this.ultimaAtividadeEm = ultimaAtividadeEm;
             return this;
         }
 
@@ -301,7 +426,7 @@ public class SessaoConsumo extends BaseEntity {
         }
 
         public SessaoConsumo build() {
-            return new SessaoConsumo(this.qrCodeSessao, this.fundoConsumo, this.mesa, this.unidadeAtendimento, this.cliente, this.aberturaPor, this.abertaEm, this.fechadaEm, this.status, this.modoAnonimo, this.pedidos, this.tipoSessao, this.eventos);
+            return new SessaoConsumo(this.qrCodeSessao, this.fundoConsumo, this.mesa, this.unidadeAtendimento, this.tenant, this.instituicao, this.cliente, this.aberturaPor, this.abertaEm, this.fechadaEm, this.status, this.modoAnonimo, this.pedidos, this.tipoSessao, this.eventos);
         }
     }
 
@@ -333,6 +458,39 @@ public class SessaoConsumo extends BaseEntity {
         if (this.unidadeAtendimento != null) return this.unidadeAtendimento;
         if (this.mesa != null) return this.mesa.getUnidadeAtendimento();
         return null;
+    }
+
+    /**
+     * Regista actividade operacional na sessão.
+     * Deve ser chamado sempre que ocorrer operação real (pedido, pagamento, etc.).
+     * Seguro para uso concorrente — apenas actualiza o timestamp, não altera status.
+     */
+    public void registrarAtividade() {
+        if (this.status == StatusSessaoConsumo.ABERTA ||
+            this.status == StatusSessaoConsumo.AGUARDANDO_PAGAMENTO) {
+            this.ultimaAtividadeEm = LocalDateTime.now();
+        }
+    }
+
+    /**
+     * Regista actividade com timestamp explícito (útil para testes).
+     */
+    public void registrarAtividade(LocalDateTime momento) {
+        if (momento == null) return;
+        if (this.status == StatusSessaoConsumo.ABERTA ||
+            this.status == StatusSessaoConsumo.AGUARDANDO_PAGAMENTO) {
+            this.ultimaAtividadeEm = momento;
+        }
+    }
+
+    /**
+     * Expira a sessão por inatividade automática.
+     * Diferente de {@link #encerrar()} — não encerra o fundo automaticamente aqui;
+     * o service decide se o fundo tem saldo e age em conformidade.
+     */
+    public void expirar() {
+        this.status = StatusSessaoConsumo.EXPIRADA;
+        this.fechadaEm = LocalDateTime.now();
     }
 
     /**

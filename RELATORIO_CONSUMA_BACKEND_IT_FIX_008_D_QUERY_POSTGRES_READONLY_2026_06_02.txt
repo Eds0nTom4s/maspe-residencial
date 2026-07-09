@@ -1,0 +1,251 @@
+CONSUMA - BACKEND - RELATORIO IT-FIX-008-D
+Query PostgreSQL, transacao read-only e residual de callback
+Data: 2026-06-02
+
+1. Resumo executivo
+
+A subfase IT-FIX-008-D foi concluida com sucesso preservando PostgreSQL, Testcontainers, Flyway,
+constraints, seguranca real e contratos funcionais dos fluxos ja estabilizados. O cluster de
+query PostgreSQL com parametro nulo sem tipo explicito, escrita dentro de transacao read-only
+e residual de callback/validacao foi corrigido sem mascarar erro de dominio e sem regressao
+final em 008-A, 008-B e 008-C.
+
+2. Branch e commit inicial
+
+- Repositorio: Eds0nTom4s/maspe-residencial
+- Branch de trabalho: restauracao-antes-da-loja
+- HEAD inicial da subfase 008-D: 33165b6
+- Commit herdado da retomada segura da 008-C:
+  - 33165b6 Document IT-FIX-008-C safe resumption after reboot
+
+3. Baseline antes
+
+- `git status -sb`: branch alinhada com `origin/restauracao-antes-da-loja`
+- arquivo fora do escopo mantido fora:
+  - RELATORIO_CONSUMA_BACKEND_IT_FIX_007_RODADA_AMPLA_FINAL_SUITE_IT_2026_06_02.txt
+- `git diff --check`: sem whitespace errors
+- baseline herdado previamente verde:
+  - `mvn clean test`
+  - `DockerAvailabilityIT`
+  - `TenantCorePersistenceIT`
+  - 008-A
+  - 008-B
+  - 008-C
+
+4. Cluster atacado
+
+- PostgreSQL com `could not determine data type of parameter` em filtros opcionais nulos
+- escrita de bootstrap dentro de fluxo que herdava contexto read-only
+- residual de callback/validacao e expectativa de contrato HTTP/RBAC desatualizada
+
+5. Arquivos alterados
+
+- src/main/java/com/restaurante/businesstemplate/support/BusinessTemplateProvisioningSupport.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/PaymentMethodPolicyTemplateBootstrapService.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodBootstrapService.java
+- src/main/java/com/restaurante/financeiro/service/PagamentoCallbackService.java
+- src/main/java/com/restaurante/repository/DispositivoOperacionalRepository.java
+- src/main/java/com/restaurante/repository/OperationalEventLogRepository.java
+- src/main/java/com/restaurante/repository/TenantRepository.java
+- src/main/java/com/restaurante/repository/TurnoOperacionalRepository.java
+- src/test/java/com/restaurante/financeiro/PagamentoCallbackInvalidSignatureIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyTemplateRegressionIT.java
+- src/test/java/com/restaurante/platform/PlatformObservabilidadeControllerIT.java
+
+6. Correcoes aplicadas
+
+- repositories PostgreSQL passaram a usar cast explicito nos filtros opcionais nulos:
+  - `TurnoOperacionalRepository`
+  - `DispositivoOperacionalRepository`
+  - `TenantRepository`
+  - `OperationalEventLogRepository`
+- `TenantPaymentMethodBootstrapService` foi endurecido em dois caminhos:
+  - `ensureDefaults(Long tenantId)` com `REQUIRES_NEW` para cenarios que precisam escapar de read-only
+  - `ensureDefaultsInCurrentTransaction(Tenant tenant)` para bootstrap do tenant ainda nao commitado
+- `BusinessTemplateProvisioningSupport` passou a usar o caminho em transacao corrente no provisioning
+- `PaymentMethodPolicyTemplateBootstrapService` passou a usar `REQUIRES_NEW`
+- `PagamentoCallbackService` recebeu `noRollbackFor = InvalidCallbackSignatureException.class`
+- `PagamentoCallbackInvalidSignatureIT` foi alinhado com:
+  - endpoint real `/pagamentos/callback`
+  - fixture funcional de produto/categoria
+  - propriedades AppyPay minimas para bootstrap do contexto
+- `PlatformObservabilidadeControllerIT` teve expectativa ajustada de `400` para `403`
+- `PaymentPolicyTemplateRegressionIT` passou a usar `@WithMockUser(username = "owner")`
+
+7. Regressao lateral descoberta e resolvida
+
+- a primeira forma da correcao read-only em `TenantPaymentMethodBootstrapService` usou apenas
+  `REQUIRES_NEW`, o que resolveu o caso de escrita sob read-only, mas quebrou o provisioning da
+  008-B quando o tenant ainda nao havia sido commitado
+- sintoma observado na rerodada da 008-B:
+  - `PlatformBusinessTemplateControllerIT`
+  - `201` esperado, `404` obtido
+- causa raiz:
+  - transacao interna nao enxergava o tenant recem-criado
+- resolucao final:
+  - manter o caminho `REQUIRES_NEW` para o caso read-only
+  - adicionar caminho `ensureDefaultsInCurrentTransaction(Tenant tenant)` para o provisioning
+
+8. Resultado dos alvos 008-D
+
+- `PlatformObservabilidadeControllerIT`
+  - 2 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - finalizado em: 2026-06-02T17:23:31+01:00
+
+- `PaymentPolicyTemplateRegressionIT`
+  - 1 test
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - finalizado em: 2026-06-02T17:26:48+01:00
+
+- `PagamentoCallbackInvalidSignatureIT`
+  - 1 test
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - finalizado em: 2026-06-02T17:41:36+01:00
+
+9. Resultado consolidado 008-D
+
+- comando:
+  `timeout 20m mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PlatformObservabilidadeControllerIT,PaymentPolicyTemplateRegressionIT,PagamentoCallbackInvalidSignatureIT" test-compile failsafe:integration-test failsafe:verify`
+- resultado:
+  - 4 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 01:37
+  - finalizado em: 2026-06-02T17:44:06+01:00
+
+10. Baseline apos correcao
+
+- `timeout 20m mvn clean test`
+  - 331 tests
+  - 0 failures
+  - 0 errors
+  - 3 skipped
+  - BUILD SUCCESS
+  - tempo total: 04:44
+  - finalizado em: 2026-06-02T17:49:21+01:00
+
+- `timeout 20m mvn -Pit -Dit.test=DockerAvailabilityIT verify`
+  - 1 test
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 03:48
+  - finalizado em: 2026-06-02T17:53:35+01:00
+
+- `timeout 25m mvn -Pit -Dit.test=TenantCorePersistenceIT verify`
+  - 7 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 04:33
+  - finalizado em: 2026-06-02T17:58:41+01:00
+
+11. Reexecucao da 008-A
+
+- resultado:
+  - 31 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 03:16
+  - finalizado em: 2026-06-02T18:02:22+01:00
+- observacao:
+  - apareceu warning de shutdown do fork, sem impacto no build verde
+
+12. Reexecucao da 008-B
+
+- primeira tentativa apos as correcoes da 008-D:
+  - 39 tests
+  - 2 failures
+  - 0 errors
+  - BUILD FAILURE
+  - finalizado em: 2026-06-02T18:05:57+01:00
+  - falhas concentradas em:
+    - `PlatformBusinessTemplateControllerIT.provisionPonto_createsMinimalOperationalStructure_andStaysSimple`
+    - `PlatformBusinessTemplateControllerIT.provisionRest_with10Tables_createsQrsProductionDevicesChecklists`
+- causa:
+  - regressao transacional real no bootstrap de payment methods
+- validacao isolada apos o ajuste cirurgico:
+  - `PlatformBusinessTemplateControllerIT`
+  - 8 tests
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+  - finalizado em: 2026-06-02T18:10:01+01:00
+- rerodada final da 008-B:
+  - 39 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 02:36
+  - finalizado em: 2026-06-02T18:13:03+01:00
+
+13. Reexecucao da 008-C
+
+- primeira tentativa no sandbox:
+  - BUILD FAILURE
+  - falhas de ambiente em `PostgresTestcontainersConfig.requireDocker(...)`
+  - nenhum indicio de regressao funcional de codigo
+  - finalizado em: 2026-06-02T18:13:22+01:00
+- motivo:
+  - daemon Docker indisponivel dentro do sandbox na execucao daquele lote
+- rerodada no mesmo comando com acesso real ao Docker:
+  - 10 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 01:56
+  - finalizado em: 2026-06-02T18:15:46+01:00
+
+14. O que NAO foi alterado
+
+- nao trocou PostgreSQL por H2
+- nao removeu constraints
+- nao desativou Testcontainers
+- nao relaxou method security ou RBAC real
+- nao pulou testes
+- nao usou gambiarra de `@Transactional` amplo para esconder bug
+
+15. Riscos e observacoes
+
+- warnings esporadicos de shutdown do fork continuam aparecendo em lotes grandes, sem impactar o status final
+- a trilha da 008-C registrou um falso negativo operacional do sandbox; o resultado valido para auditoria e decisao e o rerun com Docker acessivel
+- o endurecimento transacional no bootstrap de payment methods deve continuar sendo observado em futuras rodadas amplas por envolver dois caminhos distintos de execucao
+
+16. Decisao
+
+APROVADO
+
+A subfase IT-FIX-008-D fechou com:
+
+- queries PostgreSQL com tipagem explicita para filtros opcionais nulos
+- escrita residual removida de contexto read-only sem quebrar provisioning
+- callback de assinatura invalida sem rollback indevido
+- `PlatformObservabilidadeControllerIT` alinhado com o contrato real de autorizacao
+- alvos 008-D verdes
+- baseline verde
+- 008-A verde novamente
+- 008-B verde novamente
+- 008-C verde novamente
+
+17. Proximo passo recomendado
+
+- rodada ampla posterior de `mvn -Pit verify`
+- monitorar warnings de fork shutdown

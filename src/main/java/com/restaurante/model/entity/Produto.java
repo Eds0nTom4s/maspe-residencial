@@ -1,6 +1,6 @@
 package com.restaurante.model.entity;
 
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 
@@ -11,21 +11,24 @@ import java.util.List;
 
 /**
  * Entidade Produto
- * Representa um item do cardápio ou da Loja do Sócio disponível para pedidos.
- * Para produtos de loja (camisolas, acessórios), o campo {@code variacoes}
- * contém as opções de tamanho e cor disponíveis.
+ * Representa um item do cardápio disponível para pedidos
  */
 @Entity
 @Table(name = "produtos", indexes = {
-    @Index(name = "idx_produto_codigo", columnList = "codigo", unique = true),
-    @Index(name = "idx_produto_categoria", columnList = "categoria"),
-    @Index(name = "idx_produto_ativo", columnList = "ativo")
+    @Index(name = "idx_produto_tenant", columnList = "tenant_id"),
+    @Index(name = "idx_produto_tenant_codigo", columnList = "tenant_id, codigo", unique = true),
+    @Index(name = "idx_produto_tenant_categoria_enum", columnList = "tenant_id, categoria"),
+    @Index(name = "idx_produto_tenant_ativo", columnList = "tenant_id, ativo")
 })
 public class Produto extends BaseEntity {
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
+
     @NotBlank(message = "Código é obrigatório")
     @Size(max = 50)
-    @Column(nullable = false, unique = true, length = 50)
+    @Column(nullable = false, length = 50)
     private String codigo;
 
     @NotBlank(message = "Nome é obrigatório")
@@ -43,9 +46,13 @@ public class Produto extends BaseEntity {
     private BigDecimal preco;
 
     @Enumerated(EnumType.STRING)
-    @NotNull(message = "Categoria é obrigatória")
+    @NotNull(message = "Categoria (legado) é obrigatória")
     @Column(nullable = false, length = 30)
-    private CategoriaProduto categoria;
+    private CategoriaProdutoLegacy categoria;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "categoria_produto_id", nullable = false)
+    private CategoriaProduto categoriaProduto;
 
     @Column(name = "url_imagem", length = 500)
     private String urlImagem;
@@ -68,10 +75,6 @@ public class Produto extends BaseEntity {
     @OneToMany(mappedBy = "produto", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<ItemPedido> itensPedido = new ArrayList<>();
 
-    /**
-     * Variações disponíveis para este produto (tamanho, cor, etc.).
-     * Usado pela Loja do Sócio. Vazio para produtos do restaurante.
-     */
     @OneToMany(mappedBy = "produto", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
     private List<VariacaoProduto> variacoes = new ArrayList<>();
 
@@ -81,6 +84,9 @@ public class Produto extends BaseEntity {
     public BigDecimal calcularSubtotal(Integer quantidade) {
         return preco.multiply(BigDecimal.valueOf(quantidade));
     }
+
+    public Tenant getTenant() { return tenant; }
+    public void setTenant(Tenant tenant) { this.tenant = tenant; }
 
     public String getCodigo() { return this.codigo; }
     public void setCodigo(String codigo) { this.codigo = codigo; }
@@ -94,8 +100,11 @@ public class Produto extends BaseEntity {
     public BigDecimal getPreco() { return this.preco; }
     public void setPreco(BigDecimal preco) { this.preco = preco; }
 
-    public CategoriaProduto getCategoria() { return this.categoria; }
-    public void setCategoria(CategoriaProduto categoria) { this.categoria = categoria; }
+    public CategoriaProdutoLegacy getCategoria() { return this.categoria; }
+    public void setCategoria(CategoriaProdutoLegacy categoria) { this.categoria = categoria; }
+
+    public CategoriaProduto getCategoriaProduto() { return categoriaProduto; }
+    public void setCategoriaProduto(CategoriaProduto categoriaProduto) { this.categoriaProduto = categoriaProduto; }
 
     public String getUrlImagem() { return this.urlImagem; }
     public void setUrlImagem(String urlImagem) { this.urlImagem = urlImagem; }
@@ -122,7 +131,8 @@ public class Produto extends BaseEntity {
     public Produto() {}
 
     public Produto(String codigo, String nome, String descricao, BigDecimal preco,
-                   CategoriaProduto categoria, String urlImagem, List<String> imagensGaleria, Integer tempoPreparoMinutos,
+                   CategoriaProdutoLegacy categoria, String urlImagem, List<String> imagensGaleria,
+                   Integer tempoPreparoMinutos,
                    Boolean disponivel, Boolean ativo, List<ItemPedido> itensPedido) {
         this.codigo = codigo;
         this.nome = nome;
@@ -162,7 +172,7 @@ public class Produto extends BaseEntity {
         private String nome;
         private String descricao;
         private BigDecimal preco;
-        private CategoriaProduto categoria;
+        private CategoriaProdutoLegacy categoria;
         private String urlImagem;
         private List<String> imagensGaleria;
         private Integer tempoPreparoMinutos;
@@ -192,7 +202,7 @@ public class Produto extends BaseEntity {
             return this;
         }
 
-        public ProdutoBuilder categoria(CategoriaProduto categoria) {
+        public ProdutoBuilder categoria(CategoriaProdutoLegacy categoria) {
             this.categoria = categoria;
             return this;
         }

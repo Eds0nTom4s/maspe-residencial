@@ -261,6 +261,7 @@ public class AuthService {
                 switch (role.name()) {
                     case "ROLE_ADMIN":     return TipoUsuario.ADMIN;
                     case "ROLE_GERENTE":   return TipoUsuario.GERENTE;
+                    case "ROLE_COZINHA":   return TipoUsuario.COZINHA;
                     default:               return TipoUsuario.ATENDENTE;
                 }
             })
@@ -274,6 +275,8 @@ public class AuthService {
             .nome(user.getNomeCompleto() != null ? user.getNomeCompleto() : user.getUsername())
             .telefone(user.getTelefone())
             .email(user.getEmail())
+            .unidadeAtendimentoId(user.getUnidadeAtendimento() != null ? user.getUnidadeAtendimento().getId() : null)
+            .unidadeAtendimentoNome(user.getUnidadeAtendimento() != null ? user.getUnidadeAtendimento().getNome() : null)
             .tipoUsuario(tipoUsuario)
             .token(token)
             .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
@@ -318,4 +321,3 @@ public class AuthService {
             .build();
     }
 }
-

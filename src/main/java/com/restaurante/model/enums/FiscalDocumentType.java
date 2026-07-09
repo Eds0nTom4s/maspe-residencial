@@ -1,0 +1,10 @@
+package com.restaurante.model.enums;
+
+public enum FiscalDocumentType {
+    INTERNAL_RECEIPT,
+    INTERNAL_INVOICE,
+    INTERNAL_INVOICE_RECEIPT,
+    INTERNAL_CREDIT_NOTE,
+    INTERNAL_DEBIT_NOTE,
+    INTERNAL_CREDIT_NOTE_PLACEHOLDER
+}

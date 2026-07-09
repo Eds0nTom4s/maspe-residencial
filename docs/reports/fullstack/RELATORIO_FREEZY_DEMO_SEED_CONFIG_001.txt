@@ -1,0 +1,122 @@
+RELATORIO_FREEZY_DEMO_SEED_CONFIG_001
+
+1. Identificacao
+----------------
+Backend branch: backend/freezy-demo-seed-config-001
+Backend commit base: fe7622e3f2c41c8382d08a3fcb18abb64b30dd2c
+Backend commit final: registrado na entrega final
+Frontend branch: ui/test-infra-stabilization-001
+Frontend commit base: 0e9969883d29c417710e60a47d494dc0bf327c59
+Frontend commit final: 0e9969883d29c417710e60a47d494dc0bf327c59
+
+2. Objectivo
+------------
+Preparar seed/config controlado do Demo FREEZY para `CONSUMA_PONTO_V1` com QR Publico, preservando regras de pedido, pagamento, origem, `allowedActions`, `OperationalTemplatePolicy` e UI visual.
+
+3. Escopo aprovado do demo
+--------------------------
+QR Publico -> pedido CRIADO/NAO_PAGO -> operador aceita -> pedido EM_ANDAMENTO -> ordem de pagamento expiravel -> operador confirma pagamento -> financeiro PAGO -> operador entrega/finaliza -> cliente acompanha estado final.
+
+Esta fase cobre apenas seed/config inicial.
+
+4. Tenant FREEZY
+----------------
+Nome: FREEZY
+Slug: freezy-demo
+Tenant code: FREEZY_DEMO
+Tipo: VENDEDOR_RUA
+Estado: ativo
+
+5. Template CONSUMA_PONTO_V1
+----------------------------
+Provisionamento: CONSUMA_PONTO_V1
+Persistencia esperada: CONSUMA_PONTO, versao 1
+
+6. Unidade
+----------
+FREEZY Principal, ativa.
+
+7. Operador
+-----------
+Operador FREEZY, `operador.freezy@consuma.local`, senha temporaria local documentada apenas para sandbox.
+
+8. Permissoes
+-------------
+TENANT_OWNER tecnico criado pelo template e TENANT_OPERATOR explicito para o demo.
+
+9. Cardapio
+-----------
+Publicado ao fim do seed.
+
+10. Produtos
+------------
+- Gelado de Baunilha: 1200.00 AOA
+- Gelado de Chocolate: 1300.00 AOA
+- Gelado de Morango: 1300.00 AOA
+- Agua: 500.00 AOA
+- Refrigerante: 800.00 AOA
+- Combo FREEZY: 3000.00 AOA
+
+11. QR Publico
+--------------
+Nome: QR Publico FREEZY
+Tipo: UNIDADE_ATENDIMENTO
+URL esperada: /q/{token}
+Origem esperada do pedido: QR_PRINCIPAL, por nao haver mesa.
+
+12. Turno aberto
+----------------
+Turno Demo FREEZY, status ABERTO, idempotente por tenant/instituicao/unidade.
+
+13. Parametro de expiracao
+--------------------------
+`consuma.demo.freezy.payment-order-expiration-minutes=${CONSUMA_FREEZY_PAYMENT_ORDER_EXPIRATION_MINUTES:10}`.
+
+14. Garantias de nao violacao
+-----------------------------
+Pagamento antes do aceite: FREEZY nao cria pagamento.
+Gateway: nao cria gateway fake.
+Estorno: nao cria estorno.
+PDV: nao cria PDV.
+Caixa: nao cria caixa completo.
+KDS: nao cria KDS.
+Pedido/ordem: FREEZY nao cria pedido, ordem de pagamento ou pedido pago nesta fase.
+
+15. Testes backend
+------------------
+- `mvn -DskipTests compile`: PASS, BUILD SUCCESS.
+- `mvn -Pit -Dit.test=SandboxDemoSeedRunnerIT verify`: PASS, Surefire 379 tests / 0 failures / 0 errors / 3 skipped; Failsafe 1 test / 0 failures / 0 errors.
+- `mvn test`: PASS, 379 tests / 0 failures / 0 errors / 3 skipped.
+- `mvn -Pit verify`: PASS, Failsafe 274 tests / 0 failures / 0 errors / 0 skipped, BUILD SUCCESS.
+
+16. Testes frontend
+-------------------
+Nao executados; nao houve alteracao frontend.
+
+17. E2E
+-------
+Nao executado nesta fase; nao houve alteracao frontend nem fixture E2E. O smoke E2E FREEZY real fica para o prompt de happy path.
+
+18. Arquivos alterados
+----------------------
+Backend:
+- `src/main/java/com/restaurante/config/SandboxDemoSeedRunner.java`
+- `src/main/resources/application-sandbox.properties`
+- `src/test/java/com/restaurante/config/SandboxDemoSeedRunnerIT.java`
+- `docs/product/FREEZY_DEMO_SEED_CONFIG_001.md`
+- `docs/reports/backend/RELATORIO_FREEZY_DEMO_SEED_CONFIG_001.txt`
+- `docs/reports/fullstack/RELATORIO_FREEZY_DEMO_SEED_CONFIG_001.txt`
+
+Frontend:
+- Nenhum.
+
+19. Riscos restantes
+--------------------
+- Credencial demo e apenas local/sandbox.
+- Token do QR depende do ambiente seedado.
+- Ordem de pagamento expiravel ainda nao esta implementada.
+- Confirmacao de pagamento e entrega/finalizacao ficam para fases seguintes.
+
+20. Decisao final
+-----------------
+APROVADO COM RESSALVAS

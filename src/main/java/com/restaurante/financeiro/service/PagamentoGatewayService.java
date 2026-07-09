@@ -9,7 +9,6 @@ import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import com.restaurante.financeiro.enums.TipoEventoFinanceiro;
 import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
 import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
-import com.restaurante.financeiro.gateway.appypay.AppyPayStatusMapper;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayCallback;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeRequest;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
@@ -21,6 +20,7 @@ import com.restaurante.model.enums.TipoTransacaoFundo;
 import com.restaurante.notificacao.service.NotificacaoService;
 import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
 import com.restaurante.service.PedidoService;
 import org.slf4j.Logger;
@@ -64,12 +64,13 @@ public class PagamentoGatewayService {
     private final TransacaoFundoRepository transacaoFundoRepository;
     private final PedidoRepository pedidoRepository;
     private final AppyPayClient appyPayClient;
-    private final AppyPayProperties appyPayProperties;
     private final PedidoService pedidoService;
     private final ObjectMapper objectMapper;
     private final NotificacaoService notificacaoService;
     private final com.restaurante.service.SessaoConsumoService sessaoConsumoService;
     private final com.restaurante.repository.ClienteRepository clienteRepository;
+    private final AppyPayProperties appyPayProperties;
+    private final TenantRepository tenantRepository;
 
 
     @Autowired
@@ -80,12 +81,13 @@ public class PagamentoGatewayService {
         TransacaoFundoRepository transacaoFundoRepository,
         PedidoRepository pedidoRepository,
         AppyPayClient appyPayClient,
-        AppyPayProperties appyPayProperties,
         PedidoService pedidoService,
         ObjectMapper objectMapper,
         NotificacaoService notificacaoService,
         com.restaurante.service.SessaoConsumoService sessaoConsumoService,
-        com.restaurante.repository.ClienteRepository clienteRepository
+        com.restaurante.repository.ClienteRepository clienteRepository,
+        AppyPayProperties appyPayProperties,
+        TenantRepository tenantRepository
     ) {
         this.pagamentoRepository = pagamentoRepository;
         this.eventLogRepository = eventLogRepository;
@@ -93,12 +95,13 @@ public class PagamentoGatewayService {
         this.transacaoFundoRepository = transacaoFundoRepository;
         this.pedidoRepository = pedidoRepository;
         this.appyPayClient = appyPayClient;
-        this.appyPayProperties = appyPayProperties;
         this.pedidoService = pedidoService;
         this.objectMapper = objectMapper;
         this.notificacaoService = notificacaoService;
         this.sessaoConsumoService = sessaoConsumoService;
         this.clienteRepository = clienteRepository;
+        this.appyPayProperties = appyPayProperties;
+        this.tenantRepository = tenantRepository;
     }
     /**
      * Cria pagamento para recarga de fundo (PRÉ-PAGO)
@@ -149,6 +152,7 @@ public class PagamentoGatewayService {
         
         // Cria Pagamento (PENDENTE)
         Pagamento pagamento = Pagamento.builder()
+            .tenant(determinarTenantParaPagamento(fundo, null))
             .fundoConsumo(fundo)
             .pedido(null)
             .tipoPagamento(TipoPagamentoFinanceiro.PRE_PAGO)
@@ -171,6 +175,16 @@ public class PagamentoGatewayService {
             ip,
             "Recarga de fundo solicitada: " + com.restaurante.util.MoneyFormatter.format(valor)
         );
+
+        // Sprint 1: Regista actividade na sessão — pagamento PENDENTE criado.
+        // Crítico para evitar que o scheduler expire a sessão enquanto o cliente
+        // está a pagar a referência bancária no Multicaixa (fluxo REF assíncrono).
+        if (fundo.getSessaoConsumo() != null) {
+            sessaoConsumoService.registrarAtividade(
+                    fundo.getSessaoConsumo().getId(),
+                    "Pagamento PENDENTE criado: " + com.restaurante.util.MoneyFormatter.format(valor)
+                    + " (ref=" + externalRef + ")");
+        }
         
         // Chama AppyPay
         try {
@@ -179,11 +193,11 @@ public class PagamentoGatewayService {
                 .amount(converterParaCentavos(valor))
                 .paymentMethod(metodo.getCodigo())
                 .description("Recarga Fundo #" + fundoId)
+                .callbackUrl(appyPayProperties.getCallbackUrl())
+                .returnUrl(appyPayProperties.getReturnUrl())
                 .mobileNumber(telefone != null ? telefone : 
                     (fundo.getSessaoConsumo() != null && fundo.getSessaoConsumo().getCliente() != null ? 
                      fundo.getSessaoConsumo().getCliente().getTelefone() : null))
-                .callbackUrl(appyPayProperties.getCallbackUrl())
-                .returnUrl(appyPayProperties.getReturnUrl())
                 .build();
             
             AppyPayChargeResponse response = appyPayClient.createCharge(request);
@@ -193,7 +207,7 @@ public class PagamentoGatewayService {
             pagamento.setGatewayResponse(serializarJson(response));
             
             // REF: salva entidade e referência
-            if (AppyPayStatusMapper.isMethod(response.getPaymentMethod(), "REF")) {
+            if ("REF".equals(response.getPaymentMethod())) {
                 pagamento.setEntidade(response.getEntity());
                 pagamento.setReferencia(response.getReference());
                 
@@ -222,8 +236,8 @@ public class PagamentoGatewayService {
             pagamentoRepository.save(pagamento);
             
             // GPO: confirmação imediata
-            if (AppyPayStatusMapper.isMethod(response.getPaymentMethod(), "GPO") &&
-                AppyPayStatusMapper.isConfirmed(response.getStatus())) {
+            if ("GPO".equals(response.getPaymentMethod()) && 
+                "CONFIRMED".equals(response.getStatus())) {
                 confirmarPagamentoRecargaFundo(pagamento.getId(), "SYSTEM", "SYSTEM", null);
             }
             
@@ -281,6 +295,7 @@ public class PagamentoGatewayService {
         String externalRef = gerarExternalReference();
 
         Pagamento pagamento = Pagamento.builder()
+            .tenant(determinarTenantParaPagamento(null, cliente))
             .cliente(cliente)
             .tipoPagamento(TipoPagamentoFinanceiro.PRE_PAGO)
             .metodo(metodo)
@@ -298,16 +313,16 @@ public class PagamentoGatewayService {
                 .amount(converterParaCentavos(valor))
                 .paymentMethod(metodo.getCodigo())
                 .description("Nova Sessão - Cliente #" + clienteId)
-                .mobileNumber(telefone != null ? telefone : cliente.getTelefone())
                 .callbackUrl(appyPayProperties.getCallbackUrl())
                 .returnUrl(appyPayProperties.getReturnUrl())
+                .mobileNumber(telefone != null ? telefone : cliente.getTelefone())
                 .build();
 
             AppyPayChargeResponse response = appyPayClient.createCharge(request);
             pagamento.setGatewayChargeId(response.getChargeId());
             pagamento.setGatewayResponse(serializarJson(response));
 
-            if (AppyPayStatusMapper.isMethod(response.getPaymentMethod(), "REF")) {
+            if ("REF".equals(response.getPaymentMethod())) {
                 pagamento.setEntidade(response.getEntity());
                 pagamento.setReferencia(response.getReference());
                 
@@ -323,8 +338,7 @@ public class PagamentoGatewayService {
 
             pagamentoRepository.save(pagamento);
 
-            if (AppyPayStatusMapper.isMethod(response.getPaymentMethod(), "GPO") &&
-                AppyPayStatusMapper.isConfirmed(response.getStatus())) {
+            if ("GPO".equals(response.getPaymentMethod()) && "CONFIRMED".equals(response.getStatus())) {
                 confirmarPagamentoRecargaFundo(pagamento.getId(), "SYSTEM", "SYSTEM", null);
             }
 
@@ -484,6 +498,22 @@ public class PagamentoGatewayService {
         long timestamp = System.currentTimeMillis() % 100000000; // 8 dígitos
         int random = (int)(Math.random() * 1000); // 3 dígitos
         return String.format("REC%08d%03d", timestamp, random);
+    }
+
+    private Tenant determinarTenantParaPagamento(FundoConsumo fundo, Cliente cliente) {
+        try {
+            if (fundo != null && fundo.getSessaoConsumo() != null) {
+                Instituicao inst = fundo.getSessaoConsumo().getInstituicao();
+                if (inst == null && fundo.getSessaoConsumo().getMesa() != null) {
+                    inst = fundo.getSessaoConsumo().getMesa().getInstituicao();
+                }
+                if (inst != null && inst.getTenant() != null) {
+                    return inst.getTenant();
+                }
+            }
+        } catch (Exception ignored) {}
+        return tenantRepository.findByTenantCode("LEGACY")
+                .orElseThrow(() -> new IllegalStateException("Tenant LEGACY não encontrado para compatibilidade."));
     }
     
     /**

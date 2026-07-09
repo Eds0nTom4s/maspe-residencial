@@ -12,6 +12,10 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import com.restaurante.repository.projection.SubPedidoFilaAggProjection;
+import java.util.Collection;
 
 /**
  * Repository para SubPedido
@@ -23,6 +27,11 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
      * Busca SubPedido por número
      */
     Optional<SubPedido> findByNumero(String numero);
+
+    long countByTenantIdAndPedidoTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusSubPedido status);
+
+    @Query("select count(sp) from SubPedido sp where sp.tenant.id = :tenantId and sp.pedido.turnoOperacional.id = :turnoId and sp.status not in (com.restaurante.model.enums.StatusSubPedido.ENTREGUE, com.restaurante.model.enums.StatusSubPedido.CANCELADO)")
+    long countNonTerminalByTenantIdAndPedidoTurnoOperacionalId(@Param("tenantId") Long tenantId, @Param("turnoId") Long turnoId);
 
     /**
      * Busca SubPedido por ID com todos os relacionamentos carregados (para evitar LazyInitializationException)
@@ -174,4 +183,248 @@ public interface SubPedidoRepository extends JpaRepository<SubPedido, Long> {
     @Query("SELECT COUNT(sp) FROM SubPedido sp WHERE sp.cozinha.id = :cozinhaId " +
            "AND sp.status IN ('PENDENTE', 'RECEBIDO', 'EM_PREPARACAO')")
     Long contarSubPedidosAtivosPorCozinha(@Param("cozinhaId") Long cozinhaId);
+
+    // ---------------------------------------------------------------------
+    // Tenant-scoped + Produção (Prompt 17)
+    // ---------------------------------------------------------------------
+
+    Optional<SubPedido> findByIdAndTenantId(Long id, Long tenantId);
+
+    @Query("""
+            select distinct sp from SubPedido sp
+              join fetch sp.pedido p
+              left join fetch p.sessaoConsumo sc
+              left join fetch sc.mesa m
+              left join fetch p.clienteConsumo cc
+              left join fetch sp.unidadeProducao up
+              left join fetch sp.itens i
+              left join fetch i.produto prod
+            where sp.tenant.id = :tenantId
+              and (cast(:unidadeProducaoId as string) is null or up.id = :unidadeProducaoId)
+              and (cast(:status as string) is null or sp.status = :status)
+              and (cast(:pedidoId as string) is null or p.id = :pedidoId)
+              and (cast(:createdFrom as timestamp) is null or sp.createdAt >= :createdFrom)
+              and (cast(:createdTo as timestamp) is null or sp.createdAt <= :createdTo)
+            order by sp.createdAt asc
+            """)
+    List<SubPedido> findKdsContractByTenantAndFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status,
+            @Param("pedidoId") Long pedidoId,
+            @Param("createdFrom") LocalDateTime createdFrom,
+            @Param("createdTo") LocalDateTime createdTo
+    );
+
+    @Query("""
+            select distinct sp from SubPedido sp
+              join fetch sp.pedido p
+              left join fetch p.sessaoConsumo sc
+              left join fetch sc.mesa m
+              left join fetch p.clienteConsumo cc
+              left join fetch sp.unidadeProducao up
+              left join fetch sp.itens i
+              left join fetch i.produto prod
+            where sp.id = :id
+              and sp.tenant.id = :tenantId
+            """)
+    Optional<SubPedido> findKdsContractByIdAndTenant(
+            @Param("id") Long id,
+            @Param("tenantId") Long tenantId
+    );
+
+    @Query("SELECT sp FROM SubPedido sp " +
+           "WHERE sp.tenant.id = :tenantId " +
+           "AND sp.unidadeProducao.id = :unidadeProducaoId " +
+           "ORDER BY sp.createdAt DESC")
+    List<SubPedido> findByTenantIdAndUnidadeProducaoIdOrderByCreatedAtDesc(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId);
+
+    @Query("SELECT sp FROM SubPedido sp " +
+           "WHERE sp.tenant.id = :tenantId " +
+           "AND sp.unidadeProducao.id = :unidadeProducaoId " +
+           "AND (cast(:status as string) IS NULL OR sp.status = :status) " +
+           "ORDER BY sp.createdAt DESC")
+    List<SubPedido> findByTenantIdAndUnidadeProducaoIdAndStatusOrderByCreatedAtDesc(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status);
+
+    // ---------------------------------------------------------------------
+    // KDS-ready paging queries (Prompt 22)
+    // ---------------------------------------------------------------------
+
+    @Query("""
+            select sp.id from SubPedido sp
+              join sp.pedido p
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and p.statusFinanceiro <> com.restaurante.model.enums.StatusFinanceiroPedido.PENDENTE_PAGAMENTO
+              and (cast(:status as string) is null or sp.status = :status)
+              and (cast(:de as timestamp) is null or sp.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
+              and (
+                    cast(:search as string) is null or :search = '' or
+                    lower(p.numero) like lower(concat('%', :search, '%')) or
+                    lower(sp.numero) like lower(concat('%', :search, '%'))
+                  )
+            order by sp.createdAt asc
+            """)
+    Page<Long> findKdsIdsByTenantAndUnidadeAndFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate,
+            @Param("search") String search,
+            Pageable pageable
+    );
+
+    @Query("""
+            select distinct sp from SubPedido sp
+              join fetch sp.pedido p
+              left join fetch p.sessaoConsumo sc
+              left join fetch sc.mesa m
+              left join fetch sp.unidadeProducao up
+              left join fetch sp.itens i
+              left join fetch i.produto prod
+            where sp.id in :ids
+            """)
+    List<SubPedido> findKdsDetailsByIdIn(@Param("ids") List<Long> ids);
+
+    @Query("""
+            select sp.id from SubPedido sp
+              join sp.pedido p
+            where sp.tenant.id = :tenantId
+              and p.statusFinanceiro <> com.restaurante.model.enums.StatusFinanceiroPedido.PENDENTE_PAGAMENTO
+              and (cast(:unidadeProducaoId as string) is null or sp.unidadeProducao.id = :unidadeProducaoId)
+              and (cast(:status as string) is null or sp.status = :status)
+              and (cast(:de as timestamp) is null or sp.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
+              and (cast(:pedidoNumero as string) is null or :pedidoNumero = '' or lower(p.numero) like lower(concat('%', :pedidoNumero, '%')))
+            order by sp.createdAt asc
+            """)
+    Page<Long> findKdsIdsByTenantAndFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate,
+            @Param("pedidoNumero") String pedidoNumero,
+            Pageable pageable
+    );
+
+    interface SubPedidoMetricRow {
+        Long getUnidadeProducaoId();
+        String getUnidadeProducaoNome();
+        StatusSubPedido getStatus();
+        LocalDateTime getCreatedAt();
+        LocalDateTime getIniciadoEm();
+        LocalDateTime getProntoEm();
+        LocalDateTime getEntregueEm();
+    }
+
+    @Query("""
+            select
+              up.id as unidadeProducaoId,
+              up.nome as unidadeProducaoNome,
+              sp.status as status,
+              sp.createdAt as createdAt,
+              sp.iniciadoEm as iniciadoEm,
+              sp.prontoEm as prontoEm,
+              sp.entregueEm as entregueEm
+            from SubPedido sp
+              join sp.pedido p
+              left join sp.unidadeProducao up
+            where sp.tenant.id = :tenantId
+              and p.statusFinanceiro <> com.restaurante.model.enums.StatusFinanceiroPedido.PENDENTE_PAGAMENTO
+              and (cast(:unidadeProducaoId as string) is null or up.id = :unidadeProducaoId)
+              and (cast(:de as timestamp) is null or sp.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
+            """)
+    List<SubPedidoMetricRow> findMetricRowsByTenantAndPeriod(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate
+    );
+
+    @Query("""
+            select count(sp) as count,
+                   max(sp.updatedAt) as maxUpdatedAt,
+                   max(sp.createdAt) as maxCreatedAt,
+                   max(sp.iniciadoEm) as maxIniciadoEm,
+                   max(sp.prontoEm) as maxProntoEm,
+                   max(sp.entregueEm) as maxEntregueEm,
+                   sum(case when sp.updatedAt is null then 1 else 0 end) as nullUpdatedAtCount
+            from SubPedido sp
+              join sp.pedido p
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and p.statusFinanceiro <> com.restaurante.model.enums.StatusFinanceiroPedido.PENDENTE_PAGAMENTO
+              and (cast(:status as string) is null or sp.status = :status)
+              and (cast(:de as timestamp) is null or sp.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or sp.createdAt <= :ate)
+              and (
+                    cast(:search as string) is null or :search = '' or
+                    lower(p.numero) like lower(concat('%', :search, '%')) or
+                    lower(sp.numero) like lower(concat('%', :search, '%'))
+                  )
+            """)
+    SubPedidoFilaAggProjection computeFilaAgg(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("status") StatusSubPedido status,
+            @Param("de") LocalDateTime de,
+            @Param("ate") LocalDateTime ate,
+            @Param("search") String search
+    );
+
+    @Query("""
+            select count(sp)
+            from SubPedido sp
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and sp.status in :statuses
+            """)
+    long countByTenantAndUnidadeProducaoAndStatuses(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("statuses") Collection<StatusSubPedido> statuses
+    );
+
+    @Query("""
+            select min(coalesce(sp.iniciadoEm, sp.createdAt))
+            from SubPedido sp
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and sp.status = com.restaurante.model.enums.StatusSubPedido.EM_PREPARACAO
+            """)
+    LocalDateTime minEmPreparacaoAtByTenantAndUnidadeProducao(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId
+    );
+
+    @Query("""
+            select count(sp)
+            from SubPedido sp
+            where sp.tenant.id = :tenantId
+              and sp.unidadeProducao.id = :unidadeProducaoId
+              and sp.status = com.restaurante.model.enums.StatusSubPedido.EM_PREPARACAO
+              and coalesce(sp.iniciadoEm, sp.createdAt) < :cutoff
+            """)
+    long countAtrasadosEmPreparacaoByTenantAndUnidadeProducao(
+            @Param("tenantId") Long tenantId,
+            @Param("unidadeProducaoId") Long unidadeProducaoId,
+            @Param("cutoff") LocalDateTime cutoff
+    );
+
+    @Query("""
+            select sp.tenant.id as tenantId, count(sp) as cnt
+            from SubPedido sp
+            where sp.status in :statuses
+            group by sp.tenant.id
+            """)
+    List<Object[]> countByTenantForStatuses(@Param("statuses") Collection<StatusSubPedido> statuses);
 }

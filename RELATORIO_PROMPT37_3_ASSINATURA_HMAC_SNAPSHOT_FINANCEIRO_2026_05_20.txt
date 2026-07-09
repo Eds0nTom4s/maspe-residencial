@@ -1,0 +1,107 @@
+RELATÓRIO TÉCNICO — PROMPT 37.3
+Assinatura lógica HMAC-SHA256 do snapshot financeiro
+Data: 2026-05-20 (Africa/Luanda)
+
+1) Resumo executivo
+- Foi adicionada assinatura lógica HMAC-SHA256 ao snapshot financeiro do turno para reforçar integridade contra adulteração intencional com acesso ao banco.
+- A assinatura é calculada sobre o `snapshotHash` (SHA-256 do snapshot canônico), usando segredo fora do banco (`CONSUMA_SNAPSHOT_HMAC_SECRET`).
+- O fecho do turno passa a persistir assinatura no `resumo_json.financeiro.integridade`.
+- O export lógico (`/snapshot/export`) passou a verificar hash e assinatura e retornar resultado detalhado.
+- Compatibilidade: snapshots antigos com hash e sem assinatura recebem assinatura no primeiro export se o hash estiver válido; assinatura inválida não é sobrescrita.
+
+2) Arquivos criados
+- Serviço HMAC:
+  - `src/main/java/com/restaurante/financeiro/snapshot/SnapshotSignatureService.java`
+- Validator prod (bloqueia secret ausente/curto):
+  - `src/main/java/com/restaurante/financeiro/snapshot/SnapshotSignatureSecretValidator.java`
+- Testes:
+  - `src/test/java/com/restaurante/financeiro/SnapshotFinanceiroExportSignatureDisabledIT.java`
+- Documentação:
+  - `docs/tenant-core/37-3-assinatura-hmac-snapshot-financeiro.md`
+
+3) Arquivos alterados
+- `src/main/java/com/restaurante/financeiro/snapshot/SnapshotIntegridadeProperties.java`
+- `src/main/java/com/restaurante/financeiro/snapshot/dto/SnapshotIntegridadeResponse.java`
+- `src/main/java/com/restaurante/financeiro/snapshot/dto/SnapshotVerificacaoIntegridadeResponse.java`
+- `src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java`
+- `src/main/java/com/restaurante/financeiro/snapshot/service/SnapshotFinanceiroExportService.java`
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+- `src/main/resources/application.properties`
+- `src/test/java/com/restaurante/operacao/TurnoFechoSnapshotFinanceiroIT.java`
+- `src/test/java/com/restaurante/financeiro/SnapshotFinanceiroExportIT.java`
+- `src/test/resources/application-it-postgres.properties`
+- `src/test/resources/application-test.properties`
+
+4) Properties adicionadas
+- `consuma.financeiro.snapshot-integridade.signature-enabled` (default true)
+- `consuma.financeiro.snapshot-integridade.signature-algorithm` (default HMAC-SHA256)
+- `consuma.financeiro.snapshot-integridade.signature-key-id` (default platform-snapshot-key-v1)
+- `consuma.financeiro.snapshot-integridade.signature-secret` (env: CONSUMA_SNAPSHOT_HMAC_SECRET)
+
+5) Como o HMAC é calculado
+- `snapshotHash = SHA-256(canonical_json(financeiro_sem_integridade))`
+- `snapshotSignature = HMAC-SHA256(secret, snapshotHash)`
+- Comparação de assinaturas usa `MessageDigest.isEqual` (timing-safe).
+
+6) Integração com fecho do turno
+- `TurnoOperacionalService` adiciona, no snapshot:
+  - `signatureAlgorithm`
+  - `snapshotSignature`
+  - `signatureGeneratedAt`
+  - `signatureKeyId`
+  - `signatureScope=snapshotHash`
+- Secret ausente com `signature-enabled=true` gera erro explícito (não fecha turno sem assinatura).
+
+7) Export e verificação
+- Export retorna:
+  - `verificacao.hashValido`
+  - `verificacao.assinaturaValida`
+  - `verificacao.valido = hashValido && assinaturaValida` (quando assinatura habilitada)
+- Compatibilidade:
+  - se assinatura ausente e hash válido → gera assinatura on-demand e persiste.
+  - se assinatura presente e inválida → reporta e registra evento, não sobrescreve.
+
+8) Auditoria/eventos
+- Eventos adicionados:
+  - `SNAPSHOT_FINANCEIRO_ASSINATURA_GERADA`
+  - `SNAPSHOT_FINANCEIRO_ASSINATURA_INVALIDA`
+- Eventos existentes continuam:
+  - `SNAPSHOT_FINANCEIRO_HASH_GERADO`
+  - `SNAPSHOT_FINANCEIRO_EXPORTADO`
+  - `SNAPSHOT_FINANCEIRO_INTEGRIDADE_INVALIDA`
+
+9) Testes
+- Fecho persiste assinatura no snapshot.
+- Export íntegro retorna hashValido=true e assinaturaValida=true.
+- Alteração no valor quebra hashValido.
+- Alteração apenas na assinatura mantém hashValido=true e assinaturaValida=false, sem sobrescrever assinatura persistida.
+- Snapshot antigo sem integridade recebe hash+assinatura no primeiro export.
+- `signature-enabled=false` mantém export funcionando apenas com hash.
+
+10) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+11) Resultado dos comandos
+- compile: OK
+- tests: OK (BUILD SUCCESS)
+
+12) Riscos restantes
+- HMAC melhora integridade, mas não substitui controles de acesso e trilha fora do DB; um atacante com acesso ao segredo ainda pode falsificar.
+- Rotação de chaves (keyId) está preparada, mas sem mecanismo de múltiplas chaves ativas nesta fase.
+
+13) Checklist de aceitação
+[OK] Novos fechos persistem snapshotHash e snapshotSignature.
+[OK] snapshotSignature é HMAC-SHA256.
+[OK] signatureKeyId persistido.
+[OK] secret não é persistido nem exposto.
+[OK] Export retorna hashValido/assinaturaValida/valido.
+[OK] Hash inválido não gera assinatura.
+[OK] Assinatura inválida não é sobrescrita automaticamente.
+[OK] Compatibilidade on-demand para snapshots antigos.
+[OK] RBAC mantido (OWNER/ADMIN/FINANCE/CASHIER).
+[OK] `mvn -q -DskipTests compile` e `mvn test` passam.
+
+14) Próximo prompt recomendado
+- Rotação de chaves HMAC com múltiplos `keyId` ativos (verificação por keyId + deprecação segura) e export “evidence bundle” (sem PDF/Excel).
+

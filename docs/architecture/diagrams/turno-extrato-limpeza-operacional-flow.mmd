@@ -1,0 +1,47 @@
+flowchart TD
+    A[Pre-fecho do turno] --> B[TurnoResumoService calcula bloqueios e avisos]
+    B --> C{Pedido de fecho}
+
+    C -->|Normal| D{Sem bloqueios duros?}
+    D -->|Nao| E[Fecho negado]
+    E --> E1[Sem snapshot de turno fechado]
+    E --> E2[Pedidos, pagamentos, ordens e sessoes preservados]
+
+    D -->|Sim| F[Gerar relatorio financeiro]
+    F --> G[Snapshot financeiro congelado em resumo_json.financeiro]
+    G --> H[Snapshot operacional em resumo_json.operacional]
+    H --> I[Limpeza operacional classificatoria]
+    I --> J[Auditoria TURNO_FECHADO]
+    J --> K[Turno FECHADO]
+
+    C -->|Forcado| L[Validar role superior e motivo]
+    L --> M[Tentar auto-fecho PONTO elegivel]
+    M --> N[Recalcular pre-fecho]
+    N --> O{Bloqueio nao ignoravel?}
+    O -->|Sim| P[Fecho negado]
+    P --> P1[Auditoria de bloqueio quando aplicavel]
+    P --> P2[Sem snapshot de turno fechado]
+    P --> P3[Pendencias preservadas]
+
+    O -->|Nao| Q[Classificar bloqueios ignorados e alertas]
+    Q --> R[Gerar relatorio financeiro]
+    R --> S[Snapshot financeiro congelado]
+    S --> T[Snapshot operacional apos auto-fecho PONTO]
+    T --> U[Registrar pendencias herdadas]
+    U --> V[Auditoria TURNO_FECHADO_FORCADO]
+    V --> W[Turno FECHADO]
+
+    H --> H1[Pedidos mapeados por status]
+    H --> H2[Pagamentos mapeados por status]
+    H --> H3[Ordens ativas, confirmadas, canceladas e expiradas]
+    H --> H4[Sessoes encerradas, expiradas e herdadas]
+    H --> H5[Dispositivos offline como alerta operacional]
+
+    I --> I1[Nao apaga sessoes]
+    I --> I2[Nao cancela nem finaliza pedidos]
+    I --> I3[Nao confirma nem estorna pagamentos]
+    I --> I4[Nao altera REST/KDS]
+
+    M --> M1[PONTO resolvido: sessao pode encerrar automaticamente]
+    M --> M2[PONTO com pendencia: permanece herdado]
+    M --> M3[REST/KDS: nao recebe comportamento PONTO]

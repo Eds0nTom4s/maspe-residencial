@@ -1,0 +1,33 @@
+flowchart TD
+    A[Solicitacao de fecho do turno] --> B[Calcular pre-fecho com TurnoResumoService]
+    B --> C{forcarFecho?}
+
+    C -- Nao --> D{pre-fecho podeFechar?}
+    D -- Sim --> E[Fecho normal]
+    D -- Nao --> F[Rejeitar fecho normal com bloqueios]
+
+    C -- Sim --> G[Validar role superior]
+    G --> H{TENANT_OWNER, TENANT_ADMIN ou PLATFORM_ADMIN?}
+    H -- Nao --> I[403 sem fecho]
+    H -- Sim --> J[Validar motivoFechoForcado]
+    J --> K{Motivo entre 10 e 500 caracteres?}
+    K -- Nao --> L[409 sem fecho]
+    K -- Sim --> M[Tentar auto-fecho de sessoes PONTO elegiveis]
+
+    M --> N[Recalcular pre-fecho]
+    N --> O[Classificar bloqueios]
+    O --> P{Bloqueio nao ignoravel?}
+    P -- Sim --> Q[409 e auditoria TURNO_FECHO_BLOQUEADO_ALERTA_FINANCEIRO]
+    P -- Nao --> R[Registrar politica em metadata]
+    R --> S[Gerar snapshot financeiro existente]
+    S --> T[Fechar turno como FECHADO]
+    T --> U[Auditar TURNO_FECHADO_FORCADO]
+    U --> V[Preservar pedidos, pagamentos, ordens e sessoes pendentes]
+
+    O --> O1[Ignoraveis com motivo: sessao aberta, pedido nao terminal, subpedido nao terminal, dispositivo offline]
+    O --> O2[Nao ignoravel: alerta financeiro critico bloqueante]
+    O --> O3[Flexiveis: pagamento pendente nao critico, dispositivo offline, alerta financeiro nao bloqueante]
+
+    M --> M1[Sessao PONTO resolvida: auto-encerrada]
+    M --> M2[Sessao PONTO nao elegivel: permanece aberta e herdada]
+    M --> M3[Sessao REST/KDS: nao e auto-encerrada]

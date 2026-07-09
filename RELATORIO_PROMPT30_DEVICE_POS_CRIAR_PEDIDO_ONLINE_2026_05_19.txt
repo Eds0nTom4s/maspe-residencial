@@ -1,0 +1,156 @@
+RELATÓRIO TÉCNICO — PROMPT 30 (POS/DEVICE CRIA PEDIDO ONLINE)
+Data: 2026-05-19 (Africa/Luanda)
+
+1) Resumo executivo
+- Implementado `POST /device/pedidos` para POS criar pedido online (tenant-safe, idempotente e auditável).
+- DevicePrincipal é fonte de verdade para tenant/instituição/unidade; request não aceita esses campos.
+- Turno operacional é exigido por policy específica para device (`consuma.operacao.require-open-turno-for-device-orders=true` por default).
+- Preço/total calculados no servidor; não há pagamento nesta fase.
+- Criada tabela de idempotência por device (Idempotency-Key + clientRequestId) para impedir duplicações em retries.
+- Auditoria operacional registra `PEDIDO_CRIADO_DEVICE` com actorType=DEVICE e turno quando existir.
+
+2) Migration criada
+- `src/main/resources/db/migration/V21__device_pedido_idempotency.sql`
+  - `device_pedido_idempotency_records` com uniques:
+    - (tenant_id, device_id, idempotency_key)
+    - (tenant_id, device_id, client_request_id)
+
+3) Capability CREATE_ORDER
+- `src/main/java/com/restaurante/model/enums/DeviceCapability.java`
+  - Adicionada `CREATE_ORDER`.
+- `src/main/java/com/restaurante/service/device/DeviceCapabilities.java`
+  - POS/CHECKOUT/QUIOSQUE passam a incluir `CREATE_ORDER`.
+
+4) Properties adicionadas
+- `src/main/java/com/restaurante/config/OperacaoProperties.java`
+  - `requireOpenTurnoForDeviceOrders` (default true).
+- `src/main/java/com/restaurante/config/DeviceOrdersProperties.java`
+  - `consuma.device.orders.max-items`
+  - `consuma.device.orders.max-observacao-length`
+  - `consuma.device.orders.default-lookback-hours`
+- `src/main/resources/application.properties`
+  - `consuma.operacao.require-open-turno-for-device-orders=true`
+  - `consuma.device.orders.*`
+
+5) Modelo idempotência
+- `src/main/java/com/restaurante/model/entity/DevicePedidoIdempotencyRecord.java`
+- `src/main/java/com/restaurante/model/enums/DevicePedidoIdempotencyStatus.java`
+- `src/main/java/com/restaurante/repository/DevicePedidoIdempotencyRepository.java`
+
+6) Endpoint /device/pedidos
+- `src/main/java/com/restaurante/controller/DevicePedidoController.java`
+  - `POST /device/pedidos` (criação)
+  - `GET /device/pedidos/{pedidoId}` (detalhe mínimo, tenant+unidade do device)
+
+7) Service principal
+- `src/main/java/com/restaurante/service/device/DevicePedidoService.java`
+  - Valida DevicePrincipal + capability `CREATE_ORDER`
+  - Exige Idempotency-Key + clientRequestId
+  - Calcula requestHash canônico (SHA-256)
+  - Aplica idempotência (replay vs conflito 409)
+  - Resolve TurnoOperacional aberto e associa ao Pedido
+  - Valida mesa/QR/produtos (tenant + unidadeAtendimento do device)
+  - Cria SessaoConsumo mínima (mesa opcional) + FundoConsumo
+  - Cria Pedido/SubPedido/ItemPedido
+  - Roteia UnidadeProducao via `RotaProducaoService` (fallback default institucional)
+  - Calcula total no servidor
+  - Registra eventos operacionais
+
+8) Estratégia de turno obrigatório
+- Property:
+  - `consuma.operacao.require-open-turno-for-device-orders=true` (default)
+- Sem turno:
+  - `true` => 409 `DEVICE_ORDER_TURNO_REQUIRED`
+  - `false` => cria pedido e registra `PEDIDO_SEM_TURNO_ABERTO`
+
+9) Estratégia de idempotência
+- Regras:
+  - mesma (Idempotency-Key ou clientRequestId) + mesmo requestHash => replay (`idempotentReplay=true`)
+  - mesma chave/ID + requestHash diferente => 409 `DEVICE_ORDER_IDEMPOTENCY_CONFLICT`
+  - IN_PROGRESS => 409 recoverable (retry)
+
+10) Auditoria / OperationalEventLog
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+  - Adicionado `PEDIDO_CRIADO_DEVICE`.
+- `src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java`
+  - inclui `turno` quando `pedido.turnoOperacional` existe.
+- Eventos registrados:
+  - `PEDIDO_CRIADO_DEVICE` (actorType=DEVICE, deviceId, turnoId se existir)
+  - `PEDIDO_SEM_TURNO_ABERTO` (quando policy permitir)
+
+11) DeviceErrorResponse (novos codes)
+- `src/main/java/com/restaurante/dto/response/DeviceErrorResponse.java`
+  - Adicionados codes de pedido: idempotência, turno obrigatório, validações, scope, etc.
+- `src/main/java/com/restaurante/exception/DeviceApiException.java`
+- `src/main/java/com/restaurante/controller/advice/DeviceApiExceptionHandler.java`
+  - Agora também trata `DeviceApiException` retornando `DeviceErrorResponse` padronizado em /device/* (exceto /device/sync/*).
+
+12) Testes criados
+- `src/test/java/com/restaurante/device/DevicePedidoCreateIT.java`
+  - cria pedido com turno aberto
+  - replay idempotente
+  - conflito de idempotência
+  - capability insuficiente (403)
+- `src/test/java/com/restaurante/device/DevicePedidoTurnoRequiredIT.java`
+  - policy turno obrigatório bloqueia (409)
+- `src/test/java/com/restaurante/device/DevicePedidoTurnoPolicyIT.java`
+  - policy desligada permite pedido sem turno
+
+13) Documentação criada
+- `docs/tenant-core/30-device-pos-criar-pedido-online.md`
+
+14) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+15) Resultado dos comandos
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS
+
+16) Arquivos criados/alterados (principais)
+- `src/main/resources/db/migration/V21__device_pedido_idempotency.sql`
+- `src/main/java/com/restaurante/controller/DevicePedidoController.java`
+- `src/main/java/com/restaurante/service/device/DevicePedidoService.java`
+- `src/main/java/com/restaurante/model/entity/DevicePedidoIdempotencyRecord.java`
+- `src/main/java/com/restaurante/repository/DevicePedidoIdempotencyRepository.java`
+- `src/main/java/com/restaurante/model/enums/DeviceCapability.java`
+- `src/main/java/com/restaurante/service/device/DeviceCapabilities.java`
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+- `src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java`
+- `docs/tenant-core/30-device-pos-criar-pedido-online.md`
+- testes `src/test/java/com/restaurante/device/DevicePedido*IT.java`
+
+17) Decisões técnicas tomadas
+- POS/device usa policy de turno separada do QR público:
+  - QR público mantém compatibilidade por default
+  - device/POS exige disciplina por default
+- Mantido comportamento de roteamento compatível com pedido público QR (fallback default institucional quando necessário).
+- Idempotência persistida por device para suportar retries e evitar duplicações concorrentes.
+- Erros de /device/pedidos padronizados com DeviceErrorResponse (sem vazar token/segredos).
+
+18) Riscos restantes
+- GET detalhe do pedido retorna DTO mínimo (sem carregar itens/subpedidos completos nesta fase).
+- Ajuste fino de política (mesa obrigatória vs pedido sem mesa) pode ser necessário por vertical (ponto/quiosque/mesas).
+- Não há métricas específicas de device orders nesta fase (pode ser adicionada em prompt posterior).
+
+19) Checklist de aceitação
+- POST /device/pedidos existe: OK
+- DevicePrincipal obrigatório: OK (service valida principal)
+- CREATE_ORDER exigido: OK
+- tenant/instituição/unidade vêm do device: OK
+- turno aberto exigido por property: OK
+- pedido associa turno aberto: OK
+- Idempotency-Key obrigatório: OK
+- clientRequestId obrigatório: OK
+- retry não duplica pedido: OK (idempotency table)
+- produto/mesa/QR fora do escopo bloqueados: OK (tenant+unidade checks)
+- total calculado no servidor: OK
+- Pedido/SubPedido/ItemPedido criados: OK
+- SubPedido recebe UnidadeProducao: OK (rota + default)
+- OperationalEventLog registra actorType=DEVICE: OK (via principal)
+- pagamento/callback não alterados: OK
+- testes passam: OK
+
+20) Próximo prompt recomendado
+Prompt 31 — POS iniciar pagamento online (somente gateway, idempotente) OU POS listar pedidos recentes por unidade (read-only) + ajustes de UX operacional.
+

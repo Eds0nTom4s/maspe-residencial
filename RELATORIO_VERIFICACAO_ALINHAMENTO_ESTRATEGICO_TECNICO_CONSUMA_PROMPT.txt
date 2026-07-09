@@ -1,0 +1,335 @@
+PROMPT DE VERIFICAÇÃO — ALINHAMENTO ESTRATÉGICO E TÉCNICO DA CONSUMA
+Data: 2026-05-17
+Perfil: Arquiteto sénior de sistemas / product strategist / analista técnico (SaaS transacional multi-tenant)
+
+================================================================================
+1) DIAGNÓSTICO GERAL
+================================================================================
+Alinhamento geral: COERENTE e tecnicamente compatível com a arquitetura atual, com ressalvas claras.
+
+Maturidade atual (visão técnica/operacional):
+- Estágio: “Tenant-Aware Transactional Consumption Platform” em PILOTO CONTROLADO.
+- Core transacional multi-tenant está suficientemente estruturado para pilotos reais com QR + pedidos + pagamento + callback.
+- Ainda não é self-service público nem “ERP/faturação”; está correto manter como “camada operacional”.
+- A evolução por templates, RBAC tenant e provisionamento administrado é consistente com a ambição de rede, desde que
+  se respeite o princípio: core pequeno + extensões por módulos/eventos + contratos estáveis.
+
+Conclusão desta seção:
+- A visão “A ideia é sua. A estrutura é CONSUMA.” é compatível com o que foi construído.
+- O risco não é a direção; é o excesso de escopo e mistura precoce de modelos (restaurante vs rede) sem camadas claras.
+
+================================================================================
+2) PONTOS TECNICAMENTE SÓLIDOS (BEM ALINHADOS)
+================================================================================
+2.1 Multi-tenant e isolamento
+- Tenant explícito e consistente nos domínios críticos (Pedido/Pagamento/QR, e agora Mesa/SessaoConsumo).
+- TenantGuard/TenantContext/TenantResolver e RBAC TENANT_* fornecem base forte para B2B multiusuário.
+- Política 404 para cross-tenant em recursos por id evita vazamento de existência (boa prática).
+
+2.2 Core transacional e hardening
+- Idempotency-Key em criação de pedido público e em iniciar pagamento: requisito essencial para robustez real.
+- Numeração concorrência-safe por tenant/dia: correto para operação sob concorrência.
+- Callback idempotente com lock pessimista e validação HMAC: maturidade acima do típico MVP.
+- Divergência de valor bloqueia confirmação: certo para segurança financeira (evita “pago indevido”).
+
+2.3 Posição de produto “camada operacional”
+- Evitar competir com ERP/faturação no início é estratégico e tecnicamente prudente.
+- O core atual (pedido/pagamento/produção) serve como “operating layer” e dá espaço para integrações futuras.
+
+2.4 Templates + provisionamento administrado
+- Provisionamento manual + templates + preview/dry-run: excelente para reduzir risco em produção e acelerar pilotos.
+- Enforcement de limites por plano/override no provisioning: coerente com modelo SaaS e com operação.
+
+2.5 Produção (UnidadeProducao + rotas)
+- Introdução de UnidadeProducao e rotas por categoria é um passo correto para “infra operacional real”.
+- Dá direção clara para endpoints TENANT_KITCHEN sem contaminar financeiro.
+
+================================================================================
+3) PONTOS QUE EXIGEM CUIDADO (RISCOS CONCRETOS)
+================================================================================
+3.1 Risco de “monólito sem fronteiras de domínio”
+Se “rede CONSUMA” (fornecedores, comissão, parceiros, etc.) for implementada diretamente no mesmo core transacional
+sem modularização, o risco é:
+- complexidade acoplada em Pedido/Pagamento;
+- expansão de estados e regras conflitando (restaurante vs serviços vs revenda vs comissão);
+- testes e migrações mais difíceis e lentas;
+- aumento de superfície de falhas operacionais.
+Mitigação recomendada:
+- tratar “rede” como módulos/contexts: marketplace/comissão/parceiros como bounded contexts, integrando por eventos
+  e referências estáveis (IDs) e não por joins profundos.
+
+3.2 Risco de “financeiro ficar grande demais cedo”
+O financeiro atual resolve o essencial (início + callback + logs + monitoramento mínimo). Para comissão/split/liquidação,
+o risco é tentar “resolver tudo” antes de pilotos estáveis.
+Mitigação:
+- manter “pagamento do cliente” como core, e separar “repasse/settlement/comissão” como ledger/contas a pagar/receber
+  futuro, sem misturar com confirmação de pagamento.
+
+3.3 Risco de invariantes inconsistentes entre verticalizações
+Ex.: restaurante (mesa/sessão) vs vendedor de rua (balcão) vs serviços (orçamento/aprovação) vs evento.
+Mitigação:
+- manter Pedido como “order container” genérico e usar:
+  - “Origem/Canal/TipoPedido” (ex.: QR_PUBLICO, POS, SERVICO_ORCAMENTO) para variações,
+  - “Entidades satélite” (Orcamento, SolicitacaoOperacional, Comissao, etc.) sem deformar Pedido.
+
+3.4 POS/dispositivo e operação offline
+Introduzir dispositivo é correto, mas offline real exige disciplina:
+- versionamento de dados, sync tokens, resolução de conflitos, carimbos de tempo, monotonicidade, filas idempotentes.
+Mitigação:
+- começar com heartbeat/config + sync read-only incremental antes de permitir “criar pedidos offline”.
+
+3.5 Segurança operacional: segredos, auditoria e trilhas
+Para operação real, auditoria deve ser consistente:
+- quem (user/device), quando, tenant, instituição/unidade, IP/UA, e “por que” (motivo).
+Mitigação:
+- manter logs brutos (já existe em pagamento callbacks) e expandir para operações críticas do tenant (revogar QR,
+  suspender dispositivo, mudar preço, etc.) com event log enxuto.
+
+================================================================================
+4) CONFLITOS OU INCONSISTÊNCIAS (COM O DOMÍNIO ATUAL)
+================================================================================
+4.1 “Faturação como consequência” é coerente, mas precisa de um “contrato de saída”
+Sem faturação, ainda assim será necessário:
+- export de vendas/pagamentos por período,
+- integração com faturação eletrónica futura.
+Não é conflito; é dependência inevitável. A arquitetura atual suporta via endpoints de relatório + event logs.
+
+4.2 Serviços (orçamento) vs Pedido atual
+Não há conflito estrutural se:
+- Orcamento é entidade própria e converte para Pedido com itens e preço final “fixado” no momento da conversão.
+Conflito ocorrerá se:
+- tentar “mutar” pedido em tempo real durante negociação (vai quebrar idempotência e auditoria).
+
+4.3 Comissão/split vs Pagamento atual
+O Pagamento atual é orientado a “confirmar pagamento do cliente”. Comissão/split/liquidação exigem:
+- modelagem de “beneficiários” e “movimentos” (ledger) separados do pagamento confirmado.
+Se tentar acoplar split dentro do callback, cria inconsistência e risco.
+
+4.4 Karaoke + consumo obrigatório
+Encaixa bem em SessaoConsumo + FundoConsumo + Pedido, mas precisa evitar “acoplamento com UI”:
+- Karaoke é fila/evento operacional, não necessariamente “pedido”.
+Melhor tratar como solicitação/queue do que como item financeiro, mantendo rastreabilidade.
+
+================================================================================
+5) ENTIDADES IMPACTADAS (PROVÁVEIS PRÓXIMAS)
+================================================================================
+Obrigatórias para próximos passos de “tenant independente”:
+- User / TenantUser (gestão interna mínima; estados; auditoria).
+- Produto / CategoriaProduto (ativar/desativar; preço; histórico).
+- QrCodeOperacional (rotacionar/reemitir; auditoria).
+- Pedido / SubPedido / ItemPedido (status operacional; roteamento; histórico de eventos).
+- SessaoConsumo / FundoConsumo (bar/karaoke, consumo obrigatório; regras de débito/crédito).
+- DispositivoOperacional (POS: device token, status, capabilities; auditoria; eventual rotação).
+
+Para “CONSUMA Serviços” (futuro próximo):
+- Orcamento, OrcamentoItem, OrcamentoStatus.
+- Pedido “derivado de orçamento” (referência).
+
+Para “rede/fornecedor/comissão” (médio prazo):
+- Parceiro, Fornecedor, Vendedor, TabelaPreco/Oferta, ComissaoRegra, ComissaoMovimento, Repasse (não no core agora).
+
+================================================================================
+6) REPOSITORIES/SERVICES A AUDITAR (TENANT-SCOPE E SEGURANÇA)
+================================================================================
+Prioridade alta (porque operam volume e risco):
+1) Repositories de Pedido/SubPedido/ItemPedido:
+   - garantir sempre findByIdAndTenantId nos fluxos tenant-admin/POS/produção.
+2) SessaoConsumoRepository:
+   - confirmar uso de tenant_id direto em toda query operacional (mesa/status).
+3) MesaRepository:
+   - evitar buscas por id sem tenant em endpoints tenant-admin.
+4) PagamentoGatewayRepository + CallbackLog:
+   - assegurar tenant-scoping em listagens tenant-admin.
+5) QrCodeOperacionalRepository:
+   - tenant scoping consistente; revogação idempotente.
+6) Serviços que ainda mencionam getInstituicaoAtiva()/findFirstByAtivaTrue():
+   - classificar como LEGACY e reduzir superfície onde já há tenant scope.
+
+Segurança e autenticação:
+7) TenantResolver/TenantGuard:
+   - garantir que roles do TenantContext não vazam entre tenants (já endereçado, mas sempre auditar).
+8) Device auth (quando evoluir):
+   - se virar filtro, garantir que não conflita com JWT; separar claramente “user auth” e “device auth”.
+
+================================================================================
+7) RECOMENDAÇÃO DE SEQUÊNCIA (PRÓXIMAS SPRINTS)
+================================================================================
+Sequência recomendada para “pilotos reais operáveis” com mínimo risco:
+
+Sprint A — Tenant independente no básico (operacional)
+1) Completar “gestão interna mínima” do tenant:
+   - endpoints para gerir usuários do tenant (criar/suspender/roles) com auditoria e limites (maxUsuarios).
+2) Ajustes finais de catálogo:
+   - ativar/desativar produto, alterar preço, histórico mínimo (event log).
+3) Estados operacionais do pedido:
+   - endpoints mínimos para avançar status (ex.: recebido/preparando/pronto/entregue) com RBAC e logs.
+
+Sprint B — Operação de produção (KITCHEN/KDS) endurecida
+4) Endpoints de produção estáveis (já existem base), com filtros, paginação, e event logs de status.
+5) Preparar SSE/WebSocket (somente leitura) opcional, sem obrigatoriedade inicial.
+
+Sprint C — POS/Dispositivo (online-first, sync read-only)
+6) Dispositivo operacional:
+   - ativação + token + heartbeat (fundação).
+   - sync inicial READ-ONLY (catálogo/mesas/unidade/rotas) com versionamento simples.
+
+Sprint D — Rotinas operacionais (abertura/fecho)
+7) Checklist de abertura/fecho (template + instância) com auditoria:
+   - cria disciplina operacional e valor imediato, sem depender de billing.
+
+Depois disso:
+8) Polling ativo do gateway para pendências (monitoramento -> ação).
+9) CONSUMA Serviços (orçamento -> pedido -> pagamento).
+10) Billing/subscrição (somente quando operação e suporte estiverem estáveis).
+11) Rede (fornecedor/comissão/parceiros) como módulos separados.
+
+================================================================================
+8) ESCOPO DO PRÓXIMO PROMPT (IMPLEMENTAÇÃO)
+================================================================================
+Prompt recomendado (próximo passo mais racional):
+
+“Prompt 19 — Gestão mínima de usuários do tenant + auditoria operacional”
+
+Escopo sugerido:
+- Endpoints `/api/tenant/usuarios` (OWNER/ADMIN):
+  - listar usuários do tenant
+  - criar usuário (email/telefone) + atribuir roles TENANT_*
+  - suspender/remover membership (TenantUserEstado)
+  - alterar role (com auditoria)
+- Enforcement de limites:
+  - `maxUsuarios` aplicado antes de criar/ativar membership
+- Auditoria mínima:
+  - event log para ações administrativas (criar/suspender/alterar role)
+- Testes:
+  - RBAC (OWNER/ADMIN vs OPERATOR/FINANCE/KITCHEN)
+  - cross-tenant 404
+  - limites
+
+Justificativa:
+- Sem gestão interna de equipe, o tenant ainda depende da CONSUMA para operar e escalar.
+- É “baixo risco”, alto valor e prepara POS/produção real.
+
+================================================================================
+9) ESCOPO QUE DEVE FICAR FORA POR AGORA (ADIAR)
+================================================================================
+Adiamento recomendado (para evitar sobrecarga arquitetural):
+- Billing automático / subscrição paga / cobrança recorrente.
+- Settlement/split/liquidação para comerciante e comissionamento real (precisa ledger).
+- Onboarding público self-service.
+- Offline bidirecional completo e criação de pedidos offline.
+- Marketplace “rede” completa (fornecedor/vendedor/comissão/royalty) antes de estabilizar operação base.
+- Faturação como core (manter como consequência/integrável).
+- WebSocket/KDS visual completo e impressão térmica (só após operação estável).
+
+================================================================================
+10) RESPOSTAS OBJETIVAS ÀS PERGUNTAS (1–20)
+================================================================================
+1) O alinhamento acima é compatível com a arquitetura atual?
+   Sim. A base multi-tenant e transacional suporta a direção. O cuidado é modularizar a “rede” para não deformar o core.
+
+2) Existe algum ponto que entra em conflito com o modelo atual (Tenant/Instituicao/Unidade/Mesa/Sessao/Pedido/Produto/Pagamento/Fundo)?
+   Não há conflito direto. O risco é de acoplamento se “serviços” e “comissão/split” forem implementados dentro de Pagamento/Pedido sem camadas.
+
+3) Templates operacionais são viáveis sem criar sistemas separados?
+   Sim. É a abordagem correta: templates + flags/limits + provisionamento. Requer disciplina de configuração (JSON) e fallback.
+
+4) Serviços com Produto.tipo=SERVICO + Orcamento + conversão para Pedido é adequado para MVP?
+   Sim, desde que:
+   - Orcamento seja separado do Pedido;
+   - ao aprovar, o Pedido nasce com preço final fixado (evitar mutações durante negociação).
+
+5) Bar/Karaoke com consumo obrigatório encaixa em SessaoConsumo + FundoConsumo + Mesa + Pedido?
+   Sim, é um encaixe natural. O cuidado é separar “fila karaoke” (operacional) do financeiro, mantendo rastreabilidade.
+
+6) KaraokePedido específico ou SolicitacaoOperacional genérica?
+   Recomendação: SolicitacaoOperacional genérica (tipo=KARAOKE) para MVP.
+   Motivo: reduz deformação do core, permite outros tipos (chamar garçom, reclamação, reserva, etc.).
+   KaraokePedido específico só se houver regras financeiras exclusivas que dependam de “pedido”.
+
+7) Rotina de Abertura/Fecho agora ou depois dos endpoints tenant-admin mínimos?
+   Depois da independência básica do tenant (gestão de usuários + catálogo + pedidos/produção).
+   Abertura/fecho é alto valor, mas exige que o tenant já consiga operar sem suporte constante.
+
+8) Quais entidades precisam de tenant_id direto para evitar inferências longas e melhorar segurança?
+   Já endereçado para Mesa/SessaoConsumo. Próximas candidatas (se ainda indiretas em algum ponto):
+   - UnidadeAtendimento (se queries estiverem indiretas)
+   - FundoConsumo (se ainda não tiver tenant direto)
+   - Event logs críticos (PedidoEventLog, PagamentoCallbackLog) com tenant explícito em consultas.
+
+9) Há fluxos legados que ainda podem criar Mesa/Sessao/Pedido/Produto sem tenant_id correto?
+   Possivelmente em trechos que usam getInstituicaoAtiva()/findFirstByAtivaTrue() e criação legacy.
+   Recomendação: auditar e marcar como LEGACY, e garantir que qualquer persistência preenche tenant via instituição.
+
+10) Quais methods/repositories ainda não são tenant-scoped e devem ser auditados?
+   - Qualquer `findById(...)` em contexto tenant-admin/produção/POS.
+   - Repositories legacy de Instituicao ativa global.
+   - SessaoConsumo queries por mesa/status sem tenant (se ainda existirem).
+   - QrCodeToken legado.
+
+11) Devemos marcar métodos legados sem tenant como @Deprecated?
+   Sim, onde estiverem claramente fora do caminho principal (tenant-aware). Evitar quebrar compatibilidade; usar @Deprecated e tags LEGACY.
+
+12) Política de depreciação dos métodos legados?
+   Recomendada:
+   - Fase 1: @Deprecated + logs DEBUG quando usados.
+   - Fase 2: remover uso em fluxos tenant-aware (mantendo endpoints legados).
+   - Fase 3: remover endpoints legados após janela de migração e métricas de uso (observabilidade).
+
+13) Endpoints Tenant Admin absolutamente obrigatórios para 1º piloto real?
+   - catálogo: categorias/produtos (CRUD básico + ativar/desativar + preço)
+   - pedidos: listar + detalhe + atualização de status operacional mínimo
+   - produção: listar subpedidos por unidade + mudar status (kitchen)
+   - QR/mesas: listar + gerar/rotacionar QR mesa
+   - financeiro: resumo + pagamentos (já existe)
+   - usuários do tenant: criar/suspender/roles (ainda falta como “independência”)
+
+14) Modelo AppyPay tenant-aware suporta serviços/fornecedor/comissão no curto prazo?
+   Para serviços: sim (pagamento por pedido/orçamento aprovado).
+   Para comissão/split: não plenamente (exige ledger e settlement; não deve ser acoplado ao callback atual).
+
+15) Onde o modelo ainda não suporta split/liquidação/comissão/repasse?
+   - Não há ledger/contas a pagar/beneficiários.
+   - Não há modelo de repasse pós-confirmação.
+   - Não há “conciliation statement” por beneficiário.
+
+16) Forma mais segura de introduzir fornecedor+vendedor sob comissão sem comprometer core financeiro?
+   - manter pagamento do cliente igual (Pagamento -> Pedido).
+   - registrar “intenção de comissão” como evento/registro separado (ComissaoMovimento PENDENTE).
+   - confirmar comissão após pagamento confirmado (processo assíncrono futuro).
+   - repasse/settlement fora do callback e fora do core inicial.
+
+17) Dados mínimos para auditoria (vendas/pagamentos/comissões/operação)?
+   - tenantId, instituicaoId, unidadeAtendimentoId, userId ou deviceId
+   - timestamps (criado/atualizado/confirmado)
+   - externalReference e gatewayTransactionId
+   - valores (solicitado/confirmado), moeda, método
+   - origem/canal (QR_PUBLICO, POS, etc.)
+   - event logs de status (pedido/subpedido)
+   - para comissões futuras: fornecedorId, vendedorId, regra aplicada, base de cálculo, percentuais/valores
+
+18) O que pode ser implementado agora sem refatoração agressiva?
+   - gestão de usuários do tenant + auditoria
+   - rotinas operacionais (checklist) como módulos simples
+   - sync read-only para POS (catálogo/mesas/rotas) com versionamento básico
+   - melhoria de status operacional de pedidos/subpedidos
+
+19) O que deve ser adiado para evitar sobrecarga arquitetural?
+   - split/settlement/liquidação/comissão completa
+   - billing automático/self-service
+   - offline bidirecional completo
+   - marketplace/rede completa
+
+20) Próxima sprint mais racional para transformar a CONSUMA em operação pilotável por tenants reais?
+   - “Gestão interna mínima do tenant (usuários + roles) + auditoria”
+   - seguida por “Status operacional de pedidos + produção refinada”
+   - e depois “POS/device + sync read-only”
+
+================================================================================
+CONCLUSÃO EXECUTIVA
+================================================================================
+O alinhamento estratégico está correto e compatível com a base técnica atual: a CONSUMA já é um core transacional
+multi-tenant sólido para pilotos controlados. O passo crítico agora é consolidar “independência operacional” do tenant
+(principalmente gestão interna de usuários + catálogo + status operacional), mantendo o financeiro enxuto e adiando split/
+settlement e a “rede” completa para módulos futuros. A pergunta “o que nos aproxima de pilotos operáveis” aponta para:
+menos features novas e mais robustez/operabilidade no básico.
+

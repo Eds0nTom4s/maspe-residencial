@@ -1,0 +1,166 @@
+RELATORIO TECNICO - PROMPT 40.1
+Reexecucao Docker local + PostgreSQL real + Testcontainers + Validacao end-to-end - CONSUMA
+Data: 2026-05-27
+Status final consolidado: REPROVADO / BLOQUEADO
+
+=====================================================================
+1. Resumo executivo
+=====================================================================
+Objetivo do Prompt 40.1:
+- reexecutar a validacao real da stack local com Docker, PostgreSQL limpo, Flyway, Testcontainers e fluxos end-to-end da CONSUMA.
+
+Resultado final consolidado:
+- a validacao end-to-end nao foi concluida.
+
+Causa inicial:
+- Docker daemon inacessivel no ambiente em uma das execucoes, com erro de permissao no socket `unix:///var/run/docker.sock`.
+
+Causa posterior:
+- em execucao posterior com Docker funcional, o proximo bloqueio passou a ser o Flyway em PostgreSQL limpo, com falhas reais de migrations.
+
+Decisao final:
+- Prompt 40.1 ficou reprovado/bloqueado, porque a validacao obrigatoria nao chegou ao fim.
+
+=====================================================================
+2. Linha do tempo da validacao
+=====================================================================
+Fase 1 - bloqueio inicial de ambiente:
+- a validacao comecou tentando confirmar acesso ao Docker daemon.
+- o Docker CLI estava instalado.
+- o Docker Compose tambem estava presente.
+- porem `docker version` e `docker info` falhavam com `permission denied` ao conectar em `/var/run/docker.sock`.
+- com isso, nao foi possivel subir compose local, validar PostgreSQL real, executar Flyway em banco limpo nem rodar ITs com Testcontainers.
+
+Fase 2 - execucao posterior com Docker funcional:
+- em nova execucao, com acesso ao Docker fora do sandbox, foi possivel avancar para containers reais.
+- o bloqueio deixou de ser o daemon Docker e passou a ser a cadeia de migrations Flyway em banco PostgreSQL limpo.
+- o processo falhava antes de completar o fluxo V1..V62.
+
+Conclusao cronologica:
+- o Prompt 40.1 nao falhou por um unico motivo estatico.
+- a causa evoluiu de bloqueio de ambiente Docker para problema estrutural de migrations/Flyway em PostgreSQL real.
+
+=====================================================================
+3. Ambiente e evidencias
+=====================================================================
+Evidencias consolidadas das duas versoes do relatorio:
+- Docker CLI presente.
+- Docker Compose presente.
+- em uma execucao, acesso ao daemon negado.
+- em outra execucao, Docker funcional e containers acessiveis.
+- os dados vieram de execucoes diferentes no mesmo contexto tecnico, o que explica referencias distintas de branch/commit/checkout.
+
+Evidencias de ambiente observadas:
+- `docker version`: client disponivel; daemon inacessivel na primeira tentativa.
+- `docker info`: falha de permissao na primeira tentativa.
+- `docker compose version`: presente.
+- em execucao posterior, Docker e Postgres conseguiram subir parcialmente, deslocando o bloqueio para Flyway.
+
+=====================================================================
+4. Docker daemon
+=====================================================================
+Primeira execucao:
+- bloqueada por permissao em `/var/run/docker.sock`.
+- erro observado: `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`.
+
+Interpretacao:
+- havia indicios de inconsistencia entre grupos configurados e sessao efetivamente carregada.
+- tambem havia indicio de restricao adicional do ambiente/sandbox.
+
+Recomendacao daquela fase:
+- reabrir sessao, recarregar grupos e repetir a validacao em ambiente com Docker realmente acessivel.
+
+Estado consolidado:
+- Docker foi um bloqueio real no inicio, mas nao permaneceu como unico problema tecnico do Prompt 40.1.
+
+=====================================================================
+5. Docker Compose local
+=====================================================================
+Inconsistencia encontrada entre as versoes:
+- em uma execucao, `docker-compose.local.yml` foi tratado como parte da validacao.
+- em outra execucao, o arquivo foi reportado como ausente naquele checkout/ambiente.
+
+Consolidacao correta:
+- houve inconsistencia de ambiente ou de estado do repositorio entre execucoes.
+- isso reforca que o Prompt 40.1 nao teve uma base local unica e estavel de validacao naquela data.
+
+Implicacao:
+- mesmo com Docker funcional, a reproducao dependia de compose local coerente com Postgres + API + Flyway.
+
+=====================================================================
+6. Flyway e PostgreSQL limpo
+=====================================================================
+Quando Docker passou a funcionar, o novo bloqueio tecnico foi:
+- Flyway em PostgreSQL limpo nao completava a cadeia de migrations ate V62.
+
+Problemas estruturais registrados:
+- uso de `ADD CONSTRAINT IF NOT EXISTS`, padrao nao suportado pelo PostgreSQL.
+- `UPDATE` com alias/referencia invalida ao target table em contexto de `FROM`/`JOIN`.
+- baseline `V1` contendo estruturas que tambem eram criadas por migrations posteriores.
+- falta de idempotencia consistente ao longo da cadeia de migrations.
+
+Leitura tecnica:
+- o ambiente deixou de ser o problema principal.
+- o bloqueio passou a ser compatibilidade e idempotencia real de migrations em PostgreSQL.
+
+=====================================================================
+7. O que nao foi validado
+=====================================================================
+Como o Prompt 40.1 nao concluiu a subida limpa da stack, os seguintes itens ficaram sem validacao final:
+- healthcheck
+- Flyway completo V1..V62
+- Testcontainers / ITs
+- preview CONSUMA_PONTO_V1
+- provision CONSUMA_PONTO_V1
+- preview CONSUMA_REST_V1
+- provision CONSUMA_REST_V1
+- QR / pedido
+- POS / device / KDS
+- pagamento / callback / polling
+- turno / snapshot / evidence
+- multi-tenant
+
+=====================================================================
+8. Decisao final
+=====================================================================
+REPROVADO / BLOQUEADO
+
+Motivo consolidado:
+- o Prompt 40.1 nao concluiu a validacao end-to-end exigida.
+- primeiro por bloqueio de acesso ao Docker.
+- depois por falhas reais de Flyway/migrations em PostgreSQL limpo.
+
+=====================================================================
+9. Relacao com fases posteriores
+=====================================================================
+Este relatorio explica por que foi necessario abrir fases posteriores de estabilizacao, incluindo:
+- ajustes Flyway / JPA / PostgreSQL real
+- endurecimento da execucao via Testcontainers e Failsafe
+- correcoes de idempotencia em fixtures
+- correcoes futuras de auth, RBAC e queries PostgreSQL
+
+Em termos de trilha tecnica, o Prompt 40.1 preparou o diagnostico que depois se desdobrou em iniciativas como:
+- IT-FIX-004
+- IT-FIX-005
+- IT-FIX-006
+
+=====================================================================
+10. Proximos passos recomendados
+=====================================================================
+Para retomar corretamente a intencao original do Prompt 40.1:
+- executar em ambiente com Docker funcional e sessao corretamente configurada
+- garantir compose local consistente com Postgres + API
+- garantir Flyway limpo e reprodutivel em PostgreSQL real
+- rodar `mvn -Pit verify`
+- validar fluxos HTTP obrigatorios com evidencia em banco real
+
+=====================================================================
+11. Conclusao final consolidada
+=====================================================================
+O Prompt 40.1 nao produziu uma aprovacao tecnica da stack end-to-end.
+Ele revelou dois niveis de bloqueio em sequencia:
+- bloqueio operacional de ambiente Docker
+- bloqueio estrutural de migrations em PostgreSQL limpo
+
+Por isso, a classificacao final consolidada permanece:
+- REPROVADO / BLOQUEADO

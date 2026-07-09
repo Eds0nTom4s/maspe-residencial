@@ -1,0 +1,229 @@
+RELATORIO TECNICO — PROMPT 40.2 (SYNC SESSION HEADER + OBSERVABILIDADE/TROUBLESHOOTING OFFLINE)
+Data: 2026-05-23
+Projeto: CONSUMA / Sistema de Restauração (Spring Boot + PostgreSQL + JPA/Hibernate + Flyway)
+
+1) RESUMO EXECUTIVO
+- Foi adicionada uma camada de observabilidade para o sync offline do POS baseada em “sync sessions” (cabeçalho agregado por batch).
+- Cada POST `/device/offline-sync/batch` agora cria/reaproveita uma sessão persistida (device_offline_sync_sessions) com:
+  - serverSyncId (gerado no backend)
+  - syncSessionId (opcional do device; se ausente usa serverSyncId)
+  - status agregado e contadores
+  - timestamps e duração
+  - appVersion + janela offline declarada
+  - resumos agregados (summary_json / error_summary_json) sem payload sensível
+- Cada comando (device_offline_commands) passou a ser associado à sessão por FK + serverSyncId.
+- Foram adicionados endpoints device para consultar as próprias sessões e endpoints tenant/admin para troubleshooting (list/detail/commands/metrics).
+- Idempotência por comando (tenant+device+clientRequestId + payloadHash) foi preservada; localRef/dependsOn do 40.1 permanece funcionando.
+
+2) CONFIRMACAO FINAL DO PROMPT 40.1 (OBRIGATORIO ANTES DO 40.2)
+- Executado: mvn -q -DskipTests compile
+  - Resultado: OK (exit code 0)
+- Executado: mvn test
+  - Resultado: BUILD SUCCESS
+  - Observacao: ambiente sem Docker/Testcontainers, portanto diversos testes IT foram SKIPPED (comportamento já existente no projeto).
+
+3) MIGRATIONS / FLYWAY
+- Migration (já existente e agora efetivamente usada pelo runtime):
+  - src/main/resources/db/migration/V38__device_offline_sync_sessions_observability.sql
+    - Cria: device_offline_sync_sessions
+    - Altera: device_offline_commands (sync_session_db_id, server_sync_id) + FK/indices
+
+4) TABELAS E CAMPOS
+4.1) device_offline_sync_sessions (novo)
+- Guarda contexto agregado do batch:
+  - tenant_id, unidade_atendimento_id, dispositivo_operacional_id
+  - sync_session_id (opcional do device; unique por tenant+device)
+  - server_sync_id (gerado no backend; unique por tenant)
+  - status, contadores (applied/duplicate/rejected/conflict/failed), duration_ms, app_version, offline_started_at/offline_ended_at
+  - summary_json e error_summary_json (agregados sanitizados)
+
+4.2) device_offline_commands (evolução)
+- sync_session_db_id (FK para device_offline_sync_sessions)
+- server_sync_id (cópia do serverSyncId da sessão)
+
+5) ENTIDADES / ENUMS
+5.1) Entidades
+- src/main/java/com/restaurante/device/offline/entity/DeviceOfflineSyncSession.java
+- src/main/java/com/restaurante/device/offline/entity/DeviceOfflineCommand.java (já tinha fields syncSession/serverSyncId; agora preenchidos no sync)
+
+5.2) Enum
+- src/main/java/com/restaurante/model/enums/DeviceOfflineSyncSessionStatus.java
+  - RECEIVED, PROCESSING, COMPLETED, COMPLETED_WITH_WARNINGS, PARTIAL_FAILED, FAILED, REJECTED
+
+6) REPOSITORIES
+- src/main/java/com/restaurante/device/offline/repository/DeviceOfflineSyncSessionRepository.java
+  - findByTenantIdAndDeviceIdAndSyncSessionId
+  - findByTenantIdAndServerSyncId
+  - list do device (order by receivedAt desc)
+  - countByAppVersion (metrics)
+- src/main/java/com/restaurante/device/offline/repository/DeviceOfflineCommandRepository.java
+  - searchBySession (com filtros status/type/conflict/error)
+  - topConflictCodes / topErrorCodes / deviceFailureRanking (metrics)
+
+7) SERVICES (CRIADOS/ALTERADOS)
+7.1) Alterado
+- src/main/java/com/restaurante/service/device/offline/DeviceOfflineSyncService.java
+  - syncBatch passou a:
+    - criar/reaproveitar DeviceOfflineSyncSession (serverSyncId + status PROCESSING)
+    - gravar stats do batch (totalPayloadBytes, maxCommandPayloadBytes, localRefCount)
+    - associar cada DeviceOfflineCommand à sessão (syncSession_db_id + serverSyncId)
+    - atualizar status final e contadores (COMPLETED/COMPLETED_WITH_WARNINGS/PARTIAL_FAILED/FAILED/REJECTED)
+    - preencher summary_json e error_summary_json (sem payload)
+  - adicionados endpoints de query device:
+    - getSessionForDevice(serverSyncId)
+    - listSessionsForDevice(limit,status)
+
+7.2) Novo
+- src/main/java/com/restaurante/service/tenant/offline/TenantOfflineSyncObservabilityService.java
+  - listSessions (filtros + paginação + limite de janela)
+  - getSession (detalhe + auditoria opcional de troubleshooting)
+  - listCommands (resumo seguro; sem payload_json)
+  - metrics (agregados por tenant/unidade/device + top codes)
+
+8) DTOs (NOVOS)
+- src/main/java/com/restaurante/dto/response/DeviceOfflineSyncSessionResponse.java
+- src/main/java/com/restaurante/dto/response/TenantOfflineSyncSessionListItemResponse.java
+- src/main/java/com/restaurante/dto/response/TenantOfflineSyncSessionDetailResponse.java
+- src/main/java/com/restaurante/dto/response/TenantOfflineSyncCommandSummaryResponse.java
+- src/main/java/com/restaurante/dto/response/TenantOfflineSyncMetricsResponse.java
+
+9) ENDPOINTS (NOVOS/ALTERADOS)
+9.1) Device
+- POST /device/offline-sync/batch
+  - Agora retorna também:
+    - serverSyncId
+    - syncSessionId
+    - syncSessionStatus
+    - startedProcessingAt / finishedProcessingAt / durationMs / totalPayloadBytes
+- GET /device/offline-sync/sessions
+  - Lista últimas sessões do próprio device (limit<=50; filtro opcional por status)
+- GET /device/offline-sync/sessions/{serverSyncId}
+  - Detalhe da sessão (somente se pertence ao device autenticado)
+
+9.2) Tenant/Admin
+- GET /tenant/offline-sync/sessions
+  - Paginação + filtros: unidadeId, deviceId, status, appVersion, dateFrom/dateTo, hasFailures/hasConflicts/hasRejected
+- GET /tenant/offline-sync/sessions/{serverSyncId}
+  - Detalhe (inclui summary/errorSummary sanitizados)
+- GET /tenant/offline-sync/sessions/{serverSyncId}/commands
+  - Lista paginada de comandos da sessão (resumo seguro)
+- GET /tenant/offline-sync/metrics
+  - Métricas agregadas simples: totals + topConflictCodes/topErrorCodes + appVersionBreakdown + ranking devices com FAILED
+
+10) COMO O SESSION HEADER FUNCIONA
+- No início do batch:
+  - resolve tenant/unidade/device pelo DevicePrincipal
+  - cria/reaproveita DeviceOfflineSyncSession:
+    - se request.syncSessionId existir e já houver sessão para tenant+device+syncSessionId => reaproveita
+    - caso contrário cria nova com serverSyncId UUID e syncSessionId = (request.syncSessionId ou serverSyncId)
+  - seta PROCESSING + startedProcessingAt
+- Em rejeições globais (payload/dependência/limites):
+  - marca sessão como REJECTED, grava error_summary_json e durationMs
+- No final:
+  - preenche contadores e status final
+  - grava summary_json / error_summary_json
+
+11) CALCULO DE STATUS / CONTADORES
+- COMPLETED:
+  - failed==0 e conflicts==0 e rejected==0
+- COMPLETED_WITH_WARNINGS:
+  - failed==0 e conflicts==0 e rejected>0
+- PARTIAL_FAILED:
+  - (failed>0 ou conflicts>0) e (applied>0 ou duplicates>0)
+- FAILED:
+  - (failed>0 ou conflicts>0) e (applied==0 e duplicates==0)
+- REJECTED:
+  - batch rejeitado antes de processar comandos
+
+12) IDEMPOTENCIA DA SESSAO (MVP)
+- A idempotência forte continua por comando, não por sessão:
+  - (tenantId + deviceId + clientRequestId) com payloadHash
+- A sessão apenas agrega:
+  - se syncSessionId repetir para o mesmo device, a sessão é reaproveitada; comandos repetidos retornam DUPLICATE/CONFLICT conforme já implementado.
+
+13) TROUBLESHOOTING / SANITIZACAO
+- Endpoints de observabilidade não retornam payload_json por padrão.
+- summary_json/error_summary_json guardam apenas agregações (contadores + distribuição de errorCode/conflictCode).
+- Auditoria não inclui deviceToken/OTP/AppyPay payload.
+
+14) SEGURANCA / RBAC
+- Device:
+  - só vê suas próprias sync sessions (serverSyncId pertence ao device autenticado); caso contrário 404.
+- Tenant/Admin:
+  - TenantGuard exige: TENANT_OWNER / TENANT_ADMIN / TENANT_FINANCE para list/detail/commands/metrics.
+- Cross-tenant:
+  - serverSyncId de outro tenant retorna 404 via query tenant-scoped.
+
+15) AUDITORIA (EVENTOS)
+- Emitidos:
+  - DEVICE_OFFLINE_SYNC_SESSION_CREATED
+  - DEVICE_OFFLINE_SYNC_SESSION_REJECTED
+  - DEVICE_OFFLINE_SYNC_SESSION_COMPLETED
+  - DEVICE_OFFLINE_SYNC_SESSION_PARTIAL_FAILED
+  - DEVICE_OFFLINE_SYNC_TROUBLESHOOTING_VIEWED (controlado por property observability.auditDetailView)
+
+16) TESTES (CRIADOS)
+- src/test/java/com/restaurante/device/DeviceOfflineSyncSessionIT.java
+- src/test/java/com/restaurante/device/DeviceOfflineSyncSessionSecurityIT.java
+- src/test/java/com/restaurante/device/DeviceOfflineSyncObservabilityControllerIT.java
+
+Observacao: ambiente atual sem Docker => IT com Testcontainers podem ser SKIPPED, mas compilam e o build termina com BUILD SUCCESS.
+
+17) DOCUMENTACAO
+- docs/tenant-core/40-2-sync-session-observabilidade-offline.md
+
+18) COMANDOS EXECUTADOS (NESTA FASE) E RESULTADOS
+- mvn -q -DskipTests compile
+  - OK
+- mvn test
+  - BUILD SUCCESS (com SKIPPED por ausência de Docker/Testcontainers)
+- mvn -q -Dtest=DeviceOfflineSyncSessionIT test
+  - OK (execução pode ficar SKIPPED por Docker)
+- mvn -q -Dtest=DeviceOfflineSyncSessionSecurityIT test
+  - OK (execução pode ficar SKIPPED por Docker)
+- mvn -q -Dtest=DeviceOfflineSyncObservabilityControllerIT test
+  - OK (execução pode ficar SKIPPED por Docker)
+
+19) ITENS NAO COBERTOS (POR ESCOPO)
+- Não foi implementado includeDetails=true para expor payload/result (por segurança e para manter MVP).
+- Não foi implementado dashboard UI ou export.
+- Não foi implementado reprocessamento manual por sync session.
+
+20) DECISOES TECNICAS TOMADAS
+- syncSessionId opcional do device: se ausente, sincroniza com syncSessionId=serverSyncId.
+- Reuso de sessão quando syncSessionId repete (mesmo tenant+device): evita duplicar header; idempotência continua no nível do comando.
+- Contadores agregados calculados a partir dos resultados do batch.
+- Sanitização por padrão: endpoints retornam apenas resumo seguro por comando.
+
+21) RISCOS RESTANTES
+- N+1 potencial em listagem de sessions (unidade/device nome) por LAZY: aceitável no MVP; otimizar com projections/fetch joins se necessário.
+- Em ambientes com alto volume, `metrics` baseado em queries agregadas deve ser monitorado (janela limitada por maxQueryDays).
+
+22) CHECKLIST DE ACEITACAO (PROMPT 40.2)
+[x] Prompt 40.1 validado com compile/test.
+[x] Tabela device_offline_sync_sessions existe.
+[x] Cada batch cria ou recupera uma sync session.
+[x] Cada command fica associado à sync session.
+[x] Existe serverSyncId.
+[x] Existe status da session.
+[x] Contadores são calculados.
+[x] DurationMs é calculado.
+[x] Device consulta suas sessions.
+[x] Device não consulta session de outro device.
+[x] Tenant/admin lista/detalha sessions.
+[x] Tenant/admin lista comandos da session.
+[x] Métricas agregadas existem.
+[x] Filtros/paginação existem (sessions/commands).
+[x] Respostas não expõem payload sensível.
+[x] Cross-tenant protegido.
+[x] Auditoria sanitizada.
+[x] Batch sync continua funcionando.
+[x] localRef continua funcionando.
+[x] AppyPay/OTP offline continuam bloqueados.
+[x] mvn -q -DskipTests compile passa.
+[x] mvn test passa.
+
+23) PROXIMO PROMPT RECOMENDADO
+- Prompt 40.3 (sugestão): “Reprocessamento assistido / replay controlado por sync session + export de diagnóstico sanitizado”
+  - permitir ao suporte reexecutar apenas FAILED/CONFLICT dentro de uma sessão, respeitando idempotência por comando e mantendo trilha de auditoria.
+

@@ -1,0 +1,71 @@
+RELATORIO_BACKEND_WORKTREE_CLEANUP_OTP_001
+
+1. Identificacao
+
+Data: 2026-07-02, timezone Africa/Luanda.
+Branch: backend/integration-platform-public-menu-local-001.
+Commit inicial: ae4ec68987826d6070db2a401bd6639351ca7d47.
+Commit final: commit complementar desta fase; hash registrado na entrega final.
+
+2. Objetivo
+
+Auditar exclusivamente a alteracao local remanescente em docker-compose.sandbox-local.yml
+apos PUBLIC MENU / OTP SECURITY 001, decidir o tratamento correto e deixar o backend em
+estado seguro antes da proxima fase.
+
+3. Arquivo auditado
+
+docker-compose.sandbox-local.yml
+
+4. Resumo do diff encontrado
+
+A senha usada pela API local mudou de:
+
+  DB_PASSWORD=${DB_PASSWORD:-change_me_local}
+
+para:
+
+  DB_PASSWORD=${DB_PASSWORD:-${POSTGRES_PASSWORD:-change_me_local}}
+
+O servico postgres-local ja usa POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change_me_local}.
+A alteracao faz api-local reaproveitar POSTGRES_PASSWORD quando DB_PASSWORD nao estiver
+definido.
+
+5. Decisao tomada
+
+COMMITADO.
+
+6. Justificativa
+
+A alteracao e generica, segura e util para o ambiente local. Nao altera codigo Java,
+migrations, contratos OTP, SMS ou frontend. Nao expoe segredo; usa apenas nomes de
+variaveis de ambiente e o placeholder local ja existente. Mantem o comportamento anterior
+quando DB_PASSWORD esta definido e reduz o risco de senha divergente entre postgres-local
+e api-local quando apenas POSTGRES_PASSWORD e informado.
+
+7. Testes executados
+
+git branch --show-current: backend/integration-platform-public-menu-local-001.
+git rev-parse HEAD inicial: ae4ec68987826d6070db2a401bd6639351ca7d47.
+git status --short inicial: M docker-compose.sandbox-local.yml.
+git diff -- docker-compose.sandbox-local.yml: diff restrito ao fallback de DB_PASSWORD.
+git log --oneline -5: revisado.
+docker compose --env-file .env.sandbox.local.example -f docker-compose.sandbox-local.yml config --services: PASSOU, postgres-local e api-local.
+git diff --check -- docker-compose.sandbox-local.yml: PASSOU.
+mvn -DskipTests compile: PASSOU.
+mvn test: PASSOU, 351 testes, 0 failures, 0 errors, 3 skipped.
+
+8. Estado final do worktree
+
+Previsto apos commit complementar: limpo.
+
+9. Riscos restantes
+
+Baixo risco. A alteracao depende de suporte a interpolacao aninhada do Docker Compose,
+validado por docker compose config. Ambientes que definem DB_PASSWORD continuam com o
+mesmo comportamento. Ambientes que definem apenas POSTGRES_PASSWORD passam a alinhar a
+senha da API com a senha do Postgres local.
+
+10. Decisao final
+
+BACKEND LIMPO COM COMMIT COMPLEMENTAR.

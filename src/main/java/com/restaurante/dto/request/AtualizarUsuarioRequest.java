@@ -16,14 +16,16 @@ public class AtualizarUsuarioRequest {
 
     private String nomeCompleto;
     private String telefone;
+    private Long unidadeAtendimentoId;
     private Set<Role> roles;
 
     public AtualizarUsuarioRequest() {}
 
-    public AtualizarUsuarioRequest(String email, String nomeCompleto, String telefone, Set<Role> roles) {
+    public AtualizarUsuarioRequest(String email, String nomeCompleto, String telefone, Long unidadeAtendimentoId, Set<Role> roles) {
         this.email = email;
         this.nomeCompleto = nomeCompleto;
         this.telefone = telefone;
+        this.unidadeAtendimentoId = unidadeAtendimentoId;
         this.roles = roles;
     }
 
@@ -33,6 +35,8 @@ public class AtualizarUsuarioRequest {
     public void setNomeCompleto(String nomeCompleto) { this.nomeCompleto = nomeCompleto; }
     public String getTelefone() { return telefone; }
     public void setTelefone(String telefone) { this.telefone = telefone; }
+    public Long getUnidadeAtendimentoId() { return unidadeAtendimentoId; }
+    public void setUnidadeAtendimentoId(Long unidadeAtendimentoId) { this.unidadeAtendimentoId = unidadeAtendimentoId; }
     public Set<Role> getRoles() { return roles; }
     public void setRoles(Set<Role> roles) { this.roles = roles; }
 }

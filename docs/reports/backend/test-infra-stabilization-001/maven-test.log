@@ -1,0 +1,5 @@
+Comando: mvn test
+Data: 2026-07-06
+Resultado: PASS
+Resumo: 379 tests, 0 failures, 0 errors, 3 skipped, 03:27, finalizado em 2026-07-06T11:35:04+01:00.
+Observacao: stdout/stderr de testes redirecionado para reports Maven quando aplicavel.

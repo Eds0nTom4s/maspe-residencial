@@ -44,6 +44,9 @@ class ValidacaoMotivoFinanceiroTest {
     @Mock
     private PedidoFinanceiroService pedidoFinanceiroService;
 
+    @Mock
+    private PedidoPagamentoPolicy pedidoPagamentoPolicy;
+
     @InjectMocks
     private PedidoService pedidoService;
 

@@ -1,0 +1,63 @@
+RELATÓRIO EXECUTIVO — PROMPT 42.1 — INTEGRAÇÃO DO CAIXA OPERADOR/DEVICE AO SNAPSHOT/EVIDENCE BUNDLE
+Data: 2026-05-24
+
+1) Objetivo
+- Anexar ao Evidence Bundle do snapshot financeiro do turno uma seção de evidência operacional de caixa por operador/device (CASH/TPA).
+- Preservar integridade: canonicalização + SHA-256 + HMAC + chainHash + WORM lógico.
+- Manter bundles antigos legíveis (seção nova é opcional e apenas aparece em bundles gerados após a mudança).
+
+2) Entregas principais
+- Seção `operatorCashEvidence` adicionada ao payload do Evidence Bundle:
+  - totais esperados/declarados/diferenças (CASH/TPA/manual);
+  - lista de caixas incluídos;
+  - agrupamento por operador e por device;
+  - warnings operacionais (OPEN/DISPUTED/diferença/sem items);
+  - `sessionHash` determinístico (SHA-256) por caixa.
+- Service dedicado:
+  - `CaixaOperadorEvidenceService` calcula a seção e o hash determinístico.
+- Auditoria:
+  - eventos de geração/anexação e warnings.
+- Preview:
+  - endpoint tenant/admin para preview da seção (sem persistir bundle).
+
+3) Código/arquivos relevantes
+- DTOs:
+  - `src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/OperatorCashEvidenceSectionDTO.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/OperatorCashSessionEvidenceItemDTO.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/OperatorCashByOperatorSummaryDTO.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/OperatorCashByDeviceSummaryDTO.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/SnapshotFinanceiroEvidenceBundleResponse.java`
+- Service:
+  - `src/main/java/com/restaurante/financeiro/caixa/evidence/service/CaixaOperadorEvidenceService.java`
+- Integração no bundle:
+  - `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/SnapshotFinanceiroEvidenceBundleService.java`
+- Endpoint preview:
+  - `src/main/java/com/restaurante/controller/TenantCaixaOperadorController.java`
+    - `GET /tenant/caixa-operador/evidence-preview?turnoId=...`
+- Auditoria (event types):
+  - `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+    - `CAIXA_OPERADOR_EVIDENCE_SECTION_GENERATED`
+    - `CAIXA_OPERADOR_EVIDENCE_WARNING_DETECTED`
+    - `CAIXA_OPERADOR_EVIDENCE_ATTACHED_TO_BUNDLE`
+
+4) Documentação
+- Criada: `docs/tenant-core/42-1-caixa-operador-evidence-bundle.md`
+- Atualizada: `docs/tenant-core/42-fecho-caixa-operador-device.md`
+
+5) Testes
+- Novo unit/in-memory:
+  - `src/test/java/com/restaurante/financeiro/CaixaOperadorEvidenceServiceTest.java`
+- Ajustado:
+  - `src/test/java/com/restaurante/financeiro/SnapshotEvidenceBundleTest.java` (assert da seção no payload)
+
+6) Itens não cobertos (intencional)
+- Não recalcula bundles antigos.
+- Não muda o WORM/trigger nem a rotação de chaves.
+- Não altera AppyPay/callback/polling.
+- Não altera offline/replay.
+
+7) Comandos obrigatórios
+- mvn -q -DskipTests compile
+- Resultado: OK
+- mvn test
+- Resultado: BUILD SUCCESS (Tests run: 494, Failures: 0, Errors: 0, Skipped: 223)

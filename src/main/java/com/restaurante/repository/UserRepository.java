@@ -3,6 +3,7 @@ package com.restaurante.repository;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -14,7 +15,7 @@ import java.util.Optional;
  * Repository para User
  */
 @Repository
-public interface UserRepository extends JpaRepository<User, Long> {
+public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
 
     /**
      * Busca usuário por username
@@ -42,6 +43,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmail(String email);
 
     /**
+     * Verifica se telefone existe
+     */
+    boolean existsByTelefone(String telefone);
+
+    /**
      * Busca usuários ativos
      */
     List<User> findByAtivoTrue();
@@ -57,4 +63,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Query("SELECT u FROM User u JOIN u.roles r WHERE r = :role AND u.ativo = true")
     List<User> findByRoleAndAtivoTrue(@Param("role") Role role);
+
+    /**
+     * Validação leve para JWT otimizado: evita carregar User inteiro.
+     */
+    boolean existsByIdAndAtivoTrue(Long id);
 }

@@ -1,0 +1,475 @@
+diff --git a/.env.prod.example b/.env.prod.example
+index 5622c8f..0c70122 100644
+--- a/.env.prod.example
++++ b/.env.prod.example
+@@ -13,6 +13,9 @@ CORS_ALLOWED_ORIGINS=https://SEU-FRONTEND
+ JWT_SECRET=trocar-por-secret-hex-ou-base64-com-256-bits-minimo
+ SOCIO_JWT_SECRET=trocar-se-usar-token-dos-socios
+ SOCIO_JWT_ISSUER=associagest
++CONSUMA_OTP_HASH_PEPPER=trocar-por-secret-forte-para-hash-do-otp
++CONSUMA_OTP_LENGTH=4
++CONSUMA_OTP_MOCK_ENABLED=false
+ 
+ # AppyPay real
+ APPYPAY_MOCK=false
+@@ -31,6 +34,12 @@ APPYPAY_TIMEOUT_MS=20000
+ TELCOSMS_MOCK=false
+ TELCOSMS_BASE_URL=https://www.telcosms.co.ao
+ TELCOSMS_API_KEY=preencher
++CONSUMA_SMS_PROVIDER=telcosms
++CONSUMA_SMS_ENABLED=true
++CONSUMA_SMS_BASE_URL=https://www.telcosms.co.ao
++CONSUMA_SMS_API_KEY=preencher
++CONSUMA_SMS_MOCK=false
++CONSUMA_SMS_SENDER_ID=CONSUMA
+ 
+ # MinIO/arquivos
+ MINIO_ENDPOINT=http://host.docker.internal:9000
+diff --git a/.env.sandbox.example b/.env.sandbox.example
+index 07f232a..9b1258d 100644
+--- a/.env.sandbox.example
++++ b/.env.sandbox.example
+@@ -34,6 +34,9 @@ DB_PASSWORD=CHANGE_ME_STRONG_DB_PASSWORD
+ JWT_SECRET=CHANGE_ME_STRONG_JWT_SECRET_64CHARS_MIN
+ DEVICE_TOKEN_HASH_SECRET=CHANGE_ME_STRONG_DEVICE_TOKEN_HASH_SECRET
+ SYNC_CURSOR_HMAC_SECRET=CHANGE_ME_STRONG_SYNC_CURSOR_HMAC_SECRET
++CONSUMA_OTP_HASH_PEPPER=CHANGE_ME_STRONG_OTP_HASH_PEPPER
++CONSUMA_OTP_LENGTH=4
++CONSUMA_OTP_MOCK_ENABLED=false
+ CONSUMA_SNAPSHOT_HMAC_SECRET_V1=CHANGE_ME_STRONG_SNAPSHOT_HMAC_SECRET_V1
+ 
+ # Opcional (aliases já usados no app; manter coerência do key-id)
+@@ -50,10 +53,19 @@ APPYPAY_WEBHOOK_SECRET=CHANGE_ME_STRONG_APPYPAY_WEBHOOK_SECRET
+ APPYPAY_WEBHOOK_SIGNATURE_REQUIRED=true
+ 
+ # ==============================================================================
+-# SMS (sandbox inicial em mock controlado)
++# SMS (TelcoSMS real para validar OTP público)
+ # ==============================================================================
+-# Env var mapeia para `app.notification.telcosms.mock`
+-APP_NOTIFICATION_TELCOSMS_MOCK=true
++# Env var legada mapeia para `app.notification.telcosms.mock`
++APP_NOTIFICATION_TELCOSMS_MOCK=false
++TELCOSMS_MOCK=false
++TELCOSMS_BASE_URL=https://www.telcosms.co.ao
++TELCOSMS_API_KEY=preencher
++CONSUMA_SMS_PROVIDER=telcosms
++CONSUMA_SMS_ENABLED=true
++CONSUMA_SMS_BASE_URL=https://www.telcosms.co.ao
++CONSUMA_SMS_API_KEY=preencher
++CONSUMA_SMS_MOCK=false
++CONSUMA_SMS_SENDER_ID=CONSUMA
+ 
+ # ==============================================================================
+ # Scheduler (opcional em sandbox)
+diff --git a/.env.sandbox.local.example b/.env.sandbox.local.example
+index 3ea91f5..8ee2d58 100644
+--- a/.env.sandbox.local.example
++++ b/.env.sandbox.local.example
+@@ -25,6 +25,9 @@ CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhos
+ JWT_SECRET=change_me_with_long_random_secret_32_plus_chars
+ DEVICE_TOKEN_HASH_SECRET=change_me_device_secret_32_plus_chars
+ SYNC_CURSOR_HMAC_SECRET=change_me_cursor_secret_32_plus_chars
++CONSUMA_OTP_HASH_PEPPER=change_me_otp_hash_pepper_32_plus_chars
++CONSUMA_OTP_LENGTH=4
++CONSUMA_OTP_MOCK_ENABLED=false
+ CONSUMA_SNAPSHOT_HMAC_SECRET_V1=change_me_snapshot_secret_32_plus_chars
+ CONSUMA_TX_EVIDENCE_HMAC_KEY_V1=change_me_tx_evidence_secret_32_plus_chars
+ 
+@@ -39,7 +42,16 @@ APPYPAY_CLIENT_SECRET=sandbox_dummy
+ APPYPAY_WEBHOOK_SECRET=sandbox_dummy
+ APPYPAY_WEBHOOK_SIGNATURE_REQUIRED=true
+ 
+-APP_NOTIFICATION_TELCOSMS_MOCK=true
++APP_NOTIFICATION_TELCOSMS_MOCK=false
++TELCOSMS_MOCK=false
++TELCOSMS_BASE_URL=https://www.telcosms.co.ao
++TELCOSMS_API_KEY=preencher
++CONSUMA_SMS_PROVIDER=telcosms
++CONSUMA_SMS_ENABLED=true
++CONSUMA_SMS_BASE_URL=https://www.telcosms.co.ao
++CONSUMA_SMS_API_KEY=preencher
++CONSUMA_SMS_MOCK=false
++CONSUMA_SMS_SENDER_ID=CONSUMA
+ SPRING_TASK_SCHEDULING_ENABLED=true
+ 
+ MINIO_ENDPOINT=http://host.docker.internal:9000
+diff --git a/docker-compose.local.yml b/docker-compose.local.yml
+index d623970..2085e52 100644
+--- a/docker-compose.local.yml
++++ b/docker-compose.local.yml
+@@ -48,6 +48,7 @@ services:
+       JWT_SECRET: "local-dev-jwt-secret-please-change-32chars-min-0000000000000000"
+       DEVICE_TOKEN_HASH_SECRET: "local-dev-device-token-hash-secret-please-change-32chars-min"
+       SYNC_CURSOR_HMAC_SECRET: "local-dev-sync-cursor-hmac-secret-please-change-32chars-min"
++      CONSUMA_OTP_HASH_PEPPER: "local-dev-otp-hash-pepper-please-change-32chars-min"
+       APPYPAY_WEBHOOK_SECRET: "local-dev-appypay-webhook-secret-please-change-32chars-min"
+       CONSUMA_SNAPSHOT_HMAC_SECRET_V1: "local-dev-snapshot-hmac-secret-v1-please-change-32chars-min"
+     extra_hosts:
+diff --git a/docker-compose.prod.yml b/docker-compose.prod.yml
+index 9e45e3d..38c0142 100644
+--- a/docker-compose.prod.yml
++++ b/docker-compose.prod.yml
+@@ -39,6 +39,7 @@ services:
+       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET obrigatório}
+       SOCIO_JWT_SECRET: ${SOCIO_JWT_SECRET:-${JWT_SECRET}}
+       SOCIO_JWT_ISSUER: ${SOCIO_JWT_ISSUER:-associagest}
++      CONSUMA_OTP_HASH_PEPPER: ${CONSUMA_OTP_HASH_PEPPER:?CONSUMA_OTP_HASH_PEPPER obrigatório}
+       APPYPAY_MOCK: ${APPYPAY_MOCK:-false}
+       APPYPAY_BASE_URL: ${APPYPAY_BASE_URL:-https://gwy-api.appypay.co.ao/v2.0}
+       APPYPAY_TOKEN_URL: ${APPYPAY_TOKEN_URL:-https://login.microsoftonline.com/auth.appypay.co.ao/oauth2/token}
+@@ -53,6 +54,12 @@ services:
+       TELCOSMS_MOCK: ${TELCOSMS_MOCK:-false}
+       TELCOSMS_BASE_URL: ${TELCOSMS_BASE_URL:-https://www.telcosms.co.ao}
+       TELCOSMS_API_KEY: ${TELCOSMS_API_KEY:?TELCOSMS_API_KEY obrigatório}
++      CONSUMA_SMS_PROVIDER: ${CONSUMA_SMS_PROVIDER:-telcosms}
++      CONSUMA_SMS_ENABLED: ${CONSUMA_SMS_ENABLED:-true}
++      CONSUMA_SMS_BASE_URL: ${CONSUMA_SMS_BASE_URL:-${TELCOSMS_BASE_URL:-https://www.telcosms.co.ao}}
++      CONSUMA_SMS_API_KEY: ${CONSUMA_SMS_API_KEY:-${TELCOSMS_API_KEY:?TELCOSMS_API_KEY obrigatório}}
++      CONSUMA_SMS_MOCK: ${CONSUMA_SMS_MOCK:-${TELCOSMS_MOCK:-false}}
++      CONSUMA_SMS_SENDER_ID: ${CONSUMA_SMS_SENDER_ID:-CONSUMA}
+       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://host.docker.internal:9000}
+       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+diff --git a/docker-compose.sandbox-local.yml b/docker-compose.sandbox-local.yml
+index 6c7ea55..d1097ae 100644
+--- a/docker-compose.sandbox-local.yml
++++ b/docker-compose.sandbox-local.yml
+@@ -38,7 +38,6 @@ services:
+       DB_PORT: ${DB_PORT:-5432}
+       DB_NAME: ${DB_NAME:-consuma_sandbox}
+       DB_USER: ${DB_USER:-consuma}
+-      DB_PASSWORD: ${DB_PASSWORD:-${POSTGRES_PASSWORD:-change_me_local}}
+     extra_hosts:
+       - "host.docker.internal:host-gateway"
+     ports:
+diff --git a/docker-compose.sandbox.yml b/docker-compose.sandbox.yml
+index 48cd5a4..1223257 100644
+--- a/docker-compose.sandbox.yml
++++ b/docker-compose.sandbox.yml
+@@ -38,7 +38,6 @@ services:
+       DB_PORT: 5432
+       DB_NAME: ${DB_NAME:-restaurante_sandbox_db}
+       DB_USER: ${DB_USER:-postgres}
+-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+     extra_hosts:
+       - "host.docker.internal:host-gateway"
+     ports:
+diff --git a/src/main/java/com/restaurante/config/OtpProperties.java b/src/main/java/com/restaurante/config/OtpProperties.java
+index d37551b..a92a269 100644
+--- a/src/main/java/com/restaurante/config/OtpProperties.java
++++ b/src/main/java/com/restaurante/config/OtpProperties.java
+@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Configuration;
+ public class OtpProperties {
+ 
+     private boolean enabled = true;
+-    private int length = 6;
++    private int length = 4;
+     private int ttlMinutes = 5;
+     private int ttlSeconds = 300;
+     private int maxAttempts = 5;
+diff --git a/src/main/java/com/restaurante/consumo/identificacao/service/TelefoneOtpService.java b/src/main/java/com/restaurante/consumo/identificacao/service/TelefoneOtpService.java
+index 6fa8f0b..f37f987 100644
+--- a/src/main/java/com/restaurante/consumo/identificacao/service/TelefoneOtpService.java
++++ b/src/main/java/com/restaurante/consumo/identificacao/service/TelefoneOtpService.java
+@@ -64,7 +64,8 @@ public class TelefoneOtpService {
+             Instant availableAt = challenge.getLastSentAt().plusSeconds(props.getResendCooldownSeconds());
+             if (availableAt.isAfter(now)) throw new BusinessException("OTP_RESEND_TOO_SOON");
+ 
+-            String otp = generateOtp();
++            int otpLength = configuredOtpLength();
++            String otp = generateOtp(otpLength);
+             challenge.setOtpHash(hashOtp(challenge.getId(), otp));
+             challenge.setExpiresAt(now.plusSeconds(props.getTtlSeconds()));
+             challenge.setResendCount(challenge.getResendCount() + 1);
+@@ -74,7 +75,7 @@ public class TelefoneOtpService {
+             repository.save(challenge);
+ 
+             boolean smsSent = trySendSms(phone, otp);
+-            return new OtpRequestResult(challenge, phoneNormalizerService.mask(phone), otpIfDebug(otp), availableAt, smsSent);
++            return new OtpRequestResult(challenge, phoneNormalizerService.mask(phone), otpIfDebug(otp), availableAt, smsSent, otpLength);
+         }
+ 
+         // novo challenge
+@@ -94,14 +95,15 @@ public class TelefoneOtpService {
+         challenge.setOtpHash("PENDING_HASH_GENERATION");
+         repository.save(challenge);
+ 
+-        String otp = generateOtp();
++        int otpLength = configuredOtpLength();
++        String otp = generateOtp(otpLength);
+         challenge.setOtpHash(hashOtp(challenge.getId(), otp));
+         repository.save(challenge);
+ 
+         boolean smsSent = trySendSms(phone, otp);
+ 
+         Instant resendAvailableAt = now.plusSeconds(props.getResendCooldownSeconds());
+-        return new OtpRequestResult(challenge, phoneNormalizerService.mask(phone), otpIfDebug(otp), resendAvailableAt, smsSent);
++        return new OtpRequestResult(challenge, phoneNormalizerService.mask(phone), otpIfDebug(otp), resendAvailableAt, smsSent, otpLength);
+     }
+ 
+     @Transactional
+@@ -164,14 +166,26 @@ public class TelefoneOtpService {
+     private boolean trySendSms(String phoneNormalized, String otp) {
+         // Nunca logar OTP aqui.
+         try {
+-            return notificacaoService.enviarOtp(phoneNormalized, otp);
++            boolean sent = notificacaoService.enviarOtp(phoneNormalized, otp);
++            if (!sent && !props.isMockEnabled()) {
++                throw new BusinessException("OTP_SMS_SEND_FAILED");
++            }
++            return sent;
++        } catch (BusinessException e) {
++            throw e;
+         } catch (Exception e) {
++            if (!props.isMockEnabled()) {
++                throw new BusinessException("OTP_SMS_SEND_FAILED");
++            }
+             return false;
+         }
+     }
+ 
+-    private String generateOtp() {
+-        int len = Math.max(4, props.getLength());
++    private int configuredOtpLength() {
++        return Math.max(4, props.getLength());
++    }
++
++    private String generateOtp(int len) {
+         StringBuilder sb = new StringBuilder(len);
+         for (int i = 0; i < len; i++) sb.append(secureRandom.nextInt(10));
+         return sb.toString();
+@@ -200,13 +214,15 @@ public class TelefoneOtpService {
+         private final String debugOtp;
+         private final Instant resendAvailableAt;
+         private final boolean smsSent;
++        private final int otpLength;
+ 
+-        public OtpRequestResult(TelefoneOtpChallenge challenge, String maskedPhone, String debugOtp, Instant resendAvailableAt, boolean smsSent) {
++        public OtpRequestResult(TelefoneOtpChallenge challenge, String maskedPhone, String debugOtp, Instant resendAvailableAt, boolean smsSent, int otpLength) {
+             this.challenge = challenge;
+             this.maskedPhone = maskedPhone;
+             this.debugOtp = debugOtp;
+             this.resendAvailableAt = resendAvailableAt;
+             this.smsSent = smsSent;
++            this.otpLength = otpLength;
+         }
+     }
+ }
+diff --git a/src/main/java/com/restaurante/controller/PublicConsumoIdentificadoController.java b/src/main/java/com/restaurante/controller/PublicConsumoIdentificadoController.java
+index ee95a18..744d36e 100644
+--- a/src/main/java/com/restaurante/controller/PublicConsumoIdentificadoController.java
++++ b/src/main/java/com/restaurante/controller/PublicConsumoIdentificadoController.java
+@@ -51,6 +51,7 @@ public class PublicConsumoIdentificadoController {
+         resp.setResendAvailableAt(result.getResendAvailableAt());
+         resp.setMaskedPhone(result.getMaskedPhone());
+         resp.setDebugOtp(result.getDebugOtp());
++        resp.setOtpLength(result.getOtpLength());
+         return ResponseEntity.ok(ApiResponse.success("Se o número for válido, enviaremos um código de confirmação.", resp));
+     }
+ 
+@@ -99,6 +100,7 @@ public class PublicConsumoIdentificadoController {
+         resp.setResendAvailableAt(result.getResendAvailableAt());
+         resp.setMaskedPhone(result.getMaskedPhone());
+         resp.setDebugOtp(result.getDebugOtp());
++        resp.setOtpLength(result.getOtpLength());
+         return ResponseEntity.ok(ApiResponse.success("Se o número for válido, enviaremos um código de confirmação.", resp));
+     }
+ 
+diff --git a/src/main/java/com/restaurante/dto/response/PublicOtpChallengeResponse.java b/src/main/java/com/restaurante/dto/response/PublicOtpChallengeResponse.java
+index 087a5a0..bd7a2cd 100644
+--- a/src/main/java/com/restaurante/dto/response/PublicOtpChallengeResponse.java
++++ b/src/main/java/com/restaurante/dto/response/PublicOtpChallengeResponse.java
+@@ -11,5 +11,5 @@ public class PublicOtpChallengeResponse {
+     private Instant resendAvailableAt;
+     private String maskedPhone;
+     private String debugOtp;
++    private Integer otpLength;
+ }
+-
+diff --git a/src/main/java/com/restaurante/notificacao/gateway/telcosms/TelcoSmsGateway.java b/src/main/java/com/restaurante/notificacao/gateway/telcosms/TelcoSmsGateway.java
+index fea2b0b..d81772c 100644
+--- a/src/main/java/com/restaurante/notificacao/gateway/telcosms/TelcoSmsGateway.java
++++ b/src/main/java/com/restaurante/notificacao/gateway/telcosms/TelcoSmsGateway.java
+@@ -111,7 +111,10 @@ public class TelcoSmsGateway implements SmsGateway {
+             if (telcoResponse != null && telcoResponse.isSuccess()) {
+                 log.info("SMS enviado com sucesso via TelcoSMS para {} - ID: {}", 
+                     maskPhone(phoneNumber), telcoResponse.getMessageId());
+-                return SmsResponse.success(telcoResponse.getMessage(), telcoResponse.getMessageId());
++                String successMessage = telcoResponse.getMessage() != null
++                    ? telcoResponse.getMessage()
++                    : telcoResponse.getStatus();
++                return SmsResponse.success(successMessage, telcoResponse.getMessageId());
+             } else {
+                 String errorMsg = telcoResponse != null ? telcoResponse.getMessage() : "Resposta nula";
+                 log.warn("Falha ao enviar SMS via TelcoSMS para {}: {}", maskPhone(phoneNumber), errorMsg);
+diff --git a/src/main/java/com/restaurante/notificacao/gateway/telcosms/dto/TelcoSmsResponse.java b/src/main/java/com/restaurante/notificacao/gateway/telcosms/dto/TelcoSmsResponse.java
+index baeff9b..67bf5d0 100644
+--- a/src/main/java/com/restaurante/notificacao/gateway/telcosms/dto/TelcoSmsResponse.java
++++ b/src/main/java/com/restaurante/notificacao/gateway/telcosms/dto/TelcoSmsResponse.java
+@@ -30,7 +30,13 @@ public class TelcoSmsResponse {
+     }
+     
+     public boolean isSuccess() {
+-        return "success".equalsIgnoreCase(status) || "sent".equalsIgnoreCase(status);
++        if (status == null || status.isBlank()) {
++            return false;
++        }
++        String normalized = status.trim().toLowerCase();
++        return "success".equals(normalized)
++                || "sent".equals(normalized)
++                || (normalized.startsWith("200") && normalized.contains("sucesso"));
+     }
+     
+     // Getters e Setters
+diff --git a/src/main/java/com/restaurante/notificacao/service/NotificacaoService.java b/src/main/java/com/restaurante/notificacao/service/NotificacaoService.java
+index 090ee0a..e9632ab 100644
+--- a/src/main/java/com/restaurante/notificacao/service/NotificacaoService.java
++++ b/src/main/java/com/restaurante/notificacao/service/NotificacaoService.java
+@@ -38,9 +38,10 @@ public class NotificacaoService {
+      */
+     public boolean enviarOtp(String telefone, String codigo) {
+         String mensagem = String.format(
+-            "Seu código de verificação é: %s\n" +
+-            "Válido por 5 minutos.\n" +
+-            "Sistema de Restauração",
++            "Codigo de verificacao Consuma: %s\n" +
++            "Valido por 5 minutos.\n" +
++            "Nao partilhe este codigo.\n" +
++            "Consuma",
+             codigo
+         );
+         
+diff --git a/src/main/resources/application.properties b/src/main/resources/application.properties
+index 91f806b..8521cf7 100644
+--- a/src/main/resources/application.properties
++++ b/src/main/resources/application.properties
+@@ -80,7 +80,7 @@ otp.length=4
+ 
+ # Configuração para OTP público por telefone.
+ consuma.otp.enabled=${CONSUMA_OTP_ENABLED:true}
+-consuma.otp.length=${CONSUMA_OTP_LENGTH:6}
++consuma.otp.length=${CONSUMA_OTP_LENGTH:4}
+ consuma.otp.ttl-seconds=${CONSUMA_OTP_TTL_SECONDS:300}
+ consuma.otp.max-attempts=${CONSUMA_OTP_MAX_ATTEMPTS:5}
+ consuma.otp.resend-cooldown-seconds=${CONSUMA_OTP_RESEND_COOLDOWN_SECONDS:60}
+@@ -273,6 +273,7 @@ consuma.sms.base-url=${CONSUMA_SMS_BASE_URL:}
+ consuma.sms.api-key=${CONSUMA_SMS_API_KEY:}
+ consuma.sms.timeout-ms=${CONSUMA_SMS_TIMEOUT_MS:10000}
+ consuma.sms.debug=${CONSUMA_SMS_DEBUG:false}
++consuma.sms.mock=${CONSUMA_SMS_MOCK:${TELCOSMS_MOCK:true}}
+ consuma.sms.default-country-code=${CONSUMA_SMS_DEFAULT_COUNTRY_CODE:+244}
+ consuma.sms.max-retries=${CONSUMA_SMS_MAX_RETRIES:3}
+ 
+diff --git a/src/test/java/com/restaurante/consumo/PublicConsumoIdentificadoIT.java b/src/test/java/com/restaurante/consumo/PublicConsumoIdentificadoIT.java
+index afb5a89..7d191a3 100644
+--- a/src/test/java/com/restaurante/consumo/PublicConsumoIdentificadoIT.java
++++ b/src/test/java/com/restaurante/consumo/PublicConsumoIdentificadoIT.java
+@@ -77,6 +77,8 @@ class PublicConsumoIdentificadoIT extends PostgresTestcontainersConfig {
+         String debugOtp = reqJson.at("/data/debugOtp").asText();
+         assertThat(challengeId).isPositive();
+         assertThat(debugOtp).isNotBlank();
++        assertThat(reqJson.at("/data/otpLength").asInt()).isEqualTo(4);
++        assertThat(debugOtp).hasSize(reqJson.at("/data/otpLength").asInt());
+ 
+         // verify OTP
+         String verifyPayload = """
+diff --git a/src/test/java/com/restaurante/consumo/PublicConsumoRecuperacaoIT.java b/src/test/java/com/restaurante/consumo/PublicConsumoRecuperacaoIT.java
+index b338df9..d52e0c6 100644
+--- a/src/test/java/com/restaurante/consumo/PublicConsumoRecuperacaoIT.java
++++ b/src/test/java/com/restaurante/consumo/PublicConsumoRecuperacaoIT.java
+@@ -71,6 +71,8 @@ class PublicConsumoRecuperacaoIT extends PostgresTestcontainersConfig {
+         ).getBody()).at("/data");
+         String otp = chall.at("/debugOtp").asText();
+         long cid = chall.at("/challengeId").asLong();
++        assertThat(chall.at("/otpLength").asInt()).isEqualTo(4);
++        assertThat(otp).hasSize(chall.at("/otpLength").asInt());
+         String verifyIdentify = "{\"challengeId\":%d,\"telefone\":\"923000000\",\"otp\":\"%s\"}".formatted(cid, otp);
+         restTemplate.postForEntity("/public/q/{token}/identificacao/otp/verify", json(verifyIdentify), String.class, qr.getToken());
+ 
+@@ -83,6 +85,8 @@ class PublicConsumoRecuperacaoIT extends PostgresTestcontainersConfig {
+         ).getBody()).at("/data");
+         long recChallengeId = challRec.at("/challengeId").asLong();
+         String recOtp = challRec.at("/debugOtp").asText();
++        assertThat(challRec.at("/otpLength").asInt()).isEqualTo(4);
++        assertThat(recOtp).hasSize(challRec.at("/otpLength").asInt());
+ 
+         String verifyRec = "{\"challengeId\":%d,\"telefone\":\"923000000\",\"otp\":\"%s\"}".formatted(recChallengeId, recOtp);
+         ResponseEntity<String> verifyResp = restTemplate.postForEntity(
+diff --git a/src/test/java/com/restaurante/consumo/TelefoneOtpServiceIT.java b/src/test/java/com/restaurante/consumo/TelefoneOtpServiceIT.java
+index 5293c9f..5ff78ae 100644
+--- a/src/test/java/com/restaurante/consumo/TelefoneOtpServiceIT.java
++++ b/src/test/java/com/restaurante/consumo/TelefoneOtpServiceIT.java
+@@ -48,6 +48,7 @@ class TelefoneOtpServiceIT extends PostgresTestcontainersConfig {
+ 
+         assertThat(result.getChallenge().getId()).isNotNull();
+         assertThat(result.getDebugOtp()).isNotBlank();
++        assertThat(result.getDebugOtp()).matches("\\d{4}");
+ 
+         var persisted = challengeRepository.findByIdAndTenant_Id(result.getChallenge().getId(), tenant.getId()).orElseThrow();
+         assertThat(persisted.getOtpHash()).isNotBlank();
+diff --git a/src/test/java/com/restaurante/notificacao/gateway/telcosms/TelcoSmsGatewayTest.java b/src/test/java/com/restaurante/notificacao/gateway/telcosms/TelcoSmsGatewayTest.java
+index 3a1815c..c45678b 100644
+--- a/src/test/java/com/restaurante/notificacao/gateway/telcosms/TelcoSmsGatewayTest.java
++++ b/src/test/java/com/restaurante/notificacao/gateway/telcosms/TelcoSmsGatewayTest.java
+@@ -85,6 +85,30 @@ class TelcoSmsGatewayTest {
+         TelcoSmsRequest sentRequest = (TelcoSmsRequest) captor.getValue().getBody();
+         assertEquals("244925813939", sentRequest.getMessage().getPhoneNumber());
+     }
++
++    @Test
++    void deveAceitarFormatoRealDeSucessoDaTelcoSms() {
++        // Arrange
++        String phoneNumber = "+244925813939";
++        String message = "Seu código OTP é: 1234";
++
++        TelcoSmsResponse mockResponse = new TelcoSmsResponse();
++        mockResponse.setStatus("200 - Mensagem enviada com sucesso");
++
++        when(restTemplate.exchange(
++            eq("https://www.telcosms.co.ao/send_message"),
++            eq(HttpMethod.POST),
++            any(HttpEntity.class),
++            eq(TelcoSmsResponse.class)
++        )).thenReturn(new ResponseEntity<>(mockResponse, HttpStatus.OK));
++
++        // Act
++        SmsResponse response = gateway.sendSms(phoneNumber, message);
++
++        // Assert
++        assertTrue(response.isSuccess());
++        assertEquals("200 - Mensagem enviada com sucesso", response.getMessage());
++    }
+     
+     @Test
+     void deveNormalizarTelefoneComZeroInicial() {
+diff --git a/src/test/java/com/restaurante/notificacao/service/NotificacaoServiceTest.java b/src/test/java/com/restaurante/notificacao/service/NotificacaoServiceTest.java
+index 315ced0..6407f9f 100644
+--- a/src/test/java/com/restaurante/notificacao/service/NotificacaoServiceTest.java
++++ b/src/test/java/com/restaurante/notificacao/service/NotificacaoServiceTest.java
+@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.DisplayName;
+ import org.junit.jupiter.api.Test;
+ import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.ArgumentCaptor;
+ import org.mockito.InjectMocks;
+ import org.mockito.Mock;
+ import org.mockito.junit.jupiter.MockitoExtension;
+@@ -49,10 +50,13 @@ class NotificacaoServiceTest {
+ 
+         // Assert
+         assertTrue(enviado);
+-        verify(smsGateway, times(1)).sendSms(
+-                eq(telefone), 
+-                contains(codigo)
+-        );
++        ArgumentCaptor<String> mensagemCaptor = ArgumentCaptor.forClass(String.class);
++        verify(smsGateway, times(1)).sendSms(eq(telefone), mensagemCaptor.capture());
++
++        String mensagem = mensagemCaptor.getValue();
++        assertTrue(mensagem.contains(codigo));
++        assertTrue(mensagem.contains("Consuma"));
++        assertFalse(mensagem.contains("Sistema de Restauração"));
+     }
+ 
+     @Test

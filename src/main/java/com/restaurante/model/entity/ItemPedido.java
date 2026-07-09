@@ -15,9 +15,14 @@ import java.math.BigDecimal;
 @Entity
 @Table(name = "itens_pedido", indexes = {
     @Index(name = "idx_item_pedido", columnList = "pedido_id"),
-    @Index(name = "idx_item_produto", columnList = "produto_id")
+    @Index(name = "idx_item_produto", columnList = "produto_id"),
+    @Index(name = "idx_item_tenant", columnList = "tenant_id")
 })
 public class ItemPedido extends BaseEntity {
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
 
     // Relacionamento com Pedido (mantido para compatibilidade, nullable = true)
     // Opcional arquiteturalmente: O fluxo primário agora é ItemPedido -> SubPedido.
@@ -79,12 +84,26 @@ public class ItemPedido extends BaseEntity {
     @PrePersist
     @PreUpdate
     public void prePersist() {
+        if (tenant == null) {
+            if (subPedido != null && subPedido.getTenant() != null) {
+                tenant = subPedido.getTenant();
+            } else if (pedido != null && pedido.getTenant() != null) {
+                tenant = pedido.getTenant();
+            } else if (produto != null && produto.getTenant() != null) {
+                tenant = produto.getTenant();
+            } else {
+                throw new IllegalStateException("ItemPedido sem tenant e sem vínculos suficientes para derivação.");
+            }
+        }
         calcularSubtotal();
     }
 
     public BigDecimal getSubtotal() {
         return this.subtotal;
     }
+
+    public Tenant getTenant() { return tenant; }
+    public void setTenant(Tenant tenant) { this.tenant = tenant; }
 
     public void setPedido(Pedido pedido) {
         this.pedido = pedido;

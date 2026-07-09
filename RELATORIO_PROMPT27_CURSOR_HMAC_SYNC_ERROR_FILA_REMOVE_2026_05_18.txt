@@ -1,0 +1,111 @@
+RELATÓRIO TÉCNICO — PROMPT 27
+Cursor HMAC + erro padronizado de sync + diff de fila com UPSERT/REMOVE (read-only)
+Data: 2026-05-18
+
+1) Resumo executivo
+- Cursors de sync passaram a ser assinados com HMAC-SHA256 (payload + assinatura), impedindo manipulação silenciosa de tenant/domain/filtros/lastId/issuedAt.
+- Introduzido envelope de erro padronizado para `/device/sync/*` via `SyncErrorResponse` + `DeviceSyncExceptionHandler`.
+- Diff incremental da fila ganhou semântica explícita de `updates` com `UPSERT/REMOVE`, reduzindo inferência no client sobre remoção da fila.
+- Mantido escopo estrito: tudo permanece read-only; sem POS criando pedido, sem pagamento/callback, sem offline bidirecional.
+
+2) Estratégia de cursor HMAC
+- Formato do cursor (v1):
+  - `base64url(payloadJson) + "." + base64url(HMAC_SHA256(base64url(payloadJson), secret))`
+- Propriedades:
+  - `consuma.sync.cursor.hmac-secret`
+  - `consuma.sync.cursor.require-signature=true` (default)
+- Regras:
+  - Cursor adulterado → HTTP 400 com `code=SYNC_CURSOR_INVALID_SIGNATURE`.
+  - Cursor legacy sem assinatura é rejeitado quando `require-signature=true`.
+  - Cursor não vaza secrets/tokens; não logamos cursor completo.
+
+3) Alterações em DeviceSyncCursorService
+- `src/main/java/com/restaurante/service/device/DeviceSyncCursorService.java`
+  - encode assinado por padrão
+  - decode valida assinatura (ou recusa quando ausente)
+  - exceção dedicada `SyncCursorException` com `SyncErrorCode`
+
+4) Envelope padronizado de erros de sync
+- `src/main/java/com/restaurante/dto/response/SyncErrorResponse.java`
+  - `code`, `message`, `fullSyncRequired`, `fullSyncReason`, `recoverable`, `action`, `serverTime`
+- `src/main/java/com/restaurante/controller/advice/DeviceSyncExceptionHandler.java`
+  - aplica-se apenas a `/device/sync/*`
+  - mapeia:
+    - 400 cursor inválido/assinatura/context mismatch
+    - 401 device não autenticado
+    - 403 capability insuficiente
+    - 409 escopo ambíguo
+
+5) Diff de fila com UPSERT/REMOVE
+- DTO novo:
+  - `src/main/java/com/restaurante/dto/response/DeviceFilaDiffUpdateItem.java`
+- Atualização:
+  - `src/main/java/com/restaurante/dto/response/DeviceFilaDiffSyncResponse.java` inclui `updates`
+- Serviço:
+  - `src/main/java/com/restaurante/service/device/DeviceFilaDiffService.java`
+    - produz `UPSERT` para estados visíveis da fila
+    - produz `REMOVE` para estados terminais (`ENTREGUE`/`CANCELADO`)
+    - mantém compatibilidade (campo `subPedidosAtualizados` continua presente)
+
+6) Endpoints afetados
+- `/device/sync/catalogo`: cursor assinado + validação
+- `/device/sync/mesas`: cursor assinado + validação
+- `/device/sync/qrcodes`: cursor assinado + validação
+- `/device/sync/producao/fila/diff`: response inclui `updates`
+- Erros em `/device/sync/*` agora retornam `SyncErrorResponse` (quando aplicável)
+
+7) Testes criados/alterados
+- Alterado:
+  - `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+    - valida que cursor manipulado falha com `SYNC_CURSOR_INVALID_SIGNATURE`
+    - valida que cursor legacy (sem assinatura) falha quando require-signature=true
+- Alterado:
+  - `src/test/java/com/restaurante/device/DeviceFilaDiffSyncIT.java`
+    - valida `updates[0].action == UPSERT` no diff
+
+8) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+9) Resultado dos comandos
+- `mvn -q -DskipTests compile`: SUCESSO
+- `mvn test`: SUCESSO
+
+10) Arquivos criados/alterados
+Criados:
+- `src/main/java/com/restaurante/dto/response/SyncErrorResponse.java`
+- `src/main/java/com/restaurante/controller/advice/DeviceSyncExceptionHandler.java`
+- `src/main/java/com/restaurante/dto/response/DeviceFilaDiffUpdateItem.java`
+- `docs/tenant-core/27-sync-cursor-hmac-error-envelope-fila-remove.md`
+- `RELATORIO_PROMPT27_CURSOR_HMAC_SYNC_ERROR_FILA_REMOVE_2026_05_18.txt`
+
+Alterados:
+- `src/main/java/com/restaurante/service/device/DeviceSyncCursorService.java` (substituído)
+- `src/main/java/com/restaurante/service/device/DeviceReadOnlySyncService.java` (erros de cursor -> SyncCursorException)
+- `src/main/java/com/restaurante/service/device/DeviceFilaDiffService.java`
+- `src/main/java/com/restaurante/dto/response/DeviceFilaDiffSyncResponse.java`
+- `src/test/java/com/restaurante/device/DeviceReadOnlySyncIT.java`
+- `src/test/java/com/restaurante/device/DeviceFilaDiffSyncIT.java`
+
+11) Decisões técnicas tomadas
+- Cursor é tratado como input não confiável: assinatura HMAC passa a ser obrigatória por default.
+- Erros de sync para device precisam ser previsíveis para app: criado envelope `SyncErrorResponse`.
+- Diff de fila deve indicar remoção explicitamente para reduzir heurísticas no client (`UPSERT/REMOVE`).
+
+12) Riscos restantes
+- Secret default em ambientes produtivos deve ser proibido/validado por profile (hardening futuro).
+- Cursor expirado hoje é tratado por reinício em alguns domínios; o app deve estar preparado para re-sync quando necessário.
+
+13) Checklist de aceitação (Prompt 27)
+- [OK] cursors assinados com HMAC
+- [OK] cursor manipulado é rejeitado
+- [OK] cursor legacy sem assinatura é rejeitado quando require-signature=true
+- [OK] SyncErrorResponse existe para /device/sync/*
+- [OK] diff da fila inclui UPSERT/REMOVE
+- [OK] capabilities continuam aplicadas
+- [OK] sync continua read-only
+- [OK] testes passam
+
+14) Próximo prompt recomendado
+“Prompt 28 — Hardening de secret por profile (bloquear default em prod) + padronização de SyncErrorResponse para outras rotas device (activate/heartbeat/config) + métricas de sync/ETag (observability).”
+

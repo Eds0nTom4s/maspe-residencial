@@ -1,0 +1,228 @@
+================================================================================
+CONSUMA — RELATÓRIO TÉCNICO DE REVISÃO E DIAGNÓSTICO DO BACKEND
+VALIDAÇÃO DAS HIPÓTESES DA UI SANDBOX PLATFORM CONSOLE
+================================================================================
+Data: 30 de Maio de 2026
+Autor: Arquiteto Backend Sénior & QA Técnico (Consuma Core Team)
+Status: DIAGNÓSTICO CONCLUÍDO (SEM ALTERAÇÕES DE CÓDIGO)
+Ficheiro Alvo: RELATORIO_PROMPT41_3_B_REVISAO_BACKEND_HIPOTESES_FRONTEND_CONSUMA_2026_05_30.txt
+--------------------------------------------------------------------------------
+
+1. INTRODUÇÃO E OBJETIVO
+================================================================================
+Este relatório apresenta a auditoria e análise de engenharia estática realizada no
+backend da plataforma CONSUMA. O objetivo consiste em validar ou refutar as 8
+hipóteses técnicas formuladas pela equipa de frontend durante a construção e 
+integração da "Sandbox Platform Console".
+
+Como diretiva de segurança e conformidade operacional, esta auditoria foi feita 
+com total integridade física da árvore de código: nenhum ficheiro do repositório
+foi alterado, nenhuma migração ou script foi modificado e nenhuma credencial foi
+exposta. Todas as conclusões baseiam-se em evidências estáticas e configurações 
+de ambiente de runtime mapeadas directamente dos ficheiros fonte da aplicação.
+
+2. CONTEXTO DO AMBIENTE SANDBOX LOCAL
+================================================================================
+* Ficheiro de Orquestração: `docker-compose.sandbox.yml`
+* Ficheiro de Variáveis: `.env.sandbox` (local)
+* Perfil Spring Boot Ativo: `sandbox`
+* Porta da API na Sandbox: `8081` (sobrescreve a porta padrão 8080 de DEV)
+* URL Base Local: `http://localhost:8081/api`
+* Banco de Dados: PostgreSQL executando isolado no container `consuma-postgres-sandbox`
+* CORS Permitido: Origem do frontend da Sandbox (`http://localhost:5173`) está
+  explicitamente autorizada em ambiente de sandbox.
+
+3. ANÁLISE DETALHADA E VERIDICTO DAS 8 HIPÓTESES
+================================================================================
+
+--------------------------------------------------------------------------------
+HIPÓTESE 1: A listagem de tenants (GET /api/platform/tenants) existe no backend?
+--------------------------------------------------------------------------------
+- VERIDICTO: REFUTADA.
+- EVIDÊNCIAS NO CÓDIGO:
+  1. O controller de provisionamento (`PlatformTenantProvisioningController.java`) 
+     mapeia apenas endpoints para preview, provisionamento e listagem de templates 
+     ativos. Não possui qualquer mapeamento de leitura geral sob `/platform/tenants`.
+     A tentativa de chamar `GET /api/platform/tenants` resulta em 404 Not Found.
+  2. A listagem operacional de múltiplos tenants da plataforma está implementada
+     no controller de observabilidade operacional:
+     - Classe: `PlatformObservabilidadeController.java`
+     - Rota Real: `GET /api/platform/observabilidade/tenants`
+     - Método: `obterResumoTenants(...)` (L53-L60)
+     - Retorno: `ResponseEntity<Page<TenantObservabilidadeResumoResponse>>`
+  3. O endpoint correto exige privilégios de Platform Admin (ROLE_ADMIN) e
+     retorna uma estrutura rica e paginada de monitorização operacional em tempo
+     real, agregando contagem de instituições, unidades, turnos operacionais 
+     abertos, dispositivos (POS/KDS) ativos/offline e alertas de pagamento.
+  4. Se não existirem tenants cadastrados, o backend responde com HTTP 200 contendo
+     uma lista vazia (`"content": []`), e não erro HTTP 500.
+
+--------------------------------------------------------------------------------
+HIPÓTESE 2: O detalhe de tenant (GET /api/platform/tenants/{tenantId}) existe?
+--------------------------------------------------------------------------------
+- VERIDICTO: REFUTADA (caminho incorreto) / ESCLARECIDA (caminho real alternativo).
+- EVIDÊNCIAS NO CÓDIGO:
+  1. O endpoint literal `GET /api/platform/tenants/{tenantId}` não existe. Chamá-lo
+     retorna erro HTTP 404 Not Found.
+  2. O detalhe de monitorização, saúde e logs operacionais do tenant está mapeado em:
+     - Classe: `PlatformObservabilidadeController.java`
+     - Rota Real: `GET /api/platform/observabilidade/tenants/{tenantId}`
+     - Método: `obterDetalheTenant(...)` (L69-L76)
+     - Retorno: `ResponseEntity<TenantObservabilidadeDetalheResponse>`
+  3. Se o `tenantId` fornecido não for encontrado no banco de dados, o serviço
+     `PlatformObservabilidadeService.java` (L141) lança a exceção controlada
+     `ResourceNotFoundException("Recurso não encontrado.")`, que é traduzida 
+     pelo Spring global handler para o status HTTP 404 Not Found (e não erro 500).
+  4. Se o utilizador não possuir privilégios de Platform Admin (falha no guard),
+     o backend responde com status HTTP 403 Forbidden.
+
+--------------------------------------------------------------------------------
+HIPÓTESE 3: Que dados o backend retorna no detalhe do tenant vs. o que a UI quer?
+--------------------------------------------------------------------------------
+- VERIDICTO: VALIDADA PARCIALMENTE (Lacunas de mapeamento no DTO identificadas).
+- EVIDÊNCIAS NO CÓDIGO:
+  1. O frontend necessita de dados estruturais e operacionais: `slug`, `tipo`,
+     `templateCode`, `templateVersion`, `provisionedAt`, `email`, `telefone`, 
+     contagens de recursos (produtos, mesas, etc.), QR codes e credenciais de devices.
+  2. A entidade de base de dados `Tenant.java` (L20-L171) armazena todos estes campos:
+     - `slug` (L25)
+     - `tipo` (TenantTipo, L41)
+     - `templateCode` (L49)
+     - `templateVersion` (L52)
+     - `provisionedAt` (L55)
+     - `email` e `telefone` (L34-L37)
+  3. No entanto, o DTO exposto pela API de observabilidade 
+     `TenantObservabilidadeDetalheResponse` (e o seu sub-DTO `TenantObservabilidadeResumoResponse`)
+     NÃO exporta a maioria destes campos estruturais. Ele foca na saúde e telemetria:
+     - Retorna apenas: `tenantId`, `tenantNome`, `tenantCode`, `estado`.
+     - Foca em dados de saúde operacional: turnos abertos, contagem de dispositivos
+       com problemas, pagamentos pendentes/críticos e logs recentes de eventos.
+  4. Para obter a lista detalhada e o status individual dos dispositivos (POS/KDS)
+     provisionados no tenant, o frontend deve consumir o endpoint dedicado:
+     - Rota: `GET /api/platform/observabilidade/tenants/{tenantId}/devices`
+  5. Hardening de Segurança: O backend nunca expõe tokens de ativação ou credenciais
+     criptográficas brutas de POS/KDS ou QR codes privados em endpoints de observabilidade.
+     A segurança do canal exige que estes segredos sejam mostrados apenas uma vez
+     durante a resposta imediata de provisionamento/ativação.
+
+--------------------------------------------------------------------------------
+HIPÓTESE 4: O contrato de templateCode e o comportamento com "_V1"
+--------------------------------------------------------------------------------
+- VERIDICTO: VALIDADA TOTALMENTE (Comportamento de Aliases e Versionamento).
+- EVIDÊNCIAS NO CÓDIGO:
+  1. A classe de parsing `BusinessTemplateKey.java` (L15-L31) analisa a string do
+     template usando uma expressão regular: `^([A-Z0-9_\-]+)_V(\d+)$`.
+  2. Se a string for enviada com versão explícita (ex: `CONSUMA_PONTO_V1`), o backend
+     interpreta como `code = "CONSUMA_PONTO"` e `version = 1`.
+  3. Se for enviada sem versão (ex: `CONSUMA_PONTO`), ela é interpretada como 
+     `code = "CONSUMA_PONTO"` e `version = null`.
+  4. A resolução física do template é gerida no `BusinessTemplateService.java` (L15-L45)
+     varrendo os beans registados. O sistema possui dois templates ativos na diretoria
+     `com/restaurante/businesstemplate/templates`:
+     - `ConsumaPontoV1Template.java` (Retorna `code = CONSUMA_PONTO`, `version = 1`)
+     - `ConsumaRestV1Template.java` (Retorna `code = CONSUMA_REST`, `version = 1`)
+  5. Se o frontend passar a string sem versão, o backend resolve automaticamente para a
+     versão mais recente suportada (latest) daquele código. Caso passe com `_V1`, o 
+     backend amarra a execução à V1 específica.
+  6. Portanto, ambas as formas são válidas e seguras. O frontend pode chamar
+     `CONSUMA_PONTO` ou `CONSUMA_PONTO_V1` de forma transparente.
+
+--------------------------------------------------------------------------------
+HIPÓTESE 5: A identidade do Platform Admin no Spring Security (JWT / ROLE_ADMIN)
+--------------------------------------------------------------------------------
+- VERIDICTO: VALIDADA TOTALMENTE.
+- EVIDÊNCIAS NO CÓDIGO:
+  1. A segurança do backend identifica o administrador global de plataforma se o
+     token JWT carregar a autoridade **`ROLE_ADMIN`** (verificado em `TenantResolver.java` L75).
+  2. Quando um administrador global executa operações globais de plataforma (sem 
+     seleção de um tenant, como provisionamento de novos templates), o resolver 
+     `TenantResolver.java` (L89-L101) cria um `TenantContext` especial:
+     ```
+     tenantId = null
+     tenantCode = null
+     platformAdmin = true
+     selectedByPlatformAdmin = false
+     ```
+  3. Este contexto permite que o utilizador passe nas verificações do `TenantGuard.java`
+     (método `assertPlatformAdmin()`) mesmo sem ter um `tenantId` ativo no contexto.
+  4. Portanto, para testar as APIs da Sandbox Platform Console, a credencial JWT
+     utilizada deve pertencer a um utilizador cuja lista de roles inclua `ROLE_ADMIN`.
+
+--------------------------------------------------------------------------------
+HIPÓTESE 6: Prefixo de API ("/api") e o Context-Path do backend
+--------------------------------------------------------------------------------
+- VERIDICTO: VALIDADA TOTALMENTE.
+- EVIDÊNCIAS NO CÓDIGO:
+  1. A propriedade `server.servlet.context-path=/api` está explicitamente ativada
+     no `application.properties` (L3).
+  2. Consequentemente, todas as rotas expostas pela aplicação (incluindo autenticação,
+     plataforma, endpoints públicos e observabilidade) têm o prefixo `/api` obrigatório.
+  3. Adicionalmente, os endpoints de telemetria do Actuator (`/actuator/health`,
+     `/actuator/health/readiness` e `/actuator/health/liveness`) também são expostos
+     pelo servlet principal do Spring Boot e estão subordinados ao context-path `/api`.
+  4. URL real do Actuator na Sandbox: `GET http://localhost:8081/api/actuator/health`
+     A tentativa de chamar diretamente `http://localhost:8081/actuator/health` resulta
+     em HTTP 404 do servidor Tomcat. O frontend deve usar `/api/actuator/health` 
+     subordinado à sua `baseURL`.
+
+--------------------------------------------------------------------------------
+HIPÓTESE 7: O CORS está devidamente configurado para a Sandbox local?
+--------------------------------------------------------------------------------
+- VERIDICTO: VALIDADA TOTALMENTE.
+- EVIDÊNCIAS NO CÓDIGO:
+  1. O ficheiro de configuração da sandbox `.env.sandbox` define os origins CORS:
+     `CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:8080`
+  2. A origem padrão do Vite na sandbox (`http://localhost:5173`) está expressamente
+     mapeada na lista.
+  3. A classe `SecurityConfig.java` (L55) aplica o CORS provider e permite credenciais,
+     todos os headers (`*`) e todos os métodos padrão (`GET,POST,PUT,DELETE,PATCH,OPTIONS`).
+     Não haverá bloqueios de CORS para o frontend local.
+
+--------------------------------------------------------------------------------
+HIPÓTESE 8: Smoke Endpoints - Comportamento e respostas lógicas
+--------------------------------------------------------------------------------
+- VERIDICTO: VALIDADA E MAPEADA.
+- EVIDÊNCIAS NO CÓDIGO:
+  A tabela abaixo consolida os caminhos reais, requisitos de segurança e códigos
+  de retorno lógicos para a suite de fumaça da Sandbox Platform Console:
+
+  | Endpoint Teórico | Rota Correta (Backend) | JWT? | Role | Sucesso (2xx) | Erro / Inexistente (4xx) |
+  | :--- | :--- | :--- | :--- | :--- | :--- |
+  | `GET /actuator/health` | `/api/actuator/health` | Não | Nenhuma | `200 OK` (JSON {"status":"UP"}) | `503` (se a saúde falhar) |
+  | `GET /actuator/health/readiness` | `/api/actuator/health/readiness` | Não | Nenhuma | `200 OK` (JSON) | `503` (se a saúde falhar) |
+  | `GET /actuator/health/liveness` | `/api/actuator/health/liveness` | Não | Nenhuma | `200 OK` (JSON) | `503` (se a saúde falhar) |
+  | `POST /platform/templates/{code}/preview` | `/api/platform/templates/{code}/preview` | Sim | ADMIN | `200 OK` (JSON Preview) | `401` (sem token), `403` (sem role) |
+  | `POST /platform/templates/{code}/provision` | `/api/platform/templates/{code}/provision` | Sim | ADMIN | `201 Created` (JSON Provision) | `401` (sem token), `403`, `400` (limites) |
+  | `GET /platform/tenants` | **Inexistente** | - | - | - | **404 Not Found** |
+  | `GET /platform/tenants/{id}` | **Inexistente** | - | - | - | **404 Not Found** |
+  | `GET /platform/observabilidade/tenants` | `/api/platform/observabilidade/tenants` | Sim | ADMIN | `200 OK` (Página de tenants) | `401` (sem token), `403` (sem role) |
+  | `GET /platform/observabilidade/tenants/{id}` | `/api/platform/observabilidade/tenants/{id}` | Sim | ADMIN | `200 OK` (JSON Observabilidade) | `401`, `403`, `404` (ID inexistente) |
+
+4. RECOMENDAÇÕES DE ALINHAMENTO PARA O FRONTEND
+================================================================================
+Com base no diagnóstico técnico de backend, a equipa de frontend da Sandbox Platform
+Console deve adotar as seguintes práticas para garantir 100% de integração:
+
+1. Atualização do Service de Tenants:
+   - Substituir as chamadas de listagem e detalhe de `/platform/tenants` por 
+     `/platform/observabilidade/tenants`.
+   - Ajustar o parser do frontend para ler a estrutura paginada (Page JSON) da lista.
+
+2. Configuração de Base URL:
+   - Configurar o Axios ou Fetch client com a baseURL amarrada ao `/api` do context path:
+     `baseURL: 'http://localhost:8081/api'` (ou a porta parametrizada na sandbox).
+   - O endpoint do actuator deve ser acedido como `/actuator/health` concatenado com
+     esta baseURL, totalizando `/api/actuator/health`.
+
+3. Gerenciamento de DTOs estruturais ausentes:
+   - Aceitar que o detalhe operacional do tenant (`/api/platform/observabilidade/tenants/{tenantId}`)
+     fornece dados ricos de integridade e saúde, mas dados puramente cadastrais de
+     contabilidade (como quantidade de produtos cadastrados) ou credenciais de segurança
+     não são (e não serão) expostos nestes DTOs públicos de telemetria por motivos de 
+     Hardening de Segurança.
+   - Usar os endpoints específicos de dispositivos para gerir individualmente os
+     dispositivos POS/KDS operacionais.
+
+================================================================================
+FIM DO RELATÓRIO — PRONTO PARA APRESENTAÇÃO E HOMOLOGAÇÃO
+================================================================================

@@ -1,0 +1,193 @@
+CONSUMA - BACKEND - RELATORIO IT-FIX-008-A
+Auth/RBAC Payment-Policy, Snapshot e Financeiro
+Data: 2026-06-02
+
+1. Resumo executivo
+
+A subfase IT-FIX-008-A foi concluida com sucesso sem enfraquecer a seguranca real da aplicacao.
+O worktree aberto foi inspecionado, o escopo foi mantido restrito a payment-policy, financeiro e snapshot,
+o subset oficial da 008-A foi revalidado nesta sessao com BUILD SUCCESS, e o relatorio da fase foi gerado
+sem incluir o relatorio solto da IT-FIX-007.
+
+2. Branch e commit inicial
+
+- Repositorio: Eds0nTom4s/maspe-residencial
+- Branch de trabalho: restauracao-antes-da-loja
+- Commit inicial da sessao / HEAD antes do commit da 008-A: 26b9fbf
+- Ultimos commits visiveis na entrada:
+  - 26b9fbf Restore IT-FIX-005 report content
+  - 419fb00 Fix IT PostgreSQL queries JSONB and KDS bootstrap
+  - 21cf37f Fix IT PostgreSQL queries JSONB and KDS bootstrap
+  - a803469 Fix IT device auth secrets and 401 handling
+  - 993dc74 Fix IT security pipeline, payment query and platform RBAC expectation
+
+3. Estado do worktree antes
+
+- Branch local alinhada em `restauracao-antes-da-loja...origin/restauracao-antes-da-loja`.
+- Arquivos modificados no escopo 008-A:
+  - src/main/java/com/restaurante/financeiro/paymentmethod/repository/PaymentMethodPolicyRolloutItemRepository.java
+  - src/main/java/com/restaurante/financeiro/paymentmethod/repository/PaymentMethodPolicyRolloutRepository.java
+  - src/main/java/com/restaurante/financeiro/paymentmethod/service/PaymentMethodPolicyAsyncRolloutService.java
+  - src/main/java/com/restaurante/financeiro/paymentmethod/service/PaymentMethodPolicyRolloutService.java
+  - src/main/java/com/restaurante/financeiro/paymentmethod/service/PaymentMethodPolicyRolloutWorkerService.java
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/entity/TurnoEvidenceBundle.java
+  - src/test/java/com/restaurante/financeiro/CaixaTurnoRelatorioIT.java
+  - src/test/java/com/restaurante/financeiro/EvidenceBundleWormTriggerIT.java
+  - src/test/java/com/restaurante/financeiro/FinanceiroItFixtureSupport.java
+  - src/test/java/com/restaurante/financeiro/PagamentoGatewayPollingIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentMethodPolicyAdminRbacIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentMethodPolicyAppyPayIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentMethodPolicyInheritanceIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentMethodUnitPolicyIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutIdempotencyIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutRerunIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutStatusIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutSubmitIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutWorkerIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutApplyIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutBackoffIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutCancelIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutOverwriteModeIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutRerunHardeningIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutStaleLockRecoveryIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyTemplateAdminIT.java
+  - src/test/java/com/restaurante/financeiro/PaymentPolicyTemplateRbacIT.java
+  - src/test/java/com/restaurante/financeiro/SnapshotEvidenceBundleIT.java
+  - src/test/java/com/restaurante/financeiro/SnapshotFinanceiroExportSignatureDisabledIT.java
+  - src/test/java/com/restaurante/financeiro/SnapshotKeyDisabledIT.java
+  - src/test/java/com/restaurante/financeiro/SnapshotKeyRotationIT.java
+- Arquivo fora do escopo do commit 008-A identificado e mantido de fora:
+  - RELATORIO_CONSUMA_BACKEND_IT_FIX_007_RODADA_AMPLA_FINAL_SUITE_IT_2026_06_02.txt
+- `git diff --check`: sem whitespace errors.
+
+4. Classes do subset 008-A
+
+- PaymentMethodPolicyAdminRbacIT
+- PaymentMethodPolicyAppyPayIT
+- PaymentMethodPolicyInheritanceIT
+- PaymentMethodUnitPolicyIT
+- PaymentPolicyAsyncRolloutIdempotencyIT
+- PaymentPolicyAsyncRolloutRerunIT
+- PaymentPolicyAsyncRolloutStatusIT
+- PaymentPolicyAsyncRolloutSubmitIT
+- PaymentPolicyAsyncRolloutWorkerIT
+- PaymentPolicyRolloutApplyIT
+- PaymentPolicyRolloutBackoffIT
+- PaymentPolicyRolloutCancelIT
+- PaymentPolicyRolloutOverwriteModeIT
+- PaymentPolicyRolloutRerunHardeningIT
+- PaymentPolicyRolloutStaleLockRecoveryIT
+- PaymentPolicyTemplateAdminIT
+- PaymentPolicyTemplateRbacIT
+- CaixaTurnoRelatorioIT
+- EvidenceBundleWormTriggerIT
+- PagamentoGatewayPollingIT
+- SnapshotEvidenceBundleIT
+- SnapshotFinanceiroExportSignatureDisabledIT
+- SnapshotKeyDisabledIT
+- SnapshotKeyRotationIT
+
+5. Resultado inicial
+
+No handoff recebido, o agente anterior reportou:
+
+- correcao da oscilacao final do backoff;
+- `PaymentPolicyRolloutBackoffIT` verde;
+- subset da 008-A com 24 classes / 31 testes / 0 failures / 0 errors / 0 skipped.
+
+Nesta sessao, o subset oficial foi rerodado integralmente para confirmacao fresca antes do commit.
+
+6. Causas corrigidas
+
+- autenticacao ausente em cenarios de payment-policy/financeiro foi normalizada nos ITs;
+- expectativas de RBAC foram alinhadas com a seguranca real da aplicacao;
+- fixtures financeiras e de payment-policy foram endurecidas para evitar dependencia fraca de dados implcitos;
+- a oscilacao do backoff foi eliminada com espera pelo sinal real persistido no banco;
+- `FinanceiroItFixtureSupport` foi introduzido para padronizar criacao de dispositivos, mesa/QR, usuario tenant e cozinha central em cenarios financeiros;
+- validacoes tenant-safe de unidade foram endurecidas usando busca por `findByIdAndTenantId(...)`;
+- metadados de rollout passaram a ser montados de forma mais defensiva para evitar regressao com campos nulos;
+- o worker assincrono passou a considerar expiracao de lock e `nextRetryAt` persistido na retomada de itens pendentes;
+- `TurnoEvidenceBundle` recebeu anotacao explicita para colunas JSONB (`bundle_json` e `metadata_json`).
+
+7. Correcao especifica do backoff
+
+- `PaymentPolicyRolloutBackoffIT` passou a esperar o sinal real de backoff persistido.
+- `PaymentMethodPolicyRolloutItemRepository.java` recebeu:
+  - contagem derivada de itens `PENDING` com tentativas > 0 e `nextRetryAt` preenchido;
+  - query para obter o menor `nextRetryAt` persistido.
+- Motivo tecnico:
+  - os itens ja nascem `PENDING` no submit;
+  - validar o primeiro item `PENDING` imediatamente apos o submit era prematuro e gerava falso negativo/intermitencia;
+  - o teste passou a confirmar tentativa executada e `nextRetryAt` futuro gravado em banco.
+
+8. Arquivos alterados
+
+- src/main/java/com/restaurante/financeiro/paymentmethod/repository/PaymentMethodPolicyRolloutItemRepository.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/repository/PaymentMethodPolicyRolloutRepository.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/PaymentMethodPolicyAsyncRolloutService.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/PaymentMethodPolicyRolloutService.java
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/PaymentMethodPolicyRolloutWorkerService.java
+- src/main/java/com/restaurante/financeiro/snapshot/evidence/entity/TurnoEvidenceBundle.java
+- src/test/java/com/restaurante/financeiro/FinanceiroItFixtureSupport.java
+- src/test/java/com/restaurante/financeiro/CaixaTurnoRelatorioIT.java
+- src/test/java/com/restaurante/financeiro/EvidenceBundleWormTriggerIT.java
+- src/test/java/com/restaurante/financeiro/PagamentoGatewayPollingIT.java
+- src/test/java/com/restaurante/financeiro/PaymentMethodPolicyAdminRbacIT.java
+- src/test/java/com/restaurante/financeiro/PaymentMethodPolicyAppyPayIT.java
+- src/test/java/com/restaurante/financeiro/PaymentMethodPolicyInheritanceIT.java
+- src/test/java/com/restaurante/financeiro/PaymentMethodUnitPolicyIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutIdempotencyIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutRerunIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutStatusIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutSubmitIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyAsyncRolloutWorkerIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutApplyIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutBackoffIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutCancelIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutOverwriteModeIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutRerunHardeningIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutStaleLockRecoveryIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyTemplateAdminIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyTemplateRbacIT.java
+- src/test/java/com/restaurante/financeiro/SnapshotEvidenceBundleIT.java
+- src/test/java/com/restaurante/financeiro/SnapshotFinanceiroExportSignatureDisabledIT.java
+- src/test/java/com/restaurante/financeiro/SnapshotKeyDisabledIT.java
+- src/test/java/com/restaurante/financeiro/SnapshotKeyRotationIT.java
+
+9. O que NAO foi alterado
+
+- nao desativou seguranca;
+- nao pulou testes;
+- nao trocou PostgreSQL por H2;
+- nao relaxou RBAC sem justificativa;
+- nao mexeu em migrations.
+
+10. Validacao
+
+Comando executado nesta sessao:
+
+`mvn -Pit -DskipTests=false -Dit.test="PaymentMethodPolicyAdminRbacIT,PaymentMethodPolicyAppyPayIT,PaymentMethodPolicyInheritanceIT,PaymentMethodUnitPolicyIT,PaymentPolicyAsyncRolloutIdempotencyIT,PaymentPolicyAsyncRolloutRerunIT,PaymentPolicyAsyncRolloutStatusIT,PaymentPolicyAsyncRolloutSubmitIT,PaymentPolicyAsyncRolloutWorkerIT,PaymentPolicyRolloutApplyIT,PaymentPolicyRolloutBackoffIT,PaymentPolicyRolloutCancelIT,PaymentPolicyRolloutOverwriteModeIT,PaymentPolicyRolloutRerunHardeningIT,PaymentPolicyRolloutStaleLockRecoveryIT,PaymentPolicyTemplateAdminIT,PaymentPolicyTemplateRbacIT,CaixaTurnoRelatorioIT,EvidenceBundleWormTriggerIT,PagamentoGatewayPollingIT,SnapshotEvidenceBundleIT,SnapshotFinanceiroExportSignatureDisabledIT,SnapshotKeyDisabledIT,SnapshotKeyRotationIT" test-compile failsafe:integration-test failsafe:verify`
+
+Resultado:
+
+- `PaymentPolicyRolloutBackoffIT`: 1 test, 0 failures, 0 errors, 0 skipped.
+- Subset 24 classes: 31 tests, 0 failures, 0 errors, 0 skipped.
+- `BUILD SUCCESS`.
+- Tempo total: 03:28.
+- Finalizado em: 2026-06-02T11:37:46+01:00.
+
+11. Pendencias
+
+- IT-FIX-008-B: fixtures unicas e cleanup dos fluxos publicos/QR/provisioning.
+- nova rodada ampla posterior da suite inteira.
+- baseline minimo recomendado apos o commit:
+  - `mvn clean test`
+  - `mvn -Pit -Dit.test=DockerAvailabilityIT verify`
+  - `mvn -Pit -Dit.test=TenantCorePersistenceIT verify`
+
+12. Decisao
+
+APROVADO.
+
+A subfase IT-FIX-008-A foi fechada tecnicamente com subset verde na sessao atual, relatorio gerado,
+escopo isolado em payment-policy/financeiro/snapshot e sem enfraquecimento da seguranca real.

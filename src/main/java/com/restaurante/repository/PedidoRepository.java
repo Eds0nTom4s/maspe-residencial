@@ -22,6 +22,15 @@ import java.util.Optional;
 @Repository
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
+    Optional<Pedido> findByIdAndTenantId(Long id, Long tenantId);
+
+    long countByTenantIdAndTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusPedido status);
+
+    @Query("select count(p) from Pedido p where p.tenant.id = :tenantId and p.turnoOperacional.id = :turnoId and p.status not in (com.restaurante.model.enums.StatusPedido.FINALIZADO, com.restaurante.model.enums.StatusPedido.CANCELADO)")
+    long countNonTerminalByTenantIdAndTurnoOperacionalId(@Param("tenantId") Long tenantId, @Param("turnoId") Long turnoId);
+
+    Page<Pedido> findByTenantId(Long tenantId, Pageable pageable);
+
     /**
      * Busca pedido por número
      */
@@ -58,6 +67,68 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
      */
     @Query("SELECT p FROM Pedido p LEFT JOIN FETCH p.subPedidos WHERE p.id = :id")
     Optional<Pedido> findByIdComSubPedidos(@Param("id") Long id);
+
+    @Query("SELECT DISTINCT p FROM Pedido p " +
+           "LEFT JOIN FETCH p.subPedidos sp " +
+           "LEFT JOIN FETCH p.itens i " +
+           "WHERE p.id = :id AND p.tenant.id = :tenantId")
+    Optional<Pedido> findByIdAndTenantIdComItensESubPedidos(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    @Query("SELECT DISTINCT p FROM Pedido p " +
+           "LEFT JOIN FETCH p.itens i " +
+           "WHERE p.id = :id AND p.tenant.id = :tenantId")
+    Optional<Pedido> findByIdAndTenantIdComItens(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    @Query("SELECT DISTINCT p FROM Pedido p " +
+           "LEFT JOIN FETCH p.sessaoConsumo sc " +
+           "LEFT JOIN FETCH sc.instituicao " +
+           "LEFT JOIN FETCH sc.unidadeAtendimento " +
+           "WHERE p.id = :id AND p.tenant.id = :tenantId")
+    Optional<Pedido> findByIdAndTenantIdComSessaoConsumo(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    @Query("SELECT p FROM Pedido p " +
+           "WHERE p.tenant.id = :tenantId " +
+           "AND (cast(:statusOperacional as string) IS NULL OR p.status = :statusOperacional) " +
+           "AND (cast(:statusFinanceiro as string) IS NULL OR p.statusFinanceiro = :statusFinanceiro) " +
+           "AND (cast(:inicio as timestamp) IS NULL OR p.createdAt >= :inicio) " +
+           "AND (cast(:fim as timestamp) IS NULL OR p.createdAt <= :fim) " +
+           "AND (cast(:instituicaoId as string) IS NULL OR p.sessaoConsumo.instituicao.id = :instituicaoId) " +
+           "AND (cast(:unidadeAtendimentoId as string) IS NULL OR p.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId) " +
+           "AND (cast(:mesaId as string) IS NULL OR p.sessaoConsumo.mesa.id = :mesaId)")
+    Page<Pedido> findTenantPedidosWithFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("statusOperacional") StatusPedido statusOperacional,
+            @Param("statusFinanceiro") StatusFinanceiroPedido statusFinanceiro,
+            @Param("inicio") LocalDateTime inicio,
+            @Param("fim") LocalDateTime fim,
+            @Param("instituicaoId") Long instituicaoId,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("mesaId") Long mesaId,
+            Pageable pageable
+    );
+
+    @Query("SELECT p FROM Pedido p " +
+           "WHERE p.tenant.id = :tenantId " +
+           "AND p.turnoOperacional.id IN :turnoIds " +
+           "AND (cast(:statusOperacional as string) IS NULL OR p.status = :statusOperacional) " +
+           "AND (cast(:statusFinanceiro as string) IS NULL OR p.statusFinanceiro = :statusFinanceiro) " +
+           "AND (cast(:inicio as timestamp) IS NULL OR p.createdAt >= :inicio) " +
+           "AND (cast(:fim as timestamp) IS NULL OR p.createdAt <= :fim) " +
+           "AND (cast(:instituicaoId as long) IS NULL OR p.sessaoConsumo.instituicao.id = :instituicaoId OR p.turnoOperacional.instituicao.id = :instituicaoId) " +
+           "AND (cast(:unidadeAtendimentoId as long) IS NULL OR p.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId OR p.turnoOperacional.unidadeAtendimento.id = :unidadeAtendimentoId) " +
+           "AND (cast(:mesaId as string) IS NULL OR p.sessaoConsumo.mesa.id = :mesaId)")
+    Page<Pedido> findTenantPedidosWithFiltersAndTurnos(
+            @Param("tenantId") Long tenantId,
+            @Param("turnoIds") List<Long> turnoIds,
+            @Param("statusOperacional") StatusPedido statusOperacional,
+            @Param("statusFinanceiro") StatusFinanceiroPedido statusFinanceiro,
+            @Param("inicio") LocalDateTime inicio,
+            @Param("fim") LocalDateTime fim,
+            @Param("instituicaoId") Long instituicaoId,
+            @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+            @Param("mesaId") Long mesaId,
+            Pageable pageable
+    );
 
     /**
      * Lista todos os pedidos de uma SessaoConsumo com paginação.
@@ -115,10 +186,10 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
      * Todos os parâmetros são opcionais — null ignora o filtro.
      */
     @Query("SELECT p FROM Pedido p " +
-           "WHERE (:status IS NULL OR p.status = :status) " +
-           "AND (:inicio IS NULL OR p.createdAt >= :inicio) " +
-           "AND (:fim IS NULL OR p.createdAt <= :fim) " +
-           "AND (:sessaoId IS NULL OR p.sessaoConsumo.id = :sessaoId)")
+           "WHERE (cast(:status as string) IS NULL OR p.status = :status) " +
+           "AND (cast(:inicio as timestamp) IS NULL OR p.createdAt >= :inicio) " +
+           "AND (cast(:fim as timestamp) IS NULL OR p.createdAt <= :fim) " +
+           "AND (cast(:sessaoId as string) IS NULL OR p.sessaoConsumo.id = :sessaoId)")
     Page<Pedido> findComFiltros(@Param("status") StatusPedido status,
                                 @Param("inicio") LocalDateTime inicio,
                                 @Param("fim") LocalDateTime fim,
@@ -140,4 +211,3 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
                                 @Param("inicio") LocalDateTime inicio,
                                 @Param("fim") LocalDateTime fim);
 }
-

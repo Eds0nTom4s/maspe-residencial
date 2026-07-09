@@ -1,26 +1,23 @@
 package com.restaurante.config;
 
-import com.restaurante.security.CustomUserDetailsService;
 import com.restaurante.security.JwtAuthenticationFilter;
 import com.restaurante.security.JwtSecurityExceptionHandlers;
+import com.restaurante.security.device.DeviceAuthenticationFilter;
+import com.restaurante.security.tenant.TenantContextFilter;
 import com.restaurante.store.security.SocioAuthFilter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -28,8 +25,11 @@ import org.springframework.web.cors.CorsConfigurationSource;
 /**
  * Configuração de segurança do Spring Security
  * 
- * IMPORTANTE: Esta configuração é DESABILITADA em ambiente de teste (profile 'test')
- * para permitir testes E2E sem autenticação. Em testes, usar TestSecurityConfig.
+ * IMPORTANTE: Esta configuração é desabilitada apenas no profile `test`,
+ * usado por testes que optam explicitamente por um setup sem autenticação.
+ *
+ * Os ITs com profile `it-postgres` precisam da cadeia real para validar JWT,
+ * RBAC, CSRF stateless e guards tenant-aware.
  */
 @Configuration
 @EnableWebSecurity
@@ -39,12 +39,14 @@ import org.springframework.web.cors.CorsConfigurationSource;
 @org.springframework.context.annotation.Profile("!test")
 public class SecurityConfig {
 
-    private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final SocioAuthFilter socioAuthFilter;
+    private final ObjectProvider<DeviceAuthenticationFilter> deviceAuthenticationFilterProvider;
+    private final ObjectProvider<TenantContextFilter> tenantContextFilterProvider;
+    private final ObjectProvider<SocioAuthFilter> socioAuthFilterProvider;
     private final JwtSecurityExceptionHandlers.JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtSecurityExceptionHandlers.JwtAccessDeniedHandler jwtAccessDeniedHandler;
     private final CorsConfigurationSource corsConfigurationSource;
+    private final AuthenticationProvider authenticationProvider;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -57,11 +59,15 @@ public class SecurityConfig {
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint)
                         .accessDeniedHandler(jwtAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
-                        // Endpoints públicos de autenticação e cardápio
+                        // Endpoints públicos de autenticação (exceto seleção de tenant)
+                        // Hardening: registro de staff via JWT deve ser restrito a ADMIN autenticado.
+                        .requestMatchers(HttpMethod.POST, "/api/auth/jwt/register", "/auth/jwt/register").hasRole("ADMIN")
+                        .requestMatchers("/api/auth/tenant/select", "/auth/tenant/select").authenticated()
+                        // Listagem de tenants do usuário autenticado: exige JWT — proteção em 2 camadas (URL + @PreAuthorize)
+                        .requestMatchers(HttpMethod.GET, "/api/auth/tenants", "/auth/tenants").authenticated()
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
                         .requestMatchers("/api/public/**", "/public/**").permitAll()
-
-                        // Loja do Sócio — catálogo público (sem autenticação)
+                        .requestMatchers("/api/device/**", "/device/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/store/catalogo", "/store/catalogo/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/store/ordens").permitAll()
                         .requestMatchers(HttpMethod.GET, "/store/ordens/rastreio").permitAll()
@@ -86,8 +92,9 @@ public class SecurityConfig {
                         // Webhooks e callbacks (AppyPay)
                         .requestMatchers("/api/pagamentos/callback").permitAll()
                         .requestMatchers("/api/pagamentos/webhook").permitAll()
-                        .requestMatchers("/pagamentos/webhook").permitAll()
+                        // Com server.servlet.context-path=/api, o servletPath exposto ao Spring Security é "/pagamentos/callback"
                         .requestMatchers("/pagamentos/callback").permitAll()
+                        .requestMatchers("/pagamentos/webhook").permitAll()
                         
                         // WebSocket endpoints (SockJS handshake deve ser permitido)
                         .requestMatchers("/ws/**", "/api/ws/**").permitAll()
@@ -95,10 +102,23 @@ public class SecurityConfig {
                         // Qualquer outra requisição requer autenticação
                         .anyRequest().authenticated()
                 )
-                .authenticationProvider(authenticationProvider())
-                // SocioAuthFilter ANTES do JWT filter — actua em /store/** com token Associagest
-                .addFilterBefore(socioAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .authenticationProvider(authenticationProvider)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
+        SocioAuthFilter socioAuthFilter = socioAuthFilterProvider.getIfAvailable();
+        if (socioAuthFilter != null) {
+            http.addFilterBefore(socioAuthFilter, JwtAuthenticationFilter.class);
+        }
+
+        DeviceAuthenticationFilter deviceAuthenticationFilter = deviceAuthenticationFilterProvider.getIfAvailable();
+        if (deviceAuthenticationFilter != null) {
+            http.addFilterBefore(deviceAuthenticationFilter, JwtAuthenticationFilter.class);
+        }
+
+        TenantContextFilter tenantContextFilter = tenantContextFilterProvider.getIfAvailable();
+        if (tenantContextFilter != null) {
+            http.addFilterAfter(tenantContextFilter, JwtAuthenticationFilter.class);
+        }
 
         // Permitir H2 Console (desenvolvimento) - desabilita frame protection e relaxa CSP
         http.headers(headers -> headers
@@ -117,27 +137,4 @@ public class SecurityConfig {
         return registration;
     }
 
-    @Bean
-    public AuthenticationProvider authenticationProvider() {
-        log.info("🔧 Configurando DaoAuthenticationProvider...");
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
-        authProvider.setUserDetailsService(userDetailsService);
-        authProvider.setPasswordEncoder(passwordEncoder());
-        log.info("✅ DaoAuthenticationProvider configurado com BCryptPasswordEncoder");
-        return authProvider;
-    }
-
-    @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
-        log.info("🔧 Configurando AuthenticationManager...");
-        return config.getAuthenticationManager();
-    }
-
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        log.info("🔧 Criando BCryptPasswordEncoder...");
-        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-        log.info("✅ BCryptPasswordEncoder criado - Strength: 10 (default)");
-        return encoder;
-    }
 }

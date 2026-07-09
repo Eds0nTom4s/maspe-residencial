@@ -1,0 +1,85 @@
+CONSUMA Backend — Prompt 3 (Limites por Tenant/Plano — maxInstituicoes)
+Data: 2026-05-14 (Africa/Luanda)
+
+1) RESUMO EXECUTIVO
+- Implementado cálculo de limites efetivos por tenant (Plano + Override) e enforcement inicial para criação de Instituicao.
+- Criado `TenantLimitService` com:
+  - `getEffectiveLimits(tenantId)`
+  - `assertCanCreateInstituicao(tenantId)`
+- Integrado ao `InstituicaoService` via novo método `criarInstituicao(tenantId, ...)` (sem TenantContext ainda).
+- Criados testes:
+  - unit test (Mockito) para regra de cálculo e bloqueios
+  - integração PostgreSQL (Testcontainers) para validar limite do Plano PILOTO e override
+- Nenhuma migração de schema foi necessária nesta fase.
+- Fluxos legados (instituição ativa global) permanecem inalterados.
+
+2) IMPLEMENTAÇÃO (SERVIÇOS)
+src/main/java/com/restaurante/service/TenantLimitService.java
+- Regras:
+  - Tenant deve estar `ATIVO`
+  - deve existir `Subscricao` `ATIVA` (senão: "Tenant não possui subscrição ativa.")
+  - override ativo: campos não-null sobrescrevem valores do plano
+- Enforce:
+  - `assertCanCreateInstituicao`: compara `count(instituicoes)` vs `maxInstituicoes`
+
+src/main/java/com/restaurante/service/InstituicaoService.java
+- Adicionado método:
+  - `criarInstituicao(tenantId, ...)`:
+    - chama `tenantLimitService.assertCanCreateInstituicao(tenantId)`
+    - carrega `Tenant` e persiste `Instituicao`
+- Métodos legados mantidos (`getInstituicaoAtiva`, OTP etc.)
+
+3) REPOSITORIES
+src/main/java/com/restaurante/repository/InstituicaoRepository.java
+- Adicionado:
+  - `countByTenantId(Long tenantId)`
+
+4) TESTES
+Unit:
+- src/test/java/com/restaurante/service/TenantLimitServiceTest.java
+  - sem subscrição ativa -> bloqueia
+  - override sobrescreve plano quando não-null
+  - limite excedido -> bloqueia criação
+
+Integração (PostgreSQL/Testcontainers; SKIP sem Docker):
+- src/test/java/com/restaurante/tenantcore/TenantCorePersistenceIT.java
+  - novo teste `planoPilotoMustLimitInstituicoesUnlessOverride`:
+    - PILOTO limita para 1
+    - override maxInstituicoes=3 permite até 3
+
+5) COMANDOS EXECUTADOS
+- mvn -q -DskipTests compile -> OK
+- mvn test -q -> OK
+
+6) ARQUIVOS CRIADOS/ALTERADOS
+- src/main/java/com/restaurante/service/TenantLimitService.java
+- src/main/java/com/restaurante/service/InstituicaoService.java
+- src/main/java/com/restaurante/repository/InstituicaoRepository.java
+- src/test/java/com/restaurante/service/TenantLimitServiceTest.java
+- src/test/java/com/restaurante/tenantcore/TenantCorePersistenceIT.java
+- docs/tenant-core/03-limites-por-tenant-plano.md
+
+7) DECISÕES TÉCNICAS
+- Sem TenantContext nesta fase: tenantId é passado explicitamente.
+- Não assumir plano default silenciosamente: ausência de subscrição ativa bloqueia.
+- Estado do tenant validado no limit service para reduzir risco operacional até existir TenantGuard.
+
+8) RISCOS RESTANTES
+- Enforce só ocorre onde o `TenantLimitService` for chamado (ainda não há guard global).
+- Limites além de `maxInstituicoes` (produtos/usuários/QR/dispositivos) ainda não são aplicados, apenas placeholders.
+
+9) CHECKLIST DE ACEITAÇÃO
+[OK] `TenantLimitService` criado
+[OK] cálculo efetivo Plano + Override implementado
+[OK] bloqueio explícito sem subscrição ATIVA
+[OK] validação de estado básico do tenant (ATIVO)
+[OK] `assertCanCreateInstituicao` implementado
+[OK] integração inicial no `InstituicaoService.criarInstituicao(...)`
+[OK] testes unitários criados
+[OK] teste de integração Postgres criado/atualizado (SKIP sem Docker)
+[OK] nenhuma mudança funcional nos fluxos legados existentes
+
+10) PRÓXIMO PROMPT RECOMENDADO
+Prompt 4 — TenantContext/TenantResolver/TenantGuard (enforcement por request),
+antes de tornar `Produto/Pedido/Pagamento` tenant-aware.
+

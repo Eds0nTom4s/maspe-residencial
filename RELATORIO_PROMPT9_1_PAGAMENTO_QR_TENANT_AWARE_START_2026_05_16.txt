@@ -1,0 +1,137 @@
+RELATÓRIO TÉCNICO — PROMPT 9.1 (INICIAR PAGAMENTO POR QR TENANT-AWARE, SEM CALLBACK)
+Data: 2026-05-16
+Sistema: CONSUMA (Spring Boot / PostgreSQL / Flyway / AppyPay)
+
+1) RESUMO EXECUTIVO
+- Implementado início de pagamento digital (AppyPay) para Pedido criado via QR público, com:
+  - validação tenant-safe QR + Pedido
+  - Pagamento com tenant_id obrigatório (defesa em profundidade)
+  - externalReference tenant-aware compacta (<=15 chars)
+  - idempotência obrigatória no endpoint de iniciar pagamento (Idempotency-Key)
+  - endpoint público para iniciar pagamento sem JWT
+- Callback/confirmação do pagamento fica para Prompt 9.2.
+
+2) DECISÃO: TENANT_ID EM PAGAMENTO
+- `pagamentos_gateway.tenant_id NOT NULL` com FK para `tenants(id)`.
+- Backfill:
+  - preferencial: pagamento -> pedido -> tenant_id
+  - fallback: pagamento -> fundo -> sessão -> instituição -> tenant
+  - fallback final: tenant `LEGACY`
+
+3) MIGRATION V9
+Arquivo:
+- src/main/resources/db/migration/V9__pagamento_tenant_aware_qr_start.sql
+
+Inclui:
+- tenant_id em pagamentos_gateway + índices + FK + NOT NULL
+- tabela de idempotência `public_qr_payment_requests` com unique (tenant_id, pedido_id, idempotency_key)
+
+4) REFERÊNCIA INTERNA MULTI-TENANT (<=15)
+Service:
+- src/main/java/com/restaurante/service/PaymentReferenceService.java
+
+Propriedades:
+- gera externalReference com no máximo 15 caracteres
+- incorpora componente derivada de tenantCode (compactação/hash)
+- garante unicidade consultando `PagamentoGatewayRepository.existsByExternalReference`
+
+5) IDEMPOTÊNCIA DE INÍCIO DE PAGAMENTO
+Entidade/Repo/Service:
+- src/main/java/com/restaurante/model/entity/PublicQrPaymentRequest.java
+- src/main/java/com/restaurante/model/enums/PublicQrPaymentRequestStatus.java
+- src/main/java/com/restaurante/repository/PublicQrPaymentRequestRepository.java
+- src/main/java/com/restaurante/service/PublicQrPaymentIdempotencyService.java
+
+Regras:
+- Header `Idempotency-Key` obrigatório (body opcional)
+- retry com mesma chave/payload retorna mesmo pagamento
+- mesma chave com payload diferente retorna 409
+- evita dupla chamada ao gateway no mesmo retry idempotente
+
+6) ENDPOINT PÚBLICO
+Controller:
+- src/main/java/com/restaurante/controller/PublicQrController.java
+
+Endpoint:
+- POST /api/public/q/{token}/pedidos/{pedidoId}/pagamentos
+
+7) SERVICE PÚBLICO DE PAGAMENTO POR QR
+Service:
+- src/main/java/com/restaurante/service/PublicQrPagamentoService.java
+
+Fluxo:
+- resolve QR (ativo/não revogado, tenant ATIVO)
+- busca Pedido por id + tenantId (tenant-safe)
+- valida contexto (instituição/unidade/mesa quando aplicável)
+- aplica idempotência de pagamento
+- cria Pagamento (tenant + pedido + externalReference) em PENDENTE
+- chama AppyPayClient.createCharge(...)
+- persiste dados do gateway (chargeId, entity/reference/paymentUrl)
+- NÃO confirma pagamento nesta fase
+
+8) INTEGRAÇÃO LEGADA
+Alterado:
+- src/main/java/com/restaurante/financeiro/service/PagamentoGatewayService.java
+  - passa a preencher `tenant` para pagamentos de recarga (compatibilidade após tenant_id NOT NULL)
+
+9) STATUS DO PEDIDO APÓS INICIAR PAGAMENTO
+- O enum atual `StatusFinanceiroPedido` não possui PENDENTE_PAGAMENTO.
+- Nesta fase o Pedido permanece `NAO_PAGO` após iniciar pagamento.
+- A confirmação (marcar PAGO) será implementada no Prompt 9.2 (callback idempotente).
+
+10) TESTES (POSTGRESQL/TESTCONTAINERS)
+Criado:
+- src/test/java/com/restaurante/qr/PublicQrPagamentoStartIT.java
+
+Cobertura:
+- inicia pagamento tenant-aware com AppyPayClient mockado
+- retry idempotente retorna mesmo pagamento e chama gateway apenas 1 vez
+- cross-tenant (QR A tentando pagar pedido B) retorna 404
+- externalReference <= 15
+
+11) COMANDOS A EXECUTAR (VALIDAÇÃO)
+- mvn -q -DskipTests compile
+- mvn test
+
+12) ARQUIVOS CRIADOS/ALTERADOS
+Criados:
+- src/main/resources/db/migration/V9__pagamento_tenant_aware_qr_start.sql
+- src/main/java/com/restaurante/service/PaymentReferenceService.java
+- src/main/java/com/restaurante/model/entity/PublicQrPaymentRequest.java
+- src/main/java/com/restaurante/model/enums/PublicQrPaymentRequestStatus.java
+- src/main/java/com/restaurante/repository/PublicQrPaymentRequestRepository.java
+- src/main/java/com/restaurante/service/PublicQrPaymentIdempotencyService.java
+- src/main/java/com/restaurante/dto/request/PublicQrPagamentoRequest.java
+- src/main/java/com/restaurante/dto/response/PublicQrPagamentoResponse.java
+- src/main/java/com/restaurante/service/PublicQrPagamentoService.java
+- src/test/java/com/restaurante/qr/PublicQrPagamentoStartIT.java
+- docs/tenant-core/09-1-pagamento-qr-tenant-aware-start.md
+
+Alterados:
+- src/main/java/com/restaurante/model/entity/Pagamento.java (tenant_id)
+- src/main/java/com/restaurante/controller/PublicQrController.java (endpoint pagamento)
+- src/main/java/com/restaurante/repository/PedidoRepository.java (findByIdAndTenantId)
+- src/main/java/com/restaurante/financeiro/service/PagamentoGatewayService.java (preenche tenant em recargas)
+
+13) RISCOS RESTANTES / PRÓXIMOS PASSOS
+- Callback AppyPay tenant-aware ainda não implementado (Prompt 9.2).
+- `StatusFinanceiroPedido` não possui PENDENTE_PAGAMENTO (avaliar adição futura ou manter NAO_PAGO).
+- Estratégia de parsing de tenantCode pela externalReference pode ser refinada para callback futuro.
+
+14) CHECKLIST DE ACEITAÇÃO (PROMPT 9.1)
+[OK] Pagamento possui tenant_id obrigatório + backfill
+[OK] Endpoint público inicia pagamento por QR existe
+[OK] QR A não paga pedido do Tenant B (404)
+[OK] externalReference tenant-aware <= 15 e única
+[OK] Idempotency-Key obrigatório e evita dupla chamada ao gateway
+[OK] Retry retorna mesmo Pagamento
+[OK] Pagamento não é confirmado nesta fase (sem callback)
+[OK] Testes passam com gateway mockado
+
+15) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 9.2 — Callback tenant-aware + confirmação idempotente:
+  - resolver tenant por externalReference
+  - validar assinatura/secret
+  - gravar payload bruto (callback log)
+  - confirmar pagamento (idempotente) e marcar pedido como PAGO
+

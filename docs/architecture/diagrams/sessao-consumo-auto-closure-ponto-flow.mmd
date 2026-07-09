@@ -1,0 +1,42 @@
+flowchart TD
+    A([Pedido PONTO finalizado / cancelado]) --> B[tryAutoCloseSessaoConsumo]
+
+    B --> C{sessaoId != null\ne sessao existe?}
+    C -- Não --> Z1([Ignorado: sessão não encontrada])
+    C -- Sim --> D{Status ENCERRADA\nou EXPIRADA?}
+
+    D -- Sim --> Z2([Idempotência: já encerrada])
+    D -- Não --> E{Status é ABERTA\nou AGUARDANDO_PAGAMENTO?}
+
+    E -- Não --> Z3([Ignorado: status inválido])
+    E -- Sim --> F{Template é\nCONSUMA_PONTO_V1\nou PONTO_QR?}
+
+    F -- Não / REST / KDS --> Z4([Bloqueado: template não elegível\nREST/KDS protegido])
+    F -- Sim --> G{Tem pelo menos\num pedido?}
+
+    G -- Não --> Z5([Aguarda scheduler expirar\nSessão vazia não encerra])
+    G -- Sim --> H{Algum pedido CRIADO\nou EM_ANDAMENTO?}
+
+    H -- Sim --> Z6([Bloqueado: pedido não terminal])
+    H -- Não --> I{Pedido não-cancelado\ncom NAO_PAGO ou\nPENDENTE_PAGAMENTO?}
+
+    I -- Sim --> Z7([Bloqueado: pagamento pendente])
+    I -- Não --> J{Subpedido PENDENTE ou\nEM_PREPARACAO em pedido\nnão-cancelado?}
+
+    J -- Sim --> Z8([Bloqueado: subpedido pendente obrigatório])
+    J -- Não --> K{OrdemPagamento\nAGUARDANDO_CONFIRMACAO\nactiva?}
+
+    K -- Sim --> Z9([Bloqueado: ordem activa])
+    K -- Não --> L[Encerrar SessaoConsumo\nstatus = ENCERRADA\nFundoConsumo.encerrar]
+
+    L --> M[Salvar sessaoConsumoRepository]
+    M --> N[Registar auditoria\nSESSAO_CONSUMO_ENCERRADA\norigem=SYSTEM\nreason=AUTO_CLOSURE_CONSUMA_PONTO]
+    N --> O([Sessão ENCERRADA\nPré-fecho do turno\nnão bloqueia esta sessão])
+
+    style Z4 fill:#ffcccc,stroke:#cc0000
+    style Z6 fill:#ffcccc,stroke:#cc0000
+    style Z7 fill:#ffcccc,stroke:#cc0000
+    style Z8 fill:#ffcccc,stroke:#cc0000
+    style Z9 fill:#ffcccc,stroke:#cc0000
+    style O fill:#ccffcc,stroke:#006600
+    style Z2 fill:#ffffcc,stroke:#999900

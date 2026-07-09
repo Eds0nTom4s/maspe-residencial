@@ -1,0 +1,145 @@
+RELATORIO_FREEZY_DEMO_SEED_CONFIG_001
+
+Data: 2026-07-06
+Branch: backend/freezy-demo-seed-config-001
+Commit base: fe7622e3f2c41c8382d08a3fcb18abb64b30dd2c
+Commit final: registrado na entrega final
+
+1. Objectivo
+------------
+Criar configuracao controlada do tenant FREEZY para o Demo `CONSUMA_PONTO_V1` com QR Publico, sem implementar ordem expiravel, confirmacao de pagamento, entrega, PDV, caixa, KDS, gateway ou estorno.
+
+2. Auditoria do seed existente
+------------------------------
+Item: SandboxDemoSeedRunner
+Existe: sim
+Onde: `src/main/java/com/restaurante/config/SandboxDemoSeedRunner.java`
+Serve para FREEZY: parcialmente
+Risco: seed antigo cria pedidos/pagamentos demonstrativos para REST/PONTO; nao deve ser copiado para FREEZY.
+Decisao: reutilizar mecanismo de provisionamento e adicionar trilha FREEZY sem criar pedidos, ordens ou pagamentos.
+
+Item: tenants PONTO/REST
+Existe: sim
+Onde: `SandboxDemoSeedRunner`
+Serve para FREEZY: nao diretamente
+Risco: misturar o demo FREEZY com templates antigos.
+Decisao: criar slug/codigo dedicados `freezy-demo` / `FREEZY_DEMO`.
+
+Item: produtos/cardapio
+Existe: sim pelo template PONTO
+Onde: `ConsumaPontoV1Template`
+Serve para FREEZY: parcialmente
+Risco: cardapio generico demais.
+Decisao: desativar produtos genericos no tenant FREEZY e ativar apenas Gelados/Bebidas/Combos.
+
+Item: QR principal
+Existe: sim
+Onde: BusinessTemplateProvisioningSupport / QrCodeOperacional
+Serve para FREEZY: sim
+Risco: QR Mesa nao deve ser exigido.
+Decisao: usar QR principal de unidade como QR Publico do demo, origem esperada `QR_PRINCIPAL`.
+
+Item: turno
+Existe: nao no seed antigo para FREEZY
+Onde: adicionado em `SandboxDemoSeedRunner`
+Serve para FREEZY: sim
+Risco: actions bloqueadas sem turno.
+Decisao: garantir turno `ABERTO`, idempotente por tenant/instituicao/unidade.
+
+Item: pagamentos/ordens
+Existe: sim no seed antigo REST/PONTO
+Onde: `seedOrder`
+Serve para FREEZY: nao nesta fase
+Risco: violar pagamento apos aceite ou antecipar contrato da proxima fase.
+Decisao: FREEZY nao cria pedido, ordem nem pagamento.
+
+3. Tenant FREEZY
+----------------
+Nome: FREEZY
+Slug: freezy-demo
+Tenant code: FREEZY_DEMO
+Template persistido: CONSUMA_PONTO
+Template version: 1
+Estado: ativo
+
+4. Unidade
+----------
+Nome: FREEZY Principal
+Estado: ativa
+Finalidade: ponto principal do demo.
+
+5. Operador
+-----------
+Usuario: Operador FREEZY
+Email/login: operador.freezy@consuma.local
+Role: TENANT_OWNER tecnico do template + TENANT_OPERATOR do demo
+Como senha e tratada: senha temporaria local, apenas com seed sandbox explicitamente ligado
+Permissoes: ver pedidos, aceitar/rejeitar quando `allowedActions` permitir, preparar futuras acoes de pagamento/entrega
+Riscos: credencial nao deve ser usada em producao
+
+6. Cardapio e produtos
+----------------------
+Cardapio: publicado.
+Categorias ativas: Gelados, Bebidas, Combos.
+Produtos ativos: Gelado de Baunilha, Gelado de Chocolate, Gelado de Morango, Agua, Refrigerante, Combo FREEZY.
+Produtos genericos do template: desativados no tenant FREEZY.
+
+7. QR Publico
+-------------
+QR: QR Publico FREEZY
+Tipo: UNIDADE_ATENDIMENTO
+URL esperada: /q/{token}
+Tenant: FREEZY
+Unidade: FREEZY Principal
+Origem resultante: QR_PRINCIPAL no dominio atual, por nao possuir mesa.
+Risco: token real depende do ambiente seedado.
+
+8. Turno
+--------
+Turno: Turno Demo FREEZY
+Unidade: FREEZY Principal
+Estado: ABERTO
+Operador: Operador FREEZY
+Idempotencia: reutiliza turno aberto/fecho existente; nao abre duplicado.
+Risco: se o turno for fechado manualmente, o seed deve ser reexecutado.
+
+9. Parametro de expiracao
+-------------------------
+Parametro: consuma.demo.freezy.payment-order-expiration-minutes
+Env: CONSUMA_FREEZY_PAYMENT_ORDER_EXPIRATION_MINUTES
+Valor demo: 10
+Onde fica: application-sandbox.properties
+E usado agora: nao
+Sera usado na proxima fase: sim
+Risco: ainda nao conectado ao servico de ordem.
+
+10. Garantias de nao violacao
+-----------------------------
+Pagamento antes do aceite: FREEZY nao cria pagamento.
+Gateway: nao cria gateway fake.
+Estorno: nao cria estorno.
+PDV: nao cria PDV real.
+Caixa: nao cria caixa completo.
+KDS: nao cria KDS.
+Pedido publico pago: nao cria pedido FREEZY.
+Ordem antes de contrato: nao cria ordem FREEZY.
+
+11. Testes backend
+------------------
+- `mvn -DskipTests compile`: PASS, BUILD SUCCESS, 45.493s, finalizado em 2026-07-06T14:01:06+01:00.
+- `mvn -Pit -Dit.test=SandboxDemoSeedRunnerIT verify`: PASS, Surefire 379 tests / 0 failures / 0 errors / 3 skipped; Failsafe 1 test / 0 failures / 0 errors.
+- `mvn test`: PASS, 379 tests / 0 failures / 0 errors / 3 skipped, BUILD SUCCESS, 02:25, finalizado em 2026-07-06T14:10:18+01:00.
+- `mvn -Pit verify`: PASS, Failsafe 274 tests / 0 failures / 0 errors / 0 skipped, BUILD SUCCESS, 08:36, finalizado em 2026-07-06T14:19:09+01:00.
+
+12. Arquivos alterados
+----------------------
+- `src/main/java/com/restaurante/config/SandboxDemoSeedRunner.java`
+- `src/main/resources/application-sandbox.properties`
+- `src/test/java/com/restaurante/config/SandboxDemoSeedRunnerIT.java`
+- `docs/product/FREEZY_DEMO_SEED_CONFIG_001.md`
+- `docs/reports/backend/RELATORIO_FREEZY_DEMO_SEED_CONFIG_001.txt`
+- `docs/reports/fullstack/RELATORIO_FREEZY_DEMO_SEED_CONFIG_001.txt`
+
+13. Decisao
+-----------
+APROVADO COM RESSALVAS: seed/config FREEZY preparado; ordem expiravel, pagamento e entrega permanecem nas fases seguintes.

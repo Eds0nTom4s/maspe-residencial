@@ -1,0 +1,147 @@
+RELATORIO_ORDER_ORIGIN_HARDENING_001 — BACKEND
+================================================
+
+Fase: order-origin-hardening-001
+Branch: backend/order-origin-hardening-001
+Commit base: a3fd47b47b9da33b0465bbb84461ce201bb4522c
+Commit final tecnico validado: ed79d5243219bea1d0078249338699aab52deef6
+
+1. OBJETIVO
+-----------
+Formalizar a origem do pedido como dado explícito, estável, auditável e usado
+pelas policies operacionais, eliminando inferências frágeis.
+
+2. PROBLEMA TRATADO
+-------------------
+A política operacional já existia, mas a origem do pedido ainda era inferida em
+vários pontos (sessão, mesa, QR, template). Isso criava risco de aplicação de
+regras erradas de aceite, pagamento, produção e auditoria.
+
+3. ENUM / TIPO CRIADO
+---------------------
+Arquivo: src/main/java/com/restaurante/model/enums/PedidoOrigem.java
+
+Valores:
+  QR_MESA, QR_PRINCIPAL, QR_PUBLICO,
+  SESSAO_PARTICIPANTE, SESSAO_CONSUMO,
+  OPERADOR_INTERNO, DEVICE_POS, PDV_INTERNO,
+  DEVICE_KDS, CAIXA, SISTEMA, LEGADO, UNKNOWN
+
+O enum aninhado OperationalTemplatePolicy.PedidoOrigem foi removido;
+todas as referências agora usam o enum top-level.
+
+4. PERSISTÊNCIA / MIGRATION
+---------------------------
+Arquivo: src/main/resources/db/migration/V75__pedido_origem.sql
+
+ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS pedido_origem VARCHAR(30);
+UPDATE pedidos SET pedido_origem = 'LEGADO' WHERE pedido_origem IS NULL;
+
+- Coluna aditiva, nullable, não destrutiva.
+- Default para dados legados: LEGADO (conservador).
+
+5. CRIAÇÃO PÚBLICA (QR)
+-----------------------
+Arquivo: src/main/java/com/restaurante/service/PublicQrPedidoService.java
+
+- QR_MESA: qr.getTipo() == QrCodeOperacionalTipo.MESA
+- QR_PRINCIPAL: QR geral do tenant/instituição/unidade/balcão
+- QR_PUBLICO: fallback quando o tipo do QR é nulo
+- Origem definida pelo backend a partir do QR validado; frontend não autoriza
+  origem sensível.
+
+6. CRIAÇÃO TENANT / DEVICE
+--------------------------
+Arquivos:
+  src/main/java/com/restaurante/service/PedidoService.java
+  src/main/java/com/restaurante/service/device/DevicePedidoService.java
+
+- PedidoService.criar(...) → OPERADOR_INTERNO por padrão.
+- Participante explícito → SESSAO_PARTICIPANTE.
+- Pedido de cliente identificado → SESSAO_CONSUMO.
+- Sessão anônima com mesa → QR_MESA; com QR → QR_PRINCIPAL.
+- DevicePedidoService → DEVICE_POS.
+
+7. POLICIES INTEGRADAS
+----------------------
+Arquivo: src/main/java/com/restaurante/service/operacional/OperationalTemplatePolicy.java
+
+- resolvePedidoOrigem: prioriza origem persistida; fallback conservador.
+- requiresAcceptanceBeforePayment: QR/public exige aceite; DEVICE_POS/PDV não.
+- allowsImmediatePayment: DEVICE_POS e PDV_INTERNO com actor autorizado.
+- productionFlow: KDS/QR/REST → REQUIRED; PONTO/DEVICE → OPTIONAL; CAIXA → NONE.
+- canAccept / canReject: exclui DEVICE_POS, DEVICE_KDS, PDV_INTERNO.
+- canConfirmPayment: exclui TENANT_KITCHEN / DEVICE_KDS.
+- canMoveProduction: respeita productionFlow.
+
+Arquivo: src/main/java/com/restaurante/service/operacional/PedidoAllowedActionsService.java
+- Usa origem resolvida para calcular allowedActions / actionReasons.
+
+Arquivo: src/main/java/com/restaurante/service/operacional/PedidoStatusTransitionService.java
+- Continua usando OperationalTemplatePolicy para aceite/rejeição.
+- Registra pedidoOrigem nos eventos de aceite/rejeição/cancelamento/bloqueio.
+
+8. AUDITORIA / EVENT LOG
+------------------------
+Arquivo: src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java
+
+- Novo OperationalEventType.PEDIDO_CRIADO.
+- logPedidoCriado(...) registra pedidoOrigem no metadata.
+- Aceite/rejeição/cancelamento/bloqueio registram command, tenantTemplate e
+  pedidoOrigem.
+- Device: PEDIDO_CRIADO_DEVICE registra pedidoOrigem no metadata.
+
+9. RESPONSES BACKEND
+--------------------
+Arquivos:
+  src/main/java/com/restaurante/dto/response/PedidoResponse.java
+  src/main/java/com/restaurante/dto/response/TenantPedidoDetalheResponse.java
+  src/main/java/com/restaurante/dto/response/TenantPedidoResumoResponse.java
+
+Campo aditivo exposto: PedidoOrigem pedidoOrigem
+Não quebra contratos antigos (campo nullable / ausente é ignorado).
+
+10. TESTES
+----------
+mvn -DskipTests compile  → SUCESSO
+mvn test                 → 379 tests, 0 failures, 3 skipped, BUILD SUCCESS
+
+Testes ajustados/criados:
+  src/test/java/com/restaurante/service/operacional/OperationalTemplatePolicyTest.java
+  - qrMesaAndQrPrincipalRequireAcceptanceBeforePayment
+  - consumaRestPublicPedidoRequiresAcceptanceBeforePayment
+  - consumaPontoKeepsPublicQrGuardButAllowsDeviceImmediatePayment
+  - pdvInternoIsFutureImmediatePaymentOnlyForAuthenticatedOperatorActors
+  - kdsCannotConfirmPaymentAndCaixaCannotMoveProduction
+  - acceptRejectAreTenantOperationalCommandsNotKdsCommands
+  - productionAndTurnoMatrixIsExplicitByTemplate
+  - pedidoOrigemExplicitaTemPrioridadeSobreInferencia
+  - dadosLegadosSemSessaoRecebemFallbackLegado
+  - actorTenantResolveParaOperadorInternoQuandoOrigemNaoInformada
+  - deviceKdsEnviaParaProducao
+
+Revalidacao final em 2026-07-06:
+  mvn -Pit verify
+  - Execucao ampla interrompida apos exceder 300s, ja na fase Failsafe/IT.
+  - A interrupcao foi operacional, sem falha funcional registrada ate o corte.
+
+  mvn -Pit -Dtest=OperationalTemplatePolicyTest,PedidoAllowedActionsServiceTest,PedidoPagamentoPolicyTest -Dit.test=FlywayBaselinePostgresIT,PublicQrPedidoIT,PublicQrPagamentoStartIT,DevicePedidoCreateIT,OperationalStatusTransitionIT verify
+  - BUILD SUCCESS
+  - Surefire selecionado: 25 tests, 0 failures, 0 errors, 0 skipped
+  - Failsafe selecionado: 25 tests, 0 failures, 0 errors, 0 skipped
+  - Cobertura focada: Flyway V75/Postgres, QR publico, bloqueio de pagamento
+    antes do aceite, device POS e transicoes operacionais.
+
+11. RISCOS RESTANTES
+--------------------
+- Suite ampla de ITs nao foi concluida dentro do limite operacional de 300s;
+  a malha focada da origem do pedido passou.
+- PDV_INTERNO e CAIXA têm origem mapeada, mas fluxos completos não
+  implementados (conforme governança da fase).
+- Produção ainda por pedido, não por subpedido.
+- CONFIRM_PAYMENT sem fluxo financeiro real no painel tenant.
+
+12. DECISÃO
+-----------
+APROVADO COM RESSALVAS (suite ampla de ITs nao finalizada; ITs focados
+da origem do pedido validados com sucesso).

@@ -1,0 +1,186 @@
+RELATORIO_TEST_INFRA_STABILIZATION_001
+
+1. Identificacao
+----------------
+Data: 2026-07-06
+Backend branch: backend/test-infra-stabilization-001
+Backend commit base: 02c6fcc83a1fd84e9d9697c9013ab85648f2f6b1
+Backend commit final: registrado na entrega final
+Frontend branch: ui/test-infra-stabilization-001
+Frontend commit base: c4269f5047b79c9eef281960bc9a127d791deb6d
+Frontend commit final: registrado na entrega final
+
+2. Objetivo
+-----------
+Auditar e estabilizar infraestrutura de validacao E2E/frontend e verify/backend sem alterar regras de produto, UI visual, allowedActions, PedidoOrigem, OperationalTemplatePolicy, pagamento ou implementacoes operacionais novas.
+
+3. Problemas encontrados
+------------------------
+- E2E falhava ou ficava instavel quando o Playwright nao conseguia acessar o webServer Vite em `127.0.0.1:5173/login` dentro do sandbox de rede.
+- Nao havia smoke tenant local suficiente para separar disponibilidade do frontend de backend real.
+- Verify amplo falhava em setups de pagamento que desrespeitavam a regra vigente de aceite antes de pagamento.
+- Maven emitia logs ruidosos por DEBUG herdado e stacks esperados no console.
+
+4. E2E frontend
+---------------
+Causa:
+- Host/porta/baseURL e disponibilidade do webServer nao estavam suficientemente explicitos para diferenciar falha de webServer, rota, credencial ou backend.
+
+Correcao:
+- `playwright.config.ts` centraliza `E2E_HOST`, `E2E_PORT`, `E2E_BASE_URL` e `VITE_API_BASE_URL`.
+- Criado helper de sessao tenant e route mocks em `e2e/support/tenantApp.ts`.
+- Criado smoke de dashboard, pedidos, caixa e turnos em `e2e/app-smoke.spec.ts`.
+
+Arquivos alterados:
+- `playwright.config.ts`
+- `e2e/support/tenantApp.ts`
+- `e2e/app-smoke.spec.ts`
+- `docs/reports/frontend/RELATORIO_TEST_INFRA_STABILIZATION_UI_001.txt`
+- `docs/reports/frontend/test-infra-stabilization-001/*`
+
+Comando final:
+- `npm run test:e2e`
+
+Resultado:
+- PASS fora do sandbox de rede, 6 passed, 1 skipped, 14.7s.
+
+5. Playwright/webServer
+-----------------------
+Config anterior:
+- Dependencia maior dos defaults do Vite e ausencia de `--strictPort` no comando do webServer.
+
+Problema:
+- Em falha, o Playwright parava antes de deixar claro se a causa era porta, rota, credencial, backend ou isolamento de rede.
+
+Config final:
+- `npm run dev -- --host ${E2E_HOST:-127.0.0.1} --port ${E2E_PORT:-5173} --strictPort`.
+- URL aguardada: `/login`.
+- timeout: 120s.
+- `reuseExistingServer` habilitado somente fora de CI.
+
+Resultado:
+- WebServer deterministico; conflito de porta nao vira troca silenciosa.
+
+6. Testes E2E existentes
+------------------------
+Classificacao:
+- `e2e/smoke.spec.ts`: A - deterministico e local.
+- `e2e/app-smoke.spec.ts`: B - mock controlado.
+- `e2e/pedidos.spec.ts` sessao expirada: A - deterministico e local.
+- `e2e/pedidos.spec.ts` fluxo real: C/D - credenciais reais e backend real.
+
+Skips:
+- Fluxo real de pedidos skipped sem `CONSUMA_E2E_USERNAME` e `CONSUMA_E2E_PASSWORD`.
+
+Dependencias:
+- Smokes locais dependem apenas de Vite e route mocks.
+- Fluxo real depende de backend real, tenant e credenciais.
+
+Riscos:
+- Sandbox de rede desta sessao impede conclusao local do E2E; run final precisa ser fora do sandbox.
+
+7. Backend verify
+-----------------
+Causa:
+- ITs e seed demo tentavam iniciar pagamento antes do aceite, contrariando a politica vigente.
+
+Correcao:
+- Fixtures aceitam pedidos de setup antes de iniciar pagamento.
+- Seed demo aceita pedido demo antes de criar ordem manual.
+- Surefire/Failsafe ganharam logging controlado e redirect para reports.
+
+Arquivos alterados:
+- `pom.xml`
+- `src/main/java/com/restaurante/config/SandboxDemoSeedRunner.java`
+- `src/test/java/com/restaurante/financeiro/PagamentoCallbackInvalidSignatureIT.java`
+- `src/test/java/com/restaurante/financeiro/PagamentoCallbackTenantAwareIT.java`
+- `docs/architecture/TEST_VALIDATION_STRATEGY_001.md`
+- `docs/reports/backend/RELATORIO_TEST_INFRA_STABILIZATION_001.txt`
+- `docs/reports/backend/test-infra-stabilization-001/*`
+- `docs/reports/fullstack/RELATORIO_TEST_INFRA_STABILIZATION_001.txt`
+
+Comando final:
+- `mvn -Pit verify`
+
+Resultado:
+- PASS, Surefire 379 tests / 0 failures / 0 errors / 3 skipped; Failsafe 274 tests / 0 failures / 0 errors / 0 skipped; BUILD SUCCESS.
+
+8. Surefire/Failsafe
+--------------------
+Config anterior:
+- Logs herdados do ambiente e stdout/stderr de cenarios negativos no console.
+
+Problema:
+- Saida excessiva dificultava diagnostico de travamento ou falha real.
+
+Config final:
+- `debug=false`.
+- logging reduzido para Spring/Hibernate/Flyway/Testcontainers.
+- `redirectTestOutputToFile=true`.
+- `consuma.test.runner` diferenciando Surefire/Failsafe.
+
+Resultado:
+- Verify concluiu; logs detalhados ficam em reports Maven.
+
+9. Testes unitarios
+-------------------
+Backend: `mvn test` PASS, 379 tests, 0 failures, 0 errors, 3 skipped.
+Frontend: `npm run test` PASS, 14 files, 71 tests.
+
+10. Testes de integracao
+------------------------
+Backend targeted IT PASS nos testes afetados.
+Backend full `mvn -Pit verify` PASS com 274 Failsafe tests.
+
+11. Testes E2E
+--------------
+Frontend `npm run test:e2e` PASS fora do sandbox de rede, 6 passed, 1 skipped.
+
+12. Estrategia de validacao futura
+----------------------------------
+A matriz oficial esta em `docs/architecture/TEST_VALIDATION_STRATEGY_001.md` e define quando usar comandos frontend, backend, E2E local, IT focado e verify amplo.
+
+13. Arquivos alterados
+----------------------
+Backend:
+- `pom.xml`
+- `src/main/java/com/restaurante/config/SandboxDemoSeedRunner.java`
+- `src/test/java/com/restaurante/financeiro/PagamentoCallbackInvalidSignatureIT.java`
+- `src/test/java/com/restaurante/financeiro/PagamentoCallbackTenantAwareIT.java`
+- `docs/architecture/TEST_VALIDATION_STRATEGY_001.md`
+- `docs/reports/backend/RELATORIO_TEST_INFRA_STABILIZATION_001.txt`
+- `docs/reports/backend/test-infra-stabilization-001/*`
+- `docs/reports/fullstack/RELATORIO_TEST_INFRA_STABILIZATION_001.txt`
+
+Frontend:
+- `playwright.config.ts`
+- `e2e/support/tenantApp.ts`
+- `e2e/app-smoke.spec.ts`
+- `docs/reports/frontend/RELATORIO_TEST_INFRA_STABILIZATION_UI_001.txt`
+- `docs/reports/frontend/test-infra-stabilization-001/*`
+
+14. O que nao foi alterado
+--------------------------
+- Regras de pedido.
+- Pagamento.
+- allowedActions.
+- PedidoOrigem.
+- OperationalTemplatePolicy.
+- UI visual.
+- Backend funcional fora de setups de teste/seed demo necessario para respeitar politica vigente.
+- PDV real.
+- KDS.
+- Caixa real.
+- Gateway.
+- OTP/SMS.
+
+15. Riscos restantes
+--------------------
+- E2E precisa rodar fora do sandbox de rede desta sessao para o browser acessar Vite local.
+- Playwright pode emitir aviso nao bloqueante quando a porta 5173 estiver ocupada em wildcard, desde que `127.0.0.1:5173` esteja livre.
+- Failsafe ainda emite aviso nao bloqueante de encerramento forcado do fork JVM apos BUILD SUCCESS.
+- Fluxo E2E real com credenciais permanece skipped sem variaveis de ambiente.
+
+16. Decisao final
+-----------------
+APROVADO COM RESSALVAS.

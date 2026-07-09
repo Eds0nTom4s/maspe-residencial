@@ -1,0 +1,133 @@
+RELATORIO_CONSUMA_DEMO_FREEZY_HAPPY_PATH_001 — BACKEND
+=======================================================
+Data: 2026-07-07
+
+1. IDENTIFICAÇÃO
+----------------
+Backend branch: backend/consuma-demo-freezy-happy-path-e2e-001
+Backend commit base: 858f064
+Backend commit anterior auditado: f4d29e2ec067dd5366e5b8cdab39063756aff589
+Backend commit final: commit desta auditoria
+
+2. OBJETIVO
+-----------
+Auditar e fechar formalmente a baseline CONSUMA Demo Freezy V1 Happy Path para a vertical CONSUMA_PONTO_V1 no canal QR Público / Cardápio Público.
+
+3. DIFF AUDITADO
+----------------
+Intervalo auditado inicialmente: 858f064..f4d29e2
+
+Arquivos do diff original:
+- src/main/java/com/restaurante/service/operacional/OperationalTemplatePolicy.java
+  Tipo: policy
+  Justificativa: CONSUMA_PONTO_V1 passa a ter ProductionFlow.OPTIONAL antes da regra QR principal/mesa.
+  Risco: vazamento de flexibilidade para REST/KDS.
+  Aceite: Sim; testes de policy e ITs KDS/produção passaram.
+
+- src/main/java/com/restaurante/service/operacional/PedidoAllowedActionsService.java
+  Tipo: service
+  Justificativa: MARK_DELIVERED aceita subpedido PENDENTE quando KitchenFlow é OPTIONAL e pagamento está PAGO.
+  Risco: permitir entrega sem pagamento ou em REST/KDS.
+  Aceite: Sim; guarda financeira preservada e testes PONTO/REST adicionados.
+
+- src/main/java/com/restaurante/service/operacional/PedidoStatusTransitionService.java
+  Tipo: service
+  Justificativa: entrega em KitchenFlow OPTIONAL transiciona PENDENTE -> ENTREGUE.
+  Risco: finalizar subpedidos indevidamente.
+  Aceite: Sim; regra usa ProductionFlow.OPTIONAL, não Freezy.
+
+- src/test/java/com/restaurante/qr/ConsumaDemoFreezyHappyPathIT.java
+  Tipo: teste
+  Justificativa: valida fluxo público -> aceite -> paymentOrder -> confirmação -> entrega -> acompanhamento final.
+  Risco: cobertura incompleta.
+  Aceite: Sim; teste ampliado para cobrir as 24 garantias formais.
+
+Arquivos adicionados/ajustados nesta auditoria:
+- src/test/java/com/restaurante/service/operacional/OperationalTemplatePolicyTest.java
+- src/test/java/com/restaurante/service/operacional/PedidoEntregaAllowedActionsTest.java
+- docs/product/CONSUMA_DEMO_FREEZY_HAPPY_PATH_001.md
+- docs/architecture/diagrams/consuma-demo-freezy-happy-path-flow.mmd
+- docs/reports/backend/RELATORIO_CONSUMA_DEMO_FREEZY_HAPPY_PATH_001.txt
+- docs/reports/fullstack/RELATORIO_CONSUMA_DEMO_FREEZY_HAPPY_PATH_001.txt
+
+4. HARDCODE FREEZY
+------------------
+Busca executada:
+rg -n "Freezy|FREEZY|consuma-demo-freezy|Demo Freezy" src/main/java src/test/java
+
+Resultado:
+- Freezy permanece em testes e seed demo.
+- Não há Freezy como condição de regra de negócio em policy/service/controller.
+- Comentários de serviço que citavam Demo Freezy foram normalizados para contrato operacional genérico.
+
+5. OPERATIONAL TEMPLATE POLICY
+------------------------------
+Antes:
+- QR_PRINCIPAL/QR_MESA podiam forçar ProductionFlow.REQUIRED antes da exceção PONTO.
+
+Depois:
+- KDS/DEVICE_KDS continuam REQUIRED.
+- CONSUMA_PONTO_V1 retorna OPTIONAL antes da regra QR.
+- REST/QR_MESA/QR_PRINCIPAL continuam REQUIRED quando não são PONTO.
+
+Impacto em PONTO:
+- KitchenFlow OPTIONAL.
+- Entrega pode ocorrer após pagamento PAGO sem obrigar MARK_READY/KDS.
+
+Impacto em REST/KDS:
+- ProductionFlow REQUIRED preservado quando aplicável.
+- KDS não é contornado.
+
+Decisão:
+- Aceite.
+
+6. SUBPEDIDOS NO PONTO
+----------------------
+Validado:
+- pedido precisa estar PAGO para MARK_DELIVERED;
+- subpedidos PENDENTE no CONSUMA_PONTO_V1 são elegíveis para entrega;
+- entrega transiciona PENDENTE -> ENTREGUE;
+- pedido global deriva FINALIZADO;
+- pagamento permanece PAGO;
+- allowedActions remove MARK_DELIVERED e CONFIRM_PAYMENT após finalização.
+
+7. CENÁRIOS NEGATIVOS
+---------------------
+Cobertos por testes existentes e novos:
+- sem pagamento PAGO não expõe MARK_DELIVERED;
+- pedido cancelado não expõe MARK_DELIVERED;
+- pedido já finalizado não expõe MARK_DELIVERED;
+- ordem expirada bloqueia CONFIRM_PAYMENT;
+- actor não autorizado não confirma pagamento;
+- MARK_DELIVERED não aparece antes de pagamento;
+- REST/KDS preservam produção obrigatória.
+
+8. TESTES BACKEND
+-----------------
+mvn -DskipTests compile
+Resultado: BUILD SUCCESS
+Tempo: 3.000 s
+
+mvn test
+Resultado: BUILD SUCCESS
+Tests run: 394
+Failures: 0
+Errors: 0
+Skipped: 3
+Tempo: 03:35 min
+
+mvn -Pit verify
+Resultado: BUILD SUCCESS
+Surefire: Tests run 394, Failures 0, Errors 0, Skipped 3
+Failsafe: Tests run 277, Failures 0, Errors 0, Skipped 0
+Tempo: 11:52 min
+Observação: Maven exibiu mensagem de encerramento do fork JVM após os testes, mas finalizou com BUILD SUCCESS.
+
+Focado:
+mvn -Pit -Dit.test=ConsumaDemoFreezyHappyPathIT verify
+Resultado: BUILD SUCCESS
+Failsafe: Tests run 1, Failures 0, Errors 0, Skipped 0
+
+9. DECISÃO BACKEND
+------------------
+APROVADO PARA MERGE, condicionado ao commit desta auditoria e worktree final limpo.

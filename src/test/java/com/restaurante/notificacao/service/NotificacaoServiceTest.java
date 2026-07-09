@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -49,10 +50,13 @@ class NotificacaoServiceTest {
 
         // Assert
         assertTrue(enviado);
-        verify(smsGateway, times(1)).sendSms(
-                eq(telefone), 
-                contains(codigo)
-        );
+        ArgumentCaptor<String> mensagemCaptor = ArgumentCaptor.forClass(String.class);
+        verify(smsGateway, times(1)).sendSms(eq(telefone), mensagemCaptor.capture());
+
+        String mensagem = mensagemCaptor.getValue();
+        assertTrue(mensagem.contains(codigo));
+        assertTrue(mensagem.contains("Consuma"));
+        assertFalse(mensagem.contains("Sistema de Restauração"));
     }
 
     @Test

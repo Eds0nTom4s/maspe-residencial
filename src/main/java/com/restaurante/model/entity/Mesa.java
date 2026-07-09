@@ -29,7 +29,9 @@ import java.util.List;
     @Index(name = "idx_mesa_referencia", columnList = "referencia"),
     @Index(name = "idx_mesa_qr_code", columnList = "qr_code", unique = true),
     @Index(name = "idx_mesa_ativa", columnList = "ativa"),
-    @Index(name = "idx_mesa_unidade_atendimento", columnList = "unidade_atendimento_id")
+    @Index(name = "idx_mesa_unidade_atendimento", columnList = "unidade_atendimento_id"),
+    @Index(name = "idx_mesa_instituicao", columnList = "instituicao_id"),
+    @Index(name = "idx_mesa_tenant", columnList = "tenant_id")
 })
 public class Mesa extends BaseEntity {
 
@@ -82,6 +84,21 @@ public class Mesa extends BaseEntity {
     private UnidadeAtendimento unidadeAtendimento;
 
     /**
+     * Tenant proprietário da mesa (escopo direto multi-tenant).
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
+
+    /**
+     * Instituição proprietária da mesa.
+     * Hoje deriva da instituição ativa/unidade, no futuro será usada para isolamento por tenant.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "instituicao_id")
+    private Instituicao instituicao;
+
+    /**
      * Histórico de sessões de consumo desta mesa.
      * Apenas leitura — gerenciado pelo lado proprietário (SessaoConsumo).
      */
@@ -97,7 +114,7 @@ public class Mesa extends BaseEntity {
 
     public Mesa() {}
 
-    public Mesa(String referencia, Integer numero, String qrCode, Integer capacidade, Boolean ativa, TipoUnidadeConsumo tipo, UnidadeAtendimento unidadeAtendimento, List<SessaoConsumo> sessoes) {
+    public Mesa(String referencia, Integer numero, String qrCode, Integer capacidade, Boolean ativa, TipoUnidadeConsumo tipo, UnidadeAtendimento unidadeAtendimento, Tenant tenant, Instituicao instituicao, List<SessaoConsumo> sessoes) {
         this.referencia = referencia;
         this.numero = numero;
         this.qrCode = qrCode;
@@ -105,6 +122,8 @@ public class Mesa extends BaseEntity {
         this.ativa = ativa != null ? ativa : true;
         this.tipo = tipo != null ? tipo : TipoUnidadeConsumo.MESA_FISICA;
         this.unidadeAtendimento = unidadeAtendimento;
+        this.tenant = tenant;
+        this.instituicao = instituicao;
         this.sessoes = sessoes != null ? sessoes : new ArrayList<>();
     }
 
@@ -129,6 +148,12 @@ public class Mesa extends BaseEntity {
     public UnidadeAtendimento getUnidadeAtendimento() { return unidadeAtendimento; }
     public void setUnidadeAtendimento(UnidadeAtendimento unidadeAtendimento) { this.unidadeAtendimento = unidadeAtendimento; }
 
+    public Tenant getTenant() { return tenant; }
+    public void setTenant(Tenant tenant) { this.tenant = tenant; }
+
+    public Instituicao getInstituicao() { return instituicao; }
+    public void setInstituicao(Instituicao instituicao) { this.instituicao = instituicao; }
+
     public List<SessaoConsumo> getSessoes() { return sessoes; }
     public void setSessoes(List<SessaoConsumo> sessoes) { this.sessoes = sessoes; }
 
@@ -145,12 +170,14 @@ public class Mesa extends BaseEntity {
                Objects.equals(ativa, mesa.ativa) &&
                tipo == mesa.tipo &&
                Objects.equals(unidadeAtendimento, mesa.unidadeAtendimento) &&
+               Objects.equals(tenant, mesa.tenant) &&
+               Objects.equals(instituicao, mesa.instituicao) &&
                Objects.equals(sessoes, mesa.sessoes);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), referencia, numero, qrCode, capacidade, ativa, tipo, unidadeAtendimento, sessoes);
+        return Objects.hash(super.hashCode(), referencia, numero, qrCode, capacidade, ativa, tipo, unidadeAtendimento, tenant, instituicao, sessoes);
     }
 
     public static MesaBuilder builder() {
@@ -165,6 +192,8 @@ public class Mesa extends BaseEntity {
         private Boolean ativa;
         private TipoUnidadeConsumo tipo;
         private UnidadeAtendimento unidadeAtendimento;
+        private Tenant tenant;
+        private Instituicao instituicao;
         private List<SessaoConsumo> sessoes;
 
         MesaBuilder() {}
@@ -204,13 +233,23 @@ public class Mesa extends BaseEntity {
             return this;
         }
 
+        public MesaBuilder tenant(Tenant tenant) {
+            this.tenant = tenant;
+            return this;
+        }
+
+        public MesaBuilder instituicao(Instituicao instituicao) {
+            this.instituicao = instituicao;
+            return this;
+        }
+
         public MesaBuilder sessoes(List<SessaoConsumo> sessoes) {
             this.sessoes = sessoes;
             return this;
         }
 
         public Mesa build() {
-            return new Mesa(this.referencia, this.numero, this.qrCode, this.capacidade, this.ativa, this.tipo, this.unidadeAtendimento, this.sessoes);
+            return new Mesa(this.referencia, this.numero, this.qrCode, this.capacidade, this.ativa, this.tipo, this.unidadeAtendimento, this.tenant, this.instituicao, this.sessoes);
         }
     }
 }

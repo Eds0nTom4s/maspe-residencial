@@ -1,0 +1,134 @@
+RELATORIO_TURNOS_SESSOES_OPERACAO_CONSOLIDACAO_001
+
+1. Identificacao
+Backend branch: backend/consuma-turnos-sessoes-operacao-consolidacao-001
+Backend commit base: 02363b74c115bed2599764c79d49410dd9b775dd
+Backend commit final: este commit da fase; SHA exacto informado na entrega final
+Frontend de referencia: ui/consuma-demo-freezy-app-pedidos-001 / 114d604eaa7370646997bb8479e8e3cbdacb2c56
+Frontend alterado: Nao
+
+2. Objectivo
+Consolidar, sem feature nova, as quatro fases backend de Sessao de Consumo, Pre-fecho de Turno, Fecho Forcado e Extrato/Limpeza Operacional, validando linha de commits, regras, testes e decisao de merge.
+
+3. Fases consolidadas
+Auto-fecho de Sessao PONTO:
+- Branch: backend/consuma-ponto-sessao-consumo-auto-closure-001
+- Commits: 3c41cb2, 2819187
+- Resultado: sessoes PONTO resolvidas sao encerradas automaticamente quando nao ha pendencias.
+
+Revalidacao do Pre-fecho:
+- Branch: backend/consuma-turno-pre-fecho-revalidacao-001
+- Commit: 0b6c908b53133dc80599a01f32fcfc9896103b18
+- Resultado: sessoesAbertas conta ABERTA e AGUARDANDO_PAGAMENTO; ENCERRADA e EXPIRADA nao bloqueiam.
+
+Politica de Fecho Forcado:
+- Branch: backend/consuma-turno-fecho-forcado-policy-001
+- Commit: 2f61d2d67b7449bc8173fe035135985851759090
+- Resultado: fecho forcado exige role autorizada, motivo, pre-fecho recalculado, bloqueios nao ignoraveis respeitados e auditoria.
+
+Extrato e Limpeza Operacional:
+- Branch: backend/consuma-turno-extrato-limpeza-operacional-001
+- Commit: 02363b74c115bed2599764c79d49410dd9b775dd
+- Resultado: resumo_json persiste snapshot financeiro e operacional com pendencias herdadas sem mutar estados indevidamente.
+
+4. Linha de commits
+Linha auditada:
+- 02363b7 feat(backend): refina extrato e limpeza operacional do turno
+- 2f61d2d feat(backend): consolida politica de fecho forcado de turno
+- 0b6c908 test(backend): revalida pre-fecho de turno apos auto-fecho de sessao
+- 2819187 docs(backend): relatorios e diagrama auto-closure sessao ponto
+- 3c41cb2 feat(backend): auto encerra sessao de consumo no ponto
+- 6df9089 test(backend): fecha auditoria happy path da demo freezy
+
+Ancestralidade:
+- 2819187 -> HEAD: Sim.
+- 0b6c908b53133dc80599a01f32fcfc9896103b18 -> HEAD: Sim.
+- 2f61d2d67b7449bc8173fe035135985851759090 -> HEAD: Sim.
+- 02363b74c115bed2599764c79d49410dd9b775dd -> HEAD: Sim.
+
+5. Arquivos auditados
+Service:
+- src/main/java/com/restaurante/service/SessaoConsumoAutoClosureService.java - auto-fecho PONTO, risco controlado por template/status/pendencias.
+- src/main/java/com/restaurante/service/operacao/TurnoResumoService.java - pre-fecho, risco controlado por contador explicito de ABERTA/AGUARDANDO_PAGAMENTO.
+- src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java - fecho normal/forcado e snapshot, risco controlado por auditoria e nao mutacao de pedidos/pagamentos/ordens.
+- src/main/java/com/restaurante/service/PedidoService.java - pontos de chamada do auto-fecho, risco coberto por testes.
+- src/main/java/com/restaurante/service/PedidoFinanceiroService.java - pontos de chamada financeiro, risco coberto por testes.
+
+Repository:
+- src/main/java/com/restaurante/repository/SessaoConsumoRepository.java - queries de sessoes abertas e herdadas.
+- src/main/java/com/restaurante/financeiro/repository/OrdemPagamentoRepository.java - ordens por sessao/turno e bloqueio de ordem ativa.
+
+DTO:
+- src/main/java/com/restaurante/dto/request/FecharTurnoRequest.java - forcarFecho, observacao e motivoFechoForcado.
+- src/main/java/com/restaurante/dto/response/TurnoPreFechoResponse.java - podeFechar, bloqueios, avisos, sessoesAbertas e alertas financeiros.
+
+Testes:
+- src/test/java/com/restaurante/service/SessaoConsumoAutoClosureServiceTest.java
+- src/test/java/com/restaurante/operacao/TurnoPreFechoRevalidacaoIT.java
+- src/test/java/com/restaurante/operacao/TurnoOperacionalIT.java
+- src/test/java/com/restaurante/operacao/TurnoFechoSnapshotFinanceiroIT.java
+- src/test/java/com/restaurante/operacao/TurnoPreFechoFinanceiroAlertasIT.java
+- src/test/java/com/restaurante/financeiro/SnapshotFinanceiroExportIT.java
+- src/test/java/com/restaurante/qr/ConsumaDemoFreezyHappyPathIT.java
+
+6. Auto-fecho de Sessao PONTO
+Estado: Revalidado.
+Testes: SessaoConsumoAutoClosureServiceTest 20/20, TurnoPreFechoRevalidacaoIT, ConsumaDemoFreezyHappyPathIT.
+Riscos: sessao sem pedido nao e auto-fechada; REST/KDS permanece fora da regra PONTO.
+
+7. Pre-fecho de Turno
+Estado: Revalidado.
+Testes: TurnoPreFechoRevalidacaoIT 8/8 dentro da suite Failsafe *Turno*.
+Riscos: DTO nao detalha sessoes por estado; ordens expiradas sao mais visiveis no snapshot do que no DTO de pre-fecho.
+
+8. Fecho Forcado
+Estado: Revalidado.
+Testes: TurnoOperacionalIT, TurnoPreFechoFinanceiroAlertasIT e suites *Turno*.
+Riscos: UI ainda usa contrato existente; motivoFechoForcado proprio nao foi exposto por alteracao frontend nesta fase.
+
+9. Extrato e Limpeza Operacional
+Estado: Revalidado.
+Testes: TurnoFechoSnapshotFinanceiroIT, SnapshotFinanceiroExportIT e suite Failsafe *Snapshot*.
+Riscos: snapshot classifica pendencias herdadas, mas nao cria migracao de turno.
+
+10. Demo Freezy V1
+Estado: Revalidada por ConsumaDemoFreezyHappyPathIT via Failsafe, incluindo sessao ENCERRADA e pre-fecho sem a sessao aberta.
+
+11. REST/KDS
+Estado: Sem regressao identificada. Auto-fecho verifica template PONTO e nao aplica em REST/KDS. Subpedidos nao terminais e producao obrigatoria continuam protegidos por testes de turno/producao existentes.
+
+12. Testes backend
+mvn -DskipTests compile: SUCCESS.
+mvn -Dtest=*SessaoConsumo* test: SUCCESS, 24 testes, 0 falhas, 0 erros, 0 skipped.
+mvn -Dtest=*Turno* test: BUILD FAILURE esperado por runner errado para ITs; 9 testes selecionados, 0 falhas, 9 erros do RequireFailsafeRunnerCondition, 0 skipped.
+mvn -Pit -DskipITs=false -Dit.test=*Turno* test-compile failsafe:integration-test failsafe:verify: SUCCESS, 26 testes, 0 falhas, 0 erros, 0 skipped; aviso de fork JVM no encerramento, sem falha.
+mvn -Dtest=*Extrato* test: BUILD FAILURE por inexistencia de suites com padrao *Extrato*.
+mvn -Dtest=*Snapshot* test: BUILD FAILURE esperado por runner errado para ITs; 6 testes selecionados, 0 falhas, 6 erros do RequireFailsafeRunnerCondition, 0 skipped.
+mvn -Pit -DskipITs=false -Dit.test=*Snapshot* test-compile failsafe:integration-test failsafe:verify: SUCCESS, 14 testes, 0 falhas, 0 erros, 0 skipped; aviso de fork JVM no encerramento, sem falha.
+mvn -Dtest=*ConsumaDemoFreezy* test: BUILD FAILURE esperado por runner errado para IT; 1 teste selecionado, 0 falhas, 1 erro do RequireFailsafeRunnerCondition, 0 skipped.
+mvn -Pit -DskipITs=false -Dit.test=*ConsumaDemoFreezy* test-compile failsafe:integration-test failsafe:verify: SUCCESS, 1 teste, 0 falhas, 0 erros, 0 skipped.
+mvn test: SUCCESS, 414 testes, 0 falhas, 0 erros, 3 skipped.
+mvn -Pit verify: SUCCESS, Surefire 414 testes, 0 falhas, 0 erros, 3 skipped; Failsafe 287 testes, 0 falhas, 0 erros, 0 skipped; aviso de fork JVM no encerramento, sem falha.
+
+13. Testes frontend
+N/A. Frontend nao foi alterado.
+Observacao: o worktree frontend de referencia tinha alteracoes pre-existentes antes desta fase; por escopo backend-only e para nao validar/alterar estado externo ao backend, nao foram executados testes frontend nesta consolidacao. Compatibilidade foi justificada pela ausencia de alteracao de frontend e de contrato visual.
+
+14. Mermaid
+Criado: docs/architecture/diagrams/turnos-sessoes-operacao-consolidacao-flow.mmd
+
+15. Documentacao
+Criado: docs/architecture/TURNOS_SESSOES_OPERACAO_CONSOLIDACAO_001.md
+
+16. O que nao foi alterado
+frontend; Gestao de Turnos visual; Cardapio Publico; Acompanhamento Publico; App Pedidos; gateway; estorno; PDV; caixa; fiscal; KDS; REST demo; SERVICE; DELIVERY.
+
+17. Riscos restantes
+Frontend nao foi alterado nem revalidado por testes nesta fase devido a escopo backend-only e worktree frontend pre-existente.
+Comandos Surefire focados que selecionam ITs falham corretamente pelo guard do projeto; a execucao valida usa Failsafe.
+Nao existe suite nomeada *Extrato*; cobertura de extrato fica em *Turno* e *Snapshot*.
+Pendencias herdadas sao registradas no snapshot, nao migradas automaticamente.
+Ordens vencidas ainda ativas sao expostas, nao expiradas por esta fase.
+
+18. Decisao final
+APROVADO PARA MERGE

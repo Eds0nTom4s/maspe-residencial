@@ -1,5 +1,6 @@
 package com.restaurante.model.entity;
 
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.TipoPagamentoPedido;
@@ -25,18 +26,60 @@ import java.util.List;
 })
 public class Pedido extends BaseEntity {
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
+
     @Column(nullable = false, unique = true)
     private String numero; // Ex: PED-20260208-001
 
-    // Relacionamento OBRIGATÓRIO com SessaoConsumo
-    // Pedidos são vinculados à sessão, não diretamente à mesa.
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "sessao_consumo_id", nullable = false)
+    @JoinColumn(name = "sessao_consumo_id")
     private SessaoConsumo sessaoConsumo;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sessao_participante_id")
+    private com.restaurante.consumo.participante.entity.SessaoConsumoParticipante sessaoParticipante;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cliente_consumo_id")
+    private com.restaurante.consumo.identificacao.entity.ClienteConsumo clienteConsumo;
+
+    public com.restaurante.consumo.participante.entity.SessaoConsumoParticipante getSessaoParticipante() {
+        return sessaoParticipante;
+    }
+
+    public void setSessaoParticipante(com.restaurante.consumo.participante.entity.SessaoConsumoParticipante sessaoParticipante) {
+        this.sessaoParticipante = sessaoParticipante;
+    }
+
+    public com.restaurante.consumo.identificacao.entity.ClienteConsumo getClienteConsumo() {
+        return clienteConsumo;
+    }
+
+    public void setClienteConsumo(com.restaurante.consumo.identificacao.entity.ClienteConsumo clienteConsumo) {
+        this.clienteConsumo = clienteConsumo;
+    }
+
+    /**
+     * Turno operacional associado (janela de operação formal).
+     * Nullable nesta fase para não quebrar fluxos existentes.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "turno_operacional_id")
+    private TurnoOperacional turnoOperacional;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private StatusPedido status = StatusPedido.CRIADO;
+
+    /**
+     * Origem operacional do pedido (canal pelo qual nasceu).
+     * Formalizado na fase order-origin-hardening-001.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pedido_origem", length = 30)
+    private PedidoOrigem pedidoOrigem;
 
     /**
      * Status financeiro (separado do status operacional)
@@ -77,6 +120,32 @@ public class Pedido extends BaseEntity {
     @Column(name = "total", precision = 10, scale = 2)
     private BigDecimal total;
 
+    @PrePersist
+    @PreUpdate
+    private void preencherTenantSeNecessario() {
+        if (tenant != null) return;
+        if (sessaoConsumo == null) {
+            throw new IllegalStateException("Pedido sem tenant e sem sessão de consumo.");
+        }
+        Instituicao inst = sessaoConsumo.getInstituicao();
+        if (inst == null) {
+            Mesa mesa = sessaoConsumo.getMesa();
+            if (mesa != null) {
+                inst = mesa.getInstituicao();
+            }
+        }
+        if (inst == null) {
+            UnidadeAtendimento ua = sessaoConsumo.getUnidadeAtendimento();
+            if (ua != null) {
+                inst = ua.getInstituicao();
+            }
+        }
+        if (inst == null || inst.getTenant() == null) {
+            throw new IllegalStateException("Não foi possível derivar tenant do Pedido a partir da sessão de consumo.");
+        }
+        this.tenant = inst.getTenant();
+    }
+
     public Pedido() {}
 
     public Pedido(String numero, SessaoConsumo sessaoConsumo, StatusPedido status, StatusFinanceiroPedido statusFinanceiro, TipoPagamentoPedido tipoPagamento, LocalDateTime pagoEm, String observacoes, List<ItemPedido> itens, List<SubPedido> subPedidos, BigDecimal total) {
@@ -92,8 +161,18 @@ public class Pedido extends BaseEntity {
         this.total = total;
     }
 
+    public Pedido(String numero, SessaoConsumo sessaoConsumo, StatusPedido status, PedidoOrigem pedidoOrigem, StatusFinanceiroPedido statusFinanceiro, TipoPagamentoPedido tipoPagamento, LocalDateTime pagoEm, String observacoes, List<ItemPedido> itens, List<SubPedido> subPedidos, BigDecimal total) {
+        this(numero, sessaoConsumo, status, statusFinanceiro, tipoPagamento, pagoEm, observacoes, itens, subPedidos, total);
+        this.pedidoOrigem = pedidoOrigem;
+    }
+
     public void setNumero(String numero) { this.numero = numero; }
     public void setSessaoConsumo(SessaoConsumo sessaoConsumo) { this.sessaoConsumo = sessaoConsumo; }
+    public TurnoOperacional getTurnoOperacional() { return turnoOperacional; }
+    public void setTurnoOperacional(TurnoOperacional turnoOperacional) { this.turnoOperacional = turnoOperacional; }
+
+    public Tenant getTenant() { return tenant; }
+    public void setTenant(Tenant tenant) { this.tenant = tenant; }
 
     public StatusFinanceiroPedido getStatusFinanceiro() { return statusFinanceiro; }
     public void setStatusFinanceiro(StatusFinanceiroPedido statusFinanceiro) { this.statusFinanceiro = statusFinanceiro; }
@@ -144,6 +223,7 @@ public class Pedido extends BaseEntity {
         private String numero;
         private SessaoConsumo sessaoConsumo;
         private StatusPedido status;
+        private PedidoOrigem pedidoOrigem;
         private StatusFinanceiroPedido statusFinanceiro;
         private TipoPagamentoPedido tipoPagamento;
         private LocalDateTime pagoEm;
@@ -166,6 +246,11 @@ public class Pedido extends BaseEntity {
 
         public PedidoBuilder status(StatusPedido status) {
             this.status = status;
+            return this;
+        }
+
+        public PedidoBuilder pedidoOrigem(PedidoOrigem pedidoOrigem) {
+            this.pedidoOrigem = pedidoOrigem;
             return this;
         }
 
@@ -205,7 +290,7 @@ public class Pedido extends BaseEntity {
         }
 
         public Pedido build() {
-            return new Pedido(this.numero, this.sessaoConsumo, this.status, this.statusFinanceiro, this.tipoPagamento, this.pagoEm, this.observacoes, this.itens, this.subPedidos, this.total);
+            return new Pedido(this.numero, this.sessaoConsumo, this.status, this.pedidoOrigem, this.statusFinanceiro, this.tipoPagamento, this.pagoEm, this.observacoes, this.itens, this.subPedidos, this.total);
         }
     }
 
@@ -223,6 +308,14 @@ public class Pedido extends BaseEntity {
 
     public void setStatus(StatusPedido status) {
         this.status = status;
+    }
+
+    public PedidoOrigem getPedidoOrigem() {
+        return pedidoOrigem;
+    }
+
+    public void setPedidoOrigem(PedidoOrigem pedidoOrigem) {
+        this.pedidoOrigem = pedidoOrigem;
     }
 
     /**

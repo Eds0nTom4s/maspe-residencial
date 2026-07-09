@@ -1,0 +1,94 @@
+CONSUMA — BACKEND — SANDBOX-SEED-001
+Relatório técnico — 2026-06-07
+
+Branch: sandbox-seed-001-consuma-rest-ponto
+Commit base validado: b4f4a6752e74315e5e69868ff9576bf6ef6c8b61
+Commit final: 456c6f63073bae195aa97f4ab17375b913937713
+
+Arquivos alterados nesta rodada:
+- src/main/java/com/restaurante/config/SandboxDemoSeedRunner.java
+- src/main/java/com/restaurante/inventory/service/InventoryConsumptionService.java
+- src/main/resources/application-sandbox.properties
+- src/test/java/com/restaurante/config/SandboxDemoSeedRunnerIT.java
+- src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningControllerIT.java
+- src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningPreviewControllerIT.java
+- RELATORIO_CONSUMA_BACKEND_SANDBOX_SEED_001_2026_06_06.txt
+
+Tipo de seed implementado: seed demo/sandbox idempotente, acionado apenas no profile sandbox e por flag.
+Profile/flag de ativação: profile sandbox + consuma.sandbox.demo-seed.enabled=true (CONSUMA_SEED_DEMO=true).
+Usa provisionamento real: sim.
+Serviço de provisionamento reutilizado: BusinessTemplateService.provision, com templates CONSUMA_REST_V1 e CONSUMA_PONTO_V1.
+Idempotência: sim; tenants são localizados por slug, catálogo por slug/código e pedidos por chave de idempotência pública.
+
+Usuários/credenciais demo:
+- E-mail owner: demo@consuma.local
+- Senha owner: DemoConsuma@2026
+
+Tenants criados:
+- consuma-rest-demo
+- consuma-ponto-demo
+
+CONSUMA Rest Demo:
+  Tenant: CONSUMA Rest Demo (slug consuma-rest-demo, código CONSUMA_REST_DEMO)
+  Instituição: criada pelo template real CONSUMA_REST_V1
+  Unidades: criada pelo template real + cozinha operacional garantida pelo seed
+  Mesas: criadas pelo template real CONSUMA_REST_V1
+  QR principal: criado pelo template real e usado pelo seed para pedidos públicos
+  QRs adicionais: criados pelo template real para mesas
+  Categorias: Comidas, Bebidas, Sobremesas, Promoções
+  Produtos: Muamba de Galinha, Funge com Calulu, Sumo Natural, Mousse de Maracujá
+  Pedidos: 2 pedidos demo idempotentes (um pago, um aberto)
+  Pagamentos: 1 pagamento manual TPA confirmado para pedido demo pago
+
+CONSUMA Ponto Demo:
+  Tenant: CONSUMA Ponto Demo (slug consuma-ponto-demo, código CONSUMA_PONTO_DEMO)
+  Instituição/Ponto: criada pelo template real CONSUMA_PONTO_V1
+  Unidades/Pontos: criada pelo template real + cozinha operacional garantida pelo seed
+  QR principal: criado pelo template real e usado pelo seed para pedidos públicos
+  Categorias: Geral, Destaques, Promoções
+  Produtos: Coxinha, Sandes Mista, Sumo Fresco
+  Pedidos: 2 pedidos demo idempotentes (um pago, um aberto)
+  Pagamentos: 1 pagamento manual CASH confirmado para pedido demo pago
+
+Endpoints validados:
+  Auth tenants: não executado via HTTP nesta rodada
+  Tenant select: não executado via HTTP nesta rodada
+  QR principal Rest: validado em nível de repositório/serviço no IT
+  QR principal Ponto: validado em nível de repositório/serviço no IT
+  Cardápio admin Rest: catálogo validado em nível de repositório no IT
+  Cardápio admin Ponto: catálogo validado em nível de repositório no IT
+  Pedidos admin Rest: pedidos validados em nível de repositório no IT
+  Pedidos admin Ponto: pedidos validados em nível de repositório no IT
+  QR/Mesas admin Rest: QR validado no IT; endpoint HTTP não executado
+  QR/Mesas admin Ponto: QR validado no IT; endpoint HTTP não executado
+  Caixa admin Rest: não executado via HTTP nesta rodada
+  Caixa admin Ponto: não executado via HTTP nesta rodada
+  Cardápio público Rest: fluxo público usado pelo seed via PublicQrPedidoService; endpoint HTTP não executado
+  Cardápio público Ponto: fluxo público usado pelo seed via PublicQrPedidoService; endpoint HTTP não executado
+  Criar pedido público: validado via PublicQrPedidoService no IT
+  Consultar pedido público: não executado via HTTP nesta rodada
+
+Testes executados:
+- mvn failsafe:integration-test failsafe:verify -Pit -Dit.test=PlatformTenantProvisioningControllerIT
+- mvn failsafe:integration-test failsafe:verify -Pit -Dit.test=PlatformTenantProvisioningPreviewControllerIT
+- mvn failsafe:integration-test failsafe:verify -Pit -Dit.test=SandboxDemoSeedRunnerIT
+
+Resultado dos testes:
+- Compilação: BUILD SUCCESS
+- PlatformTenantProvisioningControllerIT: 2 testes, 0 falhas, 0 erros, 0 ignorados (BUILD SUCCESS)
+- PlatformTenantProvisioningPreviewControllerIT: 4 testes, 0 falhas, 0 erros, 0 ignorados (BUILD SUCCESS)
+- SandboxDemoSeedRunnerIT: 1 teste, 0 falhas, 0 erros, 0 ignorados (BUILD SUCCESS)
+
+Validação manual: não executada via HTTP nesta rodada.
+Docker/Sandbox: Testcontainers com postgres:16-alpine executado com sucesso durante o IT.
+package-lock/env/secrets: sem alteração de package-lock, sem alteração de segredos, sem alteração de .env; apenas flag segura em application-sandbox.properties.
+Working tree: limpo após commit final
+Push: realizado para origin/sandbox-seed-001-consuma-rest-ponto
+
+Problemas encontrados & resolvidos:
+1. O seed pago disparou listener de inventário; produtos demo não possuem receitas/insumos completos. Para manter o seed focado em demo de catálogo/pedido/pagamento, o seed desliga stock control nos tenants demo.
+2. O InventoryConsumptionService usava Map.of em metadados com campos potencialmente nulos; ajustado para helper tolerante a nulos.
+3. Testcontainers database pollution: Em execuções com banco de dados persistido/reutilizado, a execução do SandboxDemoSeedRunnerIT semeia o usuário admin sandbox (`admin@sandbox.local`) com o telefone padrão `+244900000000`. Isso causava quebras nos testes `PlatformTenantProvisioningControllerIT` e `PlatformTenantProvisioningPreviewControllerIT` porque o serviço de provisionamento de inquilino reutilizava o usuário correspondente ao telefone `+244900000000` em vez de criar o novo usuário responsavel especificado (`rosa@email.com`).
+   - Solução: Atualizados os telefones de teste em `PlatformTenantProvisioningControllerIT.java` e `PlatformTenantProvisioningPreviewControllerIT.java` para `+244900000099`, eliminando colisões de seeding de banco de dados.
+
+Status técnico: CONCLUÍDO E TOTALMENTE VERIFICADO (BUILD SUCCESS)

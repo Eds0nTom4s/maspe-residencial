@@ -1,0 +1,107 @@
+CONSUMA Backend — Prompt 10
+Provisionamento manual administrado de tenants (PLATFORM_ADMIN)
+Data: 2026-05-16 (Africa/Luanda)
+
+1) Resumo executivo
+- Implementado provisionamento manual (admin CONSUMA) para criar tenant piloto com infraestrutura mínima:
+  Tenant + Subscricao + Instituicao + UnidadeAtendimento + CategoriaProduto default + OWNER (User/TenantUser) + QR principal.
+- Provisionamento é transacional/atômico (falhas fazem rollback completo).
+- Templates operacionais seedados via Flyway para padronizar defaults por tipo de operação.
+- Não foi implementado onboarding público self-service nem billing/subscrição paga.
+
+2) Migration criada
+- `src/main/resources/db/migration/V11__provisioning_templates.sql`
+  - cria `provisioning_templates`
+  - seed dos templates: VENDEDOR_RUA, RESTAURANTE_SIMPLES, BAR, LOJA, EVENTO
+
+3) Entidade/Repository de templates
+- `src/main/java/com/restaurante/model/entity/ProvisioningTemplate.java`
+- `src/main/java/com/restaurante/repository/ProvisioningTemplateRepository.java`
+
+4) DTOs
+- Request: `src/main/java/com/restaurante/dto/request/ProvisionarTenantRequest.java`
+- Response: `src/main/java/com/restaurante/dto/response/ProvisionarTenantResponse.java`
+
+5) Serviço principal (transacional)
+- `src/main/java/com/restaurante/service/TenantProvisioningService.java`
+  - valida PLATFORM_ADMIN (`TenantGuard.assertPlatformAdmin`)
+  - valida plano ativo e template ativo
+  - valida/gera `tenantCode` e valida slug único
+  - cria Tenant + Subscricao ATIVA
+  - aplica limite via `TenantLimitService.assertCanCreateInstituicao`
+  - cria Instituicao (campos obrigatórios preenchidos com fallback seguro)
+  - cria UnidadeAtendimento default (a partir do template)
+  - cria CategoriaProduto default (`geral`) por tenant
+  - cria/reusa User responsável e cria TenantUser OWNER
+  - cria QrCodeOperacional principal via `QrCodeOperacionalService`
+  - gera `qrUrlPublica` via `consuma.public-base-url` + `/q/{token}`
+  - opção `ativarTenant=false`: cria como ATIVO para satisfazer TenantLimitService e rebaixa para RASCUNHO no final
+
+6) Controller platform
+- `src/main/java/com/restaurante/controller/PlatformTenantProvisioningController.java`
+  - `POST /api/platform/tenants/provisionar`
+  - `GET /api/platform/tenants/templates`
+  - ambos exigem PLATFORM_ADMIN (assert no controller)
+
+7) Estratégias importantes
+- OWNER:
+  - cria ou reutiliza `User` por email/telefone
+  - cria `TenantUser` com role `TENANT_OWNER` e estado `ATIVO`
+  - define `User.roles` como `ROLE_GERENTE` (mínimo)
+- Categoria default:
+  - cria `CategoriaProduto` `geral` por tenant (se já existir, reutiliza)
+- QR principal:
+  - token aleatório/revogável já garantido pelo `QrCodeOperacionalService`
+
+8) Rollback transacional
+- Falhas (ex.: violação UNIQUE em `Instituicao.sigla`) causam rollback total (sem tenant/subscrição “pendurados”).
+
+9) Testes criados (PostgreSQL/Testcontainers)
+- `src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningControllerIT.java`
+  - provisionamento completo via endpoint platform (context platformAdmin simulado)
+  - bloqueio para não-platform
+- `src/test/java/com/restaurante/provisioning/TenantProvisioningRollbackIT.java`
+  - falha no meio (sigla duplicada) garante rollback (tenant não fica persistido)
+
+10) Documentação
+- `docs/tenant-core/10-provisionamento-manual-administrado.md`
+
+11) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+12) Resultado dos comandos
+- BUILD SUCCESS
+
+13) Arquivos criados/alterados
+- Criados:
+  - `src/main/resources/db/migration/V11__provisioning_templates.sql`
+  - `src/main/java/com/restaurante/model/entity/ProvisioningTemplate.java`
+  - `src/main/java/com/restaurante/repository/ProvisioningTemplateRepository.java`
+  - `src/main/java/com/restaurante/dto/request/ProvisionarTenantRequest.java`
+  - `src/main/java/com/restaurante/dto/response/ProvisionarTenantResponse.java`
+  - `src/main/java/com/restaurante/service/TenantProvisioningService.java`
+  - `src/main/java/com/restaurante/controller/PlatformTenantProvisioningController.java`
+  - `src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningControllerIT.java`
+  - `src/test/java/com/restaurante/provisioning/TenantProvisioningRollbackIT.java`
+  - `docs/tenant-core/10-provisionamento-manual-administrado.md`
+  - `RELATORIO_PROMPT10_PROVISIONAMENTO_MANUAL_ADMINISTRADO_2026_05_16.txt`
+
+14) Riscos restantes (deliberados)
+- Não há entrega segura de credenciais (email/SMS) nesta fase (admin define senha temporária no request).
+- Templates ainda não criam mesas/QR por mesa (deixado para fase futura).
+- Limites além de maxInstituicoes (ex.: maxUsuarios/maxQrCodes) ainda não são aplicados no provisionamento.
+
+15) Checklist de aceitação
+- [x] ProvisioningTemplate existe e templates seedados
+- [x] endpoint POST /api/platform/tenants/provisionar existe
+- [x] apenas PLATFORM_ADMIN provisiona
+- [x] provisionamento cria Tenant, Subscricao, Instituicao, UnidadeAtendimento, CategoriaProduto default, TenantUser OWNER, QR principal
+- [x] slug/tenantCode inválidos/duplicados falham
+- [x] rollback transacional funciona
+- [x] testes passam
+- [x] onboarding público/billing/subscrição paga NÃO implementados
+
+16) Próximo prompt recomendado
+- Prompt 11 — Provisioning avançado (mesas opcionais + QR por mesa) + enforcement de limites (maxUsuarios/maxQrCodes) no provisionamento
+

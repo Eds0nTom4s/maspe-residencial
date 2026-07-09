@@ -1,7 +1,7 @@
 package com.restaurante.store;
 
 import com.restaurante.model.entity.Produto;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.store.dto.StoreProductDTO;
 import com.restaurante.store.mapper.StoreMapper;
@@ -30,7 +30,7 @@ class StoreCatalogServiceTest {
                 .codigo("GDSE-HOME")
                 .nome("Camisola Principal")
                 .preco(new BigDecimal("25000"))
-                .categoria(CategoriaProduto.VESTUARIO)
+                .categoria(CategoriaProdutoLegacy.VESTUARIO)
                 .disponivel(true)
                 .ativo(true)
                 .build();

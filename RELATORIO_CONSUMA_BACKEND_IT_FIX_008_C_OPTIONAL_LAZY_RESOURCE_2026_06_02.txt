@@ -1,0 +1,421 @@
+CONSUMA - BACKEND - RELATORIO IT-FIX-008-C
+Optional, listas vazias, lazy loading e recursos ausentes
+Data: 2026-06-02
+
+1. Resumo executivo
+
+A subfase IT-FIX-008-C foi concluida com sucesso preservando PostgreSQL, Testcontainers, Flyway,
+constraints, regras de turno, regras de pagamento manual e contratos reais de seguranca. O cluster
+de lazy loading, listas vazias, fixture funcional incompleta e numeracao concorrente foi estabilizado
+sem mascarar erros de dominio, sem relaxar assertions relevantes e sem regressao nos lotes 008-A e 008-B.
+A retomada apos travamento/reboot tambem foi concluida com seguranca, sem repetir execucao indefinida
+e sem perda das alteracoes locais ja abertas no worktree.
+
+2. Observacao do travamento anterior e reboot
+
+- houve travamento previo da maquina durante o sublote consolidado da 008-C;
+- o reboot interrompeu a sessao anterior antes do fechamento formal da subfase;
+- o teste `PedidoNumberServiceConcurrencyIT` ja havia terminado verde isoladamente antes do travamento;
+- a retomada segura passou a usar execucao isolada por classe, validacao incremental e confirmacao de nao-regressao;
+- o travamento nao se reproduziu apos a retomada controlada;
+- o ruido observado depois da retomada ficou restrito a warnings de shutdown do fork/scheduler em lotes grandes, sem impactar `BUILD SUCCESS`.
+
+3. Branch e commit inicial
+
+- Repositorio: Eds0nTom4s/maspe-residencial
+- Branch de trabalho: restauracao-antes-da-loja
+- HEAD inicial da subfase 008-C: 65781eb
+- Commit de referencia herdado da 008-B:
+  - 65781eb Fix IT fixtures cleanup for public QR and provisioning suites
+- Ultimos commits visiveis no inicio:
+  - 65781eb Fix IT fixtures cleanup for public QR and provisioning suites
+  - 5a3f1a9 Fix IT auth RBAC for payment policy and finance suites
+  - 26b9fbf Restore IT-FIX-005 report content
+  - 419fb00 Fix IT PostgreSQL queries JSONB and KDS bootstrap
+  - 21cf37f Fix IT PostgreSQL queries JSONB and KDS bootstrap
+
+4. Estado Git pos-reboot
+
+- `git status -sb`: branch alinhada com `origin/restauracao-antes-da-loja`
+- nenhum processo Maven remanescente encontrado em `ps -ef | grep '[m]vn'`
+- nenhum processo Java remanescente de execucao anterior encontrado em `ps -ef | grep '[j]ava'`
+- `docker ps` confirmado com containers principais ativos apos a retomada:
+  - `consuma-api-sandbox`
+  - `consuma-postgres-sandbox`
+  - `sistema-restauracao-api`
+  - `sistema-restauracao-postgres`
+  - `minio`
+- observacao:
+  - o primeiro `docker ps` dentro do sandbox falhou por permissao de API Docker;
+  - a confirmacao final foi feita com permissao ampliada apenas para leitura de estado.
+
+5. Arquivos alterados antes da retomada
+
+- src/main/java/com/restaurante/repository/TenantRepository.java
+- src/main/java/com/restaurante/service/PedidoNumberService.java
+- src/test/java/com/restaurante/catalog/CatalogCategoryConsolidationIT.java
+- src/test/java/com/restaurante/consumo/Prompt36ManualCashTpaIT.java
+- src/test/java/com/restaurante/financeiro/FinanceiroItFixtureSupport.java
+- src/test/java/com/restaurante/financeiro/PaymentMethodPolicyManualPaymentIT.java
+- src/test/java/com/restaurante/operacao/TurnoOperacionalRequireOpenForOrdersIT.java
+- src/test/java/com/restaurante/pedido/PedidoNumberServiceConcurrencyIT.java
+
+6. Baseline antes
+
+- `git status -sb`: branch alinhada com `origin/restauracao-antes-da-loja`
+- arquivo fora do escopo mantido fora:
+  - RELATORIO_CONSUMA_BACKEND_IT_FIX_007_RODADA_AMPLA_FINAL_SUITE_IT_2026_06_02.txt
+- `git diff --check`: sem whitespace errors
+- baseline herdado e previamente verde da 008-B:
+  - `mvn clean test`: BUILD SUCCESS
+  - `DockerAvailabilityIT`: BUILD SUCCESS
+  - `TenantCorePersistenceIT`: BUILD SUCCESS
+  - 008-A: BUILD SUCCESS
+  - 008-B: BUILD SUCCESS
+
+7. Resultado inicial do sublote 008-C
+
+Comando alvo reproduzido:
+
+`mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="CatalogCategoryConsolidationIT,Prompt36ManualCashTpaIT,PaymentMethodPolicyAppyPayIT,PaymentMethodPolicyManualPaymentIT,TurnoOperacionalRequireOpenForOrdersIT,PedidoNumberServiceConcurrencyIT" test-compile failsafe:integration-test failsafe:verify`
+
+Resultado inicial:
+
+- BUILD FAILURE
+- falhas concentradas em lazy loading, listas vazias/setup incompleto e concorrencia real de numeracao
+- `PaymentMethodPolicyAppyPayIT` permaneceu verde, confirmando que a base da 008-A seguia estavel
+
+8. Ranking de falhas
+
+- LazyInitializationException
+  - classe: `CatalogCategoryConsolidationIT`
+  - causa dominante: acesso a associacao lazy de categoria fora do contexto transacional do teste
+  - origem provavel: teste validando entidade detached em vez de consultar a categoria pelo repository tenant-safe
+
+- IndexOutOfBoundsException / lista vazia
+  - classe: `Prompt36ManualCashTpaIT`
+  - causa dominante: fixture publica/mesa/turno/caixa incompleta para o fluxo manual CASH
+  - origem provavel: setup funcional defasado em relacao ao contrato atual do dominio
+
+- IndexOutOfBoundsException / lista vazia
+  - classe: `PaymentMethodPolicyManualPaymentIT`
+  - causa dominante: fixture de mesa/QR e autenticacao de method security incompletas em cenario `addFilters = false`
+  - origem provavel: setup insuficiente e pre-condicoes novas de turno/seguranca nao refletidas no teste
+
+- lista vazia / recurso obrigatorio ausente
+  - classe: `TurnoOperacionalRequireOpenForOrdersIT`
+  - causa dominante: teste assumia produto disponivel sem cria-lo explicitamente
+  - origem provavel: dependencia implicita de fixture global
+
+- concorrencia real / race condition
+  - classe: `PedidoNumberServiceConcurrencyIT`
+  - causa dominante: leitura/atualizacao concorrente do contador de sequencia sem lock explicito sobre o tenant
+  - origem provavel: isolamento insuficiente em `PedidoNumberService`
+
+- NoSuchElementException
+  - nao foi o sintoma dominante confirmado no sublote atual apos a reproducao dirigida
+
+- IncorrectResultSizeDataAccessException
+  - nao foi o sintoma dominante confirmado no sublote atual apos a reproducao dirigida
+
+- ResourceNotFoundException
+  - nao foi o sintoma dominante confirmado no sublote atual apos a reproducao dirigida
+
+- Optional vazio
+  - risco identificado no cluster, mas o caso relevante acabou se materializando como fixture/query tenant-safe ausente e corrida de concorrencia
+
+9. Arquivos alterados
+
+- src/main/java/com/restaurante/repository/TenantRepository.java
+- src/main/java/com/restaurante/service/PedidoNumberService.java
+- src/test/java/com/restaurante/catalog/CatalogCategoryConsolidationIT.java
+- src/test/java/com/restaurante/consumo/Prompt36ManualCashTpaIT.java
+- src/test/java/com/restaurante/financeiro/FinanceiroItFixtureSupport.java
+- src/test/java/com/restaurante/financeiro/PaymentMethodPolicyManualPaymentIT.java
+- src/test/java/com/restaurante/operacao/TurnoOperacionalRequireOpenForOrdersIT.java
+- src/test/java/com/restaurante/pedido/PedidoNumberServiceConcurrencyIT.java
+
+10. Helpers criados/alterados
+
+- nenhum novo helper foi criado
+- `FinanceiroItFixtureSupport` foi promovido para reutilizacao cross-package
+- metodos tornados publicos para fixtures funcionais:
+  - `createPosCaixaDevice(...)`
+  - `createKdsDevice(...)`
+  - `createPosDevice(...)`
+  - `createOperationalDevice(...)`
+  - `ensureMesaQrToken(...)`
+  - `createTenantUser(...)`
+  - `ensureCentralCozinha(...)`
+
+11. Correc oes por classe
+
+- `CatalogCategoryConsolidationIT`
+  - passou a usar `UniqueTestData` para isolar slug/codigo
+  - deixou de depender de acesso lazy detached
+  - validacao da categoria foi movida para consulta tenant-safe por repository
+
+- `Prompt36ManualCashTpaIT`
+  - passou a criar fixture de mesa/QR por `FinanceiroItFixtureSupport`
+  - passou a abrir turno antes do carregamento manual
+  - passou a usar `@WithMockUser` para method security com `addFilters = false`
+  - passou a povoar explicitamente `SecurityContextHolder` para chamadas `/device/...`
+  - passou a abrir `caixa-operador` antes da confirmacao manual
+  - device de teste recebeu capability `OPEN_OPERATOR_CASH_SESSION`
+  - identificadores do tenant foram unificados com `UniqueTestData`
+
+- `PaymentMethodPolicyManualPaymentIT`
+  - passou a usar mesa/QR garantidos por fixture funcional
+  - passou a abrir turno antes da criacao da ordem manual
+  - passou a usar `@WithMockUser` para endpoints tenant protegidos por method security
+  - passou a povoar `SecurityContextHolder` explicitamente nas chamadas device
+  - cenarios de conflito passaram a refletir o contrato real sem depender de listas preexistentes
+
+- `TurnoOperacionalRequireOpenForOrdersIT`
+  - deixou de assumir produto preexistente
+  - passou a criar produto minimo tenant-safe no proprio setup
+  - fixtures de tenant/categoria/produto passaram a ser unicas por execucao
+
+- `PedidoNumberServiceConcurrencyIT`
+  - tenant/slug/code deixaram de ser fixos
+  - assercoes passaram a usar o `tenantCode` persistido
+  - a concorrencia foi estabilizada com bloqueio pessimista sobre o tenant no service/repository
+
+- `PaymentMethodPolicyAppyPayIT`
+  - nao exigiu alteracao funcional nova; permaneceu verde e serviu como validacao de nao-regressao do bloco 008-A
+
+12. Resultado isolado por classe
+
+- `CatalogCategoryConsolidationIT`
+  - 1 test
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+  - tempo total: 01:06
+
+- `Prompt36ManualCashTpaIT`
+  - 2 tests
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+  - tempo total: 02:58 no rerun limpo final
+
+- `PaymentMethodPolicyAppyPayIT`
+  - 2 tests
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+  - validado isoladamente dentro do bloco de payment methods
+
+- `PaymentMethodPolicyManualPaymentIT`
+  - 2 tests
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+  - validado isoladamente dentro do bloco de payment methods
+
+- `TurnoOperacionalRequireOpenForOrdersIT`
+  - 1 test
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+
+- `PedidoNumberServiceConcurrencyIT`
+  - 2 tests
+  - 0 failures
+  - 0 errors
+  - BUILD SUCCESS
+
+13. Identificacao da classe que travou
+
+- nao foi possivel isolar uma unica classe que travasse sozinha apos o reboot;
+- todas as classes do sublote passaram isoladamente com timeout;
+- a evidencia final indica que o travamento anterior nao vinha de `PedidoNumberServiceConcurrencyIT` isolado;
+- o caso mais provavel foi interacao de lote/fork/shutdown da JVM de testes, e nao um teste unitariamente infinito.
+
+14. Causa raiz do travamento
+
+- causa raiz exata nao ficou reproduzivel apos o reboot;
+- a causa mais provavel ficou classificada como combinacao de execucao consolidada longa com ruido de shutdown de fork/scheduler;
+- nao houve reproducao de deadlock persistente nem de polling infinito apos a retomada controlada;
+- como mitigacao permanente, a retomada passou a isolar classes com timeout e so consolidar apos todos os verdes individuais.
+
+15. O que NAO foi alterado
+
+- nao trocou PostgreSQL por H2 nas ITs alvo
+- nao removeu constraints
+- nao usou OpenSessionInView
+- nao aplicou `@Transactional` amplo para esconder lazy loading
+- nao pulou testes
+- nao removeu assertions importantes
+- nao enfraqueceu regras de turno aberto
+- nao enfraqueceu regra de caixa aberto para confirmacao manual
+- nao mexeu no escopo publicado da 008-A/008-B sem regressao comprovada
+
+16. Resultado dos grupos
+
+- catalogo
+  - comando:
+    `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="CatalogCategoryConsolidationIT" test-compile failsafe:integration-test failsafe:verify`
+  - resultado:
+    - 1 test
+    - 0 failures
+    - 0 errors
+    - BUILD SUCCESS
+    - tempo total: 01:06
+    - finalizado em: 2026-06-02T15:10:05+01:00
+
+- pagamento manual/turno
+  - comando:
+    `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="Prompt36ManualCashTpaIT,TurnoOperacionalRequireOpenForOrdersIT" test-compile failsafe:integration-test failsafe:verify`
+  - resultado:
+    - 3 tests
+    - 0 failures
+    - 0 errors
+    - BUILD SUCCESS
+    - tempo total: 01:35
+    - finalizado em: 2026-06-02T15:11:50+01:00
+
+- payment methods
+  - comando:
+    `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PaymentMethodPolicyAppyPayIT,PaymentMethodPolicyManualPaymentIT" test-compile failsafe:integration-test failsafe:verify`
+  - resultado:
+    - 4 tests
+    - 0 failures
+    - 0 errors
+    - BUILD SUCCESS
+    - tempo total: 01:42
+    - finalizado em: 2026-06-02T15:13:43+01:00
+
+- concorrencia diagnostico
+  - comando:
+    `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PedidoNumberServiceConcurrencyIT" test-compile failsafe:integration-test failsafe:verify`
+  - resultado:
+    - 2 tests
+    - 0 failures
+    - 0 errors
+    - BUILD SUCCESS
+    - tempo total: 01:10
+    - finalizado em: 2026-06-02T15:15:02+01:00
+  - observacao:
+    - a falha de concorrencia nao permaneceu apenas documentada para 008-E; ela foi efetivamente resolvida com lock pessimista tenant-safe
+
+17. Resultado consolidado 008-C
+
+- comando:
+  `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="CatalogCategoryConsolidationIT,Prompt36ManualCashTpaIT,PaymentMethodPolicyAppyPayIT,PaymentMethodPolicyManualPaymentIT,TurnoOperacionalRequireOpenForOrdersIT,PedidoNumberServiceConcurrencyIT" test-compile failsafe:integration-test failsafe:verify`
+- resultado:
+  - 10 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 02:30
+  - finalizado em: 2026-06-02T15:17:42+01:00
+
+18. Resultado de `mvn clean test`
+
+- 331 tests
+- 0 failures
+- 0 errors
+- 3 skipped
+- BUILD SUCCESS
+- tempo total: 06:01
+- finalizado em: 2026-06-02T15:23:53+01:00
+
+19. Resultado de `DockerAvailabilityIT`
+
+- comando executado:
+  `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test=DockerAvailabilityIT test-compile failsafe:integration-test failsafe:verify`
+- resultado:
+  - 1 test
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 11.936 s
+  - finalizado em: 2026-06-02T15:32:51+01:00
+
+20. Resultado de `TenantCorePersistenceIT`
+
+- comando executado:
+  `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test=TenantCorePersistenceIT test-compile failsafe:integration-test failsafe:verify`
+- resultado:
+  - 7 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 01:35
+  - finalizado em: 2026-06-02T15:34:37+01:00
+
+21. Resultado de reexecucao da 008-A
+
+- comando:
+  `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PaymentMethodPolicyAdminRbacIT,PaymentMethodPolicyAppyPayIT,PaymentMethodPolicyInheritanceIT,PaymentMethodUnitPolicyIT,PaymentPolicyAsyncRolloutIdempotencyIT,PaymentPolicyAsyncRolloutRerunIT,PaymentPolicyAsyncRolloutStatusIT,PaymentPolicyAsyncRolloutSubmitIT,PaymentPolicyAsyncRolloutWorkerIT,PaymentPolicyRolloutApplyIT,PaymentPolicyRolloutBackoffIT,PaymentPolicyRolloutCancelIT,PaymentPolicyRolloutOverwriteModeIT,PaymentPolicyRolloutRerunHardeningIT,PaymentPolicyRolloutStaleLockRecoveryIT,PaymentPolicyTemplateAdminIT,PaymentPolicyTemplateRbacIT,CaixaTurnoRelatorioIT,EvidenceBundleWormTriggerIT,PagamentoGatewayPollingIT,SnapshotEvidenceBundleIT,SnapshotFinanceiroExportSignatureDisabledIT,SnapshotKeyDisabledIT,SnapshotKeyRotationIT" test-compile failsafe:integration-test failsafe:verify`
+- resultado:
+  - 31 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 04:35
+  - finalizado em: 2026-06-02T15:39:26+01:00
+  - observacao:
+    - surgiu warning de shutdown do fork apos `System.exit(0)`, sem impacto no resultado do build
+
+22. Resultado de reexecucao da 008-B
+
+- comando:
+  `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PlatformBusinessTemplateControllerIT,TenantProvisioningRollbackIT,PaymentPolicyRolloutProgressAuditIT,DeviceConsumoIdentificadoAssistidoIT,PagamentoCallbackTenantAwareIT,PublicQrCardapioIT,PublicQrPagamentoStartIT,PublicQrPedidoIdempotencyIT,PublicOwnerTokenActionControllerIT,PublicQrPedidoSessaoMesaIT,TenantCorePersistenceIT,CatalogTenantIsolationIT" test-compile failsafe:integration-test failsafe:verify`
+- resultado:
+  - 39 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 04:07
+  - finalizado em: 2026-06-02T15:43:45+01:00
+  - observacao:
+    - reapareceu o ruido conhecido de shutdown do fork/scheduler, mas o build permaneceu verde
+
+23. Pendencias
+
+- IT-FIX-008-D: query PostgreSQL/read-only residual
+- monitorar warnings de shutdown do fork/scheduler em suites mais pesadas
+- decidir depois se o endurecimento de concorrencia em `PedidoNumberService` merece cobertura adicional em 008-E ou se a subfase pode ser reduzida/replanejada
+
+24. Riscos
+
+- os warnings de shutdown do fork (`Surefire is going to kill self fork JVM`) continuam aparecendo esporadicamente em lotes grandes, embora sem afetar o status final do build
+- `CatalogCategoryConsolidationIT` ainda exercita um caso proposital de violacao de FK durante a validacao do cenario, mas o teste termina verde e o comportamento ficou explicito
+- o endurecimento com lock pessimista em `PedidoNumberService` resolveu o teste atual; vale acompanhar a rodada ampla futura para confirmar ausencia de impacto lateral em throughput ou deadlock
+
+25. Decisao
+
+APROVADO
+
+A subfase IT-FIX-008-C fechou com:
+
+- lazy loading estabilizado sem OpenSessionInView
+- listas vazias tratadas via fixture funcional real
+- recursos obrigatorios criados explicitamente no setup
+- method security ajustada corretamente em testes `addFilters = false`
+- fluxo manual CASH/caixa/turno alinhado com o contrato atual
+- concorrencia de numeracao estabilizada
+- sublote 008-C verde
+- `mvn clean test` verde
+- `DockerAvailabilityIT` verde
+- `TenantCorePersistenceIT` verde
+- 008-A verde novamente
+- 008-B verde novamente
+
+26. Proximo passo recomendado
+
+- IT-FIX-008-D Query PostgreSQL/read-only residual
+
+27. Resposta objetiva a pergunta final
+
+Sim. O cluster de Optional/listas vazias/lazy loading/recurso ausente foi estabilizado sem mascarar bugs de dominio,
+sem remover assertions importantes e sem quebrar os lotes ja aprovados. E, complementarmente, a retomada segura apos
+o travamento foi concluida sem repetir execucao indefinida, sem perda de alteracoes locais e sem regressao em 008-A/008-B.

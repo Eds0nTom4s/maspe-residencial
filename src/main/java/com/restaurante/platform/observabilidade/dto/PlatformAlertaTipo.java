@@ -1,0 +1,13 @@
+package com.restaurante.platform.observabilidade.dto;
+
+public enum PlatformAlertaTipo {
+    TENANT_PAGAMENTO_CRITICO,
+    TENANT_DEVICE_OFFLINE,
+    TENANT_TURNO_EM_FECHO_LONGO,
+    TENANT_SUBPEDIDO_ATRASADO,
+    TENANT_GATEWAY_ERROR,
+    TENANT_POLLING_MAX_ATTEMPTS,
+    TENANT_SEM_TURNO_ABERTO,
+    TENANT_SYNC_ERRORS
+}
+

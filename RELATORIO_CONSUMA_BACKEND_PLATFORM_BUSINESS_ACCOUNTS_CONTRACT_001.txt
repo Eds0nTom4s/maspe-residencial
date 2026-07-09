@@ -1,0 +1,188 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - PLATFORM-BUSINESS-ACCOUNTS-CONTRACT-001
+
+Data: 2026-06-11
+Branch: backend/platform-business-accounts-contract-001
+Commit base validado: 8eefb2c9d43c6f8f4fdc180cc0a4366662eaad95
+Commit final: HEAD publicado desta branch na entrega final
+URL da branch remota: https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/platform-business-accounts-contract-001
+
+1. Objetivo
+
+Expor contrato backend estavel para Platform Admin cobrindo BusinessAccounts, membros,
+tenants vinculados, limites, billing summary, catalogo de planos e onboarding requests,
+sem alterar a UI e sem regredir Tenant/TenantUser/Auth/Public QR/PONTO/REST/KDS/Billing.
+
+2. Escopo entregue
+
+* Business Accounts:
+  - filtros de listagem por estado, search, responsavelUserId e hasTenants
+  - detalhe enriquecido com maxTenants, contagens e hasTenants
+  - criacao com maxTenants
+  - patch de estado com motivo opcional
+  - vinculacao e desvinculacao de tenants
+  - membros com patch de estado e patch de role
+  - guarda para impedir remocao/suspensao do ultimo OWNER ativo
+* Limits:
+  - GET /platform/business-accounts/{id}/limits
+  - PATCH /platform/business-accounts/{id}/limits
+  - origem efetiva DEFAULT/PLAN/OVERRIDE
+  - suporte a maxTenants, maxInstituicoes, maxUnidadesAtendimento, maxProdutos,
+    maxCategorias, maxUsuarios, maxQrCodes, maxDispositivos e maxPedidosMes
+* Billing summary:
+  - GET /platform/business-accounts/{id}/billing
+  - agregacao por tenant com legacy plan, billing plan, status e valor mensal estimado
+* Plans:
+  - GET /platform/plans
+  - contrato baseado em Plano como fonte oficial dos limites comerciais
+* Onboarding requests:
+  - GET /platform/onboarding-requests
+  - GET /platform/onboarding-requests/{id}
+  - POST /platform/onboarding-requests
+  - PATCH /platform/onboarding-requests/{id}/approve
+  - PATCH /platform/onboarding-requests/{id}/reject
+  - aprovacao com criacao opcional de BusinessAccount e associacao opcional de tenant existente
+* Platform tenants:
+  - PlatformTenantResponse enriquecido com businessAccount, billing plan,
+    limites, modulos operacionais e configuracao de sessao de consumo
+
+3. Endpoints validados
+
+* GET /platform/business-accounts
+* GET /platform/business-accounts/{id}
+* GET /platform/business-accounts/{id}/tenants
+* POST /platform/business-accounts
+* POST /platform/business-accounts/{id}/tenants/{tenantId}
+* DELETE /platform/business-accounts/{id}/tenants/{tenantId}
+* PATCH /platform/business-accounts/{id}/estado
+* GET /platform/business-accounts/{id}/members
+* POST /platform/business-accounts/{id}/members
+* PATCH /platform/business-accounts/{id}/members/{memberId}/estado
+* PATCH /platform/business-accounts/{id}/members/{memberId}/role
+* GET /platform/business-accounts/{id}/limits
+* PATCH /platform/business-accounts/{id}/limits
+* GET /platform/business-accounts/{id}/billing
+* GET /platform/plans
+* GET /platform/onboarding-requests
+* GET /platform/onboarding-requests/{id}
+* POST /platform/onboarding-requests
+* PATCH /platform/onboarding-requests/{id}/approve
+* PATCH /platform/onboarding-requests/{id}/reject
+* GET /platform/tenants/{tenantId}
+
+4. Regras de integridade validadas
+
+* tenant nao pode ser associado a outra BusinessAccount indevidamente
+* BusinessAccount respeita maxTenants ao vincular novos tenants
+* ultimo OWNER ativo nao pode ser suspenso nem perder role OWNER
+* limits efetivos fazem fallback de override para plano e depois default
+* onboarding aprovado com pagamento PAGO pode criar BusinessAccount automaticamente
+* onboarding rejeitado persiste motivo
+* PlatformTenantResponse preserva dados existentes e adiciona contexto de business account,
+  billing e modulos sem quebrar o contrato anterior
+
+5. Persistencia e migracoes
+
+* V73__platform_business_accounts_contract.sql
+  - adiciona max_tenants em business_accounts
+  - cria business_account_limit_overrides
+  - cria onboarding_requests
+  - amplia override para max_unidades_atendimento, max_categorias,
+    max_usuarios e max_qr_codes
+* entidades novas:
+  - BusinessAccountLimitOverride
+  - OnboardingRequest
+* enums novas:
+  - BusinessAccountLimitOrigin
+  - OnboardingRequestStatus
+  - OnboardingPaymentStatus
+
+6. Testes executados
+
+* compilacao:
+  - mvn -DskipTests compile
+  - resultado: BUILD SUCCESS
+* IT novo do contrato:
+  - mvn -Pit -Dit.test=PlatformBusinessAccountContractIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+* regressao foundation:
+  - mvn -Pit -Dit.test=BusinessAccountFoundationIT,PlatformBusinessAccountContractIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+* observacao operacional:
+  - tentativa inicial com surefire falhou por runner incorreto do proprio projeto;
+    o teste foi rerodado com failsafe + perfil it e passou integralmente
+
+7. Regressoes verificadas
+
+* BusinessAccountFoundationIT permaneceu verde apos a ampliacao do contrato
+* auth global -> tenant select -> /tenant/cardapio/status permaneceu funcional
+* nenhuma regressao identificada nas superficies de BusinessAccount foundation,
+  Tenant access platform e provisioning associado
+
+8. Arquivos alterados
+
+* modificados:
+  - src/main/java/com/restaurante/controller/PlatformBusinessAccountController.java
+  - src/main/java/com/restaurante/dto/request/BusinessAccountCreateRequest.java
+  - src/main/java/com/restaurante/dto/request/BusinessAccountEstadoUpdateRequest.java
+  - src/main/java/com/restaurante/dto/response/BusinessAccountResponse.java
+  - src/main/java/com/restaurante/dto/response/BusinessAccountSummaryResponse.java
+  - src/main/java/com/restaurante/dto/response/PlatformTenantResponse.java
+  - src/main/java/com/restaurante/model/entity/BusinessAccount.java
+  - src/main/java/com/restaurante/repository/BusinessAccountMemberRepository.java
+  - src/main/java/com/restaurante/repository/BusinessAccountRepository.java
+  - src/main/java/com/restaurante/service/BusinessAccountService.java
+  - src/main/java/com/restaurante/service/PlatformTenantAccessService.java
+* novos:
+  - src/main/java/com/restaurante/controller/PlatformOnboardingRequestController.java
+  - src/main/java/com/restaurante/controller/PlatformPlanController.java
+  - src/main/java/com/restaurante/dto/request/BusinessAccountLimitsUpdateRequest.java
+  - src/main/java/com/restaurante/dto/request/BusinessAccountMemberRoleUpdateRequest.java
+  - src/main/java/com/restaurante/dto/request/OnboardingRequestApproveRequest.java
+  - src/main/java/com/restaurante/dto/request/OnboardingRequestCreateRequest.java
+  - src/main/java/com/restaurante/dto/request/OnboardingRequestRejectRequest.java
+  - src/main/java/com/restaurante/dto/response/BusinessAccountBillingResponse.java
+  - src/main/java/com/restaurante/dto/response/BusinessAccountLimitsResponse.java
+  - src/main/java/com/restaurante/dto/response/OnboardingRequestResponse.java
+  - src/main/java/com/restaurante/dto/response/PlatformPlanResponse.java
+  - src/main/java/com/restaurante/model/entity/BusinessAccountLimitOverride.java
+  - src/main/java/com/restaurante/model/entity/OnboardingRequest.java
+  - src/main/java/com/restaurante/model/enums/BusinessAccountLimitOrigin.java
+  - src/main/java/com/restaurante/model/enums/OnboardingPaymentStatus.java
+  - src/main/java/com/restaurante/model/enums/OnboardingRequestStatus.java
+  - src/main/java/com/restaurante/repository/BusinessAccountLimitOverrideRepository.java
+  - src/main/java/com/restaurante/repository/OnboardingRequestRepository.java
+  - src/main/java/com/restaurante/service/PlatformOnboardingRequestService.java
+  - src/main/java/com/restaurante/service/PlatformPlanService.java
+  - src/main/resources/db/migration/V73__platform_business_accounts_contract.sql
+  - src/test/java/com/restaurante/platform/PlatformBusinessAccountContractIT.java
+  - RELATORIO_CONSUMA_BACKEND_PLATFORM_BUSINESS_ACCOUNTS_CONTRACT_001.txt
+
+9. Diff stat
+
+* base tracked diff:
+  - 11 files changed, 606 insertions(+), 41 deletions(-)
+* acrescimo relevante nao refletido no diff stat acima:
+  - novos DTOs, controllers, services, repositories, entidades, enums,
+    migracao V73, teste de integracao e este relatorio
+
+10. Limitações
+
+* a regressao automatizada foi focada na superficie BusinessAccount/platform e na foundation existente;
+  nao foi executado um sweep completo de toda a suite it do monolito
+* onboarding approve desta fase cobre criacao opcional de BusinessAccount e associacao opcional
+  de tenant existente, mas nao provisiona um tenant novo automaticamente dentro do approve
+
+11. Pergunta final obrigatoria
+
+O backend da plataforma ficou com contrato estavel para BusinessAccounts, members,
+tenants vinculados, limits, billing summary, plans e onboarding requests sem quebrar a
+foundation anterior e sem alterar a UI?
+
+Resposta:
+SIM
+
+12. Status tecnico
+
+CONCLUIDO - contrato backend de Platform Business Accounts exposto, migrado e validado
+com compile + IT dedicado + regressao da foundation

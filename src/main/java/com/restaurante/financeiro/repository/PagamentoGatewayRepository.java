@@ -3,17 +3,21 @@ package com.restaurante.financeiro.repository;
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import com.restaurante.model.entity.Pagamento;
+import com.restaurante.model.enums.StatusFinanceiroPedido;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 /**
  * Repository para Pagamento (gateway)
@@ -26,15 +30,116 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
      * IDEMPOTÊNCIA: usar para verificar se já existe
      */
     Optional<Pagamento> findByExternalReference(String externalReference);
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT p FROM Pagamento p WHERE p.externalReference = :externalReference")
-    Optional<Pagamento> findByExternalReferenceWithLock(@Param("externalReference") String externalReference);
     
     /**
      * Verifica se já existe pagamento com essa referência
      */
     boolean existsByExternalReference(String externalReference);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Pagamento> findForUpdateByExternalReference(String externalReference);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Pagamento p WHERE p.externalReference = :externalReference")
+    Optional<Pagamento> findByExternalReferenceWithLock(@Param("externalReference") String externalReference);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Pagamento> findForUpdateById(Long id);
+
+    Page<Pagamento> findByTenantId(Long tenantId, Pageable pageable);
+
+    Optional<Pagamento> findByIdAndTenantId(Long id, Long tenantId);
+
+    @Query("""
+            select p
+            from Pagamento p
+            where p.tenant.id = :tenantId
+              and p.ordemPagamento.id = :ordemPagamentoId
+            """)
+    Optional<Pagamento> findByTenantIdAndOrdemPagamentoId(@Param("tenantId") Long tenantId,
+                                                          @Param("ordemPagamentoId") Long ordemPagamentoId);
+
+    Page<Pagamento> findByTenantIdAndStatus(Long tenantId, StatusPagamentoGateway status, Pageable pageable);
+
+    @Query("""
+            select p
+            from Pagamento p
+              left join p.pedido ped
+            where p.tenant.id = :tenantId
+              and (cast(:status as string) is null or p.status = :status)
+              and (cast(:statusFinanceiroPedido as string) is null or ped.statusFinanceiro = :statusFinanceiroPedido)
+              and (cast(:externalReference as string) is null or p.externalReference = :externalReference)
+              and (cast(:from as timestamp) is null or p.createdAt >= :from)
+              and (cast(:to as timestamp) is null or p.createdAt <= :to)
+              and (cast(:pedidoNumero as string) is null or ped.numero = :pedidoNumero)
+            """)
+    Page<Pagamento> searchTenantPagamentos(
+            Long tenantId,
+            StatusPagamentoGateway status,
+            StatusFinanceiroPedido statusFinanceiroPedido,
+            String externalReference,
+            LocalDateTime from,
+            LocalDateTime to,
+            String pedidoNumero,
+            Pageable pageable
+    );
+
+    @Query("""
+            select p
+            from Pagamento p
+              left join p.pedido ped
+            where (cast(:status as string) is null or p.status = :status)
+              and (cast(:statusFinanceiroPedido as string) is null or ped.statusFinanceiro = :statusFinanceiroPedido)
+              and (cast(:externalReference as string) is null or p.externalReference = :externalReference)
+              and (cast(:from as timestamp) is null or p.createdAt >= :from)
+              and (cast(:to as timestamp) is null or p.createdAt <= :to)
+              and (cast(:pedidoNumero as string) is null or ped.numero = :pedidoNumero)
+            """)
+    Page<Pagamento> searchPlatformPagamentos(
+            StatusPagamentoGateway status,
+            StatusFinanceiroPedido statusFinanceiroPedido,
+            String externalReference,
+            LocalDateTime from,
+            LocalDateTime to,
+            String pedidoNumero,
+            Pageable pageable
+    );
+
+    @Query("SELECT p FROM Pagamento p WHERE p.status = 'PENDENTE' AND p.createdAt < :threshold")
+    Page<Pagamento> findPendentesAntigos(LocalDateTime threshold, Pageable pageable);
+
+    @Query("SELECT p FROM Pagamento p WHERE p.tenant.id = :tenantId AND p.status = 'PENDENTE' AND p.createdAt < :threshold")
+    Page<Pagamento> findPendentesAntigosByTenant(Long tenantId, LocalDateTime threshold, Pageable pageable);
+
+    @Query("SELECT COUNT(p) FROM Pagamento p WHERE p.status = 'PENDENTE' AND p.createdAt < :threshold")
+    long countPendentesAntigos(LocalDateTime threshold);
+
+    @Query("SELECT COUNT(p) FROM Pagamento p WHERE p.tenant.id = :tenantId AND p.status = 'PENDENTE' AND p.createdAt < :threshold")
+    long countPendentesAntigosByTenant(Long tenantId, LocalDateTime threshold);
+
+    long countByTenantIdAndCreatedAtBetween(Long tenantId, LocalDateTime start, LocalDateTime end);
+
+    long countByTenantIdAndStatusAndCreatedAtBetween(Long tenantId, StatusPagamentoGateway status, LocalDateTime start, LocalDateTime end);
+
+    long countByTenantIdAndStatus(Long tenantId, StatusPagamentoGateway status);
+
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Pagamento p WHERE p.tenant.id = :tenantId AND p.status = 'PENDENTE'")
+    BigDecimal sumPendentesByTenant(Long tenantId);
+
+    @Query("SELECT COUNT(DISTINCT p.tenant.id) FROM Pagamento p")
+    long countDistinctTenants();
+
+    @Query("SELECT COUNT(p) FROM Pagamento p WHERE p.createdAt BETWEEN :start AND :end")
+    long countHoje(LocalDateTime start, LocalDateTime end);
+
+    @Query("SELECT COUNT(p) FROM Pagamento p WHERE p.status = 'CONFIRMADO' AND p.createdAt BETWEEN :start AND :end")
+    long countConfirmadoHoje(LocalDateTime start, LocalDateTime end);
+
+    @Query("SELECT COUNT(p) FROM Pagamento p WHERE p.status = 'PENDENTE'")
+    long countPendentes();
+
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Pagamento p WHERE p.status = 'CONFIRMADO' AND p.createdAt BETWEEN :start AND :end")
+    BigDecimal sumConfirmadoHoje(LocalDateTime start, LocalDateTime end);
     
     /**
      * Busca pagamento por chargeId do gateway
@@ -78,6 +183,35 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
            "ORDER BY p.createdAt ASC")
     List<Pagamento> findPagamentosParaReconciliacao(@Param("createdBefore") LocalDateTime createdBefore,
                                                      Pageable pageable);
+
+    @Query(value = """
+            select p.id
+            from pagamentos_gateway p
+            where p.polling_enabled = true
+              and p.status in ('PENDENTE')
+              and p.external_reference is not null
+              and p.gateway_charge_id is not null
+              and (p.next_polling_attempt_at is null or p.next_polling_attempt_at <= :now)
+              and p.polling_attempts < :maxAttempts
+              and p.created_at <= :initialDelayThreshold
+              and p.created_at >= :maxAgeThreshold
+            order by coalesce(p.next_polling_attempt_at, p.created_at) asc
+            limit :limit
+            """, nativeQuery = true)
+    List<Long> findEligibleIdsForPolling(LocalDateTime now,
+                                        LocalDateTime initialDelayThreshold,
+                                        LocalDateTime maxAgeThreshold,
+                                        int maxAttempts,
+                                        int limit);
+
+    /**
+     * Busca pagamentos em status PENDENTE vinculados a um fundo.
+     * Usado pelo expirarComSeguranca() para bloquear expiração quando há
+     * pagamentos AppyPay em curso (ex: referência bancária ainda não paga).
+     */
+    @Query("SELECT p FROM Pagamento p WHERE p.fundoConsumo.id = :fundoId " +
+           "AND p.status = 'PENDENTE'")
+    List<Pagamento> findPagamentosPendentesByFundoId(Long fundoId);
     
     /**
      * Busca último pagamento confirmado do fundo
@@ -85,4 +219,131 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
     @Query("SELECT p FROM Pagamento p WHERE p.fundoConsumo.id = :fundoId " +
            "AND p.status = 'CONFIRMADO' ORDER BY p.confirmedAt DESC")
     List<Pagamento> findUltimosPagamentosConfirmadosFundo(Long fundoId);
+
+    long countByTenantIdAndPedidoTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusPagamentoGateway status);
+
+    @Query("select coalesce(sum(p.amount), 0) from Pagamento p where p.tenant.id = :tenantId and p.pedido.turnoOperacional.id = :turnoOperacionalId and p.status = :status")
+    BigDecimal sumByTenantIdAndTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusPagamentoGateway status);
+
+    @Query("""
+            select p
+            from Pagamento p
+              join fetch p.pedido ped
+            where p.tenant.id = :tenantId
+              and ped.turnoOperacional.id = :turnoId
+            order by p.createdAt asc
+            """)
+    List<Pagamento> findAllByTenantIdAndPedidoTurnoOperacionalId(@Param("tenantId") Long tenantId, @Param("turnoId") Long turnoId);
+
+    @Query("""
+            select p
+            from Pagamento p
+              join fetch p.pedido ped
+            where p.tenant.id = :tenantId
+              and ped.turnoOperacional.id = :turnoId
+              and p.status = :status
+            order by p.createdAt asc
+            """)
+    List<Pagamento> findAllByTenantIdAndPedidoTurnoOperacionalIdAndStatus(@Param("tenantId") Long tenantId,
+                                                                          @Param("turnoId") Long turnoId,
+                                                                          @Param("status") StatusPagamentoGateway status);
+
+    @Query("""
+            select count(p)
+            from Pagamento p
+            where p.tenant.id = :tenantId
+              and p.status = 'CONFIRMADO'
+              and p.pedido is not null
+              and p.pedido.turnoOperacional is not null
+              and p.pedido.turnoOperacional.id = :turnoId
+              and not exists (
+                  select 1 from FiscalDocument d
+                  where d.tenant.id = :tenantId
+                    and d.pagamento is not null
+                    and d.pagamento.id = p.id
+                    and d.status = 'ISSUED'
+              )
+            """)
+    long countConfirmedPaymentsWithoutIssuedFiscalDocument(@Param("tenantId") Long tenantId,
+                                                           @Param("turnoId") Long turnoId);
+
+    @Query("""
+            select p
+            from Pagamento p
+              join fetch p.fundoConsumo f
+              join fetch f.sessaoConsumo s
+            where p.tenant.id = :tenantId
+              and p.tipoPagamento = :tipo
+              and p.status = :status
+              and p.externalReference is not null
+              and s.unidadeAtendimento.id = :unidadeAtendimentoId
+              and p.createdAt >= :from
+              and p.createdAt <= :to
+            order by p.createdAt asc
+            """)
+    List<Pagamento> findGatewayFundPaymentsByTenantAndWindow(@Param("tenantId") Long tenantId,
+                                                             @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
+                                                             @Param("from") LocalDateTime from,
+                                                             @Param("to") LocalDateTime to,
+                                                             @Param("tipo") TipoPagamentoFinanceiro tipo,
+                                                             @Param("status") StatusPagamentoGateway status);
+
+    @Query("""
+            select p
+            from Pagamento p
+              join fetch p.pedido ped
+              join fetch ped.sessaoConsumo sc
+              left join fetch sc.instituicao
+              left join fetch sc.unidadeAtendimento
+            where p.tenant.id = :tenantId
+              and p.status = 'PENDENTE'
+              and (cast(:turnoId as long) is null or ped.turnoOperacional.id = :turnoId)
+              and (cast(:pedidoId as long) is null or ped.id = :pedidoId)
+              and (cast(:unidadeAtendimentoId as long) is null or ped.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId)
+              and (cast(:metodo as string) is null or p.metodo = :metodo)
+              and (cast(:pollingStatus as string) is null or p.pollingStatus = :pollingStatus)
+              and (cast(:hasError as string) is null or (cast(:hasError as string) = 'true' and p.pollingLastErrorCode is not null) or (cast(:hasError as string) = 'false' and p.pollingLastErrorCode is null))
+              and (cast(:olderThan as timestamp) is null or p.createdAt <= :olderThan)
+              and (cast(:de as timestamp) is null or p.createdAt >= :de)
+              and (cast(:ate as timestamp) is null or p.createdAt <= :ate)
+            """)
+    Page<Pagamento> searchPendentesTenant(
+            Long tenantId,
+            Long turnoId,
+            Long pedidoId,
+            Long unidadeAtendimentoId,
+            com.restaurante.financeiro.enums.MetodoPagamentoAppyPay metodo,
+            com.restaurante.financeiro.enums.PagamentoPollingStatus pollingStatus,
+            String hasError,
+            LocalDateTime olderThan,
+            LocalDateTime de,
+            LocalDateTime ate,
+            Pageable pageable
+    );
+
+    @Query("""
+            select p.tenant.id as tenantId, count(p) as cnt
+            from Pagamento p
+            where p.status = com.restaurante.financeiro.enums.StatusPagamentoGateway.PENDENTE
+            group by p.tenant.id
+            """)
+    List<Object[]> countPendentesByTenant();
+
+    @Query("""
+            select p.tenant.id as tenantId, count(p) as cnt
+            from Pagamento p
+            where p.status = com.restaurante.financeiro.enums.StatusPagamentoGateway.PENDENTE
+              and (p.pollingStatus = com.restaurante.financeiro.enums.PagamentoPollingStatus.MAX_ATTEMPTS_REACHED
+                   or p.createdAt < :cutoff)
+            group by p.tenant.id
+            """)
+    List<Object[]> countCriticosByTenant(@Param("cutoff") LocalDateTime cutoff);
+
+    @Query("""
+            select count(p)
+            from Pagamento p
+            where p.status = com.restaurante.financeiro.enums.StatusPagamentoGateway.PENDENTE
+              and p.pollingStatus = com.restaurante.financeiro.enums.PagamentoPollingStatus.MAX_ATTEMPTS_REACHED
+            """)
+    long countMaxAttemptsReached();
 }

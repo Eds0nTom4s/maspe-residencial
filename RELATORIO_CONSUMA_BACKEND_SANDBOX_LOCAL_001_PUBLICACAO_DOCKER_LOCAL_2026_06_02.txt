@@ -1,0 +1,311 @@
+RELATORIO_CONSUMA_BACKEND_SANDBOX_LOCAL_001_PUBLICACAO_DOCKER_LOCAL_2026_06_02
+Data: 2026-06-02
+Branch inicial: restauracao-antes-da-loja
+Commit inicial: 87214f3 Fix IT residual failures from wide verification
+
+1. Resumo executivo
+- Objetivo da fase: publicar o backend CONSUMA em Docker local com PostgreSQL e validar o runtime real fora do contexto de testes.
+- Resultado: ambiente `sandbox-local` criado/ajustado, build Maven concluído, imagem Docker gerada, PostgreSQL saudável, Flyway aplicado, segurança JWT funcional, tenant provisionado, QR principal funcional, cardápio público funcional, pedido público funcional, sessão de consumo funcional e ordem manual de pagamento funcional.
+- Decisão: APROVADO COM RESSALVAS.
+
+2. Branch e commit inicial
+- Branch: `restauracao-antes-da-loja`
+- HEAD inicial confirmado: `87214f3 Fix IT residual failures from wide verification`
+
+3. Estado Git inicial
+- `git status -sb`: branch sincronizada com `origin/restauracao-antes-da-loja`; existia apenas o arquivo não rastreado `RELATORIO_CONSUMA_BACKEND_IT_FIX_007_RODADA_AMPLA_FINAL_SUITE_IT_2026_06_02.txt`
+- `git diff --name-only`: vazio
+- `git diff --check`: sem problemas
+
+4. Ambiente local
+- Java: OpenJDK 21.0.10
+- Maven: Apache Maven 3.6.3
+- Docker: 29.5.2
+- Docker Compose: v5.1.4
+- Permissão Docker:
+  - `docker ps` funcionou
+  - `docker exec`/`docker compose up` exigiram execução com privilégios aprovados
+- Observação operacional:
+  - em 2026-06-02 já existia uma sandbox anterior ocupando a porta `8081`
+  - por isso a validação desta fase foi executada em `http://localhost:8082`
+
+5. Arquivos Docker/config existentes antes
+- Existiam antes:
+  - `Dockerfile`
+  - `.dockerignore`
+  - `docker-compose.local.yml`
+  - `docker-compose.sandbox.yml`
+  - `docker-compose.prod.yml`
+  - `.env.sandbox.example`
+  - `src/main/resources/application-sandbox.properties`
+- Não existiam antes:
+  - `docker-compose.sandbox-local.yml`
+  - `.env.sandbox.local.example`
+  - `src/main/resources/application-sandbox-local.properties`
+
+6. Arquivos criados/alterados
+- Criados:
+  - `docker-compose.sandbox-local.yml`
+  - `.env.sandbox.local.example`
+  - `src/main/resources/application-sandbox-local.properties`
+  - `RELATORIO_CONSUMA_BACKEND_SANDBOX_LOCAL_001_PUBLICACAO_DOCKER_LOCAL_2026_06_02.txt`
+- Alterados:
+  - `Dockerfile`
+  - `.dockerignore`
+  - `src/main/resources/application.properties`
+- Criado apenas localmente e NAO commitado:
+  - `.env.sandbox.local`
+
+7. Variáveis exigidas
+- Banco:
+  - `POSTGRES_DB`
+  - `POSTGRES_USER`
+  - `POSTGRES_PASSWORD`
+  - `DB_HOST`
+  - `DB_PORT`
+  - `DB_NAME`
+  - `DB_USER`
+  - `DB_PASSWORD`
+- URLs / CORS:
+  - `APP_BASE_URL`
+  - `CONSUMA_PUBLIC_BASE_URL`
+  - `CLIENT_APP_URL`
+  - `CORS_ALLOWED_ORIGINS`
+- Segurança:
+  - `JWT_SECRET`
+  - `DEVICE_TOKEN_HASH_SECRET`
+  - `SYNC_CURSOR_HMAC_SECRET`
+  - `CONSUMA_SNAPSHOT_HMAC_SECRET_V1`
+- Sandbox admin:
+  - `SANDBOX_ADMIN_USERNAME`
+  - `SANDBOX_ADMIN_PASSWORD`
+  - `SANDBOX_ADMIN_EMAIL`
+  - `SANDBOX_ADMIN_TELEFONE`
+- AppyPay / mocks:
+  - `APP_PAYMENT_APPYPAY_MOCK`
+  - `APPYPAY_CLIENT_ID`
+  - `APPYPAY_CLIENT_SECRET`
+  - `APPYPAY_WEBHOOK_SECRET`
+  - `APPYPAY_WEBHOOK_SIGNATURE_REQUIRED`
+  - `APP_NOTIFICATION_TELCOSMS_MOCK`
+- Outros:
+  - `SPRING_TASK_SCHEDULING_ENABLED`
+  - `MINIO_ENDPOINT`
+  - `MINIO_PUBLIC_URL`
+  - `SANDBOX_LOCAL_API_PORT`
+
+8. Configuração do profile sandbox-local
+- `application.properties` passou a declarar `spring.profiles.group.sandbox-local=sandbox`
+- `application-sandbox-local.properties` ativa defaults locais sobre o profile `sandbox`
+- Runtime validado com os perfis ativos:
+  - `sandbox-local`
+  - `sandbox`
+- Defaults locais usados:
+  - datasource `postgres-local`
+  - database `consuma_sandbox`
+  - user `consuma`
+  - `app.base-url=http://localhost:8082/api`
+  - `consuma.public-base-url=http://localhost:8082`
+  - `cors.allowed-origins=http://localhost:5173,http://localhost:3000,http://localhost:8082`
+
+9. Build Maven
+- Comando executado: `mvn -DskipTests package`
+- Resultado:
+  - BUILD SUCCESS
+  - jar gerado em `target/sistema-restauracao-1.0.0.jar`
+
+10. Docker build
+- Comando executado no contexto do compose:
+  - `docker compose -f docker-compose.sandbox-local.yml --env-file .env.sandbox.local up -d --build`
+- Resultado:
+  - imagem `sistema-restauracao-api:sandbox-local` construída com sucesso
+- Ajustes relevantes no `Dockerfile`:
+  - base Java 21 (`eclipse-temurin:21-jre`)
+  - suporte a `JAVA_OPTS`
+  - execução com utilizador não-root
+  - cópia flexível de `target/*.jar`
+
+11. Docker compose up
+- Arquivo usado: `docker-compose.sandbox-local.yml`
+- Env file usado: `.env.sandbox.local`
+- Resultado:
+  - compose subiu com sucesso
+  - port mapping da API: `8082:8080`
+  - PostgreSQL em volume persistente dedicado
+
+12. Estado dos containers
+- `consuma-postgres-local`
+  - imagem: `postgres:16-alpine`
+  - estado: `healthy`
+- `consuma-api-local`
+  - imagem: `sistema-restauracao-api:sandbox-local`
+  - estado: `Up`
+- Rede criada:
+  - `consuma-sandbox-local`
+
+13. Logs principais da API
+- Sinais positivos:
+  - perfis `sandbox-local` e `sandbox` activos
+  - datasource Hikari inicializado com sucesso
+  - Flyway aplicou 68 migrations
+  - Tomcat iniciou em `/api`
+  - `SandboxSeeder` criou o admin `admin`
+- Avisos/observações:
+  - vários `WARN ... already exists, skipping` durante Flyway; esperados pela estrutura acumulada do baseline SQL
+  - warning Hibernate sobre `PostgreSQLDialect` explícito
+  - warning operacional em pagamento manual:
+    - `TX evidence ledger record failed ... Transaction evidence key indisponível para keyVersion=1`
+- Erros observados:
+  - um `HttpMessageNotReadableException` foi provocado por um teste manual inicial com JSON malformado no login; não indica falha do runtime
+  - um `404` para QR inexistente foi provocado intencionalmente e é o comportamento esperado
+
+14. Resultado de migrations/Flyway
+- Banco alvo:
+  - `jdbc:postgresql://postgres-local:5432/consuma_sandbox`
+- Resultado:
+  - validação Flyway ok
+  - 68 migrations aplicadas
+  - schema final em `v68`
+
+15. Resultado de health
+- Endpoint validado:
+  - `GET /api/actuator/health`
+- Resultado:
+  - HTTP 200
+  - payload: `{"status":"UP","groups":["liveness","readiness"]}`
+- Observação:
+  - a validação HTTP foi executada de dentro do container (`docker exec consuma-api-local curl ...`) porque o ambiente do agente não alcançou a porta publicada no host apesar do container estar saudável
+
+16. Resultado de login JWT
+- Sandbox admin criado automaticamente:
+  - username: `admin`
+- Login validado:
+  - `POST /api/auth/jwt/login`
+- Resultado:
+  - HTTP 200
+  - token GLOBAL emitido com `ROLE_ADMIN`
+- Login de owner provisionado também validado:
+  - username: `owner.sandbox.local.20260602@example.com`
+  - resultado: HTTP 200
+
+17. Resultado de endpoint protegido sem token
+- Endpoint validado:
+  - `GET /api/tenant/qr/principal`
+- Resultado:
+  - HTTP 401
+  - mensagem coerente: token ausente/inválido/expirado
+
+18. Resultado de `/api/tenant/qr/principal`
+- Passos:
+  - login do owner
+  - `POST /api/auth/tenant/select` com `tenantId=2`
+  - chamada ao endpoint com token TENANT
+- Resultado:
+  - HTTP 200
+  - QR principal retornado sem erro estrutural
+  - campos confirmados:
+    - `tenantId=2`
+    - `qrCodeId=1`
+    - `tipo=UNIDADE_ATENDIMENTO`
+    - `qrUrlPublica=http://localhost:8082/q/q_hYQhJJ5A3EDJvfsahNtKJz`
+    - `cardapioUrlPublica=http://localhost:8082/q/q_hYQhJJ5A3EDJvfsahNtKJz/cardapio`
+
+19. Resultado de QR/cardápio público
+- QR inválido:
+  - `GET /api/public/q/q_INEXISTENTE_123/cardapio`
+  - resultado: HTTP 404 controlado
+- QR válido:
+  - `GET /api/public/q/q_hYQhJJ5A3EDJvfsahNtKJz/cardapio`
+  - resultado: HTTP 200
+- Após criação de produto:
+  - `GET /api/public/q/q_F622V2q4G2ZkJ7yN9PuWVb/cardapio`
+  - resultado: HTTP 200
+  - categoria `Comidas` devolveu o produto `Prato Sandbox Local`
+- CORS:
+  - com `Origin: http://localhost:5173`
+  - resposta incluiu `Access-Control-Allow-Origin: http://localhost:5173`
+
+20. Resultado de pedido público/sessão
+- Tenant de validação provisionado:
+  - `tenantId=2`
+  - `tenantCode=SLR260602`
+- Baseline criada antes do pedido:
+  - cozinha `CENTRAL` criada e vinculada à unidade `1`
+  - produto `PRATO-001` criado
+  - turno `ABERTO` criado com checklist completo
+- Sessão pública:
+  - `POST /api/public/q/q_F622V2q4G2ZkJ7yN9PuWVb/consumos/anonimo`
+  - HTTP 201
+  - sessão criada para `Mesa 1`
+- Pedido público:
+  - `POST /api/public/q/q_F622V2q4G2ZkJ7yN9PuWVb/pedidos`
+  - HTTP 201
+  - pedido `PED-SLR260602-20260602-000001`
+- Validação sequencial de associação correta:
+  - `POST /api/public/q/q_7PHCcAUhtLehBydjmEUoTU/consumos/anonimo`
+  - `POST /api/public/q/q_7PHCcAUhtLehBydjmEUoTU/pedidos`
+  - banco confirmou:
+    - sessão `id=3` aberta na `Mesa 2`
+    - pedido `id=2` com `sessao_consumo_id=3`
+- Observação importante:
+  - quando `consumo anónimo` e `pedido` foram disparados em paralelo para a `Mesa 1`, surgiram duas sessões abertas na mesma mesa (`id=1` e `id=2`)
+  - isso ficou registado como risco de concorrência a investigar numa fase seguinte
+
+21. Resultado de meios de pagamento
+- `GET /api/public/q/q_hYQhJJ5A3EDJvfsahNtKJz/payment-methods?destination=PEDIDO`
+- Resultado:
+  - HTTP 200
+  - métodos retornados:
+    - `CASH`
+    - `TPA`
+    - `APPYPAY`
+- Ordem manual criada:
+  - `POST /api/public/q/q_7PHCcAUhtLehBydjmEUoTU/pedidos/2/ordens-pagamento-manual`
+  - payload: `{"metodoPagamento":"CASH"}`
+  - resultado: HTTP 201
+  - estado: `AGUARDANDO_CONFIRMACAO`
+
+22. Gaps encontrados
+- O shell do agente não conseguiu consumir `http://localhost:8082` directamente; a validação HTTP teve de ser feita via `docker exec` dentro do container.
+- Warning no fluxo de ordem manual:
+  - `Transaction evidence key indisponível para keyVersion=1`
+- Possível condição de concorrência:
+  - chamadas paralelas de criação de sessão e pedido na mesma mesa geraram duas sessões abertas distintas.
+
+23. O que NAO foi alterado
+- Regras de negócio centrais não foram alteradas para “forçar” o ambiente.
+- Spring Security não foi desactivado.
+- Flyway não foi desactivado.
+- PostgreSQL não foi trocado por H2.
+- Banco persistente anterior não foi apagado.
+- Secrets reais não foram introduzidos.
+- `.env.sandbox.local` não foi commitado.
+
+24. Pendências
+- Avaliar o warning do evidence ledger no fluxo de ordem manual.
+- Validar se a URL pública `http://localhost:8082/q/...` deve apontar para frontend/roteador dedicado ou se precisa de outra convenção em sandbox.
+- Investigar a duplicação de sessão sob concorrência na mesma mesa.
+
+25. Riscos
+- Risco funcional:
+  - concorrência entre criação de sessão pública e criação de pedido pode abrir sessões duplicadas na mesma mesa.
+- Risco operacional:
+  - ausência de chave válida para transaction evidence reduz a integridade do rasto formal em ordens manuais.
+- Risco de ambiente:
+  - a limitação de conectividade do shell do agente ao port mapping do host pode mascarar testes externos automatizados neste workspace específico.
+
+26. Decisão
+- APROVADO COM RESSALVAS
+- Motivos:
+  - build Docker e runtime principal ficaram verdes
+  - endpoints críticos subiram e responderam sem erro estrutural
+  - login JWT, tenant QR, cardápio, pedido e ordem manual funcionaram
+  - há ressalvas de concorrência e evidence ledger que merecem seguimento
+
+27. Próximo passo recomendado
+- SANDBOX-LOCAL-002 para tratar:
+  - concorrência de sessões públicas na mesma mesa
+  - chave/configuração do transaction evidence ledger
+- Em paralelo, a base já permite avançar para:
+  - `UI-012`
+  - ou `SERVER-SETUP-001`

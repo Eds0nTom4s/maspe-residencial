@@ -7,7 +7,6 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 import java.util.Set;
 
-import java.util.Set;
 public class CriarUsuarioRequest {
 
     @NotBlank(message = "Username é obrigatório")
@@ -23,7 +22,11 @@ public class CriarUsuarioRequest {
 
     private String nomeCompleto;
 
+    @NotBlank(message = "Telefone é obrigatório")
+    @Size(max = 20, message = "Telefone deve ter no máximo 20 caracteres")
     private String telefone;
+
+    private Long unidadeAtendimentoId;
 
     @NotEmpty(message = "Ao menos uma role é obrigatória")
     private Set<Role> roles;
@@ -34,12 +37,14 @@ public class CriarUsuarioRequest {
     public CriarUsuarioRequest() {
     }
 
-    public CriarUsuarioRequest(String username, String senha, String email, String nomeCompleto, String telefone, Set<Role> roles, String otpAutorizacao) {
+    public CriarUsuarioRequest(String username, String senha, String email, String nomeCompleto, String telefone,
+                               Long unidadeAtendimentoId, Set<Role> roles, String otpAutorizacao) {
         this.username = username;
         this.senha = senha;
         this.email = email;
         this.nomeCompleto = nomeCompleto;
         this.telefone = telefone;
+        this.unidadeAtendimentoId = unidadeAtendimentoId;
         this.roles = roles;
         this.otpAutorizacao = otpAutorizacao;
     }
@@ -54,6 +59,8 @@ public class CriarUsuarioRequest {
     public void setNomeCompleto(String nomeCompleto) { this.nomeCompleto = nomeCompleto; }
     public String getTelefone() { return telefone; }
     public void setTelefone(String telefone) { this.telefone = telefone; }
+    public Long getUnidadeAtendimentoId() { return unidadeAtendimentoId; }
+    public void setUnidadeAtendimentoId(Long unidadeAtendimentoId) { this.unidadeAtendimentoId = unidadeAtendimentoId; }
     public Set<Role> getRoles() { return roles; }
     public void setRoles(Set<Role> roles) { this.roles = roles; }
     public String getOtpAutorizacao() { return otpAutorizacao; }
@@ -69,6 +76,7 @@ public class CriarUsuarioRequest {
         private String email;
         private String nomeCompleto;
         private String telefone;
+        private Long unidadeAtendimentoId;
         private Set<Role> roles;
         private String otpAutorizacao;
 
@@ -77,11 +85,12 @@ public class CriarUsuarioRequest {
         public CriarUsuarioRequestBuilder email(String email) { this.email = email; return this; }
         public CriarUsuarioRequestBuilder nomeCompleto(String nomeCompleto) { this.nomeCompleto = nomeCompleto; return this; }
         public CriarUsuarioRequestBuilder telefone(String telefone) { this.telefone = telefone; return this; }
+        public CriarUsuarioRequestBuilder unidadeAtendimentoId(Long unidadeAtendimentoId) { this.unidadeAtendimentoId = unidadeAtendimentoId; return this; }
         public CriarUsuarioRequestBuilder roles(Set<Role> roles) { this.roles = roles; return this; }
         public CriarUsuarioRequestBuilder otpAutorizacao(String otpAutorizacao) { this.otpAutorizacao = otpAutorizacao; return this; }
 
         public CriarUsuarioRequest build() {
-            return new CriarUsuarioRequest(username, senha, email, nomeCompleto, telefone, roles, otpAutorizacao);
+            return new CriarUsuarioRequest(username, senha, email, nomeCompleto, telefone, unidadeAtendimentoId, roles, otpAutorizacao);
         }
     }
 }

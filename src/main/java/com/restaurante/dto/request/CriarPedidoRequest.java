@@ -18,6 +18,7 @@ import java.util.List;
 public class CriarPedidoRequest {
 
     private Long sessaoConsumoId;
+    private Long participanteId;
 
     @NotEmpty(message = "Pedido deve conter ao menos um item")
     @Valid
@@ -39,9 +40,10 @@ public class CriarPedidoRequest {
     // ── Constructors ──────────────────────────────────────────────────────────
     public CriarPedidoRequest() {}
 
-    public CriarPedidoRequest(Long sessaoConsumoId, List<ItemPedidoRequest> itens,
+    public CriarPedidoRequest(Long sessaoConsumoId, Long participanteId, List<ItemPedidoRequest> itens,
                                TipoPagamentoPedido tipoPagamento, String observacoes, String qrCodeFundo) {
         this.sessaoConsumoId = sessaoConsumoId;
+        this.participanteId = participanteId;
         this.itens = itens;
         this.tipoPagamento = tipoPagamento;
         this.observacoes = observacoes;
@@ -50,6 +52,7 @@ public class CriarPedidoRequest {
 
     // ── Getters ───────────────────────────────────────────────────────────────
     public Long getSessaoConsumoId() { return sessaoConsumoId; }
+    public Long getParticipanteId() { return participanteId; }
     public List<ItemPedidoRequest> getItens() { return itens; }
     public TipoPagamentoPedido getTipoPagamento() { return tipoPagamento; }
     public String getObservacoes() { return observacoes; }
@@ -57,6 +60,7 @@ public class CriarPedidoRequest {
 
     // ── Setters ───────────────────────────────────────────────────────────────
     public void setSessaoConsumoId(Long sessaoConsumoId) { this.sessaoConsumoId = sessaoConsumoId; }
+    public void setParticipanteId(Long participanteId) { this.participanteId = participanteId; }
     public void setItens(List<ItemPedidoRequest> itens) { this.itens = itens; }
     public void setTipoPagamento(TipoPagamentoPedido tipoPagamento) { this.tipoPagamento = tipoPagamento; }
     public void setObservacoes(String observacoes) { this.observacoes = observacoes; }
@@ -67,19 +71,21 @@ public class CriarPedidoRequest {
 
     public static class Builder {
         private Long sessaoConsumoId;
+        private Long participanteId;
         private List<ItemPedidoRequest> itens;
         private TipoPagamentoPedido tipoPagamento;
         private String observacoes;
         private String qrCodeFundo;
 
         public Builder sessaoConsumoId(Long sessaoConsumoId) { this.sessaoConsumoId = sessaoConsumoId; return this; }
+        public Builder participanteId(Long participanteId) { this.participanteId = participanteId; return this; }
         public Builder itens(List<ItemPedidoRequest> itens) { this.itens = itens; return this; }
         public Builder tipoPagamento(TipoPagamentoPedido tipoPagamento) { this.tipoPagamento = tipoPagamento; return this; }
         public Builder observacoes(String observacoes) { this.observacoes = observacoes; return this; }
         public Builder qrCodeFundo(String qrCodeFundo) { this.qrCodeFundo = qrCodeFundo; return this; }
 
         public CriarPedidoRequest build() {
-            return new CriarPedidoRequest(sessaoConsumoId, itens, tipoPagamento, observacoes, qrCodeFundo);
+            return new CriarPedidoRequest(sessaoConsumoId, participanteId, itens, tipoPagamento, observacoes, qrCodeFundo);
         }
     }
 }

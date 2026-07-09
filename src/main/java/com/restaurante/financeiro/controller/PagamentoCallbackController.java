@@ -1,10 +1,13 @@
 package com.restaurante.financeiro.controller;
 
 import com.restaurante.financeiro.service.PagamentoCallbackService;
+import com.restaurante.financeiro.exception.InvalidCallbackSignatureException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 /**
  * Controller para callbacks do gateway AppyPay.
@@ -36,12 +39,16 @@ public class PagamentoCallbackController {
     @PostMapping({"/callback", "/webhook"})
     public ResponseEntity<Void> processarCallback(
             @RequestHeader(value = "X-AppyPay-Signature", required = false) String signature,
+            @RequestHeader Map<String, String> headers,
             @RequestBody String rawBody) {
 
         log.info("Callback AppyPay recebido. Signature presente: {}", signature != null);
 
         try {
-            callbackService.processarCallback(rawBody, signature);
+            callbackService.processarCallback(rawBody, signature, headers);
+        } catch (InvalidCallbackSignatureException e) {
+            log.warn("Callback AppyPay rejeitado por assinatura inválida: {}", e.getMessage());
+            return ResponseEntity.status(401).build();
         } catch (Exception e) {
             // Log do erro mas retorna 200 para evitar retry infinito do gateway
             log.error("Erro ao processar callback AppyPay: {}", e.getMessage(), e);

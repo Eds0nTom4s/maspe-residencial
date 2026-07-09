@@ -2,7 +2,7 @@ package com.restaurante.store.service;
 
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.Produto;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.store.dto.StoreProductDTO;
 import com.restaurante.store.mapper.StoreMapper;
@@ -15,11 +15,11 @@ import java.util.List;
 @Service
 public class StoreCatalogService {
 
-    public static final List<CategoriaProduto> STORE_CATEGORIES = List.of(
-            CategoriaProduto.VESTUARIO,
-            CategoriaProduto.EQUIPAMENTO_DESPORTIVO,
-            CategoriaProduto.ACESSORIO,
-            CategoriaProduto.COLECCIONAVEL
+    public static final List<CategoriaProdutoLegacy> STORE_CATEGORIES = List.of(
+            CategoriaProdutoLegacy.VESTUARIO,
+            CategoriaProdutoLegacy.EQUIPAMENTO_DESPORTIVO,
+            CategoriaProdutoLegacy.ACESSORIO,
+            CategoriaProdutoLegacy.COLECCIONAVEL
     );
 
     private final ProdutoRepository produtoRepository;

@@ -1,0 +1,142 @@
+RELATÓRIO TÉCNICO — PROMPT 37
+Relatório de caixa por turno (CASH/TPA + AppyPay) + resumo operacional financeiro
+Data: 2026-05-20 (Africa/Luanda)
+
+1) Resumo executivo
+- Foi implementado um relatório operacional financeiro por turno, consolidando pagamentos manuais (CASH/TPA) confirmados por POS e pagamentos digitais (AppyPay) confirmados via callback/polling.
+- O relatório separa claramente: manual vs gateway, destino (PEDIDO vs FUNDO_CONSUMO), pendências e divergências.
+- O pré-fecho do turno passa a incluir um resumo financeiro reduzido (sem listas) para suportar fecho mais consciente, mantendo o endpoint detalhado para visão completa.
+
+2) Migration criada
+- Nenhuma migration adicional foi necessária neste prompt.
+- O relatório reutiliza estruturas já existentes: `TurnoOperacional`, `OrdemPagamento` (manual), `PagamentoGateway/Pagamento` (gateway), `OperationalEventLog` e alertas financeiros do turno.
+
+3) Endpoint criado
+- GET `/tenant/financeiro/turnos/{turnoId}/relatorio-caixa`
+  - Controller: `src/main/java/com/restaurante/controller/TenantFinanceiroTurnoController.java`
+  - RBAC (tenant): OWNER/ADMIN/FINANCE/CASHIER/OPERATOR (read-only), KITCHEN bloqueado.
+  - Cross-tenant: turno fora do tenant retorna 404.
+
+4) DTOs criados/alterados
+Criados (pacote caixa):
+- `src/main/java/com/restaurante/financeiro/caixa/dto/RelatorioCaixaTurnoResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/ResumoCaixaTurnoMiniResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/TotalPorMetodoPagamentoResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/TotalPorOrigemPagamentoResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/TotalPorDeviceResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/PagamentoResumoCaixaResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/OrdemPagamentoResumoCaixaResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/EventoFinanceiroTurnoResponse.java`
+
+Alterado:
+- `src/main/java/com/restaurante/dto/response/TurnoPreFechoResponse.java`
+  - Adicionado `resumoCaixa` (`ResumoCaixaTurnoMiniResponse`).
+
+5) Service criado
+- `src/main/java/com/restaurante/financeiro/caixa/service/RelatorioCaixaTurnoService.java`
+  - `gerarRelatorio(tenantId, turnoId)`: consolida manual + gateway + pendências + divergências + alertas + eventos.
+  - `gerarResumoMini(tenantId, turnoId)`: extrai um snapshot reduzido para o pré-fecho.
+
+6) Integração com pré-fecho
+- `src/main/java/com/restaurante/service/operacao/TurnoResumoService.java`
+  - Integra `relatorioCaixaTurnoService.gerarResumoMini(...)` no pré-fecho.
+  - Mantém alertas financeiros já existentes e regras de bloqueio configurável (Prompt 34).
+
+7) Repositories/queries
+Reutilizados (sem breaking changes):
+- `PagamentoGatewayRepository`: leitura por `Pedido.turnoOperacional` e recargas por janela do turno.
+- `OrdemPagamentoRepository`: leitura por `turnoOperacionalId`.
+- `OperationalEventLogRepository`:
+  - adicionado método para buscar eventos por turno + conjunto de tipos com paginação:
+    `findTopByTenantAndTurnoAndEventTypes(...)` em `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java`.
+
+8) Configuração (properties)
+Criado:
+- `src/main/java/com/restaurante/financeiro/caixa/CaixaTurnoProperties.java`
+
+Adicionado em `src/main/resources/application.properties`:
+- `consuma.financeiro.caixa-turno.eventos-recentes-limit` (default 20)
+- `consuma.financeiro.caixa-turno.incluir-eventos` (default true)
+- `consuma.financeiro.caixa-turno.incluir-pendentes` (default true)
+
+9) Separação CASH/TPA/AppyPay (regras de cálculo)
+- Manual (CASH/TPA): consolidado a partir de `OrdemPagamento` confirmadas no turno.
+- AppyPay (gateway): consolidado a partir de `Pagamento` com `externalReference` e status local `CONFIRMADO`.
+- Pendentes: soma de pagamentos gateway pendentes + ordens manuais aguardando confirmação (configurável).
+- Divergências: derivadas de eventos de divergência no `OperationalEventLog` (sem expor payload bruto).
+
+10) Segurança/RBAC
+- Endpoint tenant financeiro bloqueia `TENANT_KITCHEN`.
+- Turno fora do tenant retorna `404`.
+- Resposta não inclui raw payload do gateway, tokens, hashes ou secrets.
+
+11) Testes criados/alterados
+- `src/test/java/com/restaurante/financeiro/CaixaTurnoRelatorioIT.java`
+  - cobre acesso por role, cross-tenant, totais por método (CASH/TPA/APPYPAY), separação por destino (PEDIDO/FUNDO_CONSUMO) e pendências.
+
+12) Documentação
+- `docs/tenant-core/37-relatorio-caixa-turno-operacional.md`
+
+13) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+14) Resultado dos comandos
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS
+  - Tests run: 149
+  - Failures: 0
+  - Errors: 0
+  - Skipped: 4
+
+15) Arquivos criados/alterados (Prompt 37)
+Criados:
+- `src/main/java/com/restaurante/controller/TenantFinanceiroTurnoController.java`
+- `src/main/java/com/restaurante/financeiro/caixa/CaixaTurnoProperties.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/EventoFinanceiroTurnoResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/OrdemPagamentoResumoCaixaResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/PagamentoResumoCaixaResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/RelatorioCaixaTurnoResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/ResumoCaixaTurnoMiniResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/TotalPorDeviceResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/TotalPorMetodoPagamentoResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/dto/TotalPorOrigemPagamentoResponse.java`
+- `src/main/java/com/restaurante/financeiro/caixa/service/RelatorioCaixaTurnoService.java`
+- `src/test/java/com/restaurante/financeiro/CaixaTurnoRelatorioIT.java`
+- `docs/tenant-core/37-relatorio-caixa-turno-operacional.md`
+
+Alterados:
+- `src/main/java/com/restaurante/dto/response/TurnoPreFechoResponse.java`
+- `src/main/java/com/restaurante/service/operacao/TurnoResumoService.java`
+- `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java`
+- `src/main/resources/application.properties`
+
+16) Decisões técnicas tomadas
+- O relatório é “operacional”: soma e separação por método/origem/destino, sem conciliação bancária.
+- O cálculo usa “fonte de verdade” por tipo:
+  - manual: `OrdemPagamento` confirmada;
+  - gateway: `Pagamento` confirmado por callback/polling (status local).
+- No pré-fecho, expõe-se apenas um resumo mini para não “inchar” o contrato de operação.
+
+17) Riscos restantes
+- O relatório ainda não persiste snapshot financeiro no `resumo_json` do turno (se desejado, implementar em prompt dedicado).
+- Dependências de modelagem (ex.: como recargas gateway são associadas à janela do turno) podem precisar refinamento em operações com múltiplas unidades/turnos longos.
+- Para auditoria financeira mais forte, pode ser necessário registrar ligações explícitas OrdemPagamento↔Pagamento e/ou reforçar event types por transação.
+
+18) Checklist de aceitação (Prompt 37)
+[OK] Endpoint relatório de caixa por turno existe.
+[OK] CASH confirmado entra no total CASH.
+[OK] TPA confirmado entra no total TPA.
+[OK] AppyPay confirmado entra no total APPYPAY.
+[OK] AppyPay pendente não entra como confirmado.
+[OK] Carregamento de FundoConsumo separado de pagamento de Pedido.
+[OK] Totais por device existem (com base nas ordens confirmadas).
+[OK] Pendentes aparecem (gateway + ordens aguardando).
+[OK] Eventos recentes podem ser incluídos (sanitizados, limitados).
+[OK] KITCHEN bloqueado.
+[OK] Cross-tenant protegido.
+[OK] Testes passam.
+
+19) Próximo prompt recomendado
+- Snapshot financeiro no fecho do turno (persistir no `resumo_json`) + endpoint de export lógico (JSON assinado), sem PDF/Excel, mantendo auditoria.
+

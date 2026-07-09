@@ -62,6 +62,20 @@ public class FundoConsumo extends BaseEntity {
     private Boolean ativo;
 
     /**
+     * Fundo bloqueado (freeze operacional).
+     * - Bloqueado: não permite crédito/débito via fluxos normais.
+     * - Mantém saldo/histórico; objetivo é conter disputa/suspeita.
+     */
+    @Column(name = "bloqueado", nullable = false)
+    private boolean bloqueado = false;
+
+    @Column(name = "bloqueado_em")
+    private java.time.LocalDateTime bloqueadoEm;
+
+    @Column(name = "bloqueado_motivo", length = 500)
+    private String bloqueadoMotivo;
+
+    /**
      * Histórico de transações
      */
     @OneToMany(mappedBy = "fundoConsumo", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -103,6 +117,13 @@ public class FundoConsumo extends BaseEntity {
 
     public Boolean getAtivo() { return ativo; }
     public void setAtivo(Boolean ativo) { this.ativo = ativo; }
+
+    public boolean isBloqueado() { return bloqueado; }
+    public void setBloqueado(boolean bloqueado) { this.bloqueado = bloqueado; }
+    public java.time.LocalDateTime getBloqueadoEm() { return bloqueadoEm; }
+    public void setBloqueadoEm(java.time.LocalDateTime bloqueadoEm) { this.bloqueadoEm = bloqueadoEm; }
+    public String getBloqueadoMotivo() { return bloqueadoMotivo; }
+    public void setBloqueadoMotivo(String bloqueadoMotivo) { this.bloqueadoMotivo = bloqueadoMotivo; }
 
     public List<TransacaoFundo> getTransacoes() { return transacoes; }
     public void setTransacoes(List<TransacaoFundo> transacoes) { this.transacoes = transacoes; }

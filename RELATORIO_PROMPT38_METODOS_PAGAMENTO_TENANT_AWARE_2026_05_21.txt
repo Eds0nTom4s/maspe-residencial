@@ -1,0 +1,249 @@
+RELATÓRIO TÉCNICO — PROMPT 38 (MÉTODOS DE PAGAMENTO TENANT-AWARE)
+Data: 2026-05-21
+
+================================================================================
+1) Resumo executivo
+================================================================================
+Foi implementada uma camada tenant-aware para métodos de pagamento, permitindo:
+- configuração por tenant (CASH/TPA/APPYPAY) com status e flags por canal/destino;
+- endpoints admin tenant para listar/editar/ativar/desativar;
+- endpoints público (QR) e device (POS) para consultar métodos disponíveis por destino;
+- validação obrigatória nos fluxos existentes (QR/AppyPay e ordens manuais CASH/TPA);
+- auditoria via OperationalEventLog;
+- migração Flyway e testes.
+
+AppyPay passa a ser controlável por tenant (ativável/desativável) sem quebrar CASH/TPA.
+
+================================================================================
+2) Migration (Flyway)
+================================================================================
+Criado:
+- `src/main/resources/db/migration/V28__tenant_payment_methods.sql`
+
+Tabela:
+- `tenant_payment_methods`
+
+Principais regras:
+- UNIQUE (tenant_id, code)
+- checks min/max (não negativos, min <= max)
+- índices por tenant/status/code
+
+================================================================================
+3) Enums/Modelo
+================================================================================
+Criados enums (extensíveis para futuro):
+- `src/main/java/com/restaurante/model/enums/PaymentMethodCode.java` (CASH/TPA/APPYPAY)
+- `src/main/java/com/restaurante/model/enums/PaymentMethodStatus.java` (ACTIVE/INACTIVE/SUSPENDED)
+- `src/main/java/com/restaurante/model/enums/PaymentMethodType.java` (MANUAL_PHYSICAL/DIGITAL_GATEWAY)
+- `src/main/java/com/restaurante/model/enums/PaymentConfirmationMode.java` (MANUAL_DEVICE/GATEWAY_CALLBACK_POLLING)
+- `src/main/java/com/restaurante/model/enums/PaymentMethodProvider.java` (NONE/APPYPAY)
+- `src/main/java/com/restaurante/model/enums/PaymentUsageContext.java` (QR_PUBLICO/DEVICE_POS/TENANT_ADMIN)
+- `src/main/java/com/restaurante/model/enums/PaymentDestination.java` (PEDIDO/FUNDO_CONSUMO)
+
+Criado entity/repository:
+- `src/main/java/com/restaurante/financeiro/paymentmethod/entity/TenantPaymentMethod.java`
+- `src/main/java/com/restaurante/financeiro/paymentmethod/repository/TenantPaymentMethodRepository.java`
+
+Auditoria operacional:
+- `src/main/java/com/restaurante/model/enums/OperationalEntityType.java` adiciona `TENANT_PAYMENT_METHOD`
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java` adiciona:
+  - `PAYMENT_METHOD_DEFAULTS_BOOTSTRAPPED`
+  - `PAYMENT_METHOD_UPDATED`
+  - `PAYMENT_METHOD_ACTIVATED`
+  - `PAYMENT_METHOD_DEACTIVATED`
+
+================================================================================
+4) Defaults / Bootstrap (idempotente)
+================================================================================
+Criado:
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodBootstrapService.java`
+
+Comportamento:
+- Se o tenant ainda não possui métodos, cria:
+  - CASH ACTIVE (QR/POS; PEDIDO/FUNDO; requiresOpenTurno=true; manual)
+  - TPA  ACTIVE (QR/POS; PEDIDO/FUNDO; requiresOpenTurno=true; manual)
+  - APPYPAY ACTIVE se AppyPay estiver configurado no ambiente (ou mock), caso contrário INACTIVE
+- Registra evento `PAYMENT_METHOD_DEFAULTS_BOOTSTRAPPED` (metadata sanitizada).
+
+================================================================================
+5) Services
+================================================================================
+Criados:
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodService.java`
+  - validação por contexto/destino/valor
+  - listagem disponível por canal/destino (somente ACTIVE)
+
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodAdminService.java`
+  - PATCH/activate/deactivate
+  - regra default: não permitir desativar o último método ativo para PEDIDO
+  - auditoria via OperationalEventLog
+
+Property adicionada:
+- `consuma.financeiro.payment-methods.allow-no-active-method` (default false)
+Arquivo: `src/main/resources/application.properties`
+
+================================================================================
+6) DTOs
+================================================================================
+Criados:
+- `src/main/java/com/restaurante/dto/request/UpdateTenantPaymentMethodRequest.java`
+- `src/main/java/com/restaurante/dto/response/TenantPaymentMethodResponse.java`
+- `src/main/java/com/restaurante/dto/response/AvailablePaymentMethodResponse.java`
+
+================================================================================
+7) Endpoints
+================================================================================
+7.1 Tenant admin
+Criado controller:
+- `src/main/java/com/restaurante/financeiro/controller/TenantPaymentMethodController.java`
+
+Rotas:
+- `GET   /tenant/payment-methods`
+- `GET   /tenant/payment-methods/{code}`
+- `PATCH /tenant/payment-methods/{code}`
+- `POST  /tenant/payment-methods/{code}/activate`
+- `POST  /tenant/payment-methods/{code}/deactivate`
+
+RBAC:
+- listar/buscar: OWNER/ADMIN/FINANCE/CASHIER
+- alterar/ativar/desativar: OWNER/ADMIN/FINANCE
+- OPERATOR/KITCHEN ficam fora (por TenantGuard)
+
+7.2 Público (QR)
+Alterado controller:
+- `src/main/java/com/restaurante/controller/PublicQrController.java`
+
+Nova rota:
+- `GET /public/q/{token}/payment-methods?destination=PEDIDO|FUNDO_CONSUMO`
+
+7.3 Device (POS)
+Criado controller:
+- `src/main/java/com/restaurante/controller/DevicePaymentMethodController.java`
+
+Nova rota:
+- `GET /device/payment-methods?destination=PEDIDO|FUNDO_CONSUMO`
+
+================================================================================
+8) Integração com fluxos existentes (validações)
+================================================================================
+8.1 QR AppyPay (iniciar pagamento)
+Alterado:
+- `src/main/java/com/restaurante/service/PublicQrPagamentoService.java`
+Valida `APPYPAY` ACTIVE + enabledForQr + enabledForPedido antes de iniciar charge.
+
+8.2 POS AppyPay (iniciar pagamento)
+Alterado:
+- `src/main/java/com/restaurante/service/device/DevicePagamentoService.java`
+Valida `APPYPAY` ACTIVE + enabledForPos + enabledForPedido antes de iniciar charge.
+
+8.3 Ordens manuais CASH/TPA (criação via QR)
+Alterado:
+- `src/main/java/com/restaurante/service/ConsumoPublicService.java`
+Valida CASH/TPA ACTIVE + enabledForQr + destino (PEDIDO/FUNDO_CONSUMO) + min/max.
+Se método requer turno aberto e não existe turno aberto, bloqueia criação da ordem.
+
+8.4 Confirmação manual no POS
+Alterado:
+- `src/main/java/com/restaurante/service/device/DeviceOrdemPagamentoService.java`
+Revalida CASH/TPA ACTIVE + enabledForPos + destino no instante da confirmação.
+Se método foi desativado após criação da ordem, bloqueia confirmação.
+
+Regra explícita mantida:
+- Callback/polling AppyPay NÃO foi alterado (pagamentos já iniciados continuam confirmando).
+
+================================================================================
+9) Testes
+================================================================================
+Criados:
+- `src/test/java/com/restaurante/financeiro/TenantPaymentMethodAdminIT.java`
+  - OWNER lista métodos
+  - CASHIER não pode PATCH (403)
+
+- `src/test/java/com/restaurante/financeiro/PublicQrPaymentMethodsIT.java`
+  - endpoint público lista somente métodos ativos/habilitados para QR
+  - ao desativar APPYPAY, iniciar pagamento gateway por QR retorna 400
+
+Regressão:
+- `mvn test` passa com a suite existente.
+
+================================================================================
+10) Documentação
+================================================================================
+Criado:
+- `docs/tenant-core/38-metodos-pagamento-tenant-aware.md`
+
+================================================================================
+11) Comandos executados
+================================================================================
+- `mvn -q -DskipTests compile` -> OK
+- `mvn test` -> BUILD SUCCESS
+
+================================================================================
+12) Arquivos criados/alterados
+================================================================================
+Criados:
+- `src/main/resources/db/migration/V28__tenant_payment_methods.sql`
+- `src/main/java/com/restaurante/financeiro/paymentmethod/entity/TenantPaymentMethod.java`
+- `src/main/java/com/restaurante/financeiro/paymentmethod/repository/TenantPaymentMethodRepository.java`
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodBootstrapService.java`
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodService.java`
+- `src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodAdminService.java`
+- `src/main/java/com/restaurante/financeiro/controller/TenantPaymentMethodController.java`
+- `src/main/java/com/restaurante/controller/DevicePaymentMethodController.java`
+- `src/main/java/com/restaurante/dto/request/UpdateTenantPaymentMethodRequest.java`
+- `src/main/java/com/restaurante/dto/response/TenantPaymentMethodResponse.java`
+- `src/main/java/com/restaurante/dto/response/AvailablePaymentMethodResponse.java`
+- `src/main/java/com/restaurante/model/enums/Payment*` (vários, ver seção 3)
+- `docs/tenant-core/38-metodos-pagamento-tenant-aware.md`
+- `src/test/java/com/restaurante/financeiro/TenantPaymentMethodAdminIT.java`
+- `src/test/java/com/restaurante/financeiro/PublicQrPaymentMethodsIT.java`
+
+Alterados:
+- `src/main/java/com/restaurante/controller/PublicQrController.java`
+- `src/main/java/com/restaurante/service/PublicQrPagamentoService.java`
+- `src/main/java/com/restaurante/service/device/DevicePagamentoService.java`
+- `src/main/java/com/restaurante/service/ConsumoPublicService.java`
+- `src/main/java/com/restaurante/service/device/DeviceOrdemPagamentoService.java`
+- `src/main/java/com/restaurante/model/enums/OperationalEntityType.java`
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+- `src/main/resources/application.properties`
+
+================================================================================
+13) Decisões técnicas
+================================================================================
+- Bootstrap lazy (idempotente) para não depender de refactor no provisioning.
+- APPYPAY default:
+  - ACTIVE quando AppyPay está configurado no ambiente (ou mock);
+  - tenant pode desativar quando operar só com CASH/TPA.
+- Desativar método afeta novas operações:
+  - iniciações de AppyPay são bloqueadas se APPYPAY inativo;
+  - confirmações manuais no POS são bloqueadas se CASH/TPA estiverem inativos no momento da confirmação.
+- Callback/polling não valida método (não quebrar pendências já iniciadas).
+
+================================================================================
+14) Riscos restantes
+================================================================================
+- Configuração AppyPay ainda é global por ambiente (não por tenant) no estado atual; a camada tenant-aware controla “permitido/visível”, mas não credenciais distintas por tenant.
+- Políticas por unidade/device (ex: CASH permitido em uma unidade e não em outra) ainda não existem (futuro).
+
+================================================================================
+15) Checklist de aceitação (Prompt 38)
+================================================================================
+[x] Tabela `tenant_payment_methods` existe.
+[x] Métodos únicos por tenant/code.
+[x] CASH/TPA/APPYPAY têm defaults e bootstrap idempotente.
+[x] AppyPay pode ser desativado sem quebrar CASH/TPA.
+[x] CASH/TPA funcionam sem gateway.
+[x] Validação por QR/POS e por PEDIDO/FUNDO_CONSUMO.
+[x] Método inativo bloqueia iniciação (AppyPay) e confirmação manual (CASH/TPA).
+[x] Limites min/max validados.
+[x] Endpoints admin + endpoints public/device criados.
+[x] Auditoria registra alterações.
+[x] `mvn -q -DskipTests compile` passa.
+[x] `mvn test` passa.
+
+================================================================================
+16) Próximo prompt recomendado
+================================================================================
+Prompt 39 (sugestão): UI/admin mínimo de configuração de métodos + política por unidade/device (sem quebrar tenant-level).
+

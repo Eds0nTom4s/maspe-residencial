@@ -30,9 +30,14 @@ import java.util.List;
     @Index(name = "idx_subpedido_pedido", columnList = "pedido_id"),
     @Index(name = "idx_subpedido_cozinha", columnList = "cozinha_id"),
     @Index(name = "idx_subpedido_status", columnList = "status"),
-    @Index(name = "idx_subpedido_unidade", columnList = "unidade_atendimento_id")
+    @Index(name = "idx_subpedido_unidade", columnList = "unidade_atendimento_id"),
+    @Index(name = "idx_subpedido_tenant", columnList = "tenant_id")
 })
 public class SubPedido extends BaseEntity {
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
 
     /**
      * Número sequencial do SubPedido
@@ -66,6 +71,14 @@ public class SubPedido extends BaseEntity {
     @JoinColumn(name = "cozinha_id", nullable = false)
     @NotNull
     private Cozinha cozinha;
+
+    /**
+     * Unidade de produção responsável (tenant-aware).
+     * Nesta fase pode ser nula para subpedidos antigos (backfill incremental).
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "unidade_producao_id")
+    private UnidadeProducao unidadeProducao;
 
     /**
      * Status do SubPedido (independente)
@@ -118,6 +131,19 @@ public class SubPedido extends BaseEntity {
      */
     @Column(name = "responsavel_entrega", length = 100)
     private String responsavelEntrega;
+
+    @PrePersist
+    @PreUpdate
+    private void preencherTenantSeNecessario() {
+        if (tenant != null) return;
+        if (pedido == null) {
+            throw new IllegalStateException("SubPedido sem tenant e sem pedido.");
+        }
+        if (pedido.getTenant() == null) {
+            throw new IllegalStateException("SubPedido não conseguiu derivar tenant: pedido sem tenant.");
+        }
+        this.tenant = pedido.getTenant();
+    }
 
     /**
      * Calcula o total do SubPedido
@@ -213,6 +239,9 @@ public class SubPedido extends BaseEntity {
     public String getNumero() { return numero; }
     public void setNumero(String numero) { this.numero = numero; }
 
+    public Tenant getTenant() { return tenant; }
+    public void setTenant(Tenant tenant) { this.tenant = tenant; }
+
     public Pedido getPedido() { return pedido; }
     public void setPedido(Pedido pedido) { this.pedido = pedido; }
 
@@ -221,6 +250,9 @@ public class SubPedido extends BaseEntity {
 
     public Cozinha getCozinha() { return cozinha; }
     public void setCozinha(Cozinha cozinha) { this.cozinha = cozinha; }
+
+    public UnidadeProducao getUnidadeProducao() { return unidadeProducao; }
+    public void setUnidadeProducao(UnidadeProducao unidadeProducao) { this.unidadeProducao = unidadeProducao; }
 
     public StatusSubPedido getStatus() { return status; }
     public void setStatus(StatusSubPedido status) { this.status = status; }

@@ -15,20 +15,22 @@ import java.util.UUID;
     @Index(name = "idx_qrcode_token", columnList = "token", unique = true),
     @Index(name = "idx_qrcode_mesa", columnList = "mesa_id"),
     @Index(name = "idx_qrcode_status", columnList = "status"),
-    @Index(name = "idx_qrcode_expiracao", columnList = "expiraEm")
+    @Index(name = "idx_qrcode_expiracao", columnList = "expiraEm"),
+    @Index(name = "idx_qrcode_instituicao", columnList = "instituicao_id")
 })
 public class QrCodeToken extends BaseEntity {
 
     public QrCodeToken() {
     }
 
-    public QrCodeToken(String token, TipoQrCode tipo, StatusQrCode status, LocalDateTime expiraEm, Mesa mesa, Pedido pedido, LocalDateTime usadoEm, String usadoPor, String metadados) {
+    public QrCodeToken(String token, TipoQrCode tipo, StatusQrCode status, LocalDateTime expiraEm, Mesa mesa, Pedido pedido, Instituicao instituicao, LocalDateTime usadoEm, String usadoPor, String metadados) {
         this.token = token;
         this.tipo = tipo;
         this.status = status;
         this.expiraEm = expiraEm;
         this.mesa = mesa;
         this.pedido = pedido;
+        this.instituicao = instituicao;
         this.usadoEm = usadoEm;
         this.usadoPor = usadoPor;
         this.metadados = metadados;
@@ -74,6 +76,13 @@ public class QrCodeToken extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "pedido_id")
     private Pedido pedido;
+
+    /**
+     * Instituição proprietária do QR token.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "instituicao_id")
+    private Instituicao instituicao;
 
     /**
      * Data/hora de uso (quando foi utilizado)
@@ -210,6 +219,14 @@ public class QrCodeToken extends BaseEntity {
         this.pedido = pedido;
     }
 
+    public Instituicao getInstituicao() {
+        return instituicao;
+    }
+
+    public void setInstituicao(Instituicao instituicao) {
+        this.instituicao = instituicao;
+    }
+
     public LocalDateTime getUsadoEm() {
         return usadoEm;
     }
@@ -258,6 +275,7 @@ public class QrCodeToken extends BaseEntity {
         private LocalDateTime expiraEm;
         private Mesa mesa;
         private Pedido pedido;
+        private Instituicao instituicao;
         private LocalDateTime usadoEm;
         private String usadoPor;
         private String metadados;
@@ -292,6 +310,11 @@ public class QrCodeToken extends BaseEntity {
             return this;
         }
 
+        public QrCodeTokenBuilder instituicao(Instituicao instituicao) {
+            this.instituicao = instituicao;
+            return this;
+        }
+
         public QrCodeTokenBuilder usadoEm(LocalDateTime usadoEm) {
             this.usadoEm = usadoEm;
             return this;
@@ -308,7 +331,7 @@ public class QrCodeToken extends BaseEntity {
         }
 
         public QrCodeToken build() {
-            return new QrCodeToken(token, tipo, status, expiraEm, mesa, pedido, usadoEm, usadoPor, metadados);
+            return new QrCodeToken(token, tipo, status, expiraEm, mesa, pedido, instituicao, usadoEm, usadoPor, metadados);
         }
     }
 }

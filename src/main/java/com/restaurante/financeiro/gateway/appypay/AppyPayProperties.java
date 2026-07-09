@@ -83,20 +83,23 @@ public class AppyPayProperties {
     private String webhookSecret;
 
     /**
-     * Exige assinatura HMAC no callback. Manter false quando o merchant AppyPay
-     * não envia assinatura; se habilitado, callbacks sem assinatura são rejeitados.
+     * Define se a assinatura HMAC do webhook é obrigatória.
+     *
+     * <p>Algumas contas AppyPay usam apenas endpoint público sem assinatura.
+     * Quando false, o callback é aceite e a segurança fica dependente da
+     * referência externa/idempotência e do canal HTTPS.
      */
     private boolean webhookSignatureRequired = false;
-
-    /**
-     * Configuração da rotina de reconciliação de pagamentos pendentes.
-     */
-    private Reconciliation reconciliation = new Reconciliation();
 
     /**
      * Métodos de pagamento com IDs específicos
      */
     private Methods methods = new Methods();
+
+    /**
+     * Configuração da rotina de reconciliação de pagamentos pendentes.
+     */
+    private Reconciliation reconciliation = new Reconciliation();
 
     public String getBaseUrl() { return baseUrl; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
@@ -132,9 +135,7 @@ public class AppyPayProperties {
     public void setWebhookSecret(String webhookSecret) { this.webhookSecret = webhookSecret; }
 
     public boolean isWebhookSignatureRequired() { return webhookSignatureRequired; }
-    public void setWebhookSignatureRequired(boolean webhookSignatureRequired) {
-        this.webhookSignatureRequired = webhookSignatureRequired;
-    }
+    public void setWebhookSignatureRequired(boolean webhookSignatureRequired) { this.webhookSignatureRequired = webhookSignatureRequired; }
 
     public Methods getMethods() { return methods; }
     public void setMethods(Methods methods) { this.methods = methods; }

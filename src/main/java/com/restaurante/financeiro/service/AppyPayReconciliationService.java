@@ -7,6 +7,7 @@ import com.restaurante.financeiro.gateway.appypay.AppyPayClient;
 import com.restaurante.financeiro.gateway.appypay.AppyPayProperties;
 import com.restaurante.financeiro.gateway.appypay.AppyPayStatusMapper;
 import com.restaurante.financeiro.gateway.appypay.dto.AppyPayChargeResponse;
+import com.restaurante.financeiro.polling.PagamentoConfirmacaoService;
 import com.restaurante.financeiro.repository.PagamentoEventLogRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.Pagamento;
@@ -29,6 +30,7 @@ public class AppyPayReconciliationService {
     private final PagamentoGatewayRepository pagamentoRepository;
     private final PagamentoEventLogRepository eventLogRepository;
     private final PagamentoGatewayService pagamentoGatewayService;
+    private final PagamentoConfirmacaoService pagamentoConfirmacaoService;
     private final StorePaymentService storePaymentService;
     private final AppyPayClient appyPayClient;
     private final AppyPayProperties properties;
@@ -108,8 +110,19 @@ public class AppyPayReconciliationService {
                         "APPYPAY_RECONCILIACAO",
                         "SYSTEM",
                         null);
-            } else {
+            } else if (pagamento.isPosPago()) {
+                pagamentoConfirmacaoService.confirmarPosPagoPorGateway(
+                        pagamento.getId(),
+                        "APPYPAY_RECONCILIACAO",
+                        "SYSTEM",
+                        null,
+                        null);
+            } else if (pagamento.isStorePedido()) {
                 storePaymentService.confirmStorePayment(pagamento);
+            } else {
+                log.warn("[APPYPAY_RECONCILIACAO] Tipo de pagamento não suportado: id={}, tipo={}",
+                        pagamento.getId(), pagamento.getTipoPagamento());
+                return ResultadoReconcilicao.AGUARDANDO;
             }
             return ResultadoReconcilicao.CONFIRMADO;
         }

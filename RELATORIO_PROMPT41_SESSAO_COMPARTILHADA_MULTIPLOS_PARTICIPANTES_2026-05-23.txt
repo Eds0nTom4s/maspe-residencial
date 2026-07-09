@@ -1,0 +1,134 @@
+RELATÓRIO TÉCNICO — PROMPT 41
+Sessão compartilhada com múltiplos participantes
+Data: 2026-05-23
+
+1) RESUMO EXECUTIVO
+- Implementada a entidade `SessaoConsumoParticipante` para permitir múltiplos `ClienteConsumo` na mesma `SessaoConsumo`.
+- Implementado fluxo público por QR operacional para: solicitar OTP (join request), validar OTP (join verify) e listar participantes.
+- Implementada atribuição opcional de `Pedido` a participante (`Pedido.sessaoParticipante` + `Pedido.clienteConsumo`) preservando pedido anónimo.
+- Implementado endpoint device/POS para listar participantes de uma sessão (tenant-safe e unidade-safe).
+- Pagamento permanece no nível da sessão (sem split).
+- Dívida técnica do Prompt 40.5 registrada em comentários/TODO, sem alterar comportamento do replay assíncrono.
+
+2) COMENTÁRIOS/TODO ADICIONADOS (DÍVIDA TÉCNICA — PROMPT 40.5)
+- Registrado TODO “Prompt 40.5: cancelamento controlado de replay operations” nos pontos pedidos:
+  - `src/main/java/com/restaurante/service/tenant/offline/DeviceOfflineReplayAsyncWorkerService.java`
+  - `src/main/java/com/restaurante/device/offline/job/DeviceOfflineReplayAsyncJob.java`
+  - `src/main/java/com/restaurante/service/tenant/offline/TenantOfflineSyncReplayAsyncService.java`
+  - `src/main/java/com/restaurante/device/offline/entity/DeviceOfflineReplayOperation.java`
+  - `src/main/java/com/restaurante/model/enums/DeviceOfflineReplayOperationStatus.java`
+  - Docs `docs/tenant-core/40-4-replay-assincrono-operationid-progress-rate-limit.md`
+
+3) MIGRATIONS CRIADAS
+- `src/main/resources/db/migration/V41__sessao_consumo_participantes.sql`
+  - cria tabela `sessao_consumo_participantes`
+  - adiciona em `pedidos`:
+    - `sessao_participante_id`
+    - `cliente_consumo_id`
+  - adiciona FKs e índices.
+
+4) ENTIDADES/ENUMS CRIADOS
+- Enums:
+  - `src/main/java/com/restaurante/model/enums/SessaoParticipanteRole.java` (OWNER/MEMBER/GUEST)
+  - `src/main/java/com/restaurante/model/enums/SessaoParticipanteStatus.java` (INVITED/PENDING_OTP/ACTIVE/…)
+  - `src/main/java/com/restaurante/model/enums/OtpPurpose.java` (+ `ENTRAR_SESSAO_COMPARTILHADA`)
+- Entidade:
+  - `src/main/java/com/restaurante/consumo/participante/entity/SessaoConsumoParticipante.java`
+- Ajustes em enums operacionais:
+  - `src/main/java/com/restaurante/model/enums/OperationalEntityType.java` (+ `SESSAO_CONSUMO_PARTICIPANTE`)
+  - `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+    - `SESSAO_PARTICIPANTE_JOIN_REQUESTED`
+    - `SESSAO_PARTICIPANTE_JOIN_VERIFIED`
+    - `SESSAO_PARTICIPANTE_ADDED`
+    - `SESSAO_PARTICIPANTE_LEFT/REMOVED/BLOCKED` (reservados)
+    - `PEDIDO_ATRIBUIDO_PARTICIPANTE`
+
+5) REPOSITORIES / SERVICES
+- Repository:
+  - `src/main/java/com/restaurante/consumo/participante/repository/SessaoConsumoParticipanteRepository.java`
+- Service:
+  - `src/main/java/com/restaurante/consumo/participante/service/SessaoConsumoParticipanteService.java`
+    - `requestJoinByQr(...)`
+    - `verifyJoinOtp(...)`
+    - `listByQr(...)`
+    - validações tenant-safe + session-safe + OTP purpose/session match
+    - role assignment:
+      - se sessão já tem `clienteConsumo`: garante participante OWNER desse cliente
+      - senão: primeiro participante vira OWNER e a sessão passa a ter cliente principal
+
+6) DTOs / ENDPOINTS
+- Públicos (QR operacional):
+  - Controller: `src/main/java/com/restaurante/controller/PublicSessaoParticipanteController.java`
+  - `POST /public/q/{token}/participantes/join/request`
+  - `POST /public/q/{token}/participantes/join/verify`
+  - `GET  /public/q/{token}/participantes`
+  - Requests:
+    - `src/main/java/com/restaurante/dto/request/PublicSessaoParticipanteJoinRequest.java`
+    - `src/main/java/com/restaurante/dto/request/PublicSessaoParticipanteJoinVerifyRequest.java`
+  - Responses:
+    - `src/main/java/com/restaurante/dto/response/PublicSessaoParticipanteJoinVerifyResponse.java`
+    - `src/main/java/com/restaurante/dto/response/PublicSessaoParticipantesResponse.java`
+- Device/POS:
+  - Controller: `src/main/java/com/restaurante/controller/DeviceSessaoParticipanteController.java`
+  - `GET /device/sessoes-consumo/{sessaoId}/participantes`
+  - Response:
+    - `src/main/java/com/restaurante/dto/response/DeviceSessaoParticipantesResponse.java`
+
+7) PEDIDO ATRIBUÍDO A PARTICIPANTE
+- DTO:
+  - `src/main/java/com/restaurante/dto/request/CriarPedidoRequest.java` (+ `participanteId` opcional)
+- Entidade:
+  - `src/main/java/com/restaurante/model/entity/Pedido.java` (+ `sessaoParticipante`, `clienteConsumo`)
+- Validação / atribuição:
+  - `src/main/java/com/restaurante/service/PedidoService.java`
+    - se `participanteId` informado:
+      - valida ACTIVE
+      - valida pertence à sessão
+      - seta `Pedido.sessaoParticipante` e `Pedido.clienteConsumo`
+      - audita `PEDIDO_ATRIBUIDO_PARTICIPANTE`
+    - sem `participanteId`: fluxo atual preservado (pedido anónimo continua).
+
+8) SEGURANÇA / PRIVACIDADE
+- Público:
+  - join/list via QR operacional tenant-safe.
+  - list público retorna apenas dados mínimos (sem telefone).
+- OTP:
+  - reutiliza `TelefoneOtpService` (online-only).
+  - challenge purpose = `ENTRAR_SESSAO_COMPARTILHADA`.
+  - valida challenge pertence à sessão (mismatch falha).
+- Device:
+  - tenant vem do `DevicePrincipal`.
+  - mesma unidade (MVP) para listagem; sessão de outra unidade retorna 404.
+
+9) AUDITORIA
+- join request/verify auditados com telefone mascarado (sem OTP/otpHash).
+- pedido atribuído auditado sem dados sensíveis.
+
+10) TESTES CRIADOS/ALTERADOS
+- `src/test/java/com/restaurante/consumo/SessaoConsumoParticipanteServiceTest.java`
+  - primeiro participante vira OWNER quando sessão não tem principal
+  - participante vira MEMBER quando sessão já tem principal
+
+11) DOCUMENTAÇÃO
+- `docs/tenant-core/41-sessao-compartilhada-multiplos-participantes.md`
+
+12) COMANDOS (A EXECUTAR) — OBRIGATÓRIOS
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+Resultado:
+- `mvn -q -DskipTests compile`: OK (exit code 0)
+- `mvn test`: BUILD SUCCESS
+  - Observação do ambiente: Testcontainers/Docker indisponível; vários ITs são SKIPPED (comportamento já existente).
+  - Resumo do Maven: `Tests run: 376, Failures: 0, Errors: 0, Skipped: 208`
+
+13) ITENS NÃO COBERTOS (POR ESCOPO)
+- Split de pagamento.
+- Pagamento individual por participante.
+- Aprovação complexa do OWNER.
+- Leave público com prova forte de posse (fluxo avançado).
+- Gestão completa de participantes via POS/admin (add/remove).
+- Prompt 40.5 (cancelamento do replay assíncrono) — apenas registrado como dívida.
+
+14) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 41.1: “Participantes assistidos no POS” (add/remove por device + capability explícita + auditoria).

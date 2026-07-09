@@ -43,7 +43,14 @@ class PosPagoServiceTest {
     private ConfiguracaoFinanceiraSistemaRepository configuracaoRepository;
 
     @Mock
+    private EventLogService eventLogService;
+
+    @Mock
     private AuditoriaFinanceiraService auditoriaFinanceiraService;
+
+    @Mock
+    private PedidoPagamentoPolicy pedidoPagamentoPolicy;
+
     @InjectMocks
     private PedidoFinanceiroService pedidoFinanceiroService;
 

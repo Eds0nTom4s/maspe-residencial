@@ -1,0 +1,309 @@
+CONSUMA - BACKEND - RELATORIO IT-FIX-008-B
+Fixtures unicas e cleanup dos fluxos publicos/QR/provisioning
+Data: 2026-06-02
+
+1. Resumo executivo
+
+A subfase IT-FIX-008-B foi concluida com sucesso preservando PostgreSQL, Flyway, Testcontainers,
+constraints e regras reais de dominio. O cluster de fixtures duplicadas, rotas publicas quebradas,
+setup incompleto de QR/sessao/mesa e pre-condicoes ausentes foi isolado, corrigido e revalidado
+com sublote 008-B verde, grupos incrementais verdes, baseline `mvn clean test` verde e 008-A
+reexecutada sem regressao.
+
+2. Branch e commit inicial
+
+- Repositorio: Eds0nTom4s/maspe-residencial
+- Branch de trabalho: restauracao-antes-da-loja
+- HEAD inicial da subfase 008-B: 5a3f1a9
+- Commit de referencia herdado da 008-A:
+  - 5a3f1a9 Fix IT auth RBAC for payment policy and finance suites
+- Ultimos commits vistos no inicio:
+  - 5a3f1a9 Fix IT auth RBAC for payment policy and finance suites
+  - 26b9fbf Restore IT-FIX-005 report content
+  - 419fb00 Fix IT PostgreSQL queries JSONB and KDS bootstrap
+  - 21cf37f Fix IT PostgreSQL queries JSONB and KDS bootstrap
+  - a803469 Fix IT device auth secrets and 401 handling
+
+3. Baseline antes
+
+- `git status -sb`: branch alinhada com `origin/restauracao-antes-da-loja`
+- Arquivo fora do escopo mantido fora:
+  - RELATORIO_CONSUMA_BACKEND_IT_FIX_007_RODADA_AMPLA_FINAL_SUITE_IT_2026_06_02.txt
+- `git diff --check`: sem whitespace errors
+- Baseline minimo previamente confirmado nesta sessao antes das correcoes finais:
+  - `mvn clean test`: BUILD SUCCESS
+  - `DockerAvailabilityIT`: BUILD SUCCESS
+  - `TenantCorePersistenceIT`: BUILD SUCCESS
+  - subset 008-A: BUILD SUCCESS
+
+4. Resultado inicial do sublote 008-B
+
+Comando inicial de reproducao:
+
+`mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PlatformBusinessTemplateControllerIT,TenantProvisioningRollbackIT,PaymentPolicyRolloutProgressAuditIT,DeviceConsumoIdentificadoAssistidoIT,PagamentoCallbackTenantAwareIT,PublicQrCardapioIT,PublicQrPagamentoStartIT,PublicQrPedidoIdempotencyIT,PublicOwnerTokenActionControllerIT,PublicQrPedidoSessaoMesaIT,TenantCorePersistenceIT,CatalogTenantIsolationIT" test-compile failsafe:integration-test failsafe:verify`
+
+Resultado inicial:
+
+- 39 tests
+- 9 failures
+- 10 errors
+- BUILD FAILURE
+- finalizado em: 2026-06-02T12:20:24+01:00
+
+5. Ranking de falhas
+
+- QR/sessao/pedido inconsistentes
+  - classes: `PublicQrCardapioIT`, `PublicQrPagamentoStartIT`, `PublicQrPedidoIdempotencyIT`, `PublicQrPedidoSessaoMesaIT`, `PublicOwnerTokenActionControllerIT`
+  - causa dominante: testes ainda apontando para `/api/public/q/...` enquanto o controller real publica `/public/q/...`
+  - origem provavel: drift de contrato HTTP dos testes publicos
+
+- tenant_id nulo em mesas / setup relacional incompleto
+  - classe: `PublicQrPedidoSessaoMesaIT`
+  - causa dominante: fixtures de `Mesa` e `SessaoConsumo` sem tenant coerente e sem amarracao completa com unidade/QR
+  - origem provavel: setup funcional incompleto
+
+- tenantCode/sigla/NIF/slug/telefone/email fixos
+  - classes: `TenantProvisioningRollbackIT`, `PagamentoCallbackTenantAwareIT`, `DeviceConsumoIdentificadoAssistidoIT`, `PublicQrCardapioIT`, `PublicQrPagamentoStartIT`, `PublicQrPedidoIdempotencyIT`, `PublicOwnerTokenActionControllerIT`
+  - causa dominante: colisao potencial em suite ampla com identificadores previsiveis
+  - origem provavel: fixture fixa em testes de integracao
+
+- owner token public actions
+  - classe: `PublicOwnerTokenActionControllerIT`
+  - causas confirmadas:
+    - endpoint antigo `/api/public/q`
+    - falta de `telefoneNormalizado` nos participantes
+    - assercoes antigas esperando wrapper `ApiResponse` em endpoints que hoje retornam payload direto no sucesso
+  - origem provavel: evolucao do controller sem ajuste do teste
+
+- rollout/provisioning
+  - classe: `PaymentPolicyRolloutProgressAuditIT`
+  - causa dominante: submit de rollout para template `KDS_SEM_PAGAMENTO` sem device alvo disponivel
+  - erro observado: `Nenhum device alvo encontrado para rollout.`
+  - origem provavel: pre-condicao funcional ausente
+
+- rollback/provisioning
+  - classe: `TenantProvisioningRollbackIT`
+  - risco original do cluster: colisoes com `PP1`, `sigla` fixa e `NIF` fixo
+  - estado na sessao: saneado com dados unicos e duplicidade intencional isolada ao proprio teste
+
+- FK cleanup
+  - risco original do cluster: ordem incorreta ao remover `sessoes_consumo` ainda referenciada por `pedidos`
+  - estado na sessao: evitado privilegiando isolamento por tenant/fixture unica em vez de limpeza destrutiva em massa
+
+6. Arquivos alterados
+
+- src/test/java/com/restaurante/consumo/DeviceConsumoIdentificadoAssistidoIT.java
+- src/test/java/com/restaurante/consumo/PublicConsumoIdentificadoIT.java
+- src/test/java/com/restaurante/consumo/PublicConsumoRecuperacaoIT.java
+- src/test/java/com/restaurante/consumo/PublicOwnerTokenActionControllerIT.java
+- src/test/java/com/restaurante/financeiro/PagamentoCallbackInvalidSignatureIT.java
+- src/test/java/com/restaurante/financeiro/PagamentoCallbackTenantAwareIT.java
+- src/test/java/com/restaurante/financeiro/PaymentPolicyRolloutProgressAuditIT.java
+- src/test/java/com/restaurante/financeiro/PublicQrPaymentMethodsIT.java
+- src/test/java/com/restaurante/provisioning/TenantProvisioningRollbackIT.java
+- src/test/java/com/restaurante/qr/PublicQrCardapioIT.java
+- src/test/java/com/restaurante/qr/PublicQrPagamentoStartIT.java
+- src/test/java/com/restaurante/qr/PublicQrPedidoIT.java
+- src/test/java/com/restaurante/qr/PublicQrPedidoIdempotencyIT.java
+- src/test/java/com/restaurante/qr/PublicQrPedidoSessaoMesaIT.java
+
+7. Helpers criados/alterados
+
+- nenhum novo helper foi criado
+- `UniqueTestData` foi padronizado e reutilizado nas fixtures do cluster
+- `FinanceiroItFixtureSupport` existente foi reaproveitado no `PaymentPolicyRolloutProgressAuditIT` para criar device KDS valido
+
+8. Correc oes por classe
+
+- `PaymentPolicyRolloutProgressAuditIT`
+  - passou a criar um KDS real via `FinanceiroItFixtureSupport` antes do submit do rollout
+  - eliminou erro `Nenhum device alvo encontrado para rollout`
+
+- `PublicOwnerTokenActionControllerIT`
+  - rotas atualizadas de `/api/public/q/...` para `/public/q/...`
+  - fixtures do owner/member passaram a persistir `telefoneNormalizado`
+  - assercoes alinharam com o payload real do controller:
+    - sucesso sem wrapper `ApiResponse`
+    - erro com `ErrorResponse`
+  - expectativa de dominio atualizada de `PARTICIPANTE_ESTADO_INVALIDO` para `PARTICIPANT_ALREADY_ACTIVE`
+
+- `PublicQrPedidoSessaoMesaIT`
+  - `Mesa` passou a receber `tenant`
+  - `SessaoConsumo` passou a receber `tenant`
+  - QR, categoria e identificadores passaram a ser unicos por execucao
+
+- `PublicQrCardapioIT`
+  - fixture passou a usar tenant/instituicao/categoria unicos
+  - rota publica corrigida para `/public/q/...`
+
+- `PublicQrPagamentoStartIT`
+  - fixture passou a usar tenant/instituicao/categoria unicos
+  - rota publica corrigida para `/public/q/...`
+
+- `PublicQrPedidoIdempotencyIT`
+  - fixture passou a usar tenant/instituicao/categoria unicos
+  - rota publica corrigida para `/public/q/...`
+
+- `PublicQrPedidoIT`
+  - rota publica corrigida para `/public/q/...`
+
+- `PublicConsumoIdentificadoIT`
+  - rota publica corrigida para `/public/q/...`
+
+- `PublicConsumoRecuperacaoIT`
+  - rota publica corrigida para `/public/q/...`
+
+- `PagamentoCallbackInvalidSignatureIT`
+  - rota publica corrigida para `/public/q/...` quando aplicavel ao fluxo QR/pagamento
+
+- `PublicQrPaymentMethodsIT`
+  - rota publica corrigida para `/public/q/...`
+
+- `PagamentoCallbackTenantAwareIT`
+  - tenant, instituicao e categoria passaram a ser gerados com `UniqueTestData`
+
+- `DeviceConsumoIdentificadoAssistidoIT`
+  - tenant, instituicao e codigo de dispositivo passaram a ser unicos
+
+- `TenantProvisioningRollbackIT`
+  - tenant/slug/code/sigla/NIF/email/telefone passaram a ser unicos
+  - a duplicidade de conflito permaneceu intencional e isolada dentro do proprio teste
+
+9. O que NAO foi alterado
+
+- nao removeu constraints
+- nao relaxou indices unicos
+- nao trocou PostgreSQL por H2
+- nao desativou Flyway
+- nao pulou testes
+- nao usou `@DirtiesContext` em massa
+- nao fez limpeza global perigosa de tabelas
+- nao mexeu nas regras de auth/RBAC estabilizadas na 008-A
+
+10. Resultado dos grupos
+
+- provisioning/template
+  - comando:
+    `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PlatformBusinessTemplateControllerIT,TenantProvisioningRollbackIT,CatalogTenantIsolationIT" test-compile failsafe:integration-test failsafe:verify`
+  - resultado:
+    - 10 tests
+    - 0 failures
+    - 0 errors
+    - BUILD SUCCESS
+    - tempo total: 02:42
+    - finalizado em: 2026-06-02T13:33:30+01:00
+  - observacao:
+    - apareceu warning de encerramento do fork/scheduler no shutdown, sem impacto no resultado final do build
+
+- public QR
+  - comando:
+    `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PublicQrCardapioIT,PublicQrPagamentoStartIT,PublicQrPedidoIdempotencyIT,PublicQrPedidoSessaoMesaIT,PublicOwnerTokenActionControllerIT" test-compile failsafe:integration-test failsafe:verify`
+  - resultado:
+    - 18 tests
+    - 0 failures
+    - 0 errors
+    - BUILD SUCCESS
+    - tempo total: 02:11
+    - finalizado em: 2026-06-02T13:40:45+01:00
+
+- callback/device/consumo
+  - comando:
+    `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="DeviceConsumoIdentificadoAssistidoIT,PagamentoCallbackTenantAwareIT,PaymentPolicyRolloutProgressAuditIT" test-compile failsafe:integration-test failsafe:verify`
+  - resultado:
+    - 4 tests
+    - 0 failures
+    - 0 errors
+    - BUILD SUCCESS
+    - tempo total: 02:12
+    - finalizado em: 2026-06-02T13:43:32+01:00
+
+11. Resultado consolidado 008-B
+
+Comando:
+
+`mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PlatformBusinessTemplateControllerIT,TenantProvisioningRollbackIT,PaymentPolicyRolloutProgressAuditIT,DeviceConsumoIdentificadoAssistidoIT,PagamentoCallbackTenantAwareIT,PublicQrCardapioIT,PublicQrPagamentoStartIT,PublicQrPedidoIdempotencyIT,PublicOwnerTokenActionControllerIT,PublicQrPedidoSessaoMesaIT,TenantCorePersistenceIT,CatalogTenantIsolationIT" test-compile failsafe:integration-test failsafe:verify`
+
+Resultado:
+
+- 39 tests
+- 0 failures
+- 0 errors
+- 0 skipped
+- BUILD SUCCESS
+- tempo total: 03:30
+- finalizado em: 2026-06-02T13:30:04+01:00
+
+12. Resultado de `mvn clean test`
+
+- 331 tests
+- 0 failures
+- 0 errors
+- 3 skipped
+- BUILD SUCCESS
+- tempo total: 06:40
+- finalizado em: 2026-06-02T13:50:23+01:00
+
+13. Resultado de `DockerAvailabilityIT`
+
+- 1 test
+- 0 failures
+- 0 errors
+- 0 skipped
+- BUILD SUCCESS
+- tempo total: 10.697 s
+- finalizado em: 2026-06-02T13:50:47+01:00
+
+14. Resultado de `TenantCorePersistenceIT`
+
+- 7 tests
+- 0 failures
+- 0 errors
+- 0 skipped
+- BUILD SUCCESS
+- tempo total: 01:25
+- finalizado em: 2026-06-02T13:52:29+01:00
+
+15. Resultado de reexecucao da 008-A
+
+- comando:
+  `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PaymentMethodPolicyAdminRbacIT,PaymentMethodPolicyAppyPayIT,PaymentMethodPolicyInheritanceIT,PaymentMethodUnitPolicyIT,PaymentPolicyAsyncRolloutIdempotencyIT,PaymentPolicyAsyncRolloutRerunIT,PaymentPolicyAsyncRolloutStatusIT,PaymentPolicyAsyncRolloutSubmitIT,PaymentPolicyAsyncRolloutWorkerIT,PaymentPolicyRolloutApplyIT,PaymentPolicyRolloutBackoffIT,PaymentPolicyRolloutCancelIT,PaymentPolicyRolloutOverwriteModeIT,PaymentPolicyRolloutRerunHardeningIT,PaymentPolicyRolloutStaleLockRecoveryIT,PaymentPolicyTemplateAdminIT,PaymentPolicyTemplateRbacIT,CaixaTurnoRelatorioIT,EvidenceBundleWormTriggerIT,PagamentoGatewayPollingIT,SnapshotEvidenceBundleIT,SnapshotFinanceiroExportSignatureDisabledIT,SnapshotKeyDisabledIT,SnapshotKeyRotationIT" test-compile failsafe:integration-test failsafe:verify`
+- resultado:
+  - 31 tests
+  - 0 failures
+  - 0 errors
+  - 0 skipped
+  - BUILD SUCCESS
+  - tempo total: 03:37
+  - finalizado em: 2026-06-02T13:56:21+01:00
+
+16. Pendencias
+
+- IT-FIX-008-C: Optional/lista vazia/lazy loading/recurso ausente
+- rodada ampla posterior de `mvn -Pit verify`
+- decidir se o warning de shutdown observado no grupo provisioning/template merece hardening isolado ou apenas monitoracao
+
+17. Riscos
+
+- o grupo provisioning/template exibiu ruído de shutdown de scheduler/fork ao encerrar contexto; o build ficou verde, mas vale monitorar na rodada ampla
+- alguns testes publicos QR dependem de bastante bootstrap de contexto; a rodada ampla completa segue necessaria para capturar interacoes cruzadas fora do sublote 008-B
+
+18. Decisao
+
+APROVADO
+
+A subfase IT-FIX-008-B fechou com:
+
+- duplicate fixtures isoladas/removidas do sublote
+- setup tenant-safe de mesa/sessao/QR corrigido
+- owner token public actions estabilizado
+- rollout progress audit com pre-condicao funcional valida
+- sublote 008-B verde
+- grupos incrementais verdes
+- `mvn clean test` verde
+- `DockerAvailabilityIT` verde
+- `TenantCorePersistenceIT` verde
+- 008-A verde novamente
+
+19. Proximo passo recomendado
+
+- IT-FIX-008-C Optional/lista vazia/lazy loading/recurso ausente

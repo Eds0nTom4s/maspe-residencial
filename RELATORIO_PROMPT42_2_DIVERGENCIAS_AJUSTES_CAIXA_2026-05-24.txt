@@ -1,0 +1,124 @@
+RELATÓRIO PROMPT 42.2 — DIVERGÊNCIAS, AJUSTES FORMAIS E JUSTIFICATIVAS FINANCEIRAS (CAIXA OPERADOR/DEVICE)
+Data: 2026-05-24
+
+1) RESUMO EXECUTIVO
+- Implementada governança formal de divergências CASH/TPA no fecho de caixa por operador/device, sem permitir edição informal de valores do caixa CLOSED.
+- Divergências são registradas em DRAFT e seguem fluxo DRAFT → SUBMITTED → APPROVED/REJECTED, com auditoria sanitizada.
+- Aprovação pode gerar Ajuste formal (CaixaOperadorAdjustment) sem alterar valores originais do CaixaOperadorSession.
+- Evidence Bundle passa a incluir seção de divergências/ajustes (operatorCashDivergenceEvidence) e enriquece operatorCashEvidence.sessions com contadores/flags.
+- Mantido: AppyPay, callback/polling, offline/replay, WORM/evidence bundle (compatibilidade), snapshot financeiro existente.
+
+2) MIGRATIONS
+- Criada: src/main/resources/db/migration/V47__caixa_operador_divergencias_ajustes.sql
+  - Tabelas: caixa_operador_divergences, caixa_operador_adjustments
+  - Índices: filtros por tenant/status/turno/device/operador + unique parcial para divergências abertas
+
+3) ENTIDADES / ENUMS
+- Entidades:
+  - src/main/java/com/restaurante/model/entity/CaixaOperadorDivergence.java
+  - src/main/java/com/restaurante/model/entity/CaixaOperadorAdjustment.java
+- Enums:
+  - CaixaOperadorDivergenceStatus / Type / Severity / ReasonCategory / PaymentMethod
+  - CaixaOperadorAdjustmentType / Direction / Status
+
+4) REPOSITORIES
+- Divergences: src/main/java/com/restaurante/financeiro/caixa/divergence/repository/CaixaOperadorDivergenceRepository.java
+- Adjustments: src/main/java/com/restaurante/financeiro/caixa/divergence/repository/CaixaOperadorAdjustmentRepository.java
+
+5) SERVICES / REGRAS
+- Divergência (core): src/main/java/com/restaurante/financeiro/caixa/divergence/service/CaixaOperadorDivergenceService.java
+  - autoCreateDraftsIfNeeded():
+    - cria divergências DRAFT para CASH e/ou TPA quando diferença != 0
+    - cria MIXED_DIFFERENCE quando CASH e TPA diferem simultaneamente
+    - marca CaixaOperadorSession como DISPUTED quando aplicável
+  - justifyByDevice() + submitByDevice() com capabilities explícitas
+  - approveByTenant() + rejectByTenant() (roles TENANT_OWNER/ADMIN/FINANCE)
+  - approve pode criar CaixaOperadorAdjustment (status APPROVED) sem alterar valores do caixa
+- Integração no fecho:
+  - src/main/java/com/restaurante/financeiro/caixa/service/CaixaOperadorSessionService.java
+    - após fechar: cria divergências formais automaticamente
+
+6) CAPABILITIES / DEFAULTS
+- Atualizado: src/main/java/com/restaurante/model/enums/DeviceCapability.java
+  - VIEW_OPERATOR_CASH_DIVERGENCE, JUSTIFY_OPERATOR_CASH_DIVERGENCE, SUBMIT_OPERATOR_CASH_DIVERGENCE, REVIEW_OPERATOR_CASH_DIVERGENCE, VIEW_OPERATOR_CASH_ADJUSTMENT
+- Atualizado defaults:
+  - src/main/java/com/restaurante/device/capability/service/DeviceCapabilityDefaults.java
+    - POS_CAIXA: view/justify/submit divergências
+    - POS_ATENDIMENTO: view divergências
+
+7) AUDITORIA
+- Atualizado: src/main/java/com/restaurante/model/enums/OperationalEventType.java
+  - eventos de divergência/ajuste + anexação ao evidence bundle (sanitizado)
+
+8) ENDPOINTS
+Device:
+- GET  /device/caixa-operador/divergences?caixaId=...
+- GET  /device/caixa-operador/divergences/{divergenceId}
+- POST /device/caixa-operador/divergences/{divergenceId}/justify
+- POST /device/caixa-operador/divergences/{divergenceId}/submit
+
+Tenant/admin:
+- GET  /tenant/caixa-operador/divergences?status=...
+- GET  /tenant/caixa-operador/divergences/{divergenceId}
+- GET  /tenant/caixa-operador/{caixaId}/divergences
+- POST /tenant/caixa-operador/divergences/{divergenceId}/approve
+- POST /tenant/caixa-operador/divergences/{divergenceId}/reject
+- GET  /tenant/caixa-operador/adjustments
+
+Controllers:
+- src/main/java/com/restaurante/controller/DeviceCaixaOperadorDivergenceController.java
+- src/main/java/com/restaurante/controller/TenantCaixaOperadorDivergenceController.java
+
+9) EVIDENCE BUNDLE (42.2)
+- DTO extendido:
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/SnapshotFinanceiroEvidenceBundleResponse.java
+    - novo campo: operatorCashDivergenceEvidence
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/OperatorCashSessionEvidenceItemDTO.java
+    - novos contadores/flags por caixa
+- Service:
+  - src/main/java/com/restaurante/financeiro/caixa/divergence/evidence/service/CaixaOperadorDivergenceEvidenceService.java
+    - gera hashes determinísticos divergenceHash/adjustmentHash
+    - enriquece operatorCashEvidence.sessions com stats
+- Integração:
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/service/SnapshotFinanceiroEvidenceBundleService.java
+
+10) TESTES
+- Criados:
+  - src/test/java/com/restaurante/financeiro/CaixaOperadorDivergenceServiceTest.java
+  - src/test/java/com/restaurante/financeiro/CaixaOperadorDivergenceEvidenceServiceTest.java
+- Atualizado:
+  - src/test/java/com/restaurante/financeiro/SnapshotEvidenceBundleTest.java
+
+11) DOCUMENTAÇÃO
+- Criada:
+  - docs/tenant-core/42-2-divergencias-ajustes-caixa.md
+- Atualizada:
+  - docs/tenant-core/42-1-caixa-operador-evidence-bundle.md
+
+12) COMANDOS EXECUTADOS / RESULTADO
+- mvn -q -DskipTests compile
+  - OK (exit 0)
+- mvn test
+  - BUILD SUCCESS
+  - Tests run: 497, Failures: 0, Errors: 0, Skipped: 223 (skips por ausência de Docker/Testcontainers)
+
+13) ITENS NÃO COBERTOS (POR ESCOPO)
+- Anexos binários/comprovativos (42.3).
+- UI.
+- Recalcular bundles antigos.
+
+14) CHECKLIST DE ACEITAÇÃO (STATUS)
+[x] Existe entidade/tabela de divergência de caixa
+[x] Existe entidade/tabela de ajuste formal
+[x] Fechamento de caixa com diferença cria divergência
+[x] Diferença zero não cria divergência
+[x] CASH/TPA shortage/surplus são classificados
+[x] Severity calculada por threshold
+[x] Divergência aberta não duplica (unique parcial)
+[x] Operador (device) pode justificar/submeter divergência
+[x] Finance/admin aprova/rejeita (tenant roles)
+[x] Ajuste não altera valores originais do caixa
+[x] Evidence Bundle inclui resumo de divergências/ajustes em novos bundles
+[x] Hashes determinísticos para divergência/ajuste
+[x] mvn -q -DskipTests compile passa
+[x] mvn test passa

@@ -4,27 +4,40 @@ import com.restaurante.dto.request.AbrirSessaoRequest;
 import com.restaurante.dto.response.SessaoConsumoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
+import com.restaurante.financeiro.enums.StatusPagamentoGateway;
+import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.*;
+import com.restaurante.model.enums.ExpiracaoSessaoResultado;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSessaoConsumo;
+import com.restaurante.model.enums.TipoEventoSessao;
 import com.restaurante.repository.AtendenteRepository;
+import com.restaurante.repository.EventoSessaoRepository;
+import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.MesaRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.util.PhoneNumberUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.restaurante.notificacao.service.NotificacaoService;
+import com.restaurante.consumo.participante.service.SessaoOwnerActionTokenService;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -66,11 +79,15 @@ public class SessaoConsumoService {
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final FundoConsumoService fundoConsumoService;
     private final PedidoFinanceiroService pedidoFinanceiroService;
-
     private final PedidoRepository pedidoRepository;
     private final QrCodeService qrCodeService;
     private final NotificacaoService notificacaoService;
     private final InstituicaoRepository instituicaoRepository;
+    private final EventoSessaoRepository eventoSessaoRepository;
+    private final FundoConsumoRepository fundoConsumoRepository;
+    private final PagamentoGatewayRepository pagamentoGatewayRepository;
+    private final SessaoOwnerActionTokenService ownerTokenService;
+    private static final Pattern CODIGO_NUMERICO_MESA = Pattern.compile(".*(?:MESA[-\\s]?)(\\d+)$");
 
     public SessaoConsumoService(SessaoConsumoRepository sessaoConsumoRepository,
                                 MesaRepository mesaRepository,
@@ -82,7 +99,11 @@ public class SessaoConsumoService {
                                 PedidoRepository pedidoRepository,
                                 QrCodeService qrCodeService,
                                 NotificacaoService notificacaoService,
-                                InstituicaoRepository instituicaoRepository) {
+                                InstituicaoRepository instituicaoRepository,
+                                EventoSessaoRepository eventoSessaoRepository,
+                                FundoConsumoRepository fundoConsumoRepository,
+                                PagamentoGatewayRepository pagamentoGatewayRepository,
+                                SessaoOwnerActionTokenService ownerTokenService) {
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.mesaRepository = mesaRepository;
         this.clienteService = clienteService;
@@ -94,6 +115,10 @@ public class SessaoConsumoService {
         this.qrCodeService = qrCodeService;
         this.notificacaoService = notificacaoService;
         this.instituicaoRepository = instituicaoRepository;
+        this.eventoSessaoRepository = eventoSessaoRepository;
+        this.fundoConsumoRepository = fundoConsumoRepository;
+        this.pagamentoGatewayRepository = pagamentoGatewayRepository;
+        this.ownerTokenService = ownerTokenService;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -114,6 +139,7 @@ public class SessaoConsumoService {
 
         SessaoConsumo.SessaoConsumoBuilder builder = SessaoConsumo.builder()
                 .modoAnonimo(request.isModoAnonimo());
+        Instituicao instituicao = buscarInstituicaoAtiva();
                 
         // ── Tipo de Sessão ────────────────────────────────────────────────
         // Se não for especificado, assume que é para continuar com o padrão PRE_PAGO 
@@ -125,7 +151,7 @@ public class SessaoConsumoService {
 
         // ── Mesa (OPCIONAL) ────────────────────────────────────────────────
         if (request.getMesaId() != null) {
-            Mesa mesa = mesaRepository.findById(request.getMesaId())
+            Mesa mesa = mesaRepository.findByIdForUpdate(request.getMesaId())
                     .orElseThrow(() -> new ResourceNotFoundException("Mesa não encontrada: " + request.getMesaId()));
 
             if (!mesa.getAtiva()) {
@@ -133,17 +159,29 @@ public class SessaoConsumoService {
             }
 
             // Invariante: apenas UMA sessão ABERTA por mesa
-            if (sessaoConsumoRepository.existsByMesaIdAndStatus(mesa.getId(), StatusSessaoConsumo.ABERTA)) {
+            List<SessaoConsumo> abertas = sessaoConsumoRepository.findAllByTenantIdAndMesaIdAndStatus(
+                    mesa.getTenant() != null ? mesa.getTenant().getId() : null,
+                    mesa.getId(),
+                    StatusSessaoConsumo.ABERTA
+            );
+            if (abertas.size() > 1) {
+                throw new BusinessException("Mesa '" + mesa.getReferencia() + "' possui mais de uma sessão aberta.");
+            }
+            if (!abertas.isEmpty()) {
                 throw new BusinessException(
                         "Mesa '" + mesa.getReferencia() + "' já possui sessão aberta. " +
                         "Encerre a sessão atual antes de abrir uma nova.");
             }
 
             builder.mesa(mesa);
+            instituicao = mesa.getInstituicao() != null ? mesa.getInstituicao() : instituicao;
 
             // Deriva unidade de atendimento da mesa quando não fornecida explicitamente
             if (request.getUnidadeAtendimentoId() == null && mesa.getUnidadeAtendimento() != null) {
                 builder.unidadeAtendimento(mesa.getUnidadeAtendimento());
+                if (mesa.getUnidadeAtendimento().getInstituicao() != null) {
+                    instituicao = mesa.getUnidadeAtendimento().getInstituicao();
+                }
             }
 
             log.info("Sessão associada à mesa: '{}' (ID={})", mesa.getReferencia(), mesa.getId());
@@ -155,7 +193,16 @@ public class SessaoConsumoService {
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Unidade de atendimento não encontrada: " + request.getUnidadeAtendimentoId()));
             builder.unidadeAtendimento(ua);
+            if (ua.getInstituicao() != null) {
+                instituicao = ua.getInstituicao();
+            }
         }
+
+        if (instituicao == null || instituicao.getTenant() == null) {
+            throw new BusinessException("Instituição inválida para abrir sessão (tenant ausente).");
+        }
+        builder.tenant(instituicao.getTenant());
+        builder.instituicao(instituicao);
 
         // ── Cliente (OPCIONAL) ─────────────────────────────────────────────
         if (!request.isModoAnonimo()) {
@@ -222,6 +269,68 @@ public class SessaoConsumoService {
         return converterParaResponse(sessaoSalva, fundo);
     }
 
+    @Transactional
+    public SessaoConsumo resolveOrCreateSessaoAnonima(Long tenantId,
+                                                      Instituicao instituicao,
+                                                      UnidadeAtendimento unidadeAtendimento,
+                                                      Mesa mesa,
+                                                      com.restaurante.model.enums.TipoSessao tipoSessao,
+                                                      boolean requireAnonymousSession) {
+        if (instituicao == null || instituicao.getTenant() == null) {
+            throw new BusinessException("Instituição inválida para criação de sessão.");
+        }
+
+        Long effectiveTenantId = tenantId != null ? tenantId : instituicao.getTenant().getId();
+        Mesa mesaLocked = lockMesaIfPresent(mesa);
+        UnidadeAtendimento effectiveUnidade = unidadeAtendimento;
+        Instituicao effectiveInstituicao = instituicao;
+
+        if (mesaLocked != null) {
+            if (mesaLocked.getTenant() == null || !mesaLocked.getTenant().getId().equals(effectiveTenantId)) {
+                throw new BusinessException("Mesa inválida para a instituição/tenant.");
+            }
+            if (!Boolean.TRUE.equals(mesaLocked.getAtiva())) {
+                throw new BusinessException("Mesa '" + mesaLocked.getReferencia() + "' está inativa");
+            }
+            if (mesaLocked.getInstituicao() != null) {
+                effectiveInstituicao = mesaLocked.getInstituicao();
+            }
+            if (mesaLocked.getUnidadeAtendimento() != null) {
+                effectiveUnidade = mesaLocked.getUnidadeAtendimento();
+            }
+
+            List<SessaoConsumo> abertas = sessaoConsumoRepository.findAllByTenantIdAndMesaIdAndStatus(
+                    effectiveTenantId,
+                    mesaLocked.getId(),
+                    StatusSessaoConsumo.ABERTA
+            );
+            if (abertas.size() > 1) {
+                throw new BusinessException("Mesa possui mais de uma sessão aberta.");
+            }
+            if (!abertas.isEmpty()) {
+                SessaoConsumo aberta = abertas.get(0);
+                if (requireAnonymousSession && !Boolean.TRUE.equals(aberta.getModoAnonimo())) {
+                    throw new BusinessException("Esta mesa já possui uma sessão identificada aberta.");
+                }
+                return aberta;
+            }
+        }
+
+        SessaoConsumo sessao = SessaoConsumo.builder()
+                .qrCodeSessao(gerarTokenSessaoUnico())
+                .tenant(effectiveInstituicao.getTenant())
+                .instituicao(effectiveInstituicao)
+                .unidadeAtendimento(effectiveUnidade)
+                .mesa(mesaLocked)
+                .modoAnonimo(true)
+                .status(StatusSessaoConsumo.ABERTA)
+                .tipoSessao(tipoSessao != null ? tipoSessao : com.restaurante.model.enums.TipoSessao.PRE_PAGO)
+                .build();
+        SessaoConsumo salva = sessaoConsumoRepository.save(sessao);
+        fundoConsumoService.criarFundoParaSessao(salva);
+        return salva;
+    }
+
     /**
      * Encerra a sessão de consumo e o seu fundo.
      *
@@ -260,6 +369,22 @@ public class SessaoConsumoService {
         }
 
         sessao.encerrar();  // encerra sessão e fundo (ver método na entidade)
+
+        // P41.5-PENDING-1: Revoga todos os tokens ativos ao fechar a sessão
+        try {
+            if (sessao.getTenant() != null) {
+                ownerTokenService.revokeActiveTokensBySessao(
+                    sessao.getTenant().getId(),
+                    sessao.getId(),
+                    "SESSION_CLOSE",
+                    null,
+                    null
+                );
+            }
+        } catch (Exception e) {
+            log.warn("Erro ao revogar tokens ativos da sessão ID={} ao fechar: {}", id, e.getMessage());
+        }
+
         SessaoConsumo sessaoSalva = sessaoConsumoRepository.save(sessao);
 
         String local = sessao.getMesa() != null ? "mesa '" + sessao.getMesa().getReferencia() + "'" : "sessão #" + id;
@@ -375,6 +500,38 @@ public class SessaoConsumoService {
         return fechar(id);
     }
 
+    @Transactional(readOnly = true)
+    public void enviarFaturaPorSms(Long id, String telefone) {
+        SessaoConsumo sessao = buscarEntidadePorId(id);
+        String telefoneNormalizado = PhoneNumberUtil.normalize(telefone);
+        SessaoConsumoResponse resumo = converterParaResponse(sessao);
+
+        BigDecimal saldoFundo = resumo.getSaldoFundo() != null ? resumo.getSaldoFundo() : BigDecimal.ZERO;
+        BigDecimal totalConsumo = resumo.getTotalConsumo() != null ? resumo.getTotalConsumo() : BigDecimal.ZERO;
+        BigDecimal totalPagar = totalConsumo.subtract(saldoFundo.max(BigDecimal.ZERO)).max(BigDecimal.ZERO);
+        String referenciaMesa = resumo.getReferenciaMesa() != null ? resumo.getReferenciaMesa() : "Sessão " + resumo.getId();
+
+        String mensagem = String.format(
+                "Conta/Fatura Proforma%n" +
+                "%s%n" +
+                "Sessao: %s%n" +
+                "Total consumido: %s%n" +
+                "Saldo/fundo: %s%n" +
+                "Total a pagar: %s%n" +
+                "Sistema de Restauracao",
+                referenciaMesa,
+                resumo.getQrCodeSessao() != null ? resumo.getQrCodeSessao() : resumo.getId(),
+                formatarMoeda(totalConsumo),
+                formatarMoeda(saldoFundo),
+                formatarMoeda(totalPagar)
+        );
+
+        boolean enviado = notificacaoService.enviarSms(telefoneNormalizado, mensagem, "FATURA_MESA");
+        if (!enviado) {
+            throw new BusinessException("Não foi possível enviar a fatura por SMS. Tente novamente.");
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Consultas
     // ──────────────────────────────────────────────────────────────────────────
@@ -429,30 +586,24 @@ public class SessaoConsumoService {
     public SessaoConsumoResponse iniciarSessaoCliente(String qrToken, String telefoneCliente) {
         log.info("Cliente {} iniciando sessão via QR Code {}", telefoneCliente, qrToken);
 
-        // Valida o QR Code
-        var validacao = qrCodeService.validarQrCode(qrToken);
-        if (!validacao.getValido()) {
-            throw new BusinessException("QR Code inválido ou expirado: " + validacao.getMensagem());
-        }
-
-        var qrCode = validacao.getQrCode();
-        if (qrCode.getTipo() != com.restaurante.model.enums.TipoQrCode.MESA || qrCode.getMesaId() == null) {
-            throw new BusinessException("QR Code não é de uma mesa válida");
-        }
+        Mesa mesaAcesso = resolverMesaPorCodigoAcesso(qrToken);
 
         Cliente cliente = clienteService.buscarOuCriarPorTelefone(telefoneCliente);
 
         // Verifica se cliente já tem sessão aberta noutro lugar
         sessaoConsumoRepository.findSessaoAbertaByCliente(cliente.getId())
                 .ifPresent(sessaoExistente -> {
-                    if (!sessaoExistente.getMesa().getId().equals(qrCode.getMesaId())) {
+                    if (sessaoExistente.getMesa() == null || !sessaoExistente.getMesa().getId().equals(mesaAcesso.getId())) {
+                        String localSessao = sessaoExistente.getMesa() != null
+                                ? "mesa '" + sessaoExistente.getMesa().getReferencia() + "'"
+                                : "sessão #" + sessaoExistente.getId();
                         throw new BusinessException(
-                                "Você já possui uma sessão aberta na mesa '" + sessaoExistente.getMesa().getReferencia() + "'. Feche-a primeiro.");
+                                "Você já possui uma sessão aberta em " + localSessao + ". Feche-a primeiro.");
                     }
                 });
 
         // Verifica se a mesa atual já tem sessão aberta
-        var sessaoOpt = sessaoConsumoRepository.findByMesaIdAndStatus(qrCode.getMesaId(), StatusSessaoConsumo.ABERTA);
+        var sessaoOpt = sessaoConsumoRepository.findByMesaIdAndStatus(mesaAcesso.getId(), StatusSessaoConsumo.ABERTA);
 
         SessaoConsumo sessao;
         if (sessaoOpt.isPresent()) {
@@ -482,7 +633,7 @@ public class SessaoConsumoService {
         } else {
             // Abre nova sessão para o cliente
             AbrirSessaoRequest req = AbrirSessaoRequest.builder()
-                    .mesaId(qrCode.getMesaId())
+                    .mesaId(mesaAcesso.getId())
                     .modoAnonimo(false)
                     .telefoneCliente(telefoneCliente)
                     // No fluxo de QR code, por enquanto não temos campo de nome no parâmetro
@@ -493,6 +644,41 @@ public class SessaoConsumoService {
             return abrir(req);
         }
 
+        return converterParaResponse(sessao);
+    }
+
+    /**
+     * Cliente sem identificação inicia consumo anónimo via QR Code da mesa.
+     * A sessão criada é sempre PRE_PAGO e exige recarga de fundo antes de pedidos.
+     */
+    @Transactional
+    public SessaoConsumoResponse iniciarSessaoAnonima(String qrToken) {
+        log.info("Iniciando sessão anónima via QR Code {}", qrToken);
+
+        Mesa mesaAcesso = resolverMesaPorCodigoAcesso(qrToken);
+        SessaoConsumo sessao = resolveOrCreateSessaoAnonima(
+                mesaAcesso.getTenant() != null ? mesaAcesso.getTenant().getId() : null,
+                mesaAcesso.getInstituicao(),
+                mesaAcesso.getUnidadeAtendimento(),
+                mesaAcesso,
+                com.restaurante.model.enums.TipoSessao.PRE_PAGO,
+                true
+        );
+        return converterParaResponse(sessao);
+    }
+
+    @Transactional(readOnly = true)
+    public SessaoConsumoResponse buscarSessaoAnonimaPorToken(String qrCodeSessao) {
+        SessaoConsumo sessao = sessaoConsumoRepository.findByQrCodeSessao(qrCodeSessao)
+                .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada"));
+
+        if (!Boolean.TRUE.equals(sessao.getModoAnonimo())) {
+            throw new BusinessException("Sessão informada não é anónima.");
+        }
+        if (sessao.getStatus() != StatusSessaoConsumo.ABERTA
+                && sessao.getStatus() != StatusSessaoConsumo.AGUARDANDO_PAGAMENTO) {
+            throw new BusinessException("Sessão anónima não está ativa. Status: " + sessao.getStatus());
+        }
         return converterParaResponse(sessao);
     }
 
@@ -552,12 +738,17 @@ public class SessaoConsumoService {
                 })
                 .orElseGet(() -> {
                     log.info("Cliente {} sem sessão ativa. Criando nova sessão automática.", telefoneCliente);
-                    
+                    Instituicao instAtiva = buscarInstituicaoAtiva();
+                    if (instAtiva.getTenant() == null) {
+                        throw new BusinessException("Instituição inválida para abrir sessão (tenant ausente).");
+                    }
                     SessaoConsumo.SessaoConsumoBuilder builder = SessaoConsumo.builder()
                             .cliente(cliente)
                             .modoAnonimo(false)
                             .status(StatusSessaoConsumo.ABERTA)
                             .tipoSessao(com.restaurante.model.enums.TipoSessao.PRE_PAGO)
+                            .tenant(instAtiva.getTenant())
+                            .instituicao(instAtiva)
                             .qrCodeSessao(gerarTokenSessaoUnico());
                             
                     // Tenta encontrar uma unidade de atendimento ativa para a sessão
@@ -630,12 +821,231 @@ public class SessaoConsumoService {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Helpers internos
+    // Sprint 1: Registo de Actividade e Expiração Segura
     // ──────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Busca entidade por ID — usado internamente por outros services.
+     */
     public SessaoConsumo buscarEntidadePorId(Long id) {
         return sessaoConsumoRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Sessão de consumo não encontrada: " + id));
+    }
+
+
+    /**
+     * Regista actividade operacional numa sessão, actualizando {@code ultimaAtividadeEm}.
+     *
+     * <p>Deve ser chamado por qualquer service que realize uma operação real associada
+     * à sessão: criação de pedido, movimentação de fundo, criação/confirmação de pagamento.
+     *
+     * <p>Seguro para chamar mesmo que a sessão não seja encontrada (apenas loga o aviso).
+     *
+     * @param sessaoId ID da sessão
+     * @param motivo   descrição da actividade (para log)
+     */
+    @Transactional
+    public void registrarAtividade(Long sessaoId, String motivo) {
+        if (sessaoId == null) return;
+        try {
+            sessaoConsumoRepository.findById(sessaoId).ifPresent(sessao -> {
+                sessao.registrarAtividade();
+                sessaoConsumoRepository.save(sessao);
+                log.debug("Actividade registada na sessão ID={}: {}", sessaoId, motivo);
+            });
+        } catch (Exception e) {
+            // Nunca falhar a operação principal por falha no registo de actividade
+            log.warn("Falha ao registar actividade na sessão ID={}: {}", sessaoId, e.getMessage());
+        }
+    }
+
+    /**
+     * Versão com entidade já carregada — evita um SELECT extra quando a sessão
+     * já está em contexto de persistência.
+     */
+    @Transactional
+    public void registrarAtividade(SessaoConsumo sessao, String motivo) {
+        if (sessao == null) return;
+        try {
+            sessao.registrarAtividade();
+            sessaoConsumoRepository.save(sessao);
+            log.debug("Actividade registada na sessão ID={}: {}", sessao.getId(), motivo);
+        } catch (Exception e) {
+            log.warn("Falha ao registar actividade na sessão ID={}: {}", sessao.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Tenta expirar uma sessão de forma segura e auditável.
+     *
+     * <p>Executa em transação própria ({@code REQUIRES_NEW}) para garantir isolamento
+     * face ao lote do scheduler — uma falha aqui não afecta as restantes sessões.
+     *
+     * <p>Critérios de BLOQUEIO (sessão NÃO é expirada se algum se verificar):
+     * <ol>
+     *   <li>Sessão não está ABERTA.</li>
+     *   <li>{@code ultimaAtividadeEm} dentro da janela de inactividade.</li>
+     *   <li>FundoConsumo activo com saldo > 0.</li>
+     *   <li>Pedidos em status CRIADO ou EM_ANDAMENTO.</li>
+     *   <li>Pagamentos com status PENDENTE vinculados ao fundo da sessão.</li>
+     * </ol>
+     *
+     * @param sessaoId          ID da sessão candidata
+     * @param limiteInatividade limite de inactividade (ex: agora - 12h)
+     * @return resultado da tentativa de expiração
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ExpiracaoSessaoResultado expirarComSeguranca(Long sessaoId, LocalDateTime limiteInatividade) {
+        log.debug("[Expiração] Verificando sessão ID={}", sessaoId);
+
+        // Recarrega do banco para garantir estado actual (dupla-checagem contra race condition)
+        SessaoConsumo sessao = sessaoConsumoRepository.findById(sessaoId).orElse(null);
+
+        if (sessao == null) {
+            log.warn("[Expiração] Sessão ID={} não encontrada — ignorando", sessaoId);
+            return ExpiracaoSessaoResultado.IGNORADA_STATUS_NAO_ABERTA;
+        }
+
+        // 1. Verificar se ainda está ABERTA (pode ter mudado desde a query inicial)
+        if (sessao.getStatus() != StatusSessaoConsumo.ABERTA) {
+            log.debug("[Expiração] Sessão ID={} já não está ABERTA (status={})", sessaoId, sessao.getStatus());
+            return ExpiracaoSessaoResultado.IGNORADA_STATUS_NAO_ABERTA;
+        }
+
+        // 2. Verificar inactividade real (dupla-checagem: pode ter havido actividade após a query)
+        if (sessao.getUltimaAtividadeEm() != null &&
+                sessao.getUltimaAtividadeEm().isAfter(limiteInatividade)) {
+            log.debug("[Expiração] Sessão ID={} tem actividade recente (última={}, limite={})",
+                    sessaoId, sessao.getUltimaAtividadeEm(), limiteInatividade);
+            return ExpiracaoSessaoResultado.BLOQUEADA_ATIVIDADE_RECENTE;
+        }
+
+        // 3. Verificar saldo do FundoConsumo
+        FundoConsumo fundo = sessao.getFundoConsumo();
+        if (fundo == null) {
+            // Tenta carregar via repositório (lazy load pode não ter carregado)
+            fundo = fundoConsumoRepository.findBySessaoConsumoId(sessaoId).orElse(null);
+        }
+        if (fundo != null && Boolean.TRUE.equals(fundo.getAtivo())) {
+            BigDecimal saldo = fundo.getSaldoAtual() != null ? fundo.getSaldoAtual() : BigDecimal.ZERO;
+            if (saldo.compareTo(BigDecimal.ZERO) > 0) {
+                log.info("[Expiração] Sessão ID={} BLOQUEADA — saldo positivo no fundo: {}",
+                        sessaoId, saldo);
+                return ExpiracaoSessaoResultado.BLOQUEADA_SALDO_POSITIVO;
+            }
+        }
+
+        // 4. Verificar pedidos em andamento
+        List<Pedido> pedidosPendentes = pedidoRepository
+                .findBySessaoConsumoIdAndStatusInOrderByCreatedAtAsc(
+                        sessaoId,
+                        List.of(StatusPedido.CRIADO, StatusPedido.EM_ANDAMENTO));
+        if (!pedidosPendentes.isEmpty()) {
+            log.info("[Expiração] Sessão ID={} BLOQUEADA — {} pedido(s) em andamento",
+                    sessaoId, pedidosPendentes.size());
+            return ExpiracaoSessaoResultado.BLOQUEADA_PEDIDO_PENDENTE;
+        }
+
+        // 5. Verificar pagamentos PENDENTE vinculados ao fundo (query dedicada — sem filtro em memória)
+        if (fundo != null) {
+            List<com.restaurante.model.entity.Pagamento> pagamentosPendentes =
+                    pagamentoGatewayRepository.findPagamentosPendentesByFundoId(fundo.getId());
+            if (!pagamentosPendentes.isEmpty()) {
+                log.info("[Expiração] Sessão ID={} BLOQUEADA — {} pagamento(s) PENDENTE(s) (ex: ref. bancária em curso)",
+                        sessaoId, pagamentosPendentes.size());
+                return ExpiracaoSessaoResultado.BLOQUEADA_PAGAMENTO_PENDENTE;
+            }
+        }
+
+        // ── Todos os critérios passaram: EXPIRAR ───────────────────────────────
+        BigDecimal saldoNoMomento = (fundo != null && fundo.getSaldoAtual() != null)
+                ? fundo.getSaldoAtual() : BigDecimal.ZERO;
+
+        sessao.expirar();
+
+        // Encerra o fundo apenas se saldo for zero (já validado acima, mas defensivo)
+        if (fundo != null && Boolean.TRUE.equals(fundo.getAtivo()) &&
+                saldoNoMomento.compareTo(BigDecimal.ZERO) <= 0) {
+            fundo.encerrar();
+            fundoConsumoRepository.save(fundo);
+        }
+
+        sessaoConsumoRepository.save(sessao);
+
+        // Auditoria obrigatória
+        registrarEventoExpiracao(sessao, saldoNoMomento, pedidosPendentes.size());
+
+        log.info("[Expiração] Sessão ID={} EXPIRADA com sucesso. Mesa={}, QR={}, abertaEm={}, ultimaAtividade={}",
+                sessaoId,
+                sessao.getMesa() != null ? sessao.getMesa().getId() : "sem_mesa",
+                sessao.getQrCodeSessao(),
+                sessao.getAbertaEm(),
+                sessao.getUltimaAtividadeEm());
+
+        return ExpiracaoSessaoResultado.EXPIRADA;
+    }
+
+    /**
+     * Grava o evento de auditoria de expiração automática.
+     * Operação interna — não lança exceção para não abortar a transação.
+     */
+    private void registrarEventoExpiracao(SessaoConsumo sessao, BigDecimal saldoFundo, int numPedidosPendentes) {
+        try {
+            String descricao = String.format(
+                    "EXPIRAÇÃO AUTOMÁTICA | actor=SCHEDULER | motivo=INATIVIDADE_SEGURA" +
+                    " | abertaEm=%s | ultimaAtividade=%s | fechadaEm=%s" +
+                    " | saldoFundo=%s | pedidosPendentes=%d",
+                    sessao.getAbertaEm(),
+                    sessao.getUltimaAtividadeEm(),
+                    sessao.getFechadaEm(),
+                    saldoFundo,
+                    numPedidosPendentes);
+
+            EventoSessao evento = EventoSessao.builder()
+                    .sessaoConsumo(sessao)
+                    .tipoEvento(TipoEventoSessao.SESSAO_EXPIRADA_AUTOMATICAMENTE)
+                    .descricao(descricao)
+                    .usuarioResponsavel("SCHEDULER")
+                    .build();
+
+            eventoSessaoRepository.save(evento);
+        } catch (Exception e) {
+            log.error("[Expiração] Falha ao registar evento de auditoria para sessão ID={}: {}",
+                    sessao.getId(), e.getMessage());
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Helpers internos
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Gera e valida iterativamente um Token Único curto para a Sessão.
+     * Padrão Arquitetural ArenaTicket: [SIGLA]-[8_DIGITOS_ALEATORIOS]
+     */
+    private String gerarTokenSessaoUnico() {
+        java.util.Random random = new java.util.Random();
+        int max = (int) Math.pow(10, 8); // 100M
+
+        // Busca a sigla da Instituição dinamicamente (fallback 'SYS' se não houver cadastrada)
+        String sigla = instituicaoRepository.findFirstByAtivaTrue()
+                .map(Instituicao::getSigla)
+                .orElse("SYS");
+
+        while (true) {
+            int numero = random.nextInt(max);
+            String tokenCandidate = sigla + "-" + String.format("%08d", numero);
+
+            // Check na base de dados para garantir unicidade
+            if (sessaoConsumoRepository.findByQrCodeSessao(tokenCandidate).isEmpty()) {
+                return tokenCandidate;
+            }
+        }
+    }
+
+    private Instituicao buscarInstituicaoAtiva() {
+        return instituicaoRepository.findFirstByAtivaTrue()
+                .orElseThrow(() -> new BusinessException("Nenhuma instituição ativa configurada"));
     }
 
     public SessaoConsumoResponse converterParaResponse(SessaoConsumo sessao) {
@@ -668,27 +1078,52 @@ public class SessaoConsumoService {
                 .build();
     }
 
-    /**
-     * Gera e valida iterativamente um Token Único curto para a Sessão.
-     * Padrão Arquitetural ArenaTicket: [SIGLA]-[8_DIGITOS_ALEATORIOS]
-     */
-    private String gerarTokenSessaoUnico() {
-        java.util.Random random = new java.util.Random();
-        int max = (int) Math.pow(10, 8); // 100M
-        
-        // Busca a sigla da Instituição dinamicamente (fallback 'SYS' se não houver cadastrada)
-        String sigla = instituicaoRepository.findFirstByAtivaTrue()
-                .map(Instituicao::getSigla)
-                .orElse("SYS");
-                
-        while (true) {
-            int numero = random.nextInt(max);
-            String tokenCandidate = sigla + "-" + String.format("%08d", numero);
-            
-            // Check na base de dados para garantir unicidade
-            if (sessaoConsumoRepository.findByQrCodeSessao(tokenCandidate).isEmpty()) {
-                return tokenCandidate;
+    private Mesa lockMesaIfPresent(Mesa mesa) {
+        if (mesa == null || mesa.getId() == null) {
+            return null;
+        }
+        return mesaRepository.findByIdForUpdate(mesa.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Mesa não encontrada: " + mesa.getId()));
+    }
+
+    private String formatarMoeda(BigDecimal valor) {
+        return NumberFormat.getCurrencyInstance(Locale.forLanguageTag("pt-AO"))
+                .format(valor != null ? valor : BigDecimal.ZERO);
+    }
+
+    private Mesa resolverMesaPorCodigoAcesso(String codigo) {
+        if (codigo == null || codigo.isBlank()) {
+            throw new BusinessException("Código da mesa é obrigatório");
+        }
+
+        var validacao = qrCodeService.validarQrCode(codigo);
+        if (validacao.getValido()) {
+            var qrCode = validacao.getQrCode();
+            if (qrCode.getTipo() != com.restaurante.model.enums.TipoQrCode.MESA || qrCode.getMesaId() == null) {
+                throw new BusinessException("QR Code não é de uma mesa válida");
             }
+            return mesaRepository.findById(qrCode.getMesaId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Mesa não encontrada para o QR Code informado"));
+        }
+
+        String codigoNormalizado = codigo.trim().toUpperCase();
+        return mesaRepository.findByQrCode(codigoNormalizado)
+                .or(() -> mesaRepository.findByReferenciaIgnoreCase(codigo.trim()))
+                .or(() -> buscarMesaPorNumeroNoCodigo(codigoNormalizado))
+                .orElseThrow(() -> new BusinessException("Código de mesa inválido: " + validacao.getMensagem()));
+    }
+
+    private Optional<Mesa> buscarMesaPorNumeroNoCodigo(String codigoNormalizado) {
+        Matcher matcher = CODIGO_NUMERICO_MESA.matcher(codigoNormalizado);
+        if (!matcher.matches()) {
+            return Optional.empty();
+        }
+
+        try {
+            Integer numero = Integer.valueOf(matcher.group(1));
+            return mesaRepository.findFirstByNumero(numero);
+        } catch (NumberFormatException e) {
+            return Optional.empty();
         }
     }
 }

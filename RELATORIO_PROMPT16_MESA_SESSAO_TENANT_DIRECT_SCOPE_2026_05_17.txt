@@ -1,0 +1,106 @@
+RELATÓRIO TÉCNICO — PROMPT 16 (Mesa/SessaoConsumo com tenant_id direto)
+Data: 2026-05-17
+
+1) Resumo executivo
+- Adicionado `tenant_id` direto em `mesas` e `sessoes_consumo`, com backfill seguro via relações existentes.
+- Aplicado `NOT NULL`, FKs para `tenants(id)` e índices tenant-scoped para queries rápidas.
+- Atualizadas entidades JPA `Mesa` e `SessaoConsumo` para conter `Tenant tenant` obrigatório.
+- Atualizados repositories e services críticos (provisionamento, QR público e abertura de sessão legado) para preencher/usar `tenant` diretamente.
+- Criado teste de integração garantindo isolamento tenant-scoped para sessão por mesa.
+
+2) Migration
+- `src/main/resources/db/migration/V13__mesa_sessao_tenant_direct_scope.sql`
+  - Mesas:
+    - add column `tenant_id`
+    - backfill por `unidade_atendimento → instituicao → tenant` e fallback `instituicao → tenant`
+    - enforce NOT NULL + FK + índices
+  - Sessões:
+    - add column `tenant_id`
+    - backfill por `instituicao → tenant` e fallback `mesa → tenant`
+    - enforce NOT NULL + FK + índices
+
+3) Alterações em entidades
+- `src/main/java/com/restaurante/model/entity/Mesa.java`
+  - `@ManyToOne(optional=false) Tenant tenant` em `tenant_id`
+  - builder/constructor atualizados
+- `src/main/java/com/restaurante/model/entity/SessaoConsumo.java`
+  - `@ManyToOne(optional=false) Tenant tenant` em `tenant_id`
+  - builder/constructor atualizados
+
+4) Índices/constraints
+- Índices criados para paths típicos:
+  - `mesas(tenant_id)`, `mesas(tenant_id, unidade_atendimento_id)`, `mesas(tenant_id, ativa)`
+  - `sessoes_consumo(tenant_id)`, `(tenant_id, status)`, `(tenant_id, mesa_id, status)`,
+    `(tenant_id, instituicao_id)`, `(tenant_id, aberta_em)`
+- FKs:
+  - `mesas.tenant_id → tenants.id`
+  - `sessoes_consumo.tenant_id → tenants.id`
+
+5) Repositories
+- `src/main/java/com/restaurante/repository/MesaRepository.java`
+  - query de filtros passa a usar `m.tenant.id`
+  - adicionados `findByTenantId` e `countByTenantId`
+- `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java`
+  - adicionados métodos tenant-scoped (find/exists por tenant)
+
+6) Services ajustados (sem mudança funcional pesada)
+- `src/main/java/com/restaurante/service/TenantProvisioningService.java`
+  - ao criar mesas, preenche `mesa.tenant`
+- `src/main/java/com/restaurante/service/MesaService.java`
+  - ao criar mesa (legado/admin), preenche `mesa.tenant` via `instituicao.tenant`
+- `src/main/java/com/restaurante/service/SessaoConsumoService.java`
+  - ao abrir sessão e ao iniciar sessão no login, preenche `sessao.tenant` via `instituicao.tenant`
+- `src/main/java/com/restaurante/service/PublicQrPedidoService.java`
+  - reuso de sessão aberta por mesa passa a ser `tenant + mesa + status`
+  - sessão criada via QR agora recebe `tenant` explícito
+- `src/main/java/com/restaurante/service/QrCodeOperacionalService.java`
+  - valida coerência `mesa.tenant == tenant` ao criar QR por mesa
+
+7) Queries legadas substituídas
+- Fluxo público por QR (sessão por mesa): substituído `findAllByMesaIdAndStatus` por `findAllByTenantIdAndMesaIdAndStatus`.
+- Mantidos métodos antigos em repositories apenas para compatibilidade/legado.
+
+8) Testes
+- `src/test/java/com/restaurante/multitenant/MesaSessaoTenantDirectScopeIT.java`
+  - provisiona dois tenants
+  - valida que mesas têm tenant direto
+  - cria sessão com tenant direto e valida isolamento por tenant em query por mesa/status
+- Ajuste de teste E2E em profile `test` para não violar novos NOT NULL:
+  - `src/test/java/com/restaurante/e2e/ConcurrenciaRealE2ETest.java`
+
+9) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+10) Resultado
+- BUILD SUCCESS (testes passando).
+
+11) Arquivos criados/alterados
+- Criado:
+  - `src/main/resources/db/migration/V13__mesa_sessao_tenant_direct_scope.sql`
+  - `docs/tenant-core/16-mesa-sessao-tenant-direct-scope.md`
+  - `src/test/java/com/restaurante/multitenant/MesaSessaoTenantDirectScopeIT.java`
+  - `RELATORIO_PROMPT16_MESA_SESSAO_TENANT_DIRECT_SCOPE_2026_05_17.txt`
+- Alterado:
+  - `src/main/java/com/restaurante/model/entity/Mesa.java`
+  - `src/main/java/com/restaurante/model/entity/SessaoConsumo.java`
+  - `src/main/java/com/restaurante/repository/MesaRepository.java`
+  - `src/main/java/com/restaurante/repository/SessaoConsumoRepository.java`
+  - `src/main/java/com/restaurante/service/PublicQrPedidoService.java`
+  - `src/main/java/com/restaurante/service/SessaoConsumoService.java`
+  - `src/main/java/com/restaurante/service/MesaService.java`
+  - `src/main/java/com/restaurante/service/TenantProvisioningService.java`
+  - `src/main/java/com/restaurante/service/QrCodeOperacionalService.java`
+  - `src/main/java/com/restaurante/config/DataSeeder.java`
+  - `src/test/java/com/restaurante/e2e/ConcurrenciaRealE2ETest.java`
+
+12) Decisões técnicas
+- Mantida compatibilidade: métodos legados ainda existem, mas fluxos tenant-aware críticos passaram a usar queries tenant-scoped.
+- Não aplicada unique parcial “sessão ABERTA por (tenant, mesa)” nesta fase para não arriscar dados/produção; fica para fase específica de hardening operacional.
+
+13) Riscos restantes
+- Fluxos legados que criem/alterem `Mesa`/`SessaoConsumo` fora dos services ajustados precisam ser auditados futuramente (garantir `tenant` sempre preenchido).
+
+14) Próximo prompt recomendado
+- Prompt 17: tenant_id direto e scoping em `UnidadeAtendimento`/`Cozinha` e preparar endpoints de cozinha/subpedido (somente leitura inicialmente), ou hardening de constraints parciais de sessão por mesa.
+

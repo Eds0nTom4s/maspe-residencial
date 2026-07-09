@@ -1,0 +1,124 @@
+RELATÓRIO EXECUTIVO — PROMPT 47 — TRANSACTION EVIDENCE LEDGER (APPEND-ONLY)
+Data: 2026-05-25
+
+1) MIGRATIONS CRIADAS
+- src/main/resources/db/migration/V60__transaction_evidence_ledger.sql
+  - transaction_evidence_ledger_states
+  - transaction_evidence_events
+  - transaction_evidence_verification_runs
+  - transaction_evidence_verification_issues
+
+2) ENTIDADES / ENUMS CRIADOS
+Entidades:
+- com.restaurante.model.entity.TransactionEvidenceLedgerState
+- com.restaurante.model.entity.TransactionEvidenceEvent
+- com.restaurante.model.entity.TransactionEvidenceVerificationRun
+- com.restaurante.model.entity.TransactionEvidenceVerificationIssue
+
+Enums:
+- com.restaurante.model.enums.TransactionEvidenceEventStatus
+- com.restaurante.model.enums.TransactionEvidenceVerificationStatus
+- com.restaurante.model.enums.TransactionEvidenceSourceModule
+- com.restaurante.model.enums.TransactionEvidenceAlgorithm
+- com.restaurante.model.enums.TransactionEvidenceLedgerStateStatus
+- com.restaurante.model.enums.TransactionEvidenceVerificationRunStatus
+- com.restaurante.model.enums.TransactionEvidenceVerificationIssueType
+
+Auditoria (extensões):
+- com.restaurante.model.enums.OperationalEntityType (novos tipos TX evidence)
+- com.restaurante.model.enums.OperationalEventType (eventos Prompt 47)
+
+3) SERVICES / COMPONENTS CRIADOS
+Ledger core:
+- src/main/java/com/restaurante/txevidence/service/TransactionEvidenceLedgerService.java
+  - grava evento com lock pessimista do state, sequência por tenant, previousHash, payloadHash, eventHash e HMAC
+  - @Transactional(REQUIRES_NEW) para gravação segura após AFTER_COMMIT
+
+Canonicalização + hashing:
+- src/main/java/com/restaurante/txevidence/canonical/TransactionEvidenceCanonicalizer.java
+- src/main/java/com/restaurante/txevidence/hash/TransactionEvidenceHashService.java
+
+Chaves:
+- src/main/java/com/restaurante/txevidence/key/TransactionEvidenceKeyProvider.java
+- src/main/java/com/restaurante/txevidence/key/EnvironmentTransactionEvidenceKeyProvider.java
+  - env var CONSUMA_TX_EVIDENCE_HMAC_KEY_V{keyVersion}
+  - fallback dev/test: consuma.evidence.tx-ledger.dev-hmac-secret
+
+Listener AFTER_COMMIT:
+- src/main/java/com/restaurante/txevidence/listener/TransactionEvidenceOnOperationalEventLoggedListener.java
+  - consome OperationalEventLoggedEvent
+  - sanitiza metadata (mascara chaves sensíveis) e registra no ledger
+  - evita recursão ignorando TRANSACTION_EVIDENCE_*
+
+Verificação:
+- src/main/java/com/restaurante/txevidence/service/TransactionEvidenceVerificationService.java
+  - detecta SEQUENCE_GAP / BROKEN_CHAIN / HASH_MISMATCH / SIGNATURE_MISMATCH
+  - persiste VerificationRun + Issues
+
+Evidence Bundle summary:
+- src/main/java/com/restaurante/txevidence/evidence/TransactionLedgerEvidenceService.java
+  - gera transactionLedgerEvidence para o turno (resumo do ledger + warnings + último verification run)
+
+4) ENDPOINTS IMPLEMENTADOS (TENANT/ADMIN)
+Controller:
+- src/main/java/com/restaurante/controller/TenantTransactionEvidenceLedgerController.java
+
+Rotas:
+- GET  /tenant/evidence/transaction-ledger/events
+- GET  /tenant/evidence/transaction-ledger/events/{eventId}
+- GET  /tenant/evidence/transaction-ledger/state
+- POST /tenant/evidence/transaction-ledger/verify
+- GET  /tenant/evidence/transaction-ledger/verification-runs
+- GET  /tenant/evidence/transaction-ledger/verification-runs/{runId}
+- GET  /tenant/evidence/transaction-ledger/verification-runs/{runId}/issues
+
+RBAC:
+- TENANT_OWNER / TENANT_ADMIN / TENANT_FINANCE (platformAdmin também passa via TenantGuard)
+
+5) INTEGRAÇÃO COM MÓDULOS EXISTENTES (SEM ALTERAR APPYPAY)
+Ponto de integração:
+- OperationalEventLogService agora publica src/main/java/com/restaurante/service/operacional/event/OperationalEventLoggedEvent.java
+- O ledger reage AFTER_COMMIT a esse evento; não há alteração estrutural do AppyPay/callback/polling.
+
+6) INTEGRAÇÃO COM EVIDENCE BUNDLE
+- SnapshotFinanceiroEvidenceBundleResponse ganhou o campo transactionLedgerEvidence:
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/TransactionLedgerEvidenceSectionDTO.java
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/service/SnapshotFinanceiroEvidenceBundleService.java
+    - attach da seção e auditoria via OperationalEventType.TRANSACTION_LEDGER_EVIDENCE_ATTACHED_TO_BUNDLE
+
+7) AUDITORIA
+- Eventos adicionados em OperationalEventType:
+  - TRANSACTION_EVIDENCE_EVENT_RECORDED
+  - TRANSACTION_EVIDENCE_DUPLICATE_IGNORED
+  - TRANSACTION_EVIDENCE_RECORDING_FAILED
+  - TRANSACTION_EVIDENCE_LEDGER_VERIFICATION_*
+  - TRANSACTION_EVIDENCE_LEDGER_BROKEN_CHAIN_DETECTED
+  - TRANSACTION_EVIDENCE_LEDGER_SEQUENCE_GAP_DETECTED
+  - TRANSACTION_LEDGER_EVIDENCE_ATTACHED_TO_BUNDLE
+
+8) LIMITAÇÕES / DECISÕES IMPORTANTES
+- Ledger não bloqueia operação do negócio em falha (listener AFTER_COMMIT apenas registra warning/log).
+- Ledger é alimentado pelo OperationalEventLog (MVP) e filtra módulos críticos; não cobre 100% dos eventos do sistema.
+- Chave HMAC não é persistida em DB; keyVersion é persistida.
+- Fallback dev/test existe via property; NÃO usar em produção.
+- Alguns testes de integração com PostgreSQL podem ser SKIPPED em ambientes sem Docker/Testcontainers.
+
+9) COMANDOS EXECUTADOS
+- mvn -q -DskipTests compile
+- mvn test
+
+10) RESULTADOS
+- mvn -q -DskipTests compile: PASSOU
+- mvn test: PASSOU (com testes SKIPPED quando Testcontainers/Docker indisponível)
+
+11) TESTES NOVOS / ALTERADOS
+Novos:
+- src/test/java/com/restaurante/txevidence/TransactionEvidenceCanonicalizerTest.java
+- src/test/java/com/restaurante/txevidence/TransactionEvidenceHashServiceTest.java
+- src/test/java/com/restaurante/txevidence/TransactionEvidenceLedgerServiceTest.java
+- src/test/java/com/restaurante/txevidence/TransactionEvidenceVerificationServiceTest.java
+- src/test/java/com/restaurante/txevidence/TransactionLedgerEvidenceServiceTest.java
+- src/test/java/com/restaurante/txevidence/TransactionEvidenceLedgerFlowTest.java
+
+12) STATUS FINAL
+- Prompt 47 concluído: ledger transacional append-only implementado, verificação disponível, endpoints e Evidence Bundle summary entregues, build/test ok.

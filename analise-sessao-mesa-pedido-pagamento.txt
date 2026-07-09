@@ -1,0 +1,99 @@
+=============================================================================
+ RELATÓRIO DE ANÁLISE TÉCNICA - SISTEMA DE RESTAURAÇÃO
+=============================================================================
+ Foco: Sessões de Consumo, Mesas, Pedidos, Pagamentos e Expiração
+=============================================================================
+
+1. MAPEAMENTO DAS ENTIDADES PRINCIPAIS E ARQUITETURA
+-----------------------------------------------------------------------------
+- MESA
+  * Caminho: src/main/java/com/restaurante/model/entity/Mesa.java
+  * Campos Chave: referencia, tipo, numero, qrCode, capacidade, ativa
+  * Relacionamentos: UnidadeAtendimento (N:1), Instituicao (N:1)
+  * Regras de Negócio: É um recurso físico e permanente (não pode ser excluído se tiver sessão). O estado da mesa (OCUPADA ou DISPONIVEL) não é persistido; é puramente derivado (query `existsByMesaIdAndStatus`) com base na existência de uma SessaoConsumo com status ABERTA. 
+
+- SESSAO_CONSUMO
+  * Caminho: src/main/java/com/restaurante/model/entity/SessaoConsumo.java
+  * Campos Chave: qrCodeSessao (identificador público/token), abertaEm, fechadaEm, modoAnonimo
+  * Enums: StatusSessaoConsumo (ABERTA, AGUARDANDO_PAGAMENTO, ENCERRADA, EXPIRADA), TipoSessao (PRE_PAGO, POS_PAGO)
+  * Relacionamentos: Mesa (N:1), Cliente (N:1), FundoConsumo (1:1), Pedidos (1:N)
+  * Regras de Negócio: O coração operacional. A mesa é opcional (pode existir sessão de takeaway). Limite estrito de apenas UMA sessão ABERTA por mesa em simultâneo.
+
+- FUNDO_CONSUMO
+  * Caminho: src/main/java/com/restaurante/model/entity/FundoConsumo.java
+  * Campos Chave: saldoAtual, ativo
+  * Relacionamentos: SessaoConsumo (1:1), TransacoesFundo (1:N)
+  * Regras de Negócio: Criado automaticamente ao abrir sessão (saldo 0). O `saldoAtual` é tratado como um cache e a fonte real de verdade é a agregação (ledger append-only) de TransacaoFundo.
+
+- PEDIDO e SUBPEDIDO
+  * Caminhos: src/main/java/com/restaurante/model/entity/Pedido.java | SubPedido.java
+  * Campos Chave: numero, total, observacoes / numero
+  * Enums: StatusPedido (CRIADO, EM_ANDAMENTO, FINALIZADO, CANCELADO), StatusFinanceiroPedido (NAO_PAGO, PAGO, ESTORNADO), StatusSubPedido
+  * Relacionamentos: SessaoConsumo (N:1), SubPedidos (1:N), ItemPedidos (1:N)
+  * Regras de Negócio: O status do Pedido é rigidamente derivado do estado dos seus SubPedidos (recalculado em runtime). Estorno automático caso seja cancelado após pagamento.
+
+- PAGAMENTO
+  * Caminho: src/main/java/com/restaurante/model/entity/Pagamento.java
+  * Campos Chave: amount, externalReference, gatewayChargeId, gatewayResponse
+  * Enums: StatusPagamentoGateway (PENDENTE, CONFIRMADO, FALHOU, CANCELADO)
+  * Relacionamentos: FundoConsumo (N:1), Pedido (N:1)
+  * Regras de Negócio: Integração com AppyPay. Implementa idempotência por `externalReference`.
+
+
+2. ANÁLISE DO CICLO DE EXPIRAÇÃO ATUAL (SessaoExpiracaoScheduler)
+-----------------------------------------------------------------------------
+A lógica de expiração automática é executada pela classe `SessaoExpiracaoScheduler.java`.
+
+- Frequência: Executa de hora a hora (cron `0 0 * * * *`).
+- Condição de Corte: Busca todas as sessões com status `ABERTA` em que o campo `abertaEm` é anterior a X horas atrás (definido por `sessao.expiracao.horas`, default = 12 horas).
+- Ações Executadas:
+  1. Altera o status da sessão para `EXPIRADA`.
+  2. Chama `fundoConsumo.encerrar()` (que altera `ativo = false` no fundo).
+- Omissões e Falhas Críticas do Algoritmo Atual:
+  * Ignora Interações Recentes: Baseia-se exclusivamente no `abertaEm`. Uma sessão aberta há 13 horas mas que pediu uma bebida há 10 minutos será sumariamente expirada.
+  * Ignora Saldo Positivo: Se o FundoConsumo da mesa tiver saldo de 50.000 KZ, a sessão é expirada e o fundo é inativado, essencialmente "confiscando" ou bloqueando o dinheiro.
+  * Ignora Operações Pendentes: Não valida se existem Pedidos em status `EM_ANDAMENTO` (na cozinha) ou Pagamentos em `PENDENTE` no AppyPay.
+
+
+3. FLUXO DE CAIXA/PAGAMENTOS E O SEU IMPACTO NA EXPIRAÇÃO
+-----------------------------------------------------------------------------
+O motor financeiro (`FundoConsumoService` e `PagamentoGatewayService`) gere dinheiro de forma assíncrona, dependendo de Webhooks (AppyPayCallback).
+
+Cenário de Colisão Crítica (Race Condition):
+1. Uma mesa foi aberta há quase 12 horas.
+2. O cliente, percebendo que precisa de mais consumo, gera uma Referência AppyPay (REF) para recarregar o Fundo.
+3. O cliente paga no Multicaixa.
+4. Ao mesmo instante (ex: 12h00m00s), o `SessaoExpiracaoScheduler` dispara e inativa a Sessão e o FundoConsumo.
+5. Um milissegundo depois (ex: 12h00m01s), o `PagamentoCallbackService` recebe a confirmação da AppyPay. Ao tentar creditar no `FundoConsumoService`, esbarra na validação `if (!fundo.getAtivo()) throw new BusinessException("Fundo encerrado...")`.
+Resultado: O webhook falha, o pagamento não é creditado no sistema, mas o dinheiro saiu da conta do cliente. Uma inconsistência financeira gravíssima.
+
+
+4. DIAGNÓSTICO E RISCOS DE CONCORRÊNCIA
+-----------------------------------------------------------------------------
+- Mecanismo Atual: As entidades herdam de `BaseEntity`, possuindo a anotação `@Version` (JPA Optimistic Locking). O `FundoConsumoService` lida muito bem com colisões, implementando `@Retryable` e `@Transactional(isolation = Isolation.SERIALIZABLE)`.
+- Risco do Scheduler: O agendador atua "cegamente" num lote (`List<SessaoConsumo>`). Ao iterar e chamar `sessao.encerrar()`, pode causar exceções em lote ou transações parciais se uma das sessões for modificada em paralelo (ex: um empregado tentar faturar a mesma mesa no mesmo milissegundo).
+- Conclusão: O nível de serialização no lado financeiro é alto, mas a lógica de fechamento de sessões (Scheduler) é demasiadamente permissiva e propensa a gerar falsos positivos de "mesas abandonadas".
+
+
+5. PLANO DE AÇÃO PARA O REFACTOR (Safe Path)
+-----------------------------------------------------------------------------
+Para modernizar este ciclo sem quebrar o domínio, recomenda-se a seguinte sequência:
+
+PASSO 1: Atualizar o Modelo de Dados da Sessão
+- Adicionar o campo `LocalDateTime ultimaAtividadeEm` na entidade `SessaoConsumo`.
+- Atualizar este campo automaticamente (via `@PreUpdate` ou em pontos-chave dos Services) sempre que:
+  * Um novo Pedido for criado na sessão.
+  * O FundoConsumo associado sofrer um Crédito ou Débito.
+
+PASSO 2: Refinar as Queries de Expiração (`SessaoConsumoRepository`)
+- Substituir a procura baseada em `abertaEm` por `ultimaAtividadeEm`.
+- Criar query condicional: Só selecionar sessões candidatas à expiração que NÃO tenham:
+  * Saldo no FundoConsumo > 0.
+  * Pedidos nos status `CRIADO` ou `EM_ANDAMENTO`.
+
+PASSO 3: Mudar a Responsabilidade Transacional
+- O Scheduler não deve alterar a sessão diretamente no seu loop. Deve delegar a um novo método `SessaoConsumoService.expirarComSeguranca(Long sessaoId)`.
+- Este método deve rodar em transação independente (`Propagation.REQUIRES_NEW`), carregar a sessão, fazer um lock optimista, validar novamente os critérios (dupla checagem contra a Race Condition de Webhooks) e só então inativar o Fundo e a Sessão.
+
+PASSO 4: Implementar Auditoria de Expiração
+- Quando o scheduler fechar uma sessão, deverá ser gravado um log explícito no banco (via EventLogService) referenciando "Expirado por inatividade automática", para fins de auditoria quando os clientes reclamarem que a sua sessão "desapareceu".

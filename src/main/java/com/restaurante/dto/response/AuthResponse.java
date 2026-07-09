@@ -16,7 +16,7 @@ public class AuthResponse {
     private String username;
     private Set<Role> roles;
 
-    // Dados da sessão criada automaticamente no login
+    // Dados de sessão, preenchidos apenas quando uma sessão for retornada explicitamente
     private String qrCodeSessao;
     private Long sessaoId;
     private java.math.BigDecimal saldoFundo;

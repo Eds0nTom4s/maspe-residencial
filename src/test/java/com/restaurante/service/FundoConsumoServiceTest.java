@@ -8,8 +8,11 @@ import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.TransacaoFundo;
 import com.restaurante.model.enums.TipoTransacaoFundo;
+import com.restaurante.notificacao.service.WebSocketNotificacaoService;
+import com.restaurante.repository.ClienteRepository;
 import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +48,19 @@ class FundoConsumoServiceTest {
 
     @Mock
     private ConfiguracaoFinanceiraService configuracaoFinanceiraService;
+
+    @Mock
+    private WebSocketNotificacaoService webSocketNotificacaoService;
+
+    // Sprint 1: mock do novo serviço injectado em FundoConsumoService
+    @Mock
+    private SessaoConsumoService sessaoConsumoService;
+
+    @Mock
+    private SessaoConsumoRepository sessaoConsumoRepository;
+
+    @Mock
+    private ClienteRepository clienteRepository;
 
     @InjectMocks
     private FundoConsumoService fundoConsumoService;

@@ -1,0 +1,185 @@
+PROMPT 40 — POS OFFLINE-FIRST MÍNIMO (CONSUMA)
+Data: 2026-05-22
+
+1) RESUMO EXECUTIVO
+- Implementado um mecanismo “offline-first mínimo” para POS/device baseado em sincronização batch de comandos: o POS enfileira comandos localmente e sincroniza depois via `/device/offline-sync/batch`.
+- O backend persiste cada comando com idempotência forte por `(tenantId + deviceId + clientRequestId)` via tabela `device_offline_commands`, com `payloadHash` (SHA-256) e `resultJson` para replay seguro.
+- Apenas comandos seguros são permitidos (pedido POS, ordem manual CASH/TPA, confirmação manual CASH/TPA, atividade local). AppyPay e OTP permanecem online-only.
+- Enforced por capabilities explícitas (`OFFLINE_*`) + auditoria sanitizada por evento operacional.
+
+2) MIGRATIONS CRIADAS
+- `src/main/resources/db/migration/V36__device_offline_commands.sql`
+  - Cria `device_offline_commands` + índices + UNIQUE `(tenant_id, dispositivo_operacional_id, client_request_id)`.
+
+3) ENTIDADES / ENUMS CRIADOS
+- Entidade:
+  - `src/main/java/com/restaurante/device/offline/entity/DeviceOfflineCommand.java`
+- Enums:
+  - `src/main/java/com/restaurante/model/enums/DeviceOfflineCommandType.java`
+  - `src/main/java/com/restaurante/model/enums/DeviceOfflineCommandStatus.java`
+  - `src/main/java/com/restaurante/model/enums/DeviceOfflineConflictCode.java`
+
+4) CAMPOS / AJUSTES EM ENUMS EXISTENTES
+- `src/main/java/com/restaurante/model/enums/DeviceCapability.java`
+  - Adicionado: `OFFLINE_SYNC`, `OFFLINE_CREATE_ORDER`, `OFFLINE_CREATE_MANUAL_PAYMENT_ORDER`, `OFFLINE_CONFIRM_MANUAL_PAYMENT`.
+- `src/main/java/com/restaurante/dto/response/DeviceErrorResponse.java`
+  - Adicionados DeviceErrorCode para offline (ex.: `OFFLINE_SYNC_DISABLED`, `OFFLINE_BATCH_TOO_LARGE`, `IDEMPOTENCY_CONFLICT`, `PRICE_CHANGED`, etc).
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+  - Adicionados eventos: `DEVICE_OFFLINE_SYNC_*` e `DEVICE_OFFLINE_COMMAND_*`.
+- `src/main/java/com/restaurante/model/enums/OperationalEntityType.java`
+  - Adicionado: `DEVICE_OFFLINE_COMMAND`, `DEVICE_OFFLINE_SYNC`.
+- Defaults por tipo:
+  - `src/main/java/com/restaurante/device/capability/service/DeviceCapabilityDefaults.java`
+    - POS_CAIXA recebe offline completo (inclui confirm manual).
+    - POS_ATENDIMENTO recebe offline parcial (sem confirm manual por default).
+
+5) REPOSITORIES CRIADOS
+- `src/main/java/com/restaurante/device/offline/repository/DeviceOfflineCommandRepository.java`
+
+6) SERVICES / HANDLERS CRIADOS
+- Properties:
+  - `src/main/java/com/restaurante/config/DeviceOfflineSyncProperties.java`
+- Processor + handlers:
+  - `src/main/java/com/restaurante/service/device/offline/DeviceOfflineCommandProcessor.java`
+  - `src/main/java/com/restaurante/service/device/offline/handler/DeviceOfflineCommandHandler.java`
+  - `src/main/java/com/restaurante/service/device/offline/handler/CreatePedidoPosOfflineHandler.java`
+  - `src/main/java/com/restaurante/service/device/offline/handler/CreateManualPaymentOrderOfflineHandler.java`
+  - `src/main/java/com/restaurante/service/device/offline/handler/ConfirmManualPaymentOfflineHandler.java`
+  - `src/main/java/com/restaurante/service/device/offline/handler/RegisterLocalActivityOfflineHandler.java`
+- Orquestração do batch:
+  - `src/main/java/com/restaurante/service/device/offline/DeviceOfflineSyncService.java`
+
+7) DTOs CRIADOS
+- Request:
+  - `src/main/java/com/restaurante/dto/request/DeviceOfflineSyncBatchRequest.java`
+  - `src/main/java/com/restaurante/dto/request/DeviceOfflineCommandRequest.java`
+- Response:
+  - `src/main/java/com/restaurante/dto/response/DeviceOfflineSyncBatchResponse.java`
+  - `src/main/java/com/restaurante/dto/response/DeviceOfflineCommandResultResponse.java`
+  - `src/main/java/com/restaurante/dto/response/DeviceOfflineCapabilitiesResponse.java`
+
+8) ENDPOINTS CRIADOS
+- Controller:
+  - `src/main/java/com/restaurante/controller/DeviceOfflineSyncController.java`
+- Rotas:
+  - `POST /device/offline-sync/batch`
+  - `GET /device/offline-sync/commands/{clientRequestId}`
+  - `GET /device/offline-sync/capabilities`
+
+9) COMANDOS OFFLINE PERMITIDOS (MVP)
+- `CREATE_PEDIDO_POS`
+  - Reutiliza `DevicePedidoService` (pedido online), com `Idempotency-Key` derivado: `offline:{deviceId}:{clientRequestId}`.
+  - Se `localTotalEstimado` vier no payload, compara com preços atuais do catálogo; se diferente → `PRICE_CHANGED`.
+- `CREATE_ORDEM_PAGAMENTO_MANUAL`
+  - Apenas `CASH/TPA`. Rejeita `APPYPAY`.
+  - Revalida policies atuais via `PaymentMethodPolicyResolutionService.validateForDevice(...)`.
+  - Respeita `requiresOpenTurno` do método (se aplicável).
+- `CONFIRM_MANUAL_PAYMENT`
+  - Apenas `CASH/TPA`. Reutiliza `DeviceOrdemPagamentoService.confirmarManual(...)`.
+  - Respeita turno aberto no sync e policies/capabilities.
+- `REGISTER_LOCAL_ACTIVITY`
+  - Sem efeito financeiro; devolve `ok=true`.
+
+10) COMANDOS PROIBIDOS OFFLINE (GARANTIDO)
+- AppyPay e OTP continuam online-only:
+  - `CREATE_ORDEM_PAGAMENTO_MANUAL` rejeita `metodo=APPYPAY`.
+  - `allowedCommandTypes` (properties) não inclui comandos de gateway/OTP/admin.
+
+11) COMO O BATCH SYNC FUNCIONA
+- Ordenação: por `localSequence`, depois `localCreatedAt`.
+- Persistência por comando:
+  - calcula JSON canônico + `payloadHash` (SHA-256);
+  - UNIQUE garante idempotência por `(tenant, device, clientRequestId)`;
+  - replay:
+    - hash igual → `DUPLICATE` (retorna `resultJson` persistido);
+    - hash diferente → `CONFLICT` + `IDEMPOTENCY_CONFLICT`.
+- Execução:
+  - exige `OFFLINE_SYNC` e capability específica do tipo de comando (`OFFLINE_CREATE_ORDER`, etc).
+  - falhas por comando não bloqueiam o batch (processa item a item).
+
+12) SEGURANÇA / DEVICE SAFETY
+- Não aceita `tenantId`/`deviceId` do payload como fonte de verdade (usa `DevicePrincipal`).
+- Capabilities offline são separadas e necessárias:
+  - `OFFLINE_SYNC` obrigatório para chamar `/batch`;
+  - `OFFLINE_CREATE_*` / `OFFLINE_CONFIRM_*` por comando.
+
+13) AUDITORIA (SANITIZADA)
+- Eventos adicionados em `OperationalEventType`:
+  - `DEVICE_OFFLINE_SYNC_RECEIVED`, `DEVICE_OFFLINE_SYNC_COMPLETED`
+  - `DEVICE_OFFLINE_COMMAND_APPLIED`, `DUPLICATE`, `REJECTED`, `CONFLICT`, `FAILED`
+- Metadata inclui ids e status; não inclui payload completo, OTP, deviceToken, ou segredos.
+
+14) TEMPLATES / DEFAULTS DE CAPABILITIES (INTEGRAÇÃO MÍNIMA)
+- Atualizado bootstrap de templates 39.3 para incluir capabilities offline nos defaults:
+  - `src/main/java/com/restaurante/device/capability/template/service/DeviceCapabilityTemplateBootstrapService.java`
+    - `CAP_POS_CAIXA_PADRAO` inclui offline completo.
+    - `CAP_POS_ATENDIMENTO_PADRAO` inclui offline parcial (sem confirmação manual).
+
+15) TESTES CRIADOS
+- `src/test/java/com/restaurante/device/DeviceOfflineSyncCapabilitiesIT.java`
+- `src/test/java/com/restaurante/device/DeviceOfflineSyncIdempotencyIT.java`
+- `src/test/java/com/restaurante/device/DeviceOfflineManualPaymentIT.java`
+- `src/test/java/com/restaurante/device/DeviceOfflineSecurityIT.java`
+
+Observação: o suite do projeto usa Testcontainers; neste ambiente o Docker não está disponível, então vários ITs ficam SKIPPED. O build de testes ainda passa.
+
+16) DOCUMENTAÇÃO
+- `docs/tenant-core/40-pos-offline-first-minimo.md`
+
+17) COMANDOS EXECUTADOS
+- `mvn -q -DskipTests compile`
+  - Resultado: OK
+- `mvn test`
+  - Resultado: OK (BUILD SUCCESS)
+  - Nota: logs indicam ausência de Docker/Testcontainers e vários testes SKIPPED (ex.: “Could not find a valid Docker environment”).
+- `mvn -q -Dtest=DeviceOfflineSyncCapabilitiesIT test` (OK)
+- `mvn -q -Dtest=DeviceOfflineSyncIdempotencyIT test` (OK)
+- `mvn -q -Dtest=DeviceOfflineManualPaymentIT test` (OK)
+
+18) ITENS NÃO COBERTOS (POR DESIGN)
+- Dependência entre comandos no batch via `localRef` (ex.: ordem referenciar pedido recém-criado no mesmo batch).
+- Rollout assíncrono para offline commands.
+- UI, banco local, CRDT, sincronização bidirecional, filas externas.
+- AppyPay offline, OTP offline, fechamento de turno offline, snapshot/evidence offline.
+
+19) DECISÕES TÉCNICAS
+- Idempotência primária via UNIQUE no backend + `payloadHash`:
+  - replay com hash igual retorna resultado persistido sem reprocessar.
+- Execução item-a-item com retorno por item (um item falha não impede outros independentes).
+- AppyPay e OTP mantidos online-only (redução de risco e preservação de consistência financeira).
+- Capabilities offline separadas para evitar que “pode vender online” implique “pode operar offline”.
+
+20) RISCOS RESTANTES
+- Sem `localRef`, o POS precisa sincronizar em múltiplos batches quando há dependências (pedido → ordem → confirmação).
+- Política de tamanho máximo de payload por comando ainda depende do limite HTTP/global (próximo passo sugerido).
+- Em ambientes sem Docker/Testcontainers, parte da matriz IT fica SKIPPED (recomendado rodar em CI com Docker).
+
+21) CHECKLIST DE ACEITAÇÃO (PROMPT 40)
+[x] Existe tabela de comandos offline (`device_offline_commands`).
+[x] Existe endpoint batch sync (`POST /device/offline-sync/batch`).
+[x] Existe endpoint de capabilities (`GET /device/offline-sync/capabilities`).
+[x] `clientRequestId` obrigatório por comando.
+[x] `payloadHash` persistido.
+[x] Replay com mesmo payload não duplica (DUPLICATE).
+[x] Replay com payload diferente gera conflito (`IDEMPOTENCY_CONFLICT`).
+[x] `CREATE_PEDIDO_POS` suportado.
+[x] `CREATE_ORDEM_PAGAMENTO_MANUAL` suportado para CASH/TPA.
+[x] `CONFIRM_MANUAL_PAYMENT` suportado para CASH/TPA.
+[x] AppyPay offline bloqueado.
+[x] OTP offline bloqueado (não há comando permitido).
+[x] Fecho de turno / snapshot / evidence offline bloqueados (não há comandos permitidos).
+[x] Turno aberto é validado no sync (reuso das regras existentes).
+[x] Device capabilities protegem comandos offline (`OFFLINE_*`).
+[x] Batch size limitado (`maxBatchSize`).
+[x] Comando antigo demais rejeitado (`maxOfflineAgeMinutes`).
+[x] Cross-tenant protegido via `DevicePrincipal`.
+[x] Auditoria sanitizada adicionada.
+[x] POS online continua funcionando (reuso de services existentes).
+[x] AppyPay callback/polling não alterados.
+[x] Relatório/snapshot/evidence bundle não alterados.
+[x] `mvn -q -DskipTests compile` passa.
+[x] `mvn test` passa.
+
+22) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 40.1: dependências locais (`localRef`), encadeamento seguro (pedido → ordem → confirmação), e limites explícitos de payload/tamanho por comando.
+

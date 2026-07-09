@@ -24,7 +24,8 @@ import java.util.List;
 @Entity
 @Table(name = "unidades_atendimento", indexes = {
     @Index(name = "idx_unidade_tipo", columnList = "tipo"),
-    @Index(name = "idx_unidade_ativa", columnList = "ativa")
+    @Index(name = "idx_unidade_ativa", columnList = "ativa"),
+    @Index(name = "idx_unidade_instituicao", columnList = "instituicao_id")
 })
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -48,6 +49,14 @@ public class UnidadeAtendimento extends BaseEntity {
 
     @Column(length = 500)
     private String descricao;
+
+    /**
+     * Instituição proprietária da unidade.
+     * Mantém o modelo atual single-tenant, mas prepara o escopo para multi-tenant.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "instituicao_id")
+    private Instituicao instituicao;
 
     /**
      * Relacionamento com Cozinhas responsáveis

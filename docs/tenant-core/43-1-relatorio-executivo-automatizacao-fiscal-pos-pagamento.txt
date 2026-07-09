@@ -1,0 +1,144 @@
+CONSUMA — Prompt 43.1 (Automatização fiscal controlada pós-pagamento)
+Relatório executivo final
+
+Data: 2026-05-24
+
+IMPORTANTE
+- Este prompt automatiza a emissão de “documento fiscal interno” (base fiscal interna/preparatória).
+- NÃO é faturação oficial/certificada: não inclui AGT, SAF-T, faturação eletrónica certificada, QR fiscal oficial, assinatura fiscal oficial ou submissão fiscal automática.
+
+1) Objetivo
+Implementar emissão fiscal interna automática e controlada após pagamento confirmado, com:
+- idempotência por pagamento/pedido;
+- fila persistida (job) + worker com retries/backoff;
+- rastreio de falhas e listagem de pendências;
+- sem reverter pagamento confirmado por erro fiscal (MVP);
+- integração com Evidence Bundle via taxEvidence (métricas + warnings).
+
+2) Migrations
+- V50__fiscal_auto_issue_jobs.sql
+  - cria tabela fiscal_auto_issue_jobs + índices/unique para idempotência (tenant_id + idempotency_key).
+- V51__fiscal_document_sequences_seq_year.sql
+  - hardening: renomeia coluna fiscal_document_sequences.year -> seq_year e recria índice único (evita keyword reservada e melhora compatibilidade H2/PostgreSQL).
+
+3) Entidades e enums (domínio fiscal auto-issue)
+Entidade:
+- FiscalAutoIssueJob (tabela fiscal_auto_issue_jobs)
+
+Enums:
+- FiscalAutoIssueJobStatus (PENDING, PROCESSING, ISSUED, FAILED_RETRYABLE, FAILED_PERMANENT, CANCELLED, SKIPPED)
+- FiscalAutoIssueSource (CASH_MANUAL_PAYMENT, TPA_MANUAL_PAYMENT, APPYPAY_CALLBACK, APPYPAY_POLLING, QR_PUBLIC_PAYMENT, ADMIN_MANUAL_TRIGGER, SYSTEM_BACKFILL)
+- FiscalAutoIssueTriggerType (AUTO_ON_PAYMENT_CONFIRMED, MANUAL_RETRY, ADMIN_FORCE_ISSUE, BACKFILL)
+
+Evento:
+- PaymentConfirmedForFiscalIssueEvent (publicado pós-confirmação de pagamento)
+
+DTO/Responses:
+- FiscalAutoIssueJobResponse (tenant/admin)
+- DeviceFiscalIssueStatusResponse (device)
+
+4) Services / componentes principais
+- FiscalAutoIssueJobService
+  - cria job idempotente “AUTO_ON_PAYMENT_CONFIRMED” quando elegível (respeita toggles/políticas)
+- FiscalAutoIssueWorker
+  - executa jobs due (PENDING/FAILED_RETRYABLE), aplica lock lógico, tenta emitir documento e atualiza status
+  - stale lock recovery (PROCESSING preso → FAILED_RETRYABLE)
+- FiscalAutoIssueFailureClassifier
+  - classifica falhas em retryable/permanent (sanitizando mensagem)
+- FiscalAutoIssueAdminService
+  - list/get/retry/cancel/trigger manual por pagamento
+
+Integração fiscal existente (Prompt 43) reutilizada:
+- FiscalDocumentService (issueForPedidoPaymentAsSystem)
+- TaxCalculationService
+- FiscalDocumentSequenceService
+- TaxEvidenceService (taxEvidence no Evidence Bundle)
+
+5) Endpoints implementados
+Tenant/admin (roles financeiras/admin do tenant):
+- GET  /tenant/fiscal/auto-issue/jobs
+- GET  /tenant/fiscal/auto-issue/jobs/{jobId}
+- POST /tenant/fiscal/auto-issue/jobs/{jobId}/retry
+- POST /tenant/fiscal/auto-issue/jobs/{jobId}/cancel
+- POST /tenant/fiscal/auto-issue/issue-for-payment/{pagamentoId}?source=...
+
+Device/POS (somente leitura; requer capability VIEW_FISCAL_DOCUMENT):
+- GET /device/fiscal/issue-status/pagamento/{pagamentoId}
+
+6) Integração com “pagamento confirmado”
+O job fiscal é criado como consequência AFTER_COMMIT via:
+- OrdemPagamentoService (pagamento manual CASH/TPA confirmado)
+- PagamentoConfirmacaoService (AppyPay callback/polling confirmando pagamento)
+- FiscalAutoIssueAdminService (trigger manual por pagamento)
+
+Listener:
+- FiscalAutoIssueOnPaymentConfirmedListener (@TransactionalEventListener AFTER_COMMIT)
+  - carrega Pagamento/Pedido, valida tenant e chama FiscalAutoIssueJobService.createAutoOnPaymentConfirmedJobIfEligible(...)
+
+7) Integração com AppyPay (sem alteração estrutural)
+- Nenhuma alteração estrutural em callback/polling AppyPay.
+- O sistema apenas reage a “pagamento confirmado” já produzido pelas rotinas existentes, publicando o evento e criando job quando elegível.
+
+8) Integração com CASH/TPA
+- Pagamentos manuais CASH/TPA confirmados no POS publicam PaymentConfirmedForFiscalIssueEvent com source:
+  - CASH_MANUAL_PAYMENT
+  - TPA_MANUAL_PAYMENT
+- Auto-issue pode emitir documento fiscal interno sem acoplar confirmação de pagamento a emissão fiscal.
+
+9) Integração com taxEvidence (Evidence Bundle)
+TaxEvidenceService passou a incluir métricas de auto-issue no bundle novo (sem recalcular bundles antigos), incluindo:
+- contagens por status de jobs (pending/failed/etc.)
+- contagem de “pagamentos confirmados sem documento fiscal”
+- warnings (ex.: CONFIRMED_PAYMENT_WITHOUT_FISCAL_DOCUMENT, AUTO_ISSUE_JOB_FAILED_PERMANENT, AUTO_ISSUE_JOB_FAILED_RETRYABLE)
+
+10) Auditoria (sanitizada)
+Eventos operacionais para rastreio do ciclo de vida do job:
+- FISCAL_AUTO_ISSUE_JOB_CREATED
+- FISCAL_AUTO_ISSUE_JOB_SKIPPED
+- FISCAL_AUTO_ISSUE_JOB_PROCESSING_STARTED
+- FISCAL_AUTO_ISSUE_JOB_ISSUED
+- FISCAL_AUTO_ISSUE_JOB_FAILED_RETRYABLE
+- FISCAL_AUTO_ISSUE_JOB_FAILED_PERMANENT
+- FISCAL_AUTO_ISSUE_JOB_RETRIED_MANUALLY
+- FISCAL_AUTO_ISSUE_JOB_CANCELLED
+- FISCAL_AUTO_ISSUE_STALE_LOCK_RECOVERED
+- FISCAL_AUTO_ISSUE_MANUAL_TRIGGERED
+
+Sanitização:
+- não inclui token de device, payload bruto de gateway, dados sensíveis de cartão, telefone completo, segredos HMAC/keys.
+
+Hardening adicional aplicado nesta etapa:
+- OperationalEventLogService ganhou logGenericForTenant(...) para jobs/workers sem SecurityContext.
+
+11) Limitações (por desenho do prompt)
+- Não reverte pagamento confirmado por falha fiscal (fail-payment-on-tax-error=false no MVP).
+- Sem UI/backoffice; apenas endpoints.
+- Sem emissão fiscal offline e sem reserva de numeração offline.
+- Sem integração fiscal oficial/certificada (AGT/SAF-T/etc.).
+- Sem notas de crédito/débito fiscais e sem impacto fiscal automático de ajustes de caixa.
+
+12) Testes novos/alterados
+Testes do módulo auto-issue (suite fiscal/autoissue):
+- src/test/java/com/restaurante/fiscal/autoissue/FiscalAutoIssueJobServiceTest.java
+- src/test/java/com/restaurante/fiscal/autoissue/FiscalAutoIssueWorkerTest.java (ALTERADO nesta etapa: seed de policy/rate, hardening de asserts)
+- src/test/java/com/restaurante/fiscal/autoissue/FiscalAutoIssueFailureClassifierTest.java
+- src/test/java/com/restaurante/fiscal/autoissue/TaxEvidenceAutoIssueTest.java
+
+13) Comandos executados e resultados
+- mvn -q -DskipTests compile
+  - OK (exit code 0)
+- mvn test
+  - BUILD SUCCESS (exit code 0)
+  - Tests run: 502, Failures: 0, Errors: 0, Skipped: 223
+
+Observação: parte dos ITs é “Skipped” por ausência de Docker/Testcontainers no ambiente local.
+
+14) Status final
+Prompt 43.1 concluído e validado:
+- fila persistida + worker idempotente com retry/backoff;
+- jobs criados AFTER_COMMIT após confirmação de pagamento (CASH/TPA/AppyPay) quando elegível;
+- endpoints tenant/admin + consulta device-only;
+- taxEvidence enriquecido com métricas e warnings;
+- auditoria sanitizada aplicada ao ciclo de vida do job;
+- sem alterações estruturais em AppyPay, sem alteração em caixa operador/device e sem recalcular bundles antigos.
+

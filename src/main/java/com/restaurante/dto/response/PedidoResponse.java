@@ -1,5 +1,6 @@
 package com.restaurante.dto.response;
 
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.StatusPedido;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,6 +23,7 @@ public class PedidoResponse {
     private Long id;
     private String numero;
     private StatusPedido status;
+    private PedidoOrigem pedidoOrigem;
     private String observacoes;
     private BigDecimal total;
     private Long sessaoConsumoId;

@@ -1,0 +1,13 @@
+CONSUMA Backend — Prompt 40 (Checklist geral + Docker local + Testes de integração)
+Data: 2026-05-27 (Africa/Luanda)
+
+1) RESUMO EXECUTIVO
+- Repositório validado em estado pós-Prompt 39 no branch `restauracao-antes-da-loja` (HEAD: a515508), com alterações locais NÃO commitadas para viabilizar healthcheck e compose local.
+- Build local foi executado com Maven usando repositório em `/tmp/m2` (workaround do ambiente atual que não permite escrita em `~/.m2`):
+  - `mvn -q -Dmaven.repo.local=/tmp/m2 -DskipTests compile` (OK)
+  - `mvn -Dmaven.repo.local=/tmp/m2 test` (BUILD SUCCESS; 558 testes, 0 falhas/erros; 231 skipped)
+- Migrações Flyway verificadas de forma estática: versões V1..V62 presentes, sem duplicados e sem lacunas; migrations recentes (delivery/evidence/templates/policies) presentes.
+- Docker local e testes de integração reais com PostgreSQL/Testcontainers NÃO puderam ser executados neste ambiente por falta de acesso ao daemon Docker (`/var/run/docker.sock` → permission denied). Consequência: suites `*IT` foram majoritariamente SKIPPED e não há evidência de execução de Flyway contra PostgreSQL “limpo”.
+- Para permitir validação externa, foi preparado `docker-compose.local.yml` (Postgres + API) e adicionada dependência/configuração mínima de Actuator para health/readiness/liveness (endpoint esperado: `/api/actuator/health`).
+
+Status desta validação: APROVADO COM RESSALVAS (compila/testes unitários OK; validação Docker/IT pendente por limitação do ambiente).

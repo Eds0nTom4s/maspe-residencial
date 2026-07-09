@@ -1,0 +1,223 @@
+RELATORIO_CONSUMA_BACKEND_SANDBOX_LOCAL_002_EVIDENCE_CONCORRENCIA_SESSAO_2026_06_02
+Data: 2026-06-02
+Branch inicial: restauracao-antes-da-loja
+Commit inicial: fca71fb Add local Docker sandbox runtime
+
+1. Resumo executivo
+- Objetivo da fase: corrigir as duas ressalvas abertas na SANDBOX-LOCAL-001 sem ampliar o escopo funcional.
+- Resultado: chave de transaction evidence configurada corretamente para `sandbox`/`sandbox-local`, validação fail-fast adicionada para segredo obrigatório e fluxo público de sessão/pedido protegido contra concorrência por lock pessimista na mesa com resolução centralizada de sessão.
+- Revalidação concluída com sucesso em Docker local sem apagar banco nem volumes.
+- Decisão: APROVADO.
+
+2. Escopo desta fase
+- Ressalva 1 corrigida:
+  - warning `Transaction evidence key indisponível para keyVersion=1`
+- Ressalva 2 corrigida:
+  - race condition criando duas sessões abertas na mesma mesa quando `consumos/anonimo` e `pedidos` eram disparados em paralelo
+- Fluxos revalidados:
+  - ordem manual `CASH`
+  - sessão pública anónima
+  - pedido público
+  - disparo paralelo sessão/pedido na mesma mesa
+  - verificação direta no PostgreSQL
+
+3. Estado Git inicial
+- `git status -sb`:
+  - branch sincronizada com `origin/restauracao-antes-da-loja`
+  - único artefato pré-existente fora do escopo: `RELATORIO_CONSUMA_BACKEND_IT_FIX_007_RODADA_AMPLA_FINAL_SUITE_IT_2026_06_02.txt`
+- `git branch --show-current`:
+  - `restauracao-antes-da-loja`
+- `git log --oneline -1`:
+  - `fca71fb Add local Docker sandbox runtime`
+- `git diff --check`:
+  - sem problemas estruturais antes do trabalho
+
+4. Estado dos containers antes da correção
+- Ambiente herdado da SANDBOX-LOCAL-001:
+  - `consuma-postgres-local` saudável
+  - `consuma-api-local` operacional em `http://localhost:8082`
+- Restrições desta fase respeitadas:
+  - não foi feito drop do banco
+  - não foi feito drop de volumes
+  - `.env.sandbox.local` permaneceu somente local
+- Problemas reproduzidos/confirmados antes do ajuste:
+  - logs de ordem manual exibiam `Transaction evidence key indisponível para keyVersion=1`
+  - cenário paralelo em QR público conseguia abrir mais de uma sessão por mesa
+
+5. Diagnóstico da evidence key
+- Prefixo de configuração encontrado:
+  - `consuma.evidence.tx-ledger`
+- Provedor de chave identificado:
+  - `EnvironmentTransactionEvidenceKeyProvider`
+- Nome da variável efetivamente esperada para a versão ativa:
+  - `CONSUMA_TX_EVIDENCE_HMAC_KEY_V1`
+- Causa raiz:
+  - o ambiente `sandbox-local` já possuía segredo de snapshot (`CONSUMA_SNAPSHOT_HMAC_SECRET_V1`), mas não fornecia o segredo específico do transaction evidence ledger
+  - por isso o fluxo de ordem manual seguia adiante, porém sem chave HMAC válida para gravar a evidência transacional
+
+6. Correção da evidence key
+- Ajustes aplicados:
+  - `src/main/resources/application.properties`
+    - adicionadas as propriedades base de `consuma.evidence.tx-ledger.key-version` e `consuma.evidence.tx-ledger.dev-hmac-secret`
+  - `src/main/resources/application-sandbox.properties`
+    - habilitado e mapeado o ledger transacional para `sandbox`
+  - `.env.sandbox.local.example`
+    - adicionada a variável `CONSUMA_TX_EVIDENCE_HMAC_KEY_V1`
+  - `src/main/java/com/restaurante/config/SensitiveSecretsValidator.java`
+    - validação fail-fast ampliada para exigir segredo de transaction evidence quando o profile ativo é `sandbox` ou `sandbox-local`
+- Efeito prático:
+  - o ambiente deixa de depender de warning tardio no fluxo e passa a falhar cedo quando a configuração obrigatória estiver ausente
+
+7. Validação da evidence key
+- Build executado:
+  - `mvn -DskipTests compile`
+  - `mvn -DskipTests package`
+  - ambos com `BUILD SUCCESS`
+- Testes específicos:
+  - `mvn -Dtest=SensitiveSecretsValidatorTest test`
+  - resultado: sucesso
+  - cobertura adicionada:
+    - bloqueio de `sandbox-local` sem `CONSUMA_TX_EVIDENCE_HMAC_KEY_V1`
+    - aceitação de `sandbox-local` com segredo válido
+- Rebuild Docker local:
+  - `docker compose -f docker-compose.sandbox-local.yml --env-file .env.sandbox.local up -d --build`
+  - resultado: sucesso
+- Estado final dos containers:
+  - `consuma-api-local` em `0.0.0.0:8082->8080`
+  - `consuma-postgres-local` `healthy`
+- Verificação de logs após correção:
+  - não houve ocorrência de:
+    - `Transaction evidence key indisponível`
+    - `TX evidence ledger record failed`
+- Revalidação funcional de ordem manual:
+  - login e tenant select válidos
+  - health `200`
+  - abertura correta de turno operacional após corrigir o payload manual de checklist para `valorBoolean`
+  - observação importante:
+    - a primeira tentativa falhou por erro no script manual de validação que usava o campo `resposta`
+    - não era bug de produto
+  - ordem manual `CASH` retornou `201`
+- Evidência no banco:
+  - `EVIDENCE_ROWS=1`
+  - último evento confirmado:
+    - `ORDEM_PAGAMENTO_CRIADA|1|SHA256_HMAC|RECORDED`
+
+8. Diagnóstico da concorrência de sessão pública
+- Regra de domínio confirmada:
+  - uma mesa deve manter apenas uma sessão aberta
+- Pontos vulneráveis identificados:
+  - criação/reuso de sessão pública estava replicada em múltiplos serviços
+  - o padrão era `check-then-insert` sem lock real da mesa
+  - fluxos paralelos de `consumos/anonimo` e `pedidos` podiam ler "sem sessão aberta" quase ao mesmo tempo e criar registros duplicados
+- Principais pontos afetados:
+  - `PublicQrPedidoService`
+  - `ConsumoPublicService`
+  - `SessaoConsumoService`
+  - `DevicePedidoService`
+
+9. Correção da concorrência
+- Estratégia escolhida:
+  - lock pessimista na linha de `Mesa`
+  - centralização do algoritmo de resolução/criação de sessão anónima em `SessaoConsumoService`
+- Ajustes aplicados:
+  - `src/main/java/com/restaurante/repository/MesaRepository.java`
+    - criado `findByIdForUpdate(...)` com `PESSIMISTIC_WRITE`
+  - `src/main/java/com/restaurante/service/SessaoConsumoService.java`
+    - `abrir(...)` passou a travar a mesa e verificar duplicidade com lista real de sessões abertas
+    - criado `resolveOrCreateSessaoAnonima(...)` para reuso consistente da sessão aberta ou criação segura de nova sessão
+    - `iniciarSessaoAnonima(...)` passou a usar a nova rotina central
+  - `src/main/java/com/restaurante/service/ConsumoPublicService.java`
+    - fluxo público de consumo anónimo agora delega ao resolvedor central
+  - `src/main/java/com/restaurante/service/PublicQrPedidoService.java`
+    - removida criação duplicada e não protegida de sessão
+  - `src/main/java/com/restaurante/service/device/DevicePedidoService.java`
+    - fluxo device alinhado com a mesma regra transacional
+- Decisão arquitetural:
+  - não foi criada migration nem unique partial index nesta fase
+  - motivo:
+    - o problema foi resolvido no caminho transacional real
+    - adicionar constraint sobre base já existente poderia introduzir risco desnecessário com dados antigos fora do escopo imediato
+
+10. Testes da concorrência
+- Novo teste de integração:
+  - `src/test/java/com/restaurante/qr/PublicQrSessaoConcorrenciaIT.java`
+- Cenário coberto:
+  - 3 chamadas paralelas para `/public/q/{mesa}/consumos/anonimo`
+  - 3 chamadas paralelas para `/public/q/{mesa}/pedidos`
+  - todas na mesma mesa
+- Critérios verificados:
+  - todas as respostas `201`
+  - apenas uma sessão aberta para a mesa
+  - todos os pedidos vinculados à mesma sessão
+- Execução direcionada:
+  - `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="PublicQrSessaoConcorrenciaIT,PublicQrPedidoSessaoMesaIT,PaymentMethodPolicyManualPaymentIT" test-compile failsafe:integration-test failsafe:verify`
+- Resultado:
+  - `BUILD SUCCESS`
+  - 4 testes executados
+  - 0 falhas
+  - 0 erros
+
+11. Validação Docker local pós-correção
+- Rebuild e subida concluídos sem resetar estado persistido.
+- Tenant fresco criado apenas para validação desta fase:
+  - `tenantId=3`
+  - `tenantCode=SL002225948`
+- Fluxos confirmados:
+  - `GET /api/actuator/health`: `200`
+  - `GET /api/tenant/qr/principal`: `200` com token TENANT
+  - `GET /api/public/q/{mesa}/cardapio`: `200`
+  - `POST /api/public/q/{mesa}/consumos/anonimo`: `201`
+  - `POST /api/public/q/{mesa}/pedidos`: `201`
+  - `POST` de ordem manual `CASH`: `201`
+- Validação paralela em mesa dedicada:
+  - `anon=201`
+  - `pedido=201`
+  - consulta SQL:
+    - `MESA2_ABERTAS=1`
+    - sessão aberta observada: `5`
+
+12. Verificações diretas no PostgreSQL
+- Sessões abertas do tenant validado:
+  - `4|3|3|ABERTA|PRE_PAGO|SLR260602-64136702`
+  - `5|3|4|ABERTA|POS_PAGO|SLR260602-27556341`
+- Interpretação:
+  - uma sessão aberta por mesa nas duas mesas usadas na validação
+- Evidência de pagamento:
+  - evento persistido com `key_version=1`
+  - algoritmo `SHA256_HMAC`
+  - estado `RECORDED`
+
+13. Arquivos alterados nesta fase
+- Configuração e segurança:
+  - `.env.sandbox.local.example`
+  - `src/main/resources/application.properties`
+  - `src/main/resources/application-sandbox.properties`
+  - `src/main/java/com/restaurante/config/SensitiveSecretsValidator.java`
+  - `src/test/java/com/restaurante/config/SensitiveSecretsValidatorTest.java`
+- Concorrência/sessão:
+  - `src/main/java/com/restaurante/repository/MesaRepository.java`
+  - `src/main/java/com/restaurante/service/SessaoConsumoService.java`
+  - `src/main/java/com/restaurante/service/ConsumoPublicService.java`
+  - `src/main/java/com/restaurante/service/PublicQrPedidoService.java`
+  - `src/main/java/com/restaurante/service/device/DevicePedidoService.java`
+  - `src/test/java/com/restaurante/qr/PublicQrSessaoConcorrenciaIT.java`
+- Relatório:
+  - `RELATORIO_CONSUMA_BACKEND_SANDBOX_LOCAL_002_EVIDENCE_CONCORRENCIA_SESSAO_2026_06_02.txt`
+- Não commitado:
+  - `.env.sandbox.local`
+
+14. Riscos residuais e observações
+- Em perfis de teste que não ligam `sandbox`/`sandbox-local`, ainda podem existir warnings não bloqueantes sobre secrets ausentes se o profile não exigir esse segredo globalmente.
+- Isso não invalida a correção desta fase porque:
+  - o ambiente `sandbox-local` passou a exigir a chave correta
+  - a validação Docker real comprovou gravação efetiva de evidência
+  - a concorrência foi tratada no serviço real e coberta por teste de integração
+
+15. Decisão final
+- Resultado final da SANDBOX-LOCAL-002: APROVADO.
+- Critérios atingidos:
+  - evidence key correta e exigida no ambiente sandbox local
+  - ordem manual `CASH` com evidência registrada sem warning anterior
+  - corrida entre sessão pública e pedido público corrigida
+  - apenas uma sessão aberta por mesa confirmada em teste e no banco real
+  - publicação pronta para commit e push no branch `restauracao-antes-da-loja`

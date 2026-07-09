@@ -2,7 +2,7 @@ package com.restaurante.store;
 
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.*;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.repository.*;
@@ -178,7 +178,7 @@ class StoreCheckoutServiceTest {
                 .codigo("GDSE-HOME")
                 .nome("Camisola")
                 .preco(new BigDecimal("25000"))
-                .categoria(CategoriaProduto.VESTUARIO)
+                .categoria(CategoriaProdutoLegacy.VESTUARIO)
                 .disponivel(produtoAtivo)
                 .ativo(produtoAtivo)
                 .build();
@@ -232,7 +232,7 @@ class StoreCheckoutServiceTest {
                 .codigo("GDSE-HOME")
                 .nome("Camisola")
                 .preco(new BigDecimal("25000"))
-                .categoria(CategoriaProduto.VESTUARIO)
+                .categoria(CategoriaProdutoLegacy.VESTUARIO)
                 .disponivel(produtoAtivo)
                 .ativo(produtoAtivo)
                 .build();

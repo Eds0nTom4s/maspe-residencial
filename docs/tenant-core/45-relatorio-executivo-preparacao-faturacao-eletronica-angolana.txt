@@ -1,0 +1,170 @@
+CONSUMA — PROMPT 45
+PREPARAÇÃO PARA FATURAÇÃO ELETRÓNICA ANGOLANA (AGT-READY ARCHITECTURE)
+Data: 2026-05-25 (Africa/Luanda)
+
+IMPORTANTE
+- Este prompt NÃO implementa submissão real à AGT.
+- Este prompt NÃO afirma certificação do software.
+- Tudo fica desativado por padrão (properties).
+
+================================================================================
+1) OBJETIVO
+================================================================================
+Criar uma camada preparatória “AGT-ready” para futura integração oficial:
+- perfil oficial por tenant;
+- modelo de submissão oficial (requestId/status/tentativas);
+- mapeamento FiscalDocument → payload oficial abstrato;
+- assinatura JWS/RS256 em modo placeholder/testável (sem chaves reais);
+- job/worker de submissão desativado por padrão;
+- armazenamento de hashes e estados;
+- integração com Evidence Bundle via taxEvidence.
+
+================================================================================
+2) MIGRATIONS CRIADAS
+================================================================================
+- src/main/resources/db/migration/V53__official_fiscal_preparation.sql
+  - tenant_official_fiscal_profiles
+  - fiscal_signing_profiles
+  - official_fiscal_submissions
+  - official_fiscal_submission_attempts
+
+================================================================================
+3) ENTIDADES / ENUMS
+================================================================================
+Entidades:
+- src/main/java/com/restaurante/model/entity/TenantOfficialFiscalProfile.java
+- src/main/java/com/restaurante/model/entity/FiscalSigningProfile.java
+- src/main/java/com/restaurante/model/entity/OfficialFiscalSubmission.java
+- src/main/java/com/restaurante/model/entity/OfficialFiscalSubmissionAttempt.java
+
+Enums:
+- src/main/java/com/restaurante/model/enums/FiscalAuthority.java
+- src/main/java/com/restaurante/model/enums/OfficialFiscalEnvironment.java
+- src/main/java/com/restaurante/model/enums/OfficialFiscalSubmissionMode.java
+- src/main/java/com/restaurante/model/enums/TenantOfficialFiscalProfileStatus.java
+- src/main/java/com/restaurante/model/enums/OfficialFiscalSubmissionStatus.java
+- src/main/java/com/restaurante/model/enums/FiscalSigningProfileStatus.java
+- src/main/java/com/restaurante/model/enums/FiscalKeyProvider.java
+
+Auditoria:
+- src/main/java/com/restaurante/model/enums/OperationalEventType.java (eventos Prompt 45)
+- src/main/java/com/restaurante/model/enums/OperationalEntityType.java (novos entity types Prompt 45)
+
+================================================================================
+4) REPOSITÓRIOS / SERVICES
+================================================================================
+Repositórios:
+- src/main/java/com/restaurante/fiscal/official/repository/TenantOfficialFiscalProfileRepository.java
+- src/main/java/com/restaurante/fiscal/official/repository/FiscalSigningProfileRepository.java
+- src/main/java/com/restaurante/fiscal/official/repository/OfficialFiscalSubmissionRepository.java
+- src/main/java/com/restaurante/fiscal/official/repository/OfficialFiscalSubmissionAttemptRepository.java
+
+Services/DTOs:
+- src/main/java/com/restaurante/fiscal/official/dto/OfficialFiscalDocumentPayload.java
+- src/main/java/com/restaurante/fiscal/official/service/OfficialFiscalDocumentMapper.java
+- src/main/java/com/restaurante/fiscal/official/service/OfficialFiscalPayloadCanonicalService.java (canonical + SHA-256)
+- src/main/java/com/restaurante/fiscal/official/service/OfficialFiscalSigningService.java
+- src/main/java/com/restaurante/fiscal/official/service/FakeOfficialFiscalSigningService.java (placeholder)
+- src/main/java/com/restaurante/fiscal/official/client/OfficialFiscalClient.java
+- src/main/java/com/restaurante/fiscal/official/client/DisabledOfficialFiscalClient.java (placeholder)
+- src/main/java/com/restaurante/fiscal/official/service/OfficialFiscalSubmissionService.java
+- src/main/java/com/restaurante/fiscal/official/worker/OfficialFiscalSubmissionWorker.java (desativado por padrão)
+
+Config:
+- src/main/java/com/restaurante/fiscal/official/config/OfficialFiscalProperties.java
+
+================================================================================
+5) ENDPOINTS IMPLEMENTADOS
+================================================================================
+Tenant/admin:
+- src/main/java/com/restaurante/controller/TenantOfficialFiscalController.java
+  - GET  /tenant/fiscal/official/profile
+  - POST /tenant/fiscal/official/profile
+  - PUT  /tenant/fiscal/official/profile
+  - GET  /tenant/fiscal/official/submissions
+  - GET  /tenant/fiscal/official/submissions/{submissionId}
+  - POST /tenant/fiscal/official/submissions/create-for-document/{documentId}
+  - POST /tenant/fiscal/official/submissions/{submissionId}/retry
+  - POST /tenant/fiscal/official/submissions/{submissionId}/cancel
+  - POST /tenant/fiscal/official/submissions/{submissionId}/simulate-submit
+  - POST /tenant/fiscal/official/submissions/{submissionId}/simulate-accept
+  - POST /tenant/fiscal/official/submissions/{submissionId}/simulate-reject
+  - GET  /tenant/fiscal/official/submissions/payload-preview?documentId=...
+
+Device (somente leitura):
+- src/main/java/com/restaurante/controller/DeviceOfficialFiscalStatusController.java
+  - GET /device/fiscal/official-status/document/{documentId}
+
+================================================================================
+6) INTEGRAÇÕES
+================================================================================
+6.1) FiscalDocument ISSUED → evento (AFTER_COMMIT)
+- src/main/java/com/restaurante/fiscal/service/FiscalDocumentService.java
+  - publica evento FiscalDocumentIssuedForOfficialSubmissionEvent ao emitir documento interno
+- src/main/java/com/restaurante/fiscal/official/listener/OfficialFiscalSubmissionOnFiscalDocumentIssuedListener.java
+  - cria submissão automaticamente apenas se profile/submissionMode permitirem
+
+6.2) AppyPay / pagamentos / caixa
+- Nenhuma alteração estrutural em AppyPay callback/polling.
+- Nenhuma alteração na confirmação de pagamento.
+- Nenhuma alteração em caixa operador/device e divergências/ajustes.
+- Submissão oficial é consequência opcional, nunca requisito para pagamento/caixa.
+
+6.3) taxEvidence (Evidence Bundle)
+- src/main/java/com/restaurante/fiscal/evidence/service/TaxEvidenceService.java
+  - inclui campos oficiais por documento/correção (submissionId/status/requestId/hashes)
+  - inclui métricas agregadas (accepted/rejected/pending/failed)
+  - warning quando officialEnabled=true e existirem documentos emitidos sem submissão
+- DTOs expandidos:
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/TaxEvidenceSectionDTO.java
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/TaxEvidenceDocumentItemDTO.java
+  - src/main/java/com/restaurante/financeiro/snapshot/evidence/dto/TaxEvidenceCorrectionDocumentItemDTO.java
+
+Compatibilidade:
+- bundles antigos continuam legíveis (não há recalculo/reescrita).
+
+================================================================================
+7) AUDITORIA (SANITIZADA)
+================================================================================
+Eventos adicionados (Prompt 45):
+- OFFICIAL_FISCAL_PROFILE_CREATED / OFFICIAL_FISCAL_PROFILE_UPDATED
+- OFFICIAL_FISCAL_SUBMISSION_CREATED
+- OFFICIAL_FISCAL_PAYLOAD_SIGNED
+- OFFICIAL_FISCAL_SIMULATION_ACCEPTED / OFFICIAL_FISCAL_SIMULATION_REJECTED
+
+Regras:
+- nunca auditar chave privada;
+- nunca auditar JWS completo;
+- nunca auditar payload bruto com PII desnecessária.
+
+================================================================================
+8) LIMITAÇÕES (MVP)
+================================================================================
+- client oficial real permanece desativado (DisabledOfficialFiscalClient).
+- assinatura JWS real (RS256) não é gerada: apenas placeholder/hashes.
+- worker existe mas permanece desativado por property.
+- simulação só é permitida com simulation-enabled=true e fora de PRODUCTION.
+
+================================================================================
+9) TESTES NOVOS/ALTERADOS
+================================================================================
+Testes adicionados (Prompt 45):
+- src/test/java/com/restaurante/fiscal/official/OfficialFiscalDocumentMapperTest.java
+- src/test/java/com/restaurante/fiscal/official/OfficialFiscalSubmissionServiceTest.java
+- src/test/java/com/restaurante/fiscal/official/TaxEvidenceOfficialFiscalTest.java
+
+================================================================================
+10) COMANDOS EXECUTADOS
+================================================================================
+- mvn -q -DskipTests compile
+- mvn test
+
+================================================================================
+11) RESULTADO FINAL
+================================================================================
+PROMPT 45: CONCLUÍDO.
+- Estrutura AGT-ready criada, desativada por padrão.
+- Core fiscal interno continua independente (sem submissão oficial).
+- taxEvidence passa a refletir estado oficial (placeholder) em bundles novos.
+- mvn compile OK; mvn test OK.
+

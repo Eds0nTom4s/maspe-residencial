@@ -1,0 +1,42 @@
+RELATÓRIO — Revisão e correções do Prompt 37.5/37.6
+Data: 2026-05-21 (Africa/Luanda)
+
+Contexto
+- Após revisão do Prompt 37.5/37.6 foram identificados 2 pontos “parciais”:
+  1) Property `consuma.financeiro.evidence-bundle.max-events` existia, mas não era aplicada (bundle lógico ainda trazia 200 eventos fixos).
+  2) A verificação interna recalculava `expectedChainHash` chamando `calcularChain(...)` que também assina (HMAC) — acoplamento desnecessário.
+
+Mudanças implementadas
+
+1) Aplicação de `max-events` no evidence bundle lógico
+- Arquivo: `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/SnapshotFinanceiroEvidenceBundleService.java`
+- Mudança:
+  - Injetado `EvidenceBundleProperties`.
+  - Alterado limite de eventos de `PageRequest.of(0, 200)` para `PageRequest.of(0, maxEvents)`, usando `Math.max(1, props.getMaxEvents())`.
+- Resultado:
+  - A property agora controla o tamanho máximo do bloco `eventosOperacionais` dentro do bundle.
+
+2) Separação de cálculo de chainHash (sem assinar) para verificação
+- Arquivo: `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/EvidenceBundleIntegrityService.java`
+  - Adicionado método:
+    - `calcularChainHash(...)` (somente hash canônico, sem HMAC).
+  - `calcularChain(...)` passa a reutilizar `calcularChainHash(...)` e só então assinar.
+- Arquivo: `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/TurnoEvidenceBundleService.java`
+  - `verificarInterno(...)` agora usa `calcularChainHash(...)`, eliminando a necessidade de “assinar” durante verificação.
+- Resultado:
+  - Verificação ficou mais correta (sem efeitos colaterais/sem dependência de geração de assinatura para calcular hash esperado).
+
+Comandos executados
+- `mvn -q -DskipTests compile` (OK)
+- `mvn -q test` (BUILD SUCCESS)
+
+Arquivos alterados
+- `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/SnapshotFinanceiroEvidenceBundleService.java`
+- `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/EvidenceBundleIntegrityService.java`
+- `src/main/java/com/restaurante/financeiro/snapshot/evidence/service/TurnoEvidenceBundleService.java`
+
+Checklist (impacto nos critérios do prompt)
+- [OK] max-events aplicado de forma real no conteúdo do bundle.
+- [OK] verificação de cadeia não assina durante cálculo do expectedChainHash.
+- [OK] build e testes continuam passando.
+

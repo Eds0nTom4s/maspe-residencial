@@ -1,0 +1,168 @@
+RELATÓRIO TÉCNICO — PROMPT 8.1 (PEDIDO PÚBLICO POR QR TENANT-SAFE, SEM PAGAMENTO)
+Data: 2026-05-16
+Sistema: CONSUMA (Backend Spring Boot / PostgreSQL / Flyway)
+
+1) RESUMO EXECUTIVO
+- Implementada criação de Pedido público por QR operacional (token aleatório, tenant-safe).
+- QR resolve Tenant/Instituicao/Unidade/Mesa e valida tenant ativo.
+- Produtos são validados por tenant (sem cross-tenant) e o preço é sempre calculado no servidor.
+- Criada SessaoConsumo mínima tenant-safe quando necessário, sem depender de getInstituicaoAtiva().
+- Nenhuma lógica de Pagamento/AppyPay/FundoConsumo (débito/recarga) foi acionada para o pedido.
+
+2) DECISÃO: TENANT_ID EM ENTIDADES TRANSACIONAIS
+Decisão aplicada nesta fase:
+- Adicionar `tenant_id NOT NULL` em:
+  - pedidos
+  - sub_pedidos
+  - itens_pedido
+
+Justificativa:
+- Pedido/SubPedido/ItemPedido são entidades transacionais de alto risco.
+- Pedido público por QR não pode nascer apenas por herança indireta de SessaoConsumo/Instituicao.
+- Facilita scoping de queries e reduz risco de cross-tenant e relatórios globais.
+
+3) MIGRATION V7
+Arquivo:
+- src/main/resources/db/migration/V7__pedido_tenant_aware_public_qr.sql
+
+Conteúdo:
+- adiciona colunas `tenant_id` em `pedidos`, `sub_pedidos`, `itens_pedido`
+- cria índices por tenant (tenant_id + status + timestamps)
+- backfill:
+  - pedidos: via SessaoConsumo -> Instituicao -> Tenant, com fallbacks por mesa/unidade e fallback final Tenant LEGACY
+  - sub_pedidos: via pedido
+  - itens_pedido: via pedido/subpedido/produto
+- aplica NOT NULL e FKs para tenants(id)
+
+4) ALTERAÇÕES DE DOMÍNIO (JPA)
+4.1) Pedido
+- `Pedido.tenant` (ManyToOne, NOT NULL)
+- @PrePersist/@PreUpdate para derivar tenant da SessaoConsumo/Instituicao (fail-closed)
+Arquivo:
+- src/main/java/com/restaurante/model/entity/Pedido.java
+
+4.2) SubPedido
+- `SubPedido.tenant` (ManyToOne, NOT NULL)
+- @PrePersist/@PreUpdate derivando tenant do Pedido
+Arquivo:
+- src/main/java/com/restaurante/model/entity/SubPedido.java
+
+4.3) ItemPedido
+- `ItemPedido.tenant` (ManyToOne, NOT NULL)
+- @PrePersist/@PreUpdate derivando tenant de SubPedido/Pedido/Produto e calculando subtotal
+Arquivo:
+- src/main/java/com/restaurante/model/entity/ItemPedido.java
+
+5) DTOs PÚBLICOS
+Criados:
+- src/main/java/com/restaurante/dto/request/PublicQrPedidoRequest.java
+- src/main/java/com/restaurante/dto/request/PublicQrPedidoItemRequest.java
+- src/main/java/com/restaurante/dto/response/PublicQrPedidoResponse.java
+- src/main/java/com/restaurante/dto/response/PublicQrPedidoItemResponse.java
+
+6) SERVICE
+Criado:
+- src/main/java/com/restaurante/service/PublicQrPedidoService.java
+
+Responsabilidades:
+- resolver QR ativo/não revogado e tenant ATIVO via QrCodeOperacionalService
+- validar produtos por tenant: findByIdAndTenantId + ativo/disponivel
+- criar/reusar SessaoConsumo mínima (regra 8.1) sem getInstituicaoAtiva()
+- criar Pedido/SubPedidos/Itens sem chamar pedidoFinanceiroService/pagamentos
+- status inicial: CRIADO + NAO_PAGO + POS_PAGO
+
+7) CONTROLLER / ENDPOINT
+Alterado:
+- src/main/java/com/restaurante/controller/PublicQrController.java
+
+Endpoint:
+- POST /api/public/q/{token}/pedidos
+
+Regras:
+- sem JWT (permitAll via /api/public/** já existente)
+- tenant vem exclusivamente do QR token
+
+8) AJUSTE NO QR SERVICE
+Alterado:
+- src/main/java/com/restaurante/service/QrCodeOperacionalService.java
+
+Adicionado:
+- resolverOperacionalAtivoParaOperacao(token)
+  - valida QR/tenant/consistência e retorna entidade para uso operacional
+  - política de segurança: 404 para falha (não vaza existência)
+
+9) ESTRATÉGIA DE SESSÃO (SESSAO_CONSUMO)
+Aplicada (8.1):
+- tipo QR = MESA:
+  - reutiliza sessão ABERTA da mesa quando existir
+  - caso contrário cria nova sessão
+- outros tipos:
+  - cria sessão nova por pedido
+
+Sessão criada:
+- modoAnonimo=true
+- status=ABERTA
+- tipoSessao=POS_PAGO
+- cria FundoConsumo com saldo zero (invariante do domínio; sem débito nesta fase)
+
+10) VALIDAÇÃO DE PRODUTOS E PREÇO
+- Cliente NÃO envia preço.
+- Preço unitário é sempre `produto.preco` no servidor.
+- Cross-tenant e indisponível/inativo retornam erro genérico: “Produto inválido ou indisponível.”
+
+11) TESTES (POSTGRESQL/TESTCONTAINERS)
+Criado:
+- src/test/java/com/restaurante/qr/PublicQrPedidoIT.java
+
+Cobertura:
+- cria pedido por QR e valida tenant_id do pedido
+- rejeita produto de outro tenant
+- token inválido retorna 404
+
+12) COMANDOS A EXECUTAR (VALIDAÇÃO)
+- mvn -q -DskipTests compile
+- mvn test
+
+13) ARQUIVOS CRIADOS/ALTERADOS
+Criados:
+- src/main/resources/db/migration/V7__pedido_tenant_aware_public_qr.sql
+- src/main/java/com/restaurante/dto/request/PublicQrPedidoRequest.java
+- src/main/java/com/restaurante/dto/request/PublicQrPedidoItemRequest.java
+- src/main/java/com/restaurante/dto/response/PublicQrPedidoResponse.java
+- src/main/java/com/restaurante/dto/response/PublicQrPedidoItemResponse.java
+- src/main/java/com/restaurante/service/PublicQrPedidoService.java
+- src/test/java/com/restaurante/qr/PublicQrPedidoIT.java
+- docs/tenant-core/08-1-pedido-publico-qr-tenant-safe.md
+
+Alterados:
+- src/main/java/com/restaurante/controller/PublicQrController.java
+- src/main/java/com/restaurante/service/QrCodeOperacionalService.java
+- src/main/java/com/restaurante/model/entity/Pedido.java
+- src/main/java/com/restaurante/model/entity/SubPedido.java
+- src/main/java/com/restaurante/model/entity/ItemPedido.java
+
+14) RISCOS / DÍVIDAS (DELIBERADAS)
+- Idempotência ainda não implementada (retries do cliente podem duplicar pedido).
+- Número do pedido ainda é gerado por `count()+1` (não é concorrência-safe).
+- Fluxo público ainda não cria pagamento (por design desta fase).
+- QR legado ainda existe em paralelo (não removido).
+
+15) CHECKLIST DE ACEITAÇÃO (PROMPT 8.1)
+[OK] POST /api/public/q/{token}/pedidos existe
+[OK] QR ativo/não revogado cria pedido
+[OK] QR revogado/inativo/token inválido não cria pedido (404)
+[OK] Pedido criado pertence ao tenant correto (tenant_id)
+[OK] Produto de outro tenant é rejeitado (sem leak de informação)
+[OK] Preço é calculado no servidor
+[OK] Pedido nasce sem pagamento (NAO_PAGO / POS_PAGO)
+[OK] Sessão criada/resolvida não usa getInstituicaoAtiva()
+[OK] Fluxos legados continuam existentes
+[OK] Testes Postgres/Testcontainers cobrem isolamento básico
+
+16) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 8.2 — Hardening:
+  - Idempotency-Key e deduplicação
+  - geração de número concorrência-safe (sequence por tenant/dia)
+  - regras de reuso de sessão por mesa mais completas
+  - evolução de PedidoService para caminhos tenant-aware sem tocar em pagamentos ainda
+

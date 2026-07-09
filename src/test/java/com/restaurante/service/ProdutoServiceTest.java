@@ -3,9 +3,15 @@ package com.restaurante.service;
 import com.restaurante.dto.request.ProdutoRequest;
 import com.restaurante.dto.response.ProdutoResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Produto;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.ProdutoRepository;
+import com.restaurante.repository.TenantRepository;
+import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
+import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.storage.StorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +36,21 @@ class ProdutoServiceTest {
     @Mock
     private ProdutoRepository produtoRepository;
 
+    @Mock
+    private TenantRepository tenantRepository;
+
+    @Mock
+    private TenantGuard tenantGuard;
+
+    @Mock
+    private StorageService storageService;
+
+    @Mock
+    private CategoriaProdutoRepository categoriaProdutoRepository;
+
+    @Mock
+    private CategoriaProdutoService categoriaProdutoService;
+
     @InjectMocks
     private ProdutoService produtoService;
 
@@ -43,29 +64,35 @@ class ProdutoServiceTest {
                 .nome("Produto Teste")
                 .descricao("Descrição do produto teste")
                 .preco(new BigDecimal("25.90"))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .tempoPreparoMinutos(20)
                 .disponivel(true)
                 .build();
 
-        produto = Produto.builder()
-                .codigo("TESTE001")
-                .nome("Produto Teste")
-                .descricao("Descrição do produto teste")
-                .preco(new BigDecimal("25.90"))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
-                .tempoPreparoMinutos(20)
-                .disponivel(true)
-                .ativo(true)
-                .build();
+        produto = new Produto();
+        produto.setCodigo("TESTE001");
+        produto.setNome("Produto Teste");
+        produto.setDescricao("Descrição do produto teste");
+        produto.setPreco(new BigDecimal("25.90"));
+        produto.setCategoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL);
+        produto.setTempoPreparoMinutos(20);
+        produto.setDisponivel(true);
+        produto.setAtivo(true);
         // Simula ID gerado pelo banco
         produto.setId(1L);
+        Tenant legacy = new Tenant();
+        legacy.setId(99L);
+        when(tenantRepository.findByTenantCode("LEGACY")).thenReturn(Optional.of(legacy));
+
+        CategoriaProduto cp = new CategoriaProduto();
+        cp.setId(10L);
+        lenient().when(categoriaProdutoRepository.findBySlugAndTenantId(any(), anyLong())).thenReturn(Optional.of(cp));
     }
 
     @Test
     void deveCriarProdutoComSucesso() {
         // Arrange
-        when(produtoRepository.existsByCodigo(produtoRequest.getCodigo())).thenReturn(false);
+        when(produtoRepository.existsByCodigoAndTenantId(eq(produtoRequest.getCodigo()), anyLong())).thenReturn(false);
         when(produtoRepository.save(any(Produto.class))).thenReturn(produto);
 
         // Act
@@ -82,7 +109,7 @@ class ProdutoServiceTest {
     @Test
     void deveLancarExcecaoQuandoCodigoJaExiste() {
         // Arrange
-        when(produtoRepository.existsByCodigo(produtoRequest.getCodigo())).thenReturn(true);
+        when(produtoRepository.existsByCodigoAndTenantId(eq(produtoRequest.getCodigo()), anyLong())).thenReturn(true);
 
         // Act & Assert
         BusinessException exception = assertThrows(
@@ -97,7 +124,7 @@ class ProdutoServiceTest {
     @Test
     void deveAlterarDisponibilidadeComSucesso() {
         // Arrange
-        when(produtoRepository.findById(1L)).thenReturn(Optional.of(produto));
+        when(produtoRepository.findByIdAndTenantId(eq(1L), anyLong())).thenReturn(Optional.of(produto));
         when(produtoRepository.save(any(Produto.class))).thenReturn(produto);
 
         // Act

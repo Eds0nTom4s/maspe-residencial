@@ -1,0 +1,8 @@
+Comando: mvn -Pit verify
+Data: 2026-07-06
+Resultado: PASS
+Resumo Surefire: 379 tests, 0 failures, 0 errors, 3 skipped.
+Resumo Failsafe: 274 tests, 0 failures, 0 errors, 0 skipped.
+Duracao: 10:51.
+Finalizacao: 2026-07-06T11:46:06+01:00.
+Observacao residual: mensagem nao bloqueante `Surefire is going to kill self fork JVM` apos sucesso do Failsafe; exit code 0 e BUILD SUCCESS.

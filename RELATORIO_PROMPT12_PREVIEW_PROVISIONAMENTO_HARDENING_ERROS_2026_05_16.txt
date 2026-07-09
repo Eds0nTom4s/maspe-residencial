@@ -1,0 +1,130 @@
+RELATÓRIO TÉCNICO — PROMPT 12
+Preview (Dry-run) de Provisionamento + Hardening de Erros Operacionais
+Data: 2026-05-16
+
+1) Resumo executivo
+- Implementado endpoint de preview/dry-run para PLATFORM_ADMIN: calcula recursos, valida plano/template/slug/tenantCode/limites e retorna bloqueios/avisos sem persistir nada.
+- Hardening de erros do provisionamento real: erros conhecidos agora retornam payload padronizado com code/field e HTTP status coerente (400/409), sem vazamento de detalhes internos.
+- Adicionados testes IT garantindo: preview não persiste, valida limites (especialmente maxQrCodes) e endpoint real retorna erro padronizado ao exceder limites.
+
+2) Endpoint de preview criado
+- POST /platform/tenants/provisionar/preview
+- Regras:
+  - Exige PLATFORM_ADMIN (TenantGuard.assertPlatformAdmin()).
+  - Reutiliza o mesmo DTO do provisionamento real (ProvisionarTenantRequest).
+  - Não chama save() (apenas leituras para validações de unicidade/owner).
+  - Retorna permitido=false para validações esperadas (HTTP 200).
+
+3) DTOs de preview criados
+- src/main/java/com/restaurante/dto/response/ProvisionarTenantPreviewResponse.java
+  - permitido, bloqueios, avisos
+  - recursosPlanejados (contagens de recursos)
+  - limites (linhas por recurso limitado)
+  - template/tenant/instituicao/owner/estimativa
+
+4) Serviço de preview criado
+- src/main/java/com/restaurante/service/TenantProvisioningPreviewService.java
+  - Valida plano/template (existência/ativo).
+  - Normaliza slug/tenantCode, detecta duplicidade.
+  - Valida regras operacionais (mesas, QR por mesa).
+  - Simula limites efetivos (Plano + limitesOverride do request) e bloqueia quando excede.
+  - Gera avisos úteis (tenantCode será gerado, owner será reutilizado, senha será gerada).
+  - NÃO persiste.
+
+5) Motor de cálculo compartilhado (preview + execução real)
+- src/main/java/com/restaurante/service/provisioning/ProvisioningPlanCalculator.java
+- src/main/java/com/restaurante/service/provisioning/ProvisioningPlan.java
+  - Centraliza a resolução:
+    - template + overrides do request
+    - contagens (qr/unidades/usuários/mesas)
+    - normalização de slug e tenantCode
+    - geração determinística de tenantCode quando ausente
+
+6) Alterações no provisionamento real (consistência com preview)
+- src/main/java/com/restaurante/service/TenantProvisioningService.java
+  - Passou a usar ProvisioningPlanCalculator para resolver opções e contagens.
+  - Erros comuns foram padronizados via ProvisioningException:
+    - plano/template inválido
+    - slug duplicado
+    - tenantCode duplicado
+    - quantidadeMesas inválida / teto técnico
+    - criarQrPorMesa sem criarMesas
+    - limites excedidos (maxInstituicoes/maxUnidades/maxUsuarios/maxQrCodes) retornam 409
+
+7) Estratégia de mensagens operacionais
+- Preview:
+  - retorna lista de bloqueios (BLOCKING) e avisos (WARNING) com códigos estáveis.
+  - permitido=true somente quando não há bloqueios.
+- Endpoint real:
+  - retorna ProvisioningErrorResponse com:
+    - code, field, message, detail (quando aplicável), recommendedAction (quando aplicável)
+    - sem stacktrace/SQL no payload.
+
+8) Hardening de erros (padronização)
+- src/main/java/com/restaurante/exception/ProvisioningException.java
+- src/main/java/com/restaurante/exception/ProvisioningErrorResponse.java
+- src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+  - Adicionado handler específico para ProvisioningException.
+
+9) Testes criados/alterados
+- src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningPreviewControllerIT.java
+  - Preview permitido não persiste Tenant.
+  - Preview bloqueia por maxQrCodes (10 mesas + QR por mesa no plano PILOTO).
+  - Preview permite com override maxQrCodes=11.
+  - Non-platform não acessa preview.
+- src/test/java/com/restaurante/provisioning/TenantProvisioningErrorHandlingIT.java
+  - Endpoint real retorna 409 e payload padronizado (code=MAX_QR_CODES_EXCEDIDO) quando excede limite.
+
+10) Documentação criada
+- docs/tenant-core/12-preview-provisionamento-hardening-erros.md
+
+11) Comandos executados
+- mvn -q -DskipTests compile
+- mvn test
+
+12) Resultado dos comandos
+- mvn -q -DskipTests compile: OK
+- mvn test: OK (BUILD SUCCESS) — Tests run: 145, Failures: 0, Errors: 0, Skipped: 3
+
+13) Arquivos criados/alterados
+Criados:
+- src/main/java/com/restaurante/dto/response/ProvisionarTenantPreviewResponse.java
+- src/main/java/com/restaurante/service/TenantProvisioningPreviewService.java
+- src/main/java/com/restaurante/service/provisioning/ProvisioningPlanCalculator.java
+- src/main/java/com/restaurante/service/provisioning/ProvisioningPlan.java
+- src/main/java/com/restaurante/exception/ProvisioningException.java
+- src/main/java/com/restaurante/exception/ProvisioningErrorResponse.java
+- src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningPreviewControllerIT.java
+- src/test/java/com/restaurante/provisioning/TenantProvisioningErrorHandlingIT.java
+- docs/tenant-core/12-preview-provisionamento-hardening-erros.md
+
+Alterados:
+- src/main/java/com/restaurante/controller/PlatformTenantProvisioningController.java
+- src/main/java/com/restaurante/service/TenantProvisioningService.java
+- src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+
+14) Decisões técnicas
+- Preview retorna HTTP 200 mesmo quando bloqueado, com permitido=false e lista de bloqueios (para DX operacional do PLATFORM_ADMIN).
+- Geração de tenantCode quando ausente: estratégia determinística (evita divergência entre preview e execução real).
+- Limites em preview: calculados por Plano + limitesOverride do request (tenant novo => usadoAtualmente=0).
+- Erros do endpoint real: status 409 para limite/duplicidade e payload com code/field (ProvisioningErrorResponse).
+
+15) Riscos restantes
+- Preview e execução real ainda dependem de leitura pontual do banco (unicidade slug/tenantCode e owner existente); corrida rara ainda possível (tratada por erro padronizado no endpoint real).
+- Não foi implementado preview “sem tocar no banco” (por design, precisamos validar duplicidade e owner existente).
+- Não foi adicionada UI; a UX final depende do frontend consumir o preview corretamente.
+
+16) Checklist de aceitação (Prompt 12)
+- Endpoint POST /platform/tenants/provisionar/preview existe.
+- Apenas PLATFORM_ADMIN consegue executar preview.
+- Preview não persiste dados (testado).
+- Preview calcula mesas/QR corretamente (testado).
+- Preview calcula limites efetivos e bloqueia maxQrCodes excedido (testado).
+- Preview permite override simulado (testado).
+- Preview bloqueia slug/tenantCode duplicados (coberto por validações; testes podem ser estendidos).
+- Provisionamento real permanece transacional.
+- Erros do provisionamento real são padronizados (testado para maxQrCodes).
+- Nenhuma lógica de pedido/pagamento/callback foi alterada.
+
+17) Próximo prompt recomendado
+- Prompt 13: DX/admin tooling (ex.: endpoint de “simulate/validate” para atualizar template, ou preview avançado com breakdown de URLs, e auditoria do provisionamento executado).

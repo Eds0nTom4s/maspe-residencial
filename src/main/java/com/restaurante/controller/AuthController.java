@@ -1,25 +1,32 @@
 package com.restaurante.controller;
 
 import com.restaurante.dto.request.LoginAtendenteRequest;
+import com.restaurante.dto.request.SelectTenantRequest;
 import com.restaurante.dto.request.SolicitarOtpRequest;
 import com.restaurante.dto.request.ValidarOtpRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.AuthResponse;
+import com.restaurante.dto.response.AuthTenantOptionResponse;
 import com.restaurante.dto.response.ClienteResponse;
 import com.restaurante.dto.response.LoginAtendenteResponse;
+import com.restaurante.dto.response.SelectTenantResponse;
 import com.restaurante.service.AuthService;
 import com.restaurante.service.ClienteService;
+import com.restaurante.service.InstituicaoService;
+import com.restaurante.service.TenantTokenService;
 import com.restaurante.security.JwtTokenProvider;
-import com.restaurante.dto.response.SessaoConsumoResponse;
-import com.restaurante.service.SessaoConsumoService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * Controller REST para operações de autenticação
@@ -37,7 +44,8 @@ public class AuthController {
     private final ClienteService clienteService;
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
-    private final SessaoConsumoService sessaoConsumoService;
+    private final InstituicaoService instituicaoService;
+    private final TenantTokenService tenantTokenService;
 
     /**
      * Solicita OTP para o telefone informado
@@ -61,7 +69,7 @@ public class AuthController {
      * POST /api/auth/validar-otp
      */
     @PostMapping("/validar-otp")
-    @Operation(summary = "Validar OTP", description = "Valida o código OTP e autentica o cliente. Retorna JWT e dados da sessão ativa.")
+    @Operation(summary = "Validar OTP", description = "Valida o código OTP e autentica o cliente. Retorna JWT.")
     public ResponseEntity<ApiResponse<AuthResponse>> validarOtp(@Valid @RequestBody ValidarOtpRequest request) {
         log.info("=== VALIDAR OTP ===");
         log.info("Telefone recebido: {}", request.getTelefone());
@@ -70,27 +78,19 @@ public class AuthController {
         // 1. Valida o OTP e busca o cliente
         ClienteResponse cliente = clienteService.validarOtp(request);
         
-        // 2. Garante que o cliente tem uma sessão ativa (cria se necessário)
-        // Isso permite que ele já tenha um QR para recarga no balcão sem precisar de mesa
-        SessaoConsumoResponse sessao = sessaoConsumoService.iniciarSessaoNoLogin(cliente.getTelefone());
+        // 2. Gera o Token JWT incluindo o nome da Instituição ativa
+        String instNome = instituicaoService.getInstituicaoAtiva().getNome();
+        String token = jwtTokenProvider.generateToken(cliente.getTelefone(), "ROLE_CLIENTE", instNome);
         
-        // 3. Gera o Token JWT
-        String token = jwtTokenProvider.generateToken(cliente.getTelefone(), "ROLE_CLIENTE");
-        
-        // 4. Constrói o Response com dados de autenticação e da sessão
+        // 3. Constrói o Response com dados de autenticação.
         AuthResponse authResponse = AuthResponse.builder()
             .username(cliente.getNome() != null ? cliente.getNome() : cliente.getTelefone())
             .accessToken(token)
             .tokenType("Bearer")
             .expiresIn(jwtTokenProvider.getExpirationMs() / 1000L)
-            .qrCodeSessao(sessao.getQrCodeSessao())
-            .sessaoId(sessao.getId())
-            .saldoFundo(sessao.getSaldoFundo())
-            .referenciaMesa(sessao.getReferenciaMesa())
             .build();
         
-        log.info("OTP validado com sucesso para cliente ID: {}. Sessão ID: {}. Token emitido.", 
-                 cliente.getId(), sessao.getId());
+        log.info("OTP validado com sucesso para cliente ID: {}. Token emitido.", cliente.getId());
         return ResponseEntity.ok(ApiResponse.success("Autenticação realizada com sucesso", authResponse));
     }
     
@@ -112,5 +112,42 @@ public class AuthController {
                  response.getId(), response.getNome(), response.getTipoUsuario());
         return ResponseEntity.ok(ApiResponse.success("Login realizado com sucesso", response));
     }
-}
 
+    /**
+     * Seleciona um tenant e emite um token tenant-scoped para uso em /api/tenant/**.
+     *
+     * POST /api/auth/tenant/select
+     */
+    @PostMapping("/tenant/select")
+    @Operation(summary = "Selecionar tenant", description = "Emite token TENANT com claims tenantId/tenantRoles.")
+    public ResponseEntity<ApiResponse<SelectTenantResponse>> selectTenant(@Valid @RequestBody SelectTenantRequest request) {
+        SelectTenantResponse resp = tenantTokenService.selectTenant(request);
+        return ResponseEntity.ok(ApiResponse.success("Tenant selecionado", resp));
+    }
+
+    /**
+     * Lista os tenants acessíveis ao usuário autenticado.
+     *
+     * GET /api/auth/tenants
+     *
+     * Segurança:
+     * - Exige JWT global válido (não é endpoint público).
+     * - Retorna SOMENTE tenants aos quais o usuário tem vínculo ativo.
+     * - Sem token: 401. Token inválido/expirado: 401.
+     * - Usuário sem tenants: 200 com lista vazia.
+     * - Tenants inativos são filtrados pelo service.
+     */
+    @GetMapping("/tenants")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(
+            summary = "Listar tenants acessíveis",
+            description = "Retorna os tenants ativos aos quais o usuário autenticado tem acesso. Exige JWT global.",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    public ResponseEntity<ApiResponse<List<AuthTenantOptionResponse>>> listarTenantsAcessiveis() {
+        log.info("GET /auth/tenants - listando tenants do usuário autenticado");
+        List<AuthTenantOptionResponse> tenants = tenantTokenService.listarTenantsAcessiveis();
+        log.info("GET /auth/tenants - retornando {} tenants", tenants.size());
+        return ResponseEntity.ok(ApiResponse.success("Tenants disponíveis", tenants));
+    }
+}

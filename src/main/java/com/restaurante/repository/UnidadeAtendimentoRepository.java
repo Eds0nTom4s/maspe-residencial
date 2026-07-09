@@ -19,6 +19,30 @@ public interface UnidadeAtendimentoRepository extends JpaRepository<UnidadeAtend
     /**
      * Busca unidades ativas
      */
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u LEFT JOIN FETCH u.cozinhas")
+    List<UnidadeAtendimento> findAllWithCozinhas();
+
+    /**
+     * Busca unidades ativas com cozinhas inicializadas
+     */
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u LEFT JOIN FETCH u.cozinhas WHERE u.ativa = true")
+    List<UnidadeAtendimento> findByAtivaTrueWithCozinhas();
+
+    /**
+     * Busca unidades por tipo com cozinhas inicializadas
+     */
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u LEFT JOIN FETCH u.cozinhas WHERE u.tipo = :tipo")
+    List<UnidadeAtendimento> findByTipoWithCozinhas(@Param("tipo") TipoUnidadeAtendimento tipo);
+
+    /**
+     * Busca unidade por ID com cozinhas inicializadas
+     */
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u LEFT JOIN FETCH u.cozinhas WHERE u.id = :id")
+    Optional<UnidadeAtendimento> findByIdWithCozinhas(@Param("id") Long id);
+
+    /**
+     * Busca unidades ativas
+     */
     List<UnidadeAtendimento> findByAtivaTrue();
 
     /**
@@ -39,7 +63,7 @@ public interface UnidadeAtendimentoRepository extends JpaRepository<UnidadeAtend
     /**
      * Busca unidades operacionais (ativas e com cozinhas)
      */
-    @Query("SELECT u FROM UnidadeAtendimento u JOIN u.cozinhas c WHERE u.ativa = true AND c.ativa = true")
+    @Query("SELECT DISTINCT u FROM UnidadeAtendimento u JOIN FETCH u.cozinhas c WHERE u.ativa = true AND c.ativa = true")
     List<UnidadeAtendimento> findUnidadesOperacionais();
 
     /**
@@ -48,4 +72,20 @@ public interface UnidadeAtendimentoRepository extends JpaRepository<UnidadeAtend
     @Query("SELECT COUNT(uc) FROM UnidadeDeConsumo uc " +
            "WHERE uc.unidadeAtendimento.id = :unidadeId AND uc.status IN ('OCUPADA', 'AGUARDANDO_PAGAMENTO')")
     Long contarUnidadesConsumoAtivasPorUnidade(@Param("unidadeId") Long unidadeId);
+
+    @Query("SELECT COUNT(u) FROM UnidadeAtendimento u WHERE u.instituicao.tenant.id = :tenantId")
+    long countByTenantId(@Param("tenantId") Long tenantId);
+
+    @Query("SELECT u FROM UnidadeAtendimento u WHERE u.instituicao.tenant.id = :tenantId")
+    List<UnidadeAtendimento> findByTenantId(@Param("tenantId") Long tenantId);
+
+    @Query("SELECT u FROM UnidadeAtendimento u WHERE u.instituicao.tenant.id = :tenantId AND u.id = :id")
+    Optional<UnidadeAtendimento> findByIdAndTenantId(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    @Query("SELECT u FROM UnidadeAtendimento u WHERE u.instituicao.tenant.id = :tenantId AND (:instituicaoId IS NULL OR u.instituicao.id = :instituicaoId) AND (:ativa IS NULL OR u.ativa = :ativa)")
+    List<UnidadeAtendimento> findByTenantIdWithFilters(
+            @Param("tenantId") Long tenantId,
+            @Param("instituicaoId") Long instituicaoId,
+            @Param("ativa") Boolean ativa
+    );
 }

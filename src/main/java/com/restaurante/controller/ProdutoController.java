@@ -1,9 +1,13 @@
 package com.restaurante.controller;
 
+import com.restaurante.dto.request.ProdutoImagemRequest;
 import com.restaurante.dto.request.ProdutoRequest;
+import com.restaurante.dto.request.ReordenarImagensRequest;
 import com.restaurante.dto.response.ApiResponse;
+import com.restaurante.dto.response.ProdutoImagemResponse;
 import com.restaurante.dto.response.ProdutoResponse;
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
+import com.restaurante.service.ProdutoImagemService;
 import com.restaurante.service.ProdutoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,6 +36,7 @@ import java.util.List;
 public class ProdutoController {
 
     private final ProdutoService produtoService;
+    private final ProdutoImagemService produtoImagemService;
 
     /**
      * Cria um novo produto
@@ -81,7 +86,7 @@ public class ProdutoController {
     @PreAuthorize("hasAnyRole('ADMIN','GERENTE','ATENDENTE','COZINHA','CLIENTE')")
     @Operation(summary = "Listar produtos por categoria", description = "Filtra produtos por categoria específica com paginação")
     public ResponseEntity<ApiResponse<Page<ProdutoResponse>>> listarPorCategoria(
-            @PathVariable CategoriaProduto categoria,
+            @PathVariable CategoriaProdutoLegacy categoria,
             @PageableDefault(size = 20) Pageable pageable) {
         Page<ProdutoResponse> produtos = produtoService.listarPorCategoria(categoria, pageable);
         return ResponseEntity.ok(ApiResponse.success("Produtos listados com sucesso", produtos));
@@ -165,5 +170,60 @@ public class ProdutoController {
             @RequestParam("file") MultipartFile file) {
         ProdutoResponse produto = produtoService.atualizarImagem(id, file);
         return ResponseEntity.ok(ApiResponse.success("Imagem enviada com sucesso", produto));
+    }
+
+    /**
+     * Lista as imagens da galeria do produto.
+     * GET /api/produtos/{id}/imagens
+     */
+    @GetMapping("/{id}/imagens")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
+    @Operation(summary = "Listar imagens do produto", description = "Retorna a galeria de imagens do produto ordenada")
+    public ResponseEntity<ApiResponse<List<ProdutoImagemResponse>>> listarImagens(@PathVariable Long id) {
+        List<ProdutoImagemResponse> imagens = produtoImagemService.listarImagens(id);
+        return ResponseEntity.ok(ApiResponse.success("Sucesso", imagens));
+    }
+
+    /**
+     * Adiciona uma imagem à galeria do produto.
+     * POST /api/produtos/{id}/imagens
+     */
+    @PostMapping(value = "/{id}/imagens", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
+    @Operation(summary = "Adicionar imagem à galeria", description = "Faz upload de uma imagem para o MinIO e adiciona à galeria do produto (máx. 4)")
+    public ResponseEntity<ApiResponse<ProdutoImagemResponse>> adicionarImagem(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file,
+            @Valid @ModelAttribute ProdutoImagemRequest request) {
+        ProdutoImagemResponse imagem = produtoImagemService.adicionarImagem(id, file, request != null ? request.getLegenda() : null);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Imagem adicionada com sucesso", imagem));
+    }
+
+    /**
+     * Remove uma imagem da galeria do produto.
+     * DELETE /api/produtos/{id}/imagens/{imagemId}
+     */
+    @DeleteMapping("/{id}/imagens/{imagemId}")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
+    @Operation(summary = "Remover imagem da galeria", description = "Remove uma imagem da galeria do produto e do MinIO")
+    public ResponseEntity<ApiResponse<Void>> removerImagem(
+            @PathVariable Long id,
+            @PathVariable Long imagemId) {
+        produtoImagemService.removerImagem(id, imagemId);
+        return ResponseEntity.ok(ApiResponse.success("Imagem removida com sucesso", null));
+    }
+
+    /**
+     * Reordena as imagens da galeria do produto.
+     * PUT /api/produtos/{id}/imagens/ordem
+     */
+    @PutMapping("/{id}/imagens/ordem")
+    @PreAuthorize("hasAnyRole('GERENTE', 'ADMIN')")
+    @Operation(summary = "Reordenar imagens do produto", description = "Define a ordem de exibição das imagens da galeria")
+    public ResponseEntity<ApiResponse<List<ProdutoImagemResponse>>> reordenarImagens(
+            @PathVariable Long id,
+            @Valid @RequestBody ReordenarImagensRequest request) {
+        List<ProdutoImagemResponse> imagens = produtoImagemService.reordenarImagens(id, request.getImagemIds());
+        return ResponseEntity.ok(ApiResponse.success("Imagens reordenadas com sucesso", imagens));
     }
 }

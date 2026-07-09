@@ -1,0 +1,176 @@
+RELATÓRIO TÉCNICO — PROMPT 20
+Status Operacional Controlado (Pedido/SubPedido) + Event Log Operacional Tenant-Aware
+Data: 2026-05-17 (Africa/Luanda)
+
+1) Resumo executivo
+- Implementado event log operacional append-only para rastrear mudanças de status de Pedido/SubPedido com tenant-scope explícito.
+- Implementadas transições controladas e auditáveis para SubPedido (produção) e ações de Pedido (cancelar/finalizar) sem tocar no fluxo financeiro.
+- RBAC aplicado: KITCHEN opera apenas transições de produção; FINANCE não altera status operacional; cross-tenant continua 404 (via queries tenant-scoped).
+- Endpoints de leitura de eventos operacionais adicionados para visibilidade operacional do tenant.
+
+2) Migration criada
+- `src/main/resources/db/migration/V17__operational_event_log_pedido_status.sql`
+  - Cria tabela `operational_event_logs`
+  - Cria FKs (tenant, pedido, sub_pedido, mesa, device, actor_user, etc.)
+  - Cria índices por tenant/time/pedido/subpedido/ator
+
+3) Entidade `OperationalEventLog` criada
+- `src/main/java/com/restaurante/model/entity/OperationalEventLog.java`
+- Campos principais:
+  - `tenant` (obrigatório), `pedido`, `subPedido`, `mesa`, `actorUser`, `dispositivo`
+  - `actorType`, `eventType`, `entityType`, `entityId`
+  - `statusAnterior`, `statusNovo`, `origem`, `motivo`
+  - `metadataJson`, `ip`, `userAgent`
+
+4) Enums criados
+- `src/main/java/com/restaurante/model/enums/OperationalActorType.java`
+- `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+- `src/main/java/com/restaurante/model/enums/OperationalEntityType.java`
+- `src/main/java/com/restaurante/model/enums/OperationalOrigem.java`
+
+5) Services criados
+- `src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java`
+  - Registra eventos `PEDIDO_STATUS_CHANGED`, `SUBPEDIDO_STATUS_CHANGED` e `TRANSITION_BLOCKED`
+  - Prepara estrutura para actor USER/DEVICE/SYSTEM (deviceId suportado, uso futuro)
+- `src/main/java/com/restaurante/service/operacional/SubPedidoStatusTransitionService.java`
+  - Valida tenant-scope + RBAC + transições via `StatusSubPedido.podeTransicionarPara(...)`
+  - Atualiza timestamps operacionais (`iniciadoEm`, `prontoEm`, `entregueEm` quando aplicável)
+  - Registra event log do subpedido
+  - Recalcula status do Pedido via `PedidoService.recalcularStatusPedido(...)` e registra evento derivado quando houver mudança
+- `src/main/java/com/restaurante/service/operacional/PedidoStatusTransitionService.java`
+  - Mantém o princípio: `Pedido.status` é agregado/derivado de SubPedidos
+  - Ações suportadas nesta fase:
+    - `CANCELADO`: cancela subpedidos (quando permitido) e marca pedido como cancelado
+    - `FINALIZADO`: quando todos subpedidos estão `PRONTO`, marca `PRONTO -> ENTREGUE`, recalcula status do pedido e audita
+  - Para demais estados de `StatusPedido`, bloqueia e registra `TRANSITION_BLOCKED` (evita inconsistência com agregado)
+
+6) Policy de transição
+- SubPedido:
+  - Motor de transições reutiliza o enum existente `StatusSubPedido.podeTransicionarPara(...)`.
+  - RBAC:
+    - `TENANT_KITCHEN`: apenas `EM_PREPARACAO` e `PRONTO`
+    - `TENANT_OWNER | TENANT_ADMIN | TENANT_OPERATOR`: transições operacionais permitidas pelo enum
+    - `TENANT_FINANCE` e `TENANT_CASHIER`: não operam subpedido nesta fase
+- Pedido:
+  - Mantido como agregado derivado (sem criar enum paralelo).
+  - Ações diretas limitadas a `CANCELADO` e `FINALIZADO` para reduzir risco de divergência.
+
+7) Controllers/endpoints criados/alterados
+- Alterado: `src/main/java/com/restaurante/controller/TenantPedidoController.java`
+  - `PATCH /tenant/pedidos/{id}/status` (usa `PedidoStatusTransitionService`)
+- Alterado: `src/main/java/com/restaurante/controller/TenantProducaoController.java`
+  - `PATCH /tenant/producao/subpedidos/{id}/status` (passa ip/ua e delega para `ProducaoSubPedidoService` → `SubPedidoStatusTransitionService`)
+- Criado: `src/main/java/com/restaurante/controller/TenantOperationalEventController.java`
+  - `GET /tenant/operacional/eventos` (paginação + filtros por pedido/subpedido/eventType/ator/device/data)
+
+8) DTOs criados/alterados
+- Criado: `src/main/java/com/restaurante/dto/request/AtualizarStatusPedidoRequest.java`
+- Alterado: `src/main/java/com/restaurante/dto/request/AtualizarStatusSubPedidoRequest.java` (inclui `motivo`)
+- Criado: `src/main/java/com/restaurante/dto/response/OperationalEventLogResponse.java`
+
+9) Repositories criados/alterados
+- Criado: `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java`
+  - Query tenant-scoped com filtros (`searchByTenantAndFilters(...)`)
+- Reuso/ajuste de queries tenant-scoped já existentes:
+  - `PedidoRepository.findByIdAndTenantId...`
+  - `SubPedidoRepository.findByIdAndTenantId...`
+
+10) RBAC aplicado
+- Pedido status:
+  - `TENANT_OWNER | TENANT_ADMIN | TENANT_OPERATOR | TENANT_CASHIER`
+  - `TENANT_FINANCE` bloqueado (não altera status operacional)
+  - `TENANT_KITCHEN` bloqueado no pedido geral (atua via subpedido/produção)
+- SubPedido status:
+  - `TENANT_KITCHEN` permitido apenas em transições de produção
+  - `TENANT_OWNER | TENANT_ADMIN | TENANT_OPERATOR` permitido conforme máquina de estados
+
+11) Estratégia de actor user/device/system
+- Atual: ações via JWT humano registram `actorType=USER` e `actorUserId` (a partir de `TenantContext`).
+- Preparado: suporte a `deviceId` (campo + FK + enum), sem exigir uso nesta fase.
+- Origem (`OperationalOrigem`) derivada das roles no `TenantGuard` (TENANT_OWNER/ADMIN/OPERATOR/CASHIER/KITCHEN) ou `SYSTEM`.
+
+12) Separação operacional vs financeiro (garantia)
+- Nenhuma lógica de:
+  - confirmação de pagamento
+  - callback
+  - AppyPay
+  - status financeiro
+foi alterada.
+- Regras explícitas:
+  - Cancelamento operacional é bloqueado se `StatusFinanceiroPedido == PAGO`.
+  - Mudanças operacionais não marcam pedido como PAGO.
+
+13) Estratégia de agregação Pedido/SubPedido
+- Agregação conservadora via `PedidoService.recalcularStatusPedido(...)` (fonte de verdade do agregado).
+- Quando mudança de subpedido provoca mudança no pedido, um evento `PEDIDO_STATUS_CHANGED` é registrado com motivo “Status recalculado...”.
+- Endpoint de Pedido não tenta “forçar” estados intermediários; apenas operações seguras (cancelar/finalizar).
+
+14) Testes criados/alterados
+- `src/test/java/com/restaurante/operacional/OperationalStatusTransitionIT.java`
+  - Cozinha: `EM_PREPARACAO` e `PRONTO` + valida criação de event log
+  - Pedido: cancelamento + valida event log + garante financeiro intacto
+  - Transição inválida retorna 409 (Conflict)
+  - Caixa: `FINALIZADO` entrega subpedidos PRONTO->ENTREGUE e registra eventos
+
+15) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+16) Resultado dos comandos
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS (145 testes, 0 falhas, 0 erros, 3 skipped)
+
+17) Arquivos criados/alterados
+- Criados:
+  - `src/main/resources/db/migration/V17__operational_event_log_pedido_status.sql`
+  - `src/main/java/com/restaurante/model/entity/OperationalEventLog.java`
+  - `src/main/java/com/restaurante/model/enums/OperationalActorType.java`
+  - `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+  - `src/main/java/com/restaurante/model/enums/OperationalEntityType.java`
+  - `src/main/java/com/restaurante/model/enums/OperationalOrigem.java`
+  - `src/main/java/com/restaurante/repository/OperationalEventLogRepository.java`
+  - `src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java`
+  - `src/main/java/com/restaurante/service/operacional/SubPedidoStatusTransitionService.java`
+  - `src/main/java/com/restaurante/service/operacional/PedidoStatusTransitionService.java`
+  - `src/main/java/com/restaurante/controller/TenantOperationalEventController.java`
+  - `src/main/java/com/restaurante/dto/request/AtualizarStatusPedidoRequest.java`
+  - `src/main/java/com/restaurante/dto/response/OperationalEventLogResponse.java`
+  - `src/test/java/com/restaurante/operacional/OperationalStatusTransitionIT.java`
+  - `docs/tenant-core/20-status-operacional-event-log.md`
+- Alterados:
+  - `src/main/java/com/restaurante/controller/TenantPedidoController.java`
+  - `src/main/java/com/restaurante/controller/TenantProducaoController.java`
+  - `src/main/java/com/restaurante/service/producao/ProducaoSubPedidoService.java`
+  - `src/main/java/com/restaurante/dto/request/AtualizarStatusSubPedidoRequest.java`
+
+18) Decisões técnicas tomadas
+- Reuso de enums existentes (`StatusPedido`, `StatusSubPedido`) para evitar duplicidade de domínios.
+- Pedido tratado como agregado derivado: evita inconsistência entre “pedido” e “subpedidos”.
+- Event log operacional separado do `tenant_audit_logs` (admin vs operação).
+- Endpoint de “Pedido status” limitado a operações seguras (cancelar/finalizar) e bloqueio explícito para demais transições.
+
+19) Riscos restantes
+- JWT tenant-scoped pode ficar stale após mudanças de membership/roles (risco já conhecido): mitigado parcialmente pelo TenantGuard/membership, mas roles em JWT podem atrasar até expiração.
+- Event log é append-only e pode crescer; futuro: retenção/particionamento por tenant + export.
+- Integração com DevicePrincipal ainda não usada nos endpoints de status (preparado, mas não exercitado em produção nesta fase).
+
+20) Checklist de aceitação (status)
+- [OK] `operational_event_logs` existe via migration.
+- [OK] Mudanças de status de SubPedido geram evento com `statusAnterior/statusNovo`.
+- [OK] Mudanças de status de Pedido (cancelar/finalizar) geram evento.
+- [OK] `actorUserId` registrado em ações humanas (TenantContext).
+- [OK] Estrutura suporta `deviceId` (para fase futura).
+- [OK] KITCHEN altera status de SubPedido (produção) com RBAC.
+- [OK] FINANCE não altera status operacional.
+- [OK] Transição inválida retorna 409.
+- [OK] Cross-tenant continua 404 (queries tenant-scoped).
+- [OK] Status financeiro não é alterado por mudança operacional.
+- [OK] Testes passam.
+
+21) Próximo prompt recomendado
+PROMPT 21 — “Melhorias operacionais de produção (KDS-ready)”
+- Expandir filtros/paginação nos endpoints de subpedidos por unidade/status/data.
+- Adicionar endpoint de “minha unidade de produção” para KITCHEN (sem precisar escolher ID).
+- Adicionar métricas de tempo (tempo até iniciar, tempo até pronto) sem WebSocket.
+- Preparar SSE/WebSocket como fase posterior (somente eventos, sem UI).
+

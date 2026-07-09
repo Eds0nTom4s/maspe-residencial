@@ -1,0 +1,35 @@
+flowchart TD
+    A[Pedido PONTO via QR publico] --> B[Pedido criado e vinculado ao turno aberto]
+    B --> C[Aceite operacional]
+    C --> D[OrdemPagamento expiravel]
+    D --> E{Pagamento confirmado?}
+    E -- Sim --> F[Pedido PAGO]
+    E -- Nao: ordem ativa --> X1[Bloqueio: ordem ativa impede auto-fecho]
+    F --> G[Entrega / subpedidos ENTREGUE]
+    G --> H[Pedido FINALIZADO]
+    H --> I{Sessao PONTO elegivel?}
+    I -- Sim --> J[Sessao auto-encerrada pelo sistema]
+    I -- Nao: pedido/subpedido/pagamento pendente --> X2[Bloqueio real preservado]
+    J --> K[Pre-fecho recalculado]
+    K --> L{sessoesAbertas = 0 e sem outros bloqueios?}
+    L -- Sim --> M[Fecho normal permitido]
+    L -- Nao --> N[Fecho normal bloqueado]
+
+    N --> O{Fecho forcado solicitado?}
+    O -- Nao --> P[Turno permanece ABERTO]
+    O -- Sim --> Q[Validar role e motivo]
+    Q --> R[Recalcular pre-fecho e tentar auto-fecho PONTO]
+    R --> S{Bloqueio nao ignoravel?}
+    S -- Sim: alerta financeiro critico --> T[Fecho forcado bloqueado e auditado]
+    S -- Nao --> U[Fecho forcado permitido com pendencias herdadas]
+
+    M --> V[Snapshot financeiro e operacional]
+    U --> V
+    V --> W[Extrato: resumo_json.financeiro, operacional, limpezaOperacional]
+
+    REST[REST/KDS: mesa, producao, subpedido obrigatorio] --> REST2{Pendente?}
+    REST2 -- Sim --> REST3[Bloqueio preservado no pre-fecho]
+    REST2 -- Nao --> REST4[Fluxo normal sem regra PONTO agressiva]
+
+    X1 --> K
+    X2 --> K

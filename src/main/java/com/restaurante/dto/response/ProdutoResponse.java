@@ -1,6 +1,6 @@
 package com.restaurante.dto.response;
 
-import com.restaurante.model.enums.CategoriaProduto;
+import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -12,7 +12,10 @@ public class ProdutoResponse {
     private String nome;
     private String descricao;
     private BigDecimal preco;
-    private CategoriaProduto categoria;
+    private CategoriaProdutoLegacy categoria;
+    private Long categoriaProdutoId;
+    private String categoriaProdutoNome;
+    private String categoriaProdutoSlug;
     private String urlImagem;
     private List<String> imagensGaleria;
     private Integer tempoPreparoMinutos;
@@ -38,8 +41,17 @@ public class ProdutoResponse {
     public BigDecimal getPreco() { return preco; }
     public void setPreco(BigDecimal preco) { this.preco = preco; }
 
-    public CategoriaProduto getCategoria() { return categoria; }
-    public void setCategoria(CategoriaProduto categoria) { this.categoria = categoria; }
+    public CategoriaProdutoLegacy getCategoria() { return categoria; }
+    public void setCategoria(CategoriaProdutoLegacy categoria) { this.categoria = categoria; }
+
+    public Long getCategoriaProdutoId() { return categoriaProdutoId; }
+    public void setCategoriaProdutoId(Long categoriaProdutoId) { this.categoriaProdutoId = categoriaProdutoId; }
+
+    public String getCategoriaProdutoNome() { return categoriaProdutoNome; }
+    public void setCategoriaProdutoNome(String categoriaProdutoNome) { this.categoriaProdutoNome = categoriaProdutoNome; }
+
+    public String getCategoriaProdutoSlug() { return categoriaProdutoSlug; }
+    public void setCategoriaProdutoSlug(String categoriaProdutoSlug) { this.categoriaProdutoSlug = categoriaProdutoSlug; }
 
     public String getUrlImagem() { return urlImagem; }
     public void setUrlImagem(String urlImagem) { this.urlImagem = urlImagem; }
@@ -72,7 +84,10 @@ public class ProdutoResponse {
         private String nome;
         private String descricao;
         private BigDecimal preco;
-        private CategoriaProduto categoria;
+        private CategoriaProdutoLegacy categoria;
+        private Long categoriaProdutoId;
+        private String categoriaProdutoNome;
+        private String categoriaProdutoSlug;
         private String urlImagem;
         private List<String> imagensGaleria;
         private Integer tempoPreparoMinutos;
@@ -86,7 +101,10 @@ public class ProdutoResponse {
         public ProdutoResponseBuilder nome(String nome) { this.nome = nome; return this; }
         public ProdutoResponseBuilder descricao(String descricao) { this.descricao = descricao; return this; }
         public ProdutoResponseBuilder preco(BigDecimal preco) { this.preco = preco; return this; }
-        public ProdutoResponseBuilder categoria(CategoriaProduto categoria) { this.categoria = categoria; return this; }
+        public ProdutoResponseBuilder categoria(CategoriaProdutoLegacy categoria) { this.categoria = categoria; return this; }
+        public ProdutoResponseBuilder categoriaProdutoId(Long categoriaProdutoId) { this.categoriaProdutoId = categoriaProdutoId; return this; }
+        public ProdutoResponseBuilder categoriaProdutoNome(String categoriaProdutoNome) { this.categoriaProdutoNome = categoriaProdutoNome; return this; }
+        public ProdutoResponseBuilder categoriaProdutoSlug(String categoriaProdutoSlug) { this.categoriaProdutoSlug = categoriaProdutoSlug; return this; }
         public ProdutoResponseBuilder urlImagem(String urlImagem) { this.urlImagem = urlImagem; return this; }
         public ProdutoResponseBuilder imagensGaleria(List<String> imagensGaleria) { this.imagensGaleria = imagensGaleria; return this; }
         public ProdutoResponseBuilder tempoPreparoMinutos(Integer tempoPreparoMinutos) { this.tempoPreparoMinutos = tempoPreparoMinutos; return this; }
@@ -103,6 +121,9 @@ public class ProdutoResponse {
             response.setDescricao(descricao);
             response.setPreco(preco);
             response.setCategoria(categoria);
+            response.setCategoriaProdutoId(categoriaProdutoId);
+            response.setCategoriaProdutoNome(categoriaProdutoNome);
+            response.setCategoriaProdutoSlug(categoriaProdutoSlug);
             response.setUrlImagem(urlImagem);
             response.setImagensGaleria(imagensGaleria);
             response.setTempoPreparoMinutos(tempoPreparoMinutos);

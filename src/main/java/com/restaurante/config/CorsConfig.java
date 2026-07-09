@@ -1,7 +1,9 @@
 package com.restaurante.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -16,22 +18,46 @@ import java.util.List;
  * Define um CorsConfigurationSource bean para que o Spring Security
  * aplique os headers CORS ANTES de avaliar autenticação/autorização,
  * incluindo respostas a preflight (OPTIONS).
+ *
+ * <p>Origins configuráveis via propriedade {@code cors.allowed-origins}
+ * (env: {@code CORS_ALLOWED_ORIGINS}), separados por vírgula.
+ * Se a propriedade estiver vazia, usa o conjunto de defaults de desenvolvimento.
  */
 @Configuration
 public class CorsConfig implements WebMvcConfigurer {
 
-    private static final List<String> ALLOWED_ORIGINS = Arrays.asList(
+    /** Fallback para ambiente de desenvolvimento/sandbox quando a propriedade não é definida. */
+    private static final List<String> DEFAULT_DEV_ORIGINS = Arrays.asList(
         "http://localhost:3000",   // React / CRA
         "http://localhost:3001",   // React alternativo
         "http://localhost:4200",   // Angular
         "http://localhost:5173",   // Vite / Vue 3
         "http://localhost:5174",   // Vite segunda instância
-        "http://localhost:8081",   // Vue CLI
+        "http://localhost:8080",   // porta padrão interna
+        "http://localhost:8081",   // sandbox-local exposta
+        "http://localhost:8082",   // sandbox-local alternativa
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001"
-        // ⚠️ Adicionar domínios de produção aqui antes do deploy
+        // ⚠️ Adicionar domínios de produção apenas pela env CORS_ALLOWED_ORIGINS
     );
+
+    @Value("${cors.allowed-origins:}")
+    private String allowedOriginsProperty;
+
+    /**
+     * Resolve a lista efectiva de origins: usa a propriedade se definida,
+     * caso contrário aplica os defaults de desenvolvimento.
+     */
+    List<String> resolveAllowedOrigins() {
+        if (StringUtils.hasText(allowedOriginsProperty)) {
+            return Arrays.stream(allowedOriginsProperty.split(","))
+                    .map(String::trim)
+                    .filter(StringUtils::hasText)
+                    .toList();
+        }
+        return DEFAULT_DEV_ORIGINS;
+    }
 
     /**
      * Bean usado pelo Spring Security (.cors(cors -> cors.configurationSource(...))).
@@ -40,15 +66,18 @@ public class CorsConfig implements WebMvcConfigurer {
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
+        List<String> origins = resolveAllowedOrigins();
+
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(ALLOWED_ORIGINS);
+        config.setAllowedOrigins(origins);
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(Arrays.asList(
             "Authorization",
             "Content-Type",
             "Accept",
             "Origin",
-            "X-Requested-With"
+            "X-Requested-With",
+            "Idempotency-Key"
         ));
         config.setExposedHeaders(List.of("Authorization"));
         config.setAllowCredentials(true);
@@ -62,10 +91,11 @@ public class CorsConfig implements WebMvcConfigurer {
     /** Configuração MVC (complementar — garante CORS também fora do filtro de segurança) */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        List<String> origins = resolveAllowedOrigins();
         registry.addMapping("/api/**")
-                .allowedOrigins(ALLOWED_ORIGINS.toArray(new String[0]))
+                .allowedOrigins(origins.toArray(new String[0]))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
-                .allowedHeaders("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With")
+                .allowedHeaders("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "Idempotency-Key")
                 .exposedHeaders("Authorization")
                 .allowCredentials(true)
                 .maxAge(3600);

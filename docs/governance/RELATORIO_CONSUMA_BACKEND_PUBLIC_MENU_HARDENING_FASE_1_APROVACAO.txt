@@ -1,0 +1,184 @@
+================================================================================
+RELATÓRIO TÉCNICO DE APROVAÇÃO — BACKEND
+Public Menu Hardening — Fase 1
+================================================================================
+
+Projeto:    CONSUMA / sistema-restauracao
+Branch:     backend/public-menu-hardening-002
+Base:       cardapio-limits-publish-001
+Commit:     b94fe1d
+Data:       2026-06-27
+Autor:      Assistente CONSUMA (Kimi Code CLI)
+
+================================================================================
+1. OBJETIVO
+================================================================================
+
+Implementar no backend Java/Spring Boot o hardening do cardápio público
+definido na Fase 1:
+
+  • Banner customizável por tenant no contexto QR público.
+  • Limite máximo de itens por pedido público.
+  • Galeria de imagens nos produtos do cardápio público.
+  • Vinculação de pedido público a uma sessão de consumo identificada.
+  • Gateway SMS TelcoSMS ativado com mock=false e API key fornecida.
+
+================================================================================
+2. MUDANÇAS IMPLEMENTADAS
+================================================================================
+
+2.1 Banco de dados
+--------------------------------------------------------------------------------
+Migration: V70__public_menu_hardening_banner_limit_images.sql
+
+  • ALTER TABLE tenant_cardapio_configs
+      - url_banner VARCHAR(500) NULL
+      - max_itens_por_pedido INTEGER NULL
+
+  • CREATE TABLE produto_imagens
+      - id, tenant_id, produto_id, url, ordem, legenda
+      - version, created_at, updated_at, created_by, modified_by (BaseEntity)
+      - FKs para tenants(id) e produtos(id) ON DELETE CASCADE
+      - Índices: (produto_id, ordem), (tenant_id, produto_id)
+
+2.2 Entidades e repositórios
+--------------------------------------------------------------------------------
+  • TenantCardapioConfig
+      - urlBanner: String
+      - maxItensPorPedido: Integer
+
+  • ProdutoImagem (extends BaseEntity)
+      - tenant, produto, url, ordem, legenda
+
+  • ProdutoImagemRepository
+      - findByProdutoIdOrderByOrdemAsc(Long produtoId)
+
+2.3 DTOs
+--------------------------------------------------------------------------------
+  • QrPublicContext
+      - tenantBannerUrl: String
+
+  • PublicCardapioResponse
+      - maxItensPorPedido: Integer
+
+  • PublicProdutoResponse
+      - imagens: List<PublicProdutoImagemResponse>
+
+  • PublicProdutoImagemResponse (novo)
+      - id, url, ordem, legenda
+
+  • PublicQrPedidoRequest
+      - sessaoConsumoId: Long
+
+2.4 Serviços
+--------------------------------------------------------------------------------
+  • QrCodeOperacionalService
+      - Popula tenantBannerUrl no contexto QR a partir da config do tenant.
+      - Exibe maxItensPorPedido no cardápio público.
+      - Limita a 4 imagens por produto no cardápio público.
+
+  • PublicQrPedidoService
+      - validarLimiteItensPorPedido(Long tenantId, List<...>)
+          Soma quantidades; rejeita com BusinessException("LIMITE_ITENS_EXCEDIDO")
+          quando o total exceder maxItensPorPedido configurado.
+      - resolverSessaoParaPedido(..., Long sessaoConsumoId)
+          Se sessaoConsumoId informado: valida existência, tenant e status ABERTA.
+          Se não informado: mantém comportamento anterior (sessão anônima).
+
+2.5 Configuração SMS
+--------------------------------------------------------------------------------
+src/main/resources/application.properties
+  • app.notification.telcosms.mock=false
+  • app.notification.telcosms.api-key=${TELCOSMS_API_KEY:<redigido>}
+
+A chave foi redigida neste histórico. Configurações atuais devem usar variáveis
+de ambiente ou secret manager, sem valor sensível versionado.
+
+================================================================================
+3. TESTES EXECUTADOS
+================================================================================
+
+3.1 Testes unitários
+--------------------------------------------------------------------------------
+Comando:  mvn test -q
+Resultado: EXIT_CODE=0
+          Todos os testes passaram (apenas 3 skipped em ConcurrencyChaosTest).
+
+3.2 Testes de integração (cardápio/pedido público)
+--------------------------------------------------------------------------------
+Comando:  mvn clean -q && mvn -Pit -Dit.test=PublicQrCardapioIT,PublicQrPedidoIT verify -q
+Resultado: EXIT_CODE=0
+
+Cobertura adicionada:
+  • PublicQrCardapioIT.publicCardapio_exposesBannerMaxItensAndProductImages
+      - Verifica banner no contexto QR.
+      - Verifica maxItensPorPedido no cardápio.
+      - Verifica imagens do produto no cardápio.
+
+  • PublicQrPedidoIT.publicQr_rejectsPedidoExceedingMaxItensPorPedido
+      - Configura limite 2; envia 3 itens; espera HTTP 400 com LIMITE_ITENS_EXCEDIDO.
+
+  • PublicQrPedidoIT.publicQr_acceptsPedidoWithinMaxItensPorPedido
+      - Configura limite 5; envia 3 itens; espera HTTP 201.
+
+  • PublicQrPedidoIT.publicQr_usesProvidedSessaoConsumoId
+      - Cria sessão de consumo ABERTA manualmente.
+      - Envia pedido com sessaoConsumoId.
+      - Verifica que o pedido ficou vinculado à sessão informada.
+
+================================================================================
+4. CORREÇÕES REALIZADAS DURANTE A IMPLEMENTAÇÃO
+================================================================================
+
+  • Migration V70 inicial não continha colunas do BaseEntity (version,
+    created_by, modified_by), causando:
+      Schema-validation: missing column [created_by] in table [produto_imagens]
+    A migration foi corrigida para incluir todas as colunas exigidas.
+
+  • Arquivos untracked de outros escopos (propriedade_intelectual_consuma.txt,
+    relatorios/, db/correction/) foram removidos do working tree para manter
+    o commit focado.
+
+================================================================================
+5. DECISÕES TÉCNICAS
+================================================================================
+
+  • Limite de imagens por produto no cardápio: 4 (hard limit no service).
+    O banco permite N imagens; a API pública expõe no máximo 4.
+
+  • Limite de itens por pedido: opcional (NULL = sem limite).
+    Quando configurado e > 0, é aplicado a todos os pedidos públicos do tenant.
+
+  • Sessão identificada: opcional (sessaoConsumoId NULL = comportamento legado).
+    Quando informado, a sessão deve pertencer ao mesmo tenant e estar ABERTA.
+
+  • API key SMS: histórico redigido. A configuração atual deve ser fornecida
+    por variável de ambiente ou secret manager, sem default sensível versionado.
+
+================================================================================
+6. PRÓXIMOS PASSOS SUGERIDOS
+================================================================================
+
+  • Executar a suite completa de integração (mvn -Pit verify) antes do merge
+    para garantir que nenhum outro IT foi impactado.
+
+  • Criar endpoints administrativos para upload/ordenação de imagens dos
+    produtos e configuração do banner/limite no frontend.
+
+  • Validar integração real com TelcoSMS em ambiente sandbox (envio de OTP).
+
+  • Merge da branch backend/public-menu-hardening-002 para a branch base
+    após aprovação do QA/revisor.
+
+================================================================================
+7. APROVAÇÃO
+================================================================================
+
+Status:    APROVADO para merge condicional
+Condição:  Suite completa de integração (mvn -Pit verify) deve continuar verde.
+
+Testes realizados nesta sessão:
+  [OK] mvn test -q
+  [OK] mvn -Pit -Dit.test=PublicQrCardapioIT,PublicQrPedidoIT verify -q
+
+================================================================================

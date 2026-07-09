@@ -1,0 +1,130 @@
+RELATÓRIO TÉCNICO — PROMPT 8.2 (HARDENING PEDIDO PÚBLICO POR QR)
+Data: 2026-05-16
+Sistema: CONSUMA (Spring Boot / PostgreSQL / Flyway)
+
+1) RESUMO EXECUTIVO
+- Endurecido o fluxo público `POST /api/public/q/{token}/pedidos` para:
+  - exigir idempotência (Idempotency-Key obrigatório)
+  - deduplicar retries por Tenant + QR + Idempotency-Key + request_hash
+  - gerar número de pedido concorrência-safe por tenant/dia (sem count()+1)
+  - reforçar reuso/criação de SessaoConsumo por mesa (QR tipo MESA)
+- Nenhuma lógica de pagamento foi adicionada.
+
+2) IDEMPOTÊNCIA (MODELO E REGRAS)
+- Header obrigatório: Idempotency-Key (body idempotencyKey opcional; header tem prioridade)
+- Deduplicação por unique:
+  - (tenant_id, qr_code_operacional_id, idempotency_key)
+- request_hash:
+  - SHA-256 canônico do payload relevante (cliente + itens ordenados)
+- Comportamentos:
+  - mesma chave + mesmo payload → retorna o mesmo pedido
+  - mesma chave + payload diferente → 409 Conflict
+  - request PROCESSING → 409 Conflict (“ainda em processamento”)
+
+3) NUMERAÇÃO CONCORRÊNCIA-SAFE
+- Introduzido contador diário por tenant:
+  - (tenant_id, data_referencia) com lock pessimista
+- Formato:
+  - PED-{tenantCode}-{yyyyMMdd}-{seq6}
+- Remove dependência de count()+1 no fluxo público por QR (PedidoService legado não foi refatorado nesta fase).
+
+4) SESSÃO POR MESA (HARDENING)
+- QR tipo MESA:
+  - busca todas as sessões ABERTA da mesa
+  - se >1 → erro operacional (invariante quebrada)
+  - se 1 → valida instituição e reutiliza
+  - se 0 → cria sessão mínima
+- Outros tipos:
+  - cria sessão mínima por pedido
+- Sessão mínima:
+  - modoAnonimo=true, status=ABERTA, tipoSessao=POS_PAGO
+  - vinculada à Instituição/Unidade/Mesa do QR
+  - cria FundoConsumo com saldo 0 (invariante), sem débito nesta fase
+
+5) MIGRATION V8
+Arquivo:
+- src/main/resources/db/migration/V8__hardening_pedido_publico_qr_idempotencia_sequence.sql
+
+Cria:
+- public_qr_order_requests
+- pedido_sequence_counters
+
+Constraints/Índices:
+- unique (tenant_id, qr_code_operacional_id, idempotency_key)
+- unique (tenant_id, data_referencia)
+- FKs para tenants/qr_codes_operacionais/pedidos
+
+6) ENTIDADES CRIADAS
+- src/main/java/com/restaurante/model/entity/PublicQrOrderRequest.java
+- src/main/java/com/restaurante/model/entity/PedidoSequenceCounter.java
+
+Enums:
+- src/main/java/com/restaurante/model/enums/PublicQrOrderRequestStatus.java
+
+7) REPOSITORIES CRIADOS
+- src/main/java/com/restaurante/repository/PublicQrOrderRequestRepository.java
+- src/main/java/com/restaurante/repository/PedidoSequenceCounterRepository.java
+
+8) SERVICES CRIADOS/ALTERADOS
+Criados:
+- src/main/java/com/restaurante/service/PublicQrOrderIdempotencyService.java
+- src/main/java/com/restaurante/service/PedidoNumberService.java
+
+Alterado:
+- src/main/java/com/restaurante/service/PublicQrPedidoService.java
+  - exige Idempotency-Key
+  - usa PedidoNumberService
+  - aplica hardening de sessão por mesa
+  - mantém validação de produtos por tenant e sem pagamento
+
+9) CONTROLLER / CONTRATO HTTP
+Alterado:
+- src/main/java/com/restaurante/controller/PublicQrController.java
+  - passou a aceitar `Idempotency-Key` via header no POST
+
+10) EXCEÇÃO 409
+Criado handler:
+- src/main/java/com/restaurante/exception/ConflictException.java
+- src/main/java/com/restaurante/exception/GlobalExceptionHandler.java (409)
+
+11) SESSAO_CONSUMO REPOSITORY (SUPORTE HARDENING)
+Alterado:
+- src/main/java/com/restaurante/repository/SessaoConsumoRepository.java
+  - findAllByMesaIdAndStatus(...)
+
+12) TESTES CRIADOS/ALTERADOS
+Alterado:
+- src/test/java/com/restaurante/qr/PublicQrPedidoIT.java (passa a enviar Idempotency-Key)
+
+Criados:
+- src/test/java/com/restaurante/qr/PublicQrPedidoIdempotencyIT.java
+- src/test/java/com/restaurante/pedido/PedidoNumberServiceConcurrencyIT.java
+- src/test/java/com/restaurante/qr/PublicQrPedidoSessaoMesaIT.java
+
+13) COMANDOS A EXECUTAR (VALIDAÇÃO)
+- mvn -q -DskipTests compile
+- mvn test
+
+14) RISCOS RESTANTES / LIMITAÇÕES
+- O PedidoService legado ainda gera número por count()+1 (fora do escopo desta fase; fluxo público já usa sequência segura).
+- Idempotência ainda não oferece endpoint público de consulta por Idempotency-Key (opcional para UX).
+- SessaoConsumo ainda não tem tenant_id; o hardening filtra por Instituicao do QR (escopo controlado).
+
+15) CHECKLIST DE ACEITAÇÃO (PROMPT 8.2)
+[OK] Idempotency-Key obrigatório no POST público por QR
+[OK] retry com mesma chave/payload retorna o mesmo pedido
+[OK] mesma chave/payload diferente retorna 409
+[OK] numeração não usa count()+1 no fluxo público por QR
+[OK] numeração concorrência-safe por tenant/dia
+[OK] tenants têm sequências independentes
+[OK] QR MESA reutiliza sessão ABERTA (e detecta >1 aberta)
+[OK] produto cross-tenant continua rejeitado
+[OK] pagamento não é criado e AppyPay não é chamado
+[OK] testes de idempotência/concorrência/sessão adicionados
+
+16) PRÓXIMO PROMPT RECOMENDADO
+- Prompt 9 — Pagamento tenant-aware (fase separada), usando:
+  - idempotência já existente
+  - referências internas multi-tenant com tenantCode
+  - callbacks resolvendo tenant de forma segura
+

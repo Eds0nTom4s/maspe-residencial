@@ -1,0 +1,128 @@
+RELATÓRIO TÉCNICO — PROMPT 37.2
+Export lógico do snapshot financeiro com hash de integridade (JSON canônico + SHA-256)
+Data: 2026-05-20 (Africa/Luanda)
+
+1) Resumo executivo
+- Foi implementado hash de integridade (tamper-evident) do snapshot financeiro congelado no fecho do turno.
+- Novos fechos passam a persistir `resumo_json.financeiro.integridade` com SHA-256 de JSON canônico do snapshot (sem integridade).
+- Foi criado endpoint tenant read-only de export lógico que lê o snapshot congelado, recalcula o hash e retorna verificação de integridade, sem recalcular relatório financeiro.
+- Compatibilidade: snapshots antigos sem integridade recebem hash no primeiro export, sem alterar valores financeiros.
+
+2) Arquivos criados
+- Hash/canonicalização + properties:
+  - `src/main/java/com/restaurante/financeiro/snapshot/CanonicalJsonHashService.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/SnapshotIntegridadeProperties.java`
+- DTOs de export/verificação:
+  - `src/main/java/com/restaurante/financeiro/snapshot/dto/SnapshotFinanceiroExportResponse.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/dto/SnapshotIntegridadeResponse.java`
+  - `src/main/java/com/restaurante/financeiro/snapshot/dto/SnapshotVerificacaoIntegridadeResponse.java`
+- Service de export:
+  - `src/main/java/com/restaurante/financeiro/snapshot/service/SnapshotFinanceiroExportService.java`
+- Testes:
+  - `src/test/java/com/restaurante/financeiro/SnapshotFinanceiroExportIT.java`
+
+3) Arquivos alterados
+- Snapshot no fecho com integridade:
+  - `src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java`
+- Endpoint tenant financeiro (adicionado export):
+  - `src/main/java/com/restaurante/controller/TenantFinanceiroTurnoController.java`
+- Snapshot DTO (inclui integridade):
+  - `src/main/java/com/restaurante/financeiro/caixa/dto/ResumoFinanceiroFechoTurnoSnapshot.java`
+- Enum de eventos operacionais:
+  - `src/main/java/com/restaurante/model/enums/OperationalEventType.java`
+- Config:
+  - `src/main/resources/application.properties`
+- Teste de fecho com snapshot (passou a validar integridade):
+  - `src/test/java/com/restaurante/operacao/TurnoFechoSnapshotFinanceiroIT.java`
+
+4) Endpoint criado
+- `GET /tenant/financeiro/turnos/{turnoId}/snapshot/export`
+  - Controller: `src/main/java/com/restaurante/controller/TenantFinanceiroTurnoController.java`
+  - RBAC permitido: OWNER/ADMIN/FINANCE/CASHIER
+  - Bloqueado: OPERATOR/KITCHEN
+  - Cross-tenant: 404
+  - Requer turno FECHADO
+
+5) Como o hash é calculado
+- Serviço: `CanonicalJsonHashService`
+- Algoritmo padrão: SHA-256
+- Escopo do hash: `resumo_json.financeiro` removendo a chave `integridade`
+- Canonicalização:
+  - ordena chaves de objetos de forma determinística
+  - canonicaliza recursivamente objetos/arrays
+  - arrays mantêm ordem (snapshot garante ordem determinística em listas pequenas)
+- Output: hex lowercase
+
+6) Como o hash é persistido
+- No fecho do turno, o snapshot financeiro recebe `integridade` antes de ser serializado em `resumo_json`.
+- Persistido em: `resumo_json.financeiro.integridade`
+
+7) Como o export funciona
+- Busca turno por `turnoId` + `tenantId`.
+- Exige turno `FECHADO` e presença de `resumo_json.financeiro`.
+- Se `integridade` estiver ausente:
+  - gera hash do snapshot existente uma única vez
+  - persiste `integridade` no `resumo_json` sem alterar valores
+  - registra evento `SNAPSHOT_FINANCEIRO_HASH_GERADO`
+- Recalcula hash e retorna `verificacao`:
+  - `valido=true` quando confere
+  - `valido=false` quando não confere (não bloqueia leitura; serve para investigação)
+
+8) Auditoria/eventos (sanitizados)
+- Eventos adicionados:
+  - `SNAPSHOT_FINANCEIRO_HASH_GERADO`
+  - `SNAPSHOT_FINANCEIRO_EXPORTADO` (condicionado à property)
+  - `SNAPSHOT_FINANCEIRO_INTEGRIDADE_INVALIDA`
+- No fecho, evento `TURNO_FECHADO`/`TURNO_FECHADO_FORCADO` passou a incluir:
+  - `snapshotHash`, `hashAlgorithm`, `canonicalizationVersion` (metadata sanitizada)
+
+9) Properties adicionadas
+- `consuma.financeiro.snapshot-integridade.enabled` (default true)
+- `consuma.financeiro.snapshot-integridade.algorithm` (default SHA-256)
+- `consuma.financeiro.snapshot-integridade.canonicalization-version` (default 1.0)
+- `consuma.financeiro.snapshot-integridade.audit-export` (default true)
+
+10) Testes (PostgreSQL/Testcontainers)
+- Export íntegro retorna `verificacao.valido=true`.
+- Adulteração do snapshot no `resumo_json` retorna `verificacao.valido=false` e registra evento `SNAPSHOT_FINANCEIRO_INTEGRIDADE_INVALIDA`.
+- Snapshot antigo sem integridade recebe hash no primeiro export e não altera valores.
+- RBAC: OPERATOR não exporta (403).
+
+11) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test -q`
+
+12) Resultado dos comandos
+- `compile`: OK
+- `mvn test -q`: OK (BUILD SUCCESS)
+
+13) Decisões técnicas tomadas
+- Hash é “tamper-evident” e reproduzível (JSON canônico + SHA-256), sem assinatura certificada.
+- Export não recalcula relatório, apenas valida/retorna snapshot congelado.
+- Compatibilidade para snapshots antigos sem hash é on-demand e não altera valores financeiros.
+
+14) Riscos restantes
+- Sem assinatura/HMAC da plataforma, um atacante com acesso ao banco pode adulterar snapshot e recalcular hash. O mecanismo ainda é útil para:
+  - detectar adulteração acidental
+  - gerar evidência consistente quando acompanhado de controles de acesso e trilha de auditoria
+- Se, no futuro, listas do snapshot tiverem ordem não determinística, o hash pode variar. Por isso, o snapshot força ordenação em listas pequenas (método/origem).
+
+15) Checklist de aceitação (Prompt 37.2)
+[OK] Novos fechos persistem snapshot com `integridade`.
+[OK] SHA-256 + JSON canônico.
+[OK] `integridade` não entra no hash.
+[OK] Hash determinístico para o mesmo conteúdo.
+[OK] Alteração de valor muda hash (tamper detectado).
+[OK] Endpoint export existe.
+[OK] Export usa snapshot congelado (não recalcula relatório).
+[OK] Export retorna integridade + verificação.
+[OK] Snapshot antigo sem hash recebe integridade no primeiro export.
+[OK] Turno aberto não exporta.
+[OK] Cross-tenant protegido.
+[OK] KITCHEN bloqueado; OPERATOR bloqueado.
+[OK] Sem payload bruto AppyPay no export.
+[OK] `mvn -q -DskipTests compile` e `mvn test` passam.
+
+16) Próximo prompt recomendado
+- Export lógico “assinado” (HMAC da plataforma) + opção de congelar/exportar snapshot completo do turno para auditoria (sem PDF/Excel).
+

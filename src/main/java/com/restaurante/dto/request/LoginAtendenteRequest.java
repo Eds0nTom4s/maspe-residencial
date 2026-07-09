@@ -1,6 +1,7 @@
 package com.restaurante.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
+import lombok.Data;
 
 /**
  * Request para login de Atendente/Gerente/Admin.
@@ -8,6 +9,7 @@ import jakarta.validation.constraints.NotBlank;
  *   - username + senha  (User entity)
  *   - telefone + senha  (Atendente entity, legado)
  */
+@Data
 public class LoginAtendenteRequest {
 
     /**
@@ -25,15 +27,4 @@ public class LoginAtendenteRequest {
 
     @NotBlank(message = "Senha é obrigatória")
     private String senha;
-
-    public LoginAtendenteRequest() {}
-
-    public String getUsername() { return username; }
-    public void setUsername(String username) { this.username = username; }
-
-    public String getTelefone() { return telefone; }
-    public void setTelefone(String telefone) { this.telefone = telefone; }
-
-    public String getSenha() { return senha; }
-    public void setSenha(String senha) { this.senha = senha; }
 }

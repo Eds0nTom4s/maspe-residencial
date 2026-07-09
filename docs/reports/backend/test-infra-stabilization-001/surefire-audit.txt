@@ -1,0 +1,21 @@
+Data: 2026-07-06
+Escopo: auditoria Maven Surefire
+
+Configuracao final relevante:
+- api.version=1.44
+- debug=false
+- spring.main.banner-mode=off
+- spring.task.scheduling.enabled=false
+- logging.level.root=WARN
+- logging.level.org.springframework=WARN
+- logging.level.org.hibernate=ERROR
+- logging.level.org.flywaydb=WARN
+- logging.level.org.testcontainers=WARN
+- redirectTestOutputToFile=true
+- consuma.test.runner=surefire
+
+Resultado:
+- `mvn test`: PASS, 379 tests, 0 failures, 0 errors, 3 skipped.
+
+Conclusao:
+- Surefire esta adequado para validacao unitaria/slice com console menos ruidoso e logs preservados em reports.

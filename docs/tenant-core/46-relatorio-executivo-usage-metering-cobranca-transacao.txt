@@ -1,0 +1,206 @@
+RELATÓRIO EXECUTIVO FINAL — PROMPT 46
+USAGE METERING E COBRANÇA POR TRANSAÇÃO (BILLING CORE)
+
+Data: 2026-05-25 (Africa/Luanda)
+Projeto: CONSUMA — Sistema de Restauração (SaaS multi-tenant)
+
+================================================================================
+1) OBJETIVO
+================================================================================
+Implementar a base de metering e billing interno SaaS por tenant, permitindo:
+- registrar eventos de uso faturável idempotentes;
+- agregar uso por ciclo;
+- aplicar franquia do plano e calcular excedentes;
+- gerar invoice interna SaaS (não fiscal);
+- auditar e evidenciar via Evidence Bundle;
+- manter separação total entre pagamento do cliente final e cobrança SaaS do tenant.
+
+================================================================================
+2) ESCOPO IMPLEMENTADO
+================================================================================
+- Planos SaaS (BillingPlan) geridos por PLATFORM_ADMIN.
+- Subscrição por tenant (TenantSubscription) com período corrente e anchor day.
+- Métricas de uso (UsageMetric) e eventos idempotentes (UsageEvent).
+- Agregação por período/ciclo (UsageAggregation) com included/overage/charge.
+- Ciclo de cobrança (BillingCycle) com finalização de uso.
+- Invoice interna SaaS (TenantBillingInvoice + lines) com numeração sequencial.
+- Ajustes manuais preparatórios (UsageAdjustment) sem editar UsageEvent original.
+- billingEvidence no Evidence Bundle (novo).
+
+================================================================================
+3) NÃO ESCOPO (MANTIDO)
+================================================================================
+- Não há gateway real para cobrar mensalidade do tenant.
+- Não há débito automático / split settlement / cobrança online.
+- Não altera AppyPay callback/polling, nem confirmação do pagamento.
+- Não bloqueia operação do tenant por inadimplência neste MVP.
+- Não emite fatura fiscal oficial da CONSUMA ao tenant.
+- Não recalcula Evidence Bundles antigos; WORM/chainHash permanecem válidos.
+
+================================================================================
+4) MIGRATIONS (FLYWAY)
+================================================================================
+- `src/main/resources/db/migration/V58__billing_usage_metering.sql`
+  - billing_plans
+  - usage_metrics (seed idempotente; métrica principal PAYMENT_CONFIRMED billable)
+  - tenant_subscriptions
+  - billing_cycles
+  - usage_events (UNIQUE tenant_id + idempotency_key)
+  - usage_adjustments (inclui metric_code)
+  - usage_aggregations
+  - tenant_billing_invoice_sequences (coluna `seq_year`)
+  - tenant_billing_invoices
+  - tenant_billing_invoice_lines
+
+================================================================================
+5) ENTIDADES / ENUMS CRIADOS
+================================================================================
+Entidades:
+- BillingPlan
+- UsageMetric
+- TenantSubscription
+- BillingCycle
+- UsageEvent
+- UsageAggregation
+- UsageAdjustment
+- TenantBillingInvoiceSequence
+- TenantBillingInvoice
+- TenantBillingInvoiceLine
+
+Enums:
+- BillingPlanStatus, BillingInterval, BillingCycleStatus
+- TenantSubscriptionStatus
+- UsageMetricCode, UsageMetricUnit, UsageMetricAggregationType, UsageMetricStatus
+- UsageEventStatus, UsageAggregationStatus
+- TenantBillingInvoiceStatus
+- UsageAdjustmentType
+
+================================================================================
+6) SERVICES / COMPONENTES
+================================================================================
+Core:
+- UsageMeteringService (idempotência por idempotencyKey; recordPaymentConfirmed)
+- UsageAggregationService (included/overage/charge; trialing sem cobrança)
+- BillingCycleService (getOrOpenCurrentCycle; finalizeUsage)
+- TenantBillingInvoiceSequenceService (sequência por tenant/ano; CONS-BILL-YYYY-NNNNNN)
+- TenantBillingInvoiceService (generate/issue/mark-paid/cancel)
+- UsageAdjustmentService (ajustes manuais)
+
+Evidência:
+- BillingEvidenceService (billingEvidence para Evidence Bundle)
+
+Hashes determinísticos:
+- UsageEventHashService
+- UsageAggregationHashService
+- TenantBillingInvoiceHashService
+
+Listener:
+- UsageMeteringOnPaymentConfirmedListener (AFTER_COMMIT) reagindo a PaymentConfirmedForFiscalIssueEvent
+
+================================================================================
+7) ENDPOINTS IMPLEMENTADOS
+================================================================================
+Admin (PLATFORM_ADMIN):
+- GET  /admin/billing/plans
+- POST /admin/billing/plans
+- PUT  /admin/billing/plans/{planId}
+- GET  /admin/tenants/{tenantId}/billing/subscription
+- POST /admin/tenants/{tenantId}/billing/subscription
+- PUT  /admin/tenants/{tenantId}/billing/subscription
+
+Tenant (TENANT_OWNER/TENANT_ADMIN/TENANT_FINANCE):
+- GET  /tenant/billing/subscription
+- GET  /tenant/billing/usage/events
+- GET  /tenant/billing/usage/aggregations
+- POST /tenant/billing/usage/aggregate-current-cycle
+- GET  /tenant/billing/cycles
+- GET  /tenant/billing/cycles/{cycleId}
+- POST /tenant/billing/cycles/{cycleId}/finalize-usage
+- POST /tenant/billing/cycles/{cycleId}/generate-invoice
+- GET  /tenant/billing/invoices
+- GET  /tenant/billing/invoices/{invoiceId}
+- POST /tenant/billing/invoices/{invoiceId}/mark-paid
+- POST /tenant/billing/invoices/{invoiceId}/cancel
+- POST /tenant/billing/usage-adjustments
+
+================================================================================
+8) INTEGRAÇÃO COM PAGAMENTO CONFIRMADO (DESACOPLADA)
+================================================================================
+- Listener AFTER_COMMIT registra UsageEvent (metricCode=PAYMENT_CONFIRMED).
+- Idempotência evita duplicação por callback AppyPay duplicado/retry de listener.
+- Falha no metering não reverte pagamento (MVP).
+- Não altera AppyPay.
+
+================================================================================
+9) BILLINGEVIDENCE NO EVIDENCE BUNDLE
+================================================================================
+- `SnapshotFinanceiroEvidenceBundleResponse` ganhou `billingEvidence`.
+- `SnapshotFinanceiroEvidenceBundleService` anexa billingEvidence e audita
+  `BILLING_EVIDENCE_ATTACHED_TO_BUNDLE`.
+- Hashes:
+  - aggregationHash para UsageAggregation
+  - invoiceHash para TenantBillingInvoice
+
+Warnings (exemplos):
+- TENANT_WITHOUT_SUBSCRIPTION
+- ACTIVE_SUBSCRIPTION_WITHOUT_BILLING_CYCLE
+- BILLING_CYCLE_OPEN
+- BILLING_CYCLE_NOT_INVOICED
+
+================================================================================
+10) AUDITORIA (SANITIZADA)
+================================================================================
+Eventos adicionados (exemplos):
+- USAGE_EVENT_RECORDED / USAGE_EVENT_DUPLICATE_IGNORED
+- USAGE_AGGREGATION_CREATED
+- BILLING_CYCLE_OPENED / BILLING_CYCLE_USAGE_FINALIZED
+- TENANT_BILLING_INVOICE_GENERATED / ISSUED / MARKED_PAID / CANCELLED
+- USAGE_ADJUSTMENT_CREATED
+- BILLING_EVIDENCE_ATTACHED_TO_BUNDLE
+
+Sem log de payloads sensíveis (AppyPay raw, cartão, tokens, etc).
+
+================================================================================
+11) TESTES (NOVOS/ALTERADOS)
+================================================================================
+Novos:
+- src/test/java/com/restaurante/billing/UsageMeteringServiceTest.java
+- src/test/java/com/restaurante/billing/UsageAggregationServiceTest.java
+- src/test/java/com/restaurante/billing/BillingCycleServiceTest.java
+- src/test/java/com/restaurante/billing/TenantBillingInvoiceServiceTest.java
+- src/test/java/com/restaurante/billing/UsageAdjustmentServiceTest.java
+- src/test/java/com/restaurante/billing/BillingEvidenceServiceTest.java
+- src/test/java/com/restaurante/billing/BillingUsageFlowTest.java
+
+================================================================================
+12) COMANDOS EXECUTADOS E RESULTADOS
+================================================================================
+- mvn -q -DskipTests compile
+  Resultado: SUCESSO (exit code 0)
+
+- mvn -q -Dtest=BillingUsageFlowTest test
+  Resultado: SUCESSO (exit code 0)
+
+- mvn -q -Dtest=BillingCycleServiceTest test
+  Resultado: SUCESSO (exit code 0)
+
+- mvn -q -Dtest=EvidenceBundlePersistenceTest test
+  Resultado: SUCESSO (exit code 0)
+
+- mvn test
+  Resultado: BUILD SUCCESS
+  Summary: Tests run: 527, Failures: 0, Errors: 0, Skipped: 223
+
+================================================================================
+13) LIMITAÇÕES / PRÓXIMAS ETAPAS RECOMENDADAS
+================================================================================
+- Criar refund financeiro real do tenant (Prompt 48) e integração automática com UsageAdjustment.
+- Adicionar métricas secundárias cobradas (devices/units) e daily-active metering.
+- Criar painel de inadimplência/overdue (sem bloquear operação no MVP).
+- Fortalecer filtros/paginação e políticas de retenção para UsageEvent (append-only).
+
+================================================================================
+14) STATUS FINAL
+================================================================================
+CONCLUÍDO — Prompt 46 implementado com separação clara entre:
+pagamento do cliente final (operação) e cobrança SaaS do tenant (billing).

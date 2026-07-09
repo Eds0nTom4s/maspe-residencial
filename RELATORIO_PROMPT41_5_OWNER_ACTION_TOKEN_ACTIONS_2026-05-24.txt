@@ -1,0 +1,241 @@
+================================================================================
+RELATÓRIO — PROMPT 41.5
+AÇÕES DE GESTÃO VIA ownerActionToken
+CONSUMA / SESSÃO COMPARTILHADA / UX HARDENING OPERACIONAL
+Data: 2026-05-24
+================================================================================
+
+STATUS FINAL: ✅ BUILD SUCCESS — 42/42 testes passam
+
+--------------------------------------------------------------------------------
+1. OBJETIVO DO PROMPT
+--------------------------------------------------------------------------------
+
+Implementar a camada de ações de gestão de participantes em sessões compartilhadas
+usando o ownerActionToken emitido no Prompt 41.4, eliminando o OTP repetido para
+cada operação de aprovação, rejeição, cancelamento ou reenvio de convite.
+
+Adicionalmente:
+- Revogar tokens ao fechar a sessão
+- Criar job de limpeza de tokens finalizados
+- Validar pepper em startup de produção
+- Garantir auditoria sanitizada (sem rawToken/tokenHash)
+
+--------------------------------------------------------------------------------
+2. FICHEIROS CRIADOS
+--------------------------------------------------------------------------------
+
+Código de produção:
+  src/main/java/com/restaurante/consumo/participante/service/
+    SessaoParticipanteOwnerTokenActionService.java        [NOVO — 340 linhas]
+  src/main/java/com/restaurante/consumo/participante/web/
+    OwnerActionTokenExtractor.java                        [NOVO —  65 linhas]
+  src/main/java/com/restaurante/controller/
+    PublicOwnerTokenActionController.java                 [NOVO — 175 linhas]
+  src/main/java/com/restaurante/consumo/participante/job/
+    SessaoOwnerActionTokenCleanupJob.java                 [NOVO — 100 linhas]
+  src/main/java/com/restaurante/config/
+    SessaoOwnerActionTokenPepperValidator.java            [NOVO —  55 linhas]
+
+Testes unitários:
+  src/test/java/com/restaurante/consumo/
+    SessaoParticipanteOwnerTokenActionServiceTest.java    [NOVO — 395 linhas, 16 testes]
+    OwnerActionTokenExtractorTest.java                    [NOVO —  85 linhas,  8 testes]
+    SessaoOwnerActionTokenRevocationTest.java             [NOVO — 143 linhas,  5 testes]
+    SessaoOwnerActionTokenCleanupJobTest.java             [NOVO — 133 linhas,  6 testes]
+    SessaoOwnerActionTokenPepperValidationTest.java       [NOVO — 100 linhas,  7 testes]
+
+Documentação:
+  docs/tenant-core/41-5-owner-action-token-actions.md    [NOVO]
+
+--------------------------------------------------------------------------------
+3. FICHEIROS MODIFICADOS
+--------------------------------------------------------------------------------
+
+  src/main/java/com/restaurante/model/enums/
+    OperationalEventType.java
+      + SESSAO_PARTICIPANTE_APPROVED_BY_OWNER_TOKEN
+      + SESSAO_PARTICIPANTE_REJECTED_BY_OWNER_TOKEN
+      + SESSAO_PARTICIPANTE_CANCELLED_BY_OWNER_TOKEN
+      + SESSAO_PARTICIPANTE_INVITE_RESENT_BY_OWNER_TOKEN
+      + SESSAO_OWNER_ACTION_TOKENS_REVOKED_BY_SESSION_CLOSE
+      + SESSAO_OWNER_ACTION_TOKEN_CLEANUP_RUN
+      + SESSAO_OWNER_ACTION_TOKEN_PEPPER_VALIDATION_FAILED
+
+  src/main/java/com/restaurante/config/
+    SessaoOwnerActionTokenProperties.java
+      + Inner class Cleanup (enabled, retentionDays, batchSize, cron)
+
+  src/main/java/com/restaurante/consumo/participante/repository/
+    SessaoOwnerActionTokenRepository.java
+      + findActiveTokensBySessaoForUpdate (PESSIMISTIC_WRITE)
+      + findFinalizedIdsBefore (por tenant)
+      + findFinalizedIdsCrossTenantsBeforeForCleanup (cross-tenant, job)
+      + deleteByIds
+
+  src/main/java/com/restaurante/consumo/participante/service/
+    SessaoOwnerActionTokenService.java
+      + revokeActiveTokensBySessao (bulk revocation com auditoria tolerante)
+
+    SessaoConsumoParticipanteService.java
+      + resendInviteByOwnerTokenInternal (reutiliza lógica 41.3 sem OTP)
+
+  src/main/resources/application.properties
+      + consuma.sessao.owner-action-token.cleanup.enabled
+      + consuma.sessao.owner-action-token.cleanup.retention-days
+      + consuma.sessao.owner-action-token.cleanup.batch-size
+      + consuma.sessao.owner-action-token.cleanup.cron
+
+--------------------------------------------------------------------------------
+4. ENDPOINTS IMPLEMENTADOS
+--------------------------------------------------------------------------------
+
+  POST /public/q/{qrToken}/participantes/{participanteId}/approve-by-token
+  POST /public/q/{qrToken}/participantes/{participanteId}/reject-by-token
+  POST /public/q/{qrToken}/participantes/{participanteId}/cancel-by-token
+  POST /public/q/{qrToken}/participantes/{participanteId}/resend-invite-by-token
+
+Token aceite em (por precedência):
+  1. Header X-Owner-Action-Token   ← preferencial
+  2. Campo ownerActionToken no body
+  3. Query param → NUNCA aceito (BusinessException)
+
+--------------------------------------------------------------------------------
+5. LÓGICA DE SEGURANÇA
+--------------------------------------------------------------------------------
+
+  OwnerActionTokenExtractor:
+  - Header > body > null (nunca query param)
+  - Lança OWNER_ACTION_TOKEN_REQUIRED se ausente e required=true
+  - Lança OWNER_ACTION_TOKEN_QUERY_PARAM_NOT_ALLOWED se em query param
+
+  SessaoParticipanteOwnerTokenActionService.resolveAndValidate():
+  1. resolveQrContext(qrToken) → tenantId + sessaoId
+  2. ownerTokenService.validateAndUse() → SessaoOwnerActionToken + owner entity
+  3. owner.status == ACTIVE → ou OWNER_ACTION_TOKEN_OWNER_NOT_ACTIVE
+  4. owner.role == OWNER  → ou OWNER_ACTION_TOKEN_OWNER_NOT_OWNER
+
+  Auditoria sanitizada:
+  - Metadados NUNCA contêm rawToken, tokenHash ou ownerActionToken
+  - Falhas de auditoria são absorvidas (log.warn), não propagam
+
+--------------------------------------------------------------------------------
+6. REVOGAÇÃO AO FECHAR SESSÃO
+--------------------------------------------------------------------------------
+
+  Método: SessaoOwnerActionTokenService.revokeActiveTokensBySessao()
+  - PESSIMISTIC_WRITE: evita race condition entre close e uso simultâneo
+  - Idempotente: retorna 0 se já não há tokens ACTIVE
+  - Auditoria agregada: revokedCount, reason, sessaoId — sem hashes
+  - Falha de auditoria é absorvida (log.warn)
+
+  Integração esperada em SessaoConsumoService.fechar():
+    ownerTokenService.revokeActiveTokensBySessao(tenantId, sessaoId, "SESSION_CLOSE", ip, ua);
+
+--------------------------------------------------------------------------------
+7. JOB DE LIMPEZA
+--------------------------------------------------------------------------------
+
+  Classe: SessaoOwnerActionTokenCleanupJob
+  Schedule: 0 20 3 * * * (03:20 diário, configurável)
+  Statuses elegíveis: EXPIRED, CONSUMED, REVOKED
+  Retenção: 30 dias (configurável)
+  Batch: 500 IDs por execução (configurável)
+
+  DELETE físico é seguro: rawToken nunca foi persistido.
+  Auditoria emitida mesmo em caso de erro parcial.
+  Job pode ser desactivado: cleanup.enabled=false
+
+--------------------------------------------------------------------------------
+8. VALIDAÇÃO DO PEPPER EM PRODUÇÃO
+--------------------------------------------------------------------------------
+
+  Classe: SessaoOwnerActionTokenPepperValidator
+  Profiles: prod, production, homolog → pepper obrigatório
+  Profiles: dev, test, ausente → pepper opcional
+
+  Em caso de falha:
+  - IllegalStateException: OWNER_ACTION_TOKEN_PEPPER_REQUIRED_IN_PRODUCTION
+  - Mensagem NUNCA contém o valor do pepper
+  - Evento de auditoria: SESSAO_OWNER_ACTION_TOKEN_PEPPER_VALIDATION_FAILED
+
+  Variável de ambiente: CONSUMA_OWNER_ACTION_TOKEN_PEPPER
+
+--------------------------------------------------------------------------------
+9. CONFIGURAÇÃO COMPLETA
+--------------------------------------------------------------------------------
+
+  # TTL e usos do token
+  consuma.sessao.owner-action-token.ttl-minutes=10
+  consuma.sessao.owner-action-token.max-uses=20
+  consuma.sessao.owner-action-token.hash-pepper=${CONSUMA_OWNER_ACTION_TOKEN_PEPPER:}
+
+  # Job de cleanup
+  consuma.sessao.owner-action-token.cleanup.enabled=true
+  consuma.sessao.owner-action-token.cleanup.retention-days=30
+  consuma.sessao.owner-action-token.cleanup.batch-size=500
+  consuma.sessao.owner-action-token.cleanup.cron=0 20 3 * * *
+
+  Variáveis de ambiente correspondentes:
+  CONSUMA_OWNER_ACTION_TOKEN_PEPPER          (obrigatória em prod)
+  OWNER_ACTION_TOKEN_TTL_MINUTES             (default: 10)
+  OWNER_ACTION_TOKEN_MAX_USES                (default: 20)
+  OWNER_TOKEN_CLEANUP_ENABLED                (default: true)
+  OWNER_TOKEN_CLEANUP_RETENTION_DAYS         (default: 30)
+  OWNER_TOKEN_CLEANUP_BATCH_SIZE             (default: 500)
+  OWNER_TOKEN_CLEANUP_CRON                   (default: "0 20 3 * * *")
+
+--------------------------------------------------------------------------------
+10. RESULTADOS DOS TESTES
+--------------------------------------------------------------------------------
+
+  Suíte                                           Testes
+  ─────────────────────────────────────────────────────
+  SessaoParticipanteOwnerTokenActionServiceTest      16
+    ↳ Aprovar (6): PENDING_APPROVAL, já ACTIVE, não PENDING,
+                   OWNER sem status, OWNER sem role, validateAndUse chamado
+    ↳ Rejeitar (2): PENDING_APPROVAL, está ACTIVE
+    ↳ Cancelar (5): INVITED, PENDING_OTP, PENDING_APPROVAL, ACTIVE, idempotente
+    ↳ Reenviar (2): pode, não pode
+    ↳ Auditoria (1): sem raw token nos metadados
+  OwnerActionTokenExtractorTest                       8
+    ↳ header extrai, body fallback, header prioridade, blank=required,
+       ambos ausentes, optional null, query param lança, ausente ok
+  SessaoOwnerActionTokenRevocationTest                5
+    ↳ revoga todos ACTIVE, zero sem tokens, idempotente,
+       auditoria emitida, falha auditoria não propaga
+  SessaoOwnerActionTokenCleanupJobTest                6
+    ↳ desactivado não executa, remove finalizados, nenhum elegível,
+       não remove ACTIVE, respeita batch-size, auditoria emitida
+  SessaoOwnerActionTokenPepperValidationTest           7
+    ↳ prod+blank falha, production+null falha, prod+definido ok,
+       dev+blank ok, test+blank ok, sem profiles ok, erro sem valor
+  ─────────────────────────────────────────────────────
+  TOTAL                                              42/42 ✅
+
+  BUILD TIME: ~90s (compilação + testes)
+
+--------------------------------------------------------------------------------
+11. PRÓXIMOS PASSOS
+--------------------------------------------------------------------------------
+
+  P41.5-PENDING-1: Integrar revokeActiveTokensBySessao() no fechar() da
+                   SessaoConsumoService (ponto de chamada a definir com
+                   o serviço de fechamento de sessão existente).
+
+  P41.5-PENDING-2: Testes de integração (MockMvc) para os 4 endpoints do
+                   PublicOwnerTokenActionController validando:
+                   - Header vs body token
+                   - Query param rejeitado
+                   - 400 para token inválido
+                   - 200 para fluxo feliz
+
+  P41.5-PENDING-3: Documentar no Swagger/OpenAPI os novos endpoints
+                   com exemplos de request/response.
+
+  P41.5-PENDING-4: Considerar rate-limit por IP nos endpoints token-based
+                   para dificultar brute-force de tokens.
+
+--------------------------------------------------------------------------------
+FIM DO RELATÓRIO — PROMPT 41.5
+================================================================================

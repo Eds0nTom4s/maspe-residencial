@@ -85,6 +85,30 @@ class TelcoSmsGatewayTest {
         TelcoSmsRequest sentRequest = (TelcoSmsRequest) captor.getValue().getBody();
         assertEquals("244925813939", sentRequest.getMessage().getPhoneNumber());
     }
+
+    @Test
+    void deveAceitarFormatoRealDeSucessoDaTelcoSms() {
+        // Arrange
+        String phoneNumber = "+244925813939";
+        String message = "Seu código OTP é: 1234";
+
+        TelcoSmsResponse mockResponse = new TelcoSmsResponse();
+        mockResponse.setStatus("200 - Mensagem enviada com sucesso");
+
+        when(restTemplate.exchange(
+            eq("https://www.telcosms.co.ao/send_message"),
+            eq(HttpMethod.POST),
+            any(HttpEntity.class),
+            eq(TelcoSmsResponse.class)
+        )).thenReturn(new ResponseEntity<>(mockResponse, HttpStatus.OK));
+
+        // Act
+        SmsResponse response = gateway.sendSms(phoneNumber, message);
+
+        // Assert
+        assertTrue(response.isSuccess());
+        assertEquals("200 - Mensagem enviada com sucesso", response.getMessage());
+    }
     
     @Test
     void deveNormalizarTelefoneComZeroInicial() {
@@ -250,6 +274,37 @@ class TelcoSmsGatewayTest {
         assertTrue(response.isSuccess());
         assertTrue(response.getMessage().contains("modo mock"));
         assertTrue(response.getMessageId().startsWith("MOCK-"));
+    }
+
+    @Test
+    void deveRetornarErroControladoQuandoProviderDesabilitado() {
+        // Arrange
+        when(properties.getProvider()).thenReturn("disabled");
+        when(properties.getEnabled()).thenReturn(false);
+
+        // Act
+        SmsResponse response = gateway.sendSms("+244925813939", "Código 123456");
+
+        // Assert
+        assertFalse(response.isSuccess());
+        assertEquals("SMS_DISABLED", response.getErrorCode());
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    void deveSimularEnvioSemChamarApiQuandoProviderSandbox() {
+        // Arrange
+        when(properties.getProvider()).thenReturn("sandbox");
+        when(properties.getEnabled()).thenReturn(false);
+
+        // Act
+        SmsResponse response = gateway.sendSms("+244925813939", "Código 123456");
+
+        // Assert
+        assertTrue(response.isSuccess());
+        assertTrue(response.getMessage().contains("sandbox"));
+        assertTrue(response.getMessageId().startsWith("SANDBOX-"));
+        verifyNoInteractions(restTemplate);
     }
     
     @Test

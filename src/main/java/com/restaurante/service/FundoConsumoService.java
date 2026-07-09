@@ -14,6 +14,7 @@ import com.restaurante.repository.FundoConsumoRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.TransacaoFundoRepository;
+import org.springframework.context.annotation.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -53,6 +54,8 @@ public class FundoConsumoService {
     private final ClienteRepository clienteRepository;
     private final ConfiguracaoFinanceiraService configuracaoFinanceiraService;
     private final com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService;
+    // @Lazy quebra o ciclo SessaoConsumoService ↔ FundoConsumoService
+    private final SessaoConsumoService sessaoConsumoService;
 
     public FundoConsumoService(FundoConsumoRepository fundoConsumoRepository,
                               TransacaoFundoRepository transacaoFundoRepository,
@@ -60,7 +63,8 @@ public class FundoConsumoService {
                               SessaoConsumoRepository sessaoConsumoRepository,
                               ClienteRepository clienteRepository,
                               ConfiguracaoFinanceiraService configuracaoFinanceiraService,
-                              com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService) {
+                              com.restaurante.notificacao.service.WebSocketNotificacaoService webSocketNotificacaoService,
+                              @Lazy SessaoConsumoService sessaoConsumoService) {
         this.fundoConsumoRepository = fundoConsumoRepository;
         this.transacaoFundoRepository = transacaoFundoRepository;
         this.pedidoRepository = pedidoRepository;
@@ -68,6 +72,7 @@ public class FundoConsumoService {
         this.clienteRepository = clienteRepository;
         this.configuracaoFinanceiraService = configuracaoFinanceiraService;
         this.webSocketNotificacaoService = webSocketNotificacaoService;
+        this.sessaoConsumoService = sessaoConsumoService;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -255,7 +260,74 @@ public class FundoConsumoService {
         validarValorMinimo(valor);
         validarValorMaximo(valor);
         FundoConsumo fundo = buscarPorToken(qrCodeSessao);
+        if (fundo.isBloqueado()) {
+            throw new BusinessException("Fundo de consumo bloqueado. Não é possível recarregar.");
+        }
         return executarCredito(fundo, valor, observacoes != null ? observacoes : "Recarga via QR Code");
+    }
+
+    /**
+     * Crédito idempotente por ordem de pagamento manual (CASH/TPA).
+     *
+     * <p>Regra: {@code merchantTransactionId} deve ser único e determinístico por ordem
+     * (ex.: {@code ORD-<ordemId>}) para impedir duplo crédito em retries/duplo clique.
+     */
+    @Retryable(
+            retryFor = { ObjectOptimisticLockingFailureException.class },
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 100, maxDelay = 500)
+    )
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public TransacaoFundo creditarPorOrdemPagamento(String qrCodeSessao,
+                                                    BigDecimal valor,
+                                                    String merchantTransactionId,
+                                                    String observacoes) {
+        if (merchantTransactionId == null || merchantTransactionId.isBlank()) {
+            throw new BusinessException("merchantTransactionId é obrigatório para crédito idempotente.");
+        }
+        if (transacaoFundoRepository.existsByMerchantTransactionId(merchantTransactionId)) {
+            return transacaoFundoRepository.findByMerchantTransactionId(merchantTransactionId).orElseThrow();
+        }
+        validarValorPositivo(valor);
+        validarValorMinimo(valor);
+        validarValorMaximo(valor);
+
+        FundoConsumo fundo = buscarPorToken(qrCodeSessao);
+        if (fundo.isBloqueado()) {
+            throw new BusinessException("Fundo de consumo bloqueado. Não é possível recarregar.");
+        }
+
+        if (!fundo.getAtivo()) {
+            throw new BusinessException("Fundo de consumo encerrado. Não é possível recarregar.");
+        }
+
+        BigDecimal saldoAnterior = fundo.getSaldoAtual();
+
+        TransacaoFundo transacao = TransacaoFundo.builder()
+                .fundoConsumo(fundo)
+                .valor(valor)
+                .tipo(TipoTransacaoFundo.CREDITO)
+                .saldoAnterior(saldoAnterior)
+                .saldoNovo(saldoAnterior.add(valor))
+                .merchantTransactionId(merchantTransactionId)
+                .observacoes(observacoes != null ? observacoes : ("Crédito manual " + merchantTransactionId))
+                .build();
+
+        transacao = transacaoFundoRepository.save(transacao);
+
+        fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
+        fundoConsumoRepository.save(fundo);
+
+        sessaoConsumoService.registrarAtividade(
+                fundo.getSessaoConsumo().getId(),
+                "Recarga manual de " + com.restaurante.util.MoneyFormatter.format(valor));
+
+        webSocketNotificacaoService.notificarAtualizacaoSaldo(
+                fundo.getSessaoConsumo().getId(),
+                fundo.getSessaoConsumo().getQrCodeSessao(),
+                fundo.getSaldoAtual());
+
+        return transacao;
     }
 
     /**
@@ -273,6 +345,9 @@ public class FundoConsumoService {
         validarValorMinimo(valor);
         validarValorMaximo(valor);
         FundoConsumo fundo = buscarPorSessaoId(sessaoId);
+        if (fundo.isBloqueado()) {
+            throw new BusinessException("Fundo de consumo bloqueado. Não é possível recarregar.");
+        }
         return executarCredito(fundo, valor, observacoes);
     }
 
@@ -308,6 +383,9 @@ public class FundoConsumoService {
 
         if (!fundo.getAtivo()) {
             throw new BusinessException("Fundo de consumo encerrado. Não é possível debitar.");
+        }
+        if (fundo.isBloqueado()) {
+            throw new BusinessException("Fundo de consumo bloqueado. Não é possível debitar.");
         }
         
         // II-3: Carregar sessaoConsumo explicitamente para evitar NPE por lazy load.
@@ -353,7 +431,10 @@ public class FundoConsumoService {
         // Para acionar o optimistic locking no fundo e notificar que mudou:
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
-        
+
+        // Sprint 1: Regista actividade na sessão — debitar fundo blinda contra expiração
+        sessaoConsumoService.registrarAtividade(sessao, "Débito de " + com.restaurante.util.MoneyFormatter.format(valor) + " — Pedido #" + pedidoId);
+
         // Notifica atualização de saldo via WebSocket
         webSocketNotificacaoService.notificarAtualizacaoSaldo(sessao.getId(), sessao.getQrCodeSessao(), fundo.getSaldoAtual());
 
@@ -441,7 +522,12 @@ public class FundoConsumoService {
 
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
-        
+
+        // Sprint 1: Regista actividade na sessão — estorno de pedido blinda contra expiração
+        sessaoConsumoService.registrarAtividade(
+                fundo.getSessaoConsumo().getId(),
+                "Estorno de " + com.restaurante.util.MoneyFormatter.format(valorEstorno));
+
         // Notifica atualização de saldo via WebSocket
         webSocketNotificacaoService.notificarAtualizacaoSaldo(fundo.getSessaoConsumo().getId(), fundo.getSessaoConsumo().getQrCodeSessao(), fundo.getSaldoAtual());
 
@@ -536,6 +622,26 @@ public class FundoConsumoService {
         FundoConsumo fundo = buscarPorToken(qrCodeSessao);
         fundo.encerrar();
         fundoConsumoRepository.save(fundo);
+    }
+
+    @Transactional
+    public FundoConsumo bloquearFundoPorTokenTenant(Long tenantId, String qrCodeSessao, String motivo) {
+        FundoConsumo fundo = fundoConsumoRepository.findByTenantIdAndQrCodeSessaoAndAtivoTrue(tenantId, qrCodeSessao)
+                .orElseThrow(() -> new ResourceNotFoundException("Fundo de consumo não encontrado para este consumo."));
+        fundo.setBloqueado(true);
+        fundo.setBloqueadoEm(LocalDateTime.now());
+        fundo.setBloqueadoMotivo(motivo != null ? motivo : "Bloqueio administrativo");
+        return fundoConsumoRepository.save(fundo);
+    }
+
+    @Transactional
+    public FundoConsumo desbloquearFundoPorTokenTenant(Long tenantId, String qrCodeSessao, String motivo) {
+        FundoConsumo fundo = fundoConsumoRepository.findByTenantIdAndQrCodeSessaoAndAtivoTrue(tenantId, qrCodeSessao)
+                .orElseThrow(() -> new ResourceNotFoundException("Fundo de consumo não encontrado para este consumo."));
+        fundo.setBloqueado(false);
+        fundo.setBloqueadoEm(null);
+        fundo.setBloqueadoMotivo(motivo != null ? motivo : "Desbloqueio administrativo");
+        return fundoConsumoRepository.save(fundo);
     }
 
     /**
@@ -646,7 +752,12 @@ public class FundoConsumoService {
 
         fundo.atualizarSaldoCache(transacaoFundoRepository.calcularSaldoAgregado(fundo.getId()));
         fundoConsumoRepository.save(fundo);
-        
+
+        // Sprint 1: Regista actividade na sessão — recarga blinda contra expiração automática
+        sessaoConsumoService.registrarAtividade(
+                fundo.getSessaoConsumo().getId(),
+                "Recarga de " + com.restaurante.util.MoneyFormatter.format(valor));
+
         // Notifica atualização de saldo via WebSocket
         webSocketNotificacaoService.notificarAtualizacaoSaldo(fundo.getSessaoConsumo().getId(), fundo.getSessaoConsumo().getQrCodeSessao(), fundo.getSaldoAtual());
 

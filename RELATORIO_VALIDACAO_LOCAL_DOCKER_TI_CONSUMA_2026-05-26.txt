@@ -1,0 +1,246 @@
+RELATÓRIO TÉCNICO — PROMPT 40
+Checklist geral, deploy Docker local e testes de integração — CONSUMA
+Data de execução: 2026-05-27 (Africa/Luanda)
+
+Nota sobre data/nome do arquivo:
+- O nome foi mantido conforme especificação do Prompt 40 (“..._2026-05-26.txt”), mas a execução ocorreu em 2026-05-27.
+
+================================================================================
+1) Resumo executivo
+================================================================================
+- Build local: OK (compile + testes). `mvn test` concluiu com BUILD SUCCESS (558 testes; 0 falhas/erros; 231 skipped).
+- Flyway: verificação estática OK (V1..V62; sem duplicados/lacunas; migrations recentes de templates/evidence/logistics presentes).
+- Docker local + PostgreSQL real + healthcheck + Testcontainers: NÃO executados neste ambiente por falta de acesso ao daemon Docker (`/var/run/docker.sock` → permission denied). Consequência: suites `*IT` foram majoritariamente SKIPPED.
+- Templates CONSUMA_PONTO_V1 / CONSUMA_REST_V1: presentes (Prompt 39), porém validação end-to-end (HTTP+DB real) ficou pendente neste ambiente.
+
+================================================================================
+2) Branch e commit avaliados
+================================================================================
+- Branch: `restauracao-antes-da-loja`
+- HEAD: `a515508` — “Modelos operacionais baseados em templates- backend temporariamente terminado”
+- `git status` (no momento da validação): há alterações locais NÃO commitadas (ver seção 25 e seção 29).
+
+================================================================================
+3) Ambiente usado
+================================================================================
+- OS: Linux (kernel 6.17.9-76061709-generic)
+- Java: OpenJDK 21.0.10
+- Maven: 3.6.3
+- Timezone: Africa/Luanda
+
+Notas:
+- Maven não conseguiu usar `~/.m2` neste ambiente, então os comandos foram executados com `-Dmaven.repo.local=/tmp/m2`.
+- Docker CLI está instalado, mas o daemon não está acessível (sem permissão no socket).
+
+================================================================================
+4) Arquivos Docker usados
+================================================================================
+- `docker-compose.local.yml` (local: postgres + api)
+- `docker-compose.yml` (existente; sem postgres)
+- `docker-compose.prod.yml` (existente; postgres + api em prod)
+
+================================================================================
+5) Variáveis/profile usado
+================================================================================
+Arquivo: `docker-compose.local.yml`
+- `SPRING_PROFILES_ACTIVE=dev`
+- `SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/consuma_local`
+- `SPRING_DATASOURCE_USERNAME=consuma`
+- `SPRING_DATASOURCE_PASSWORD=consuma`
+- `SPRING_JPA_HIBERNATE_DDL_AUTO=validate`
+- `SPRING_FLYWAY_ENABLED=true`
+- Secrets (locais, não-prod): `JWT_SECRET`, `DEVICE_TOKEN_HASH_SECRET`, `SYNC_CURSOR_HMAC_SECRET`, `APPYPAY_WEBHOOK_SECRET`, `CONSUMA_SNAPSHOT_HMAC_SECRET_V1`
+- Mocks: `APPYPAY_MOCK=true`, `TELCOSMS_MOCK=true`
+
+Observação de paths:
+- O projeto usa `server.servlet.context-path=/api` em `src/main/resources/application.properties`; portanto o healthcheck esperado no compose local é `http://localhost:8080/api/actuator/health`.
+
+================================================================================
+6) Containers iniciados
+================================================================================
+- N/A (bloqueado por Docker daemon inacessível neste ambiente).
+
+================================================================================
+7) Resultado do build local
+================================================================================
+Comandos executados:
+- `mvn -q -DskipTests compile` → FALHOU (não conseguiu criar repositório local em `~/.m2`)
+- `mvn -q -Dmaven.repo.local=/tmp/m2 -DskipTests compile` → OK
+- `mvn -Dmaven.repo.local=/tmp/m2 test` → OK (BUILD SUCCESS)
+
+================================================================================
+8) Resultado do Docker build
+================================================================================
+- N/A (bloqueado por Docker daemon inacessível neste ambiente).
+
+================================================================================
+9) Resultado das migrations Flyway
+================================================================================
+Verificação realizada (estática):
+- Diretório: `src/main/resources/db/migration`
+- Estado: V1..V62 presentes, sem versões duplicadas e sem lacunas entre 1..62.
+
+Execução real em PostgreSQL limpo:
+- N/A (dependia de Docker/Postgres).
+
+================================================================================
+10) Resultado do healthcheck
+================================================================================
+- N/A (sem deploy via Docker).
+
+Endpoints esperados quando rodando via `docker-compose.local.yml`:
+- `GET http://localhost:8080/api/actuator/health`
+
+================================================================================
+11) Resultado dos testes unitários
+================================================================================
+Comando executado:
+- `mvn -Dmaven.repo.local=/tmp/m2 test`
+
+Resultado:
+- BUILD SUCCESS
+- Tests run: 558; Failures: 0; Errors: 0; Skipped: 231
+
+================================================================================
+12) Resultado dos testes de integração
+================================================================================
+Status neste ambiente:
+- INCONCLUSIVO (Docker/Testcontainers indisponível → ITs SKIPPED).
+
+Evidência (exemplo):
+- `PlatformBusinessTemplateControllerIT`: 8 testes SKIPPED por ausência de Docker/Testcontainers.
+
+================================================================================
+13) Testes manuais executados
+================================================================================
+- N/A (sem aplicação rodando em Docker/Postgres real).
+
+================================================================================
+14) Resultado do preview CONSUMA_PONTO_V1
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+Payload de referência (execução externa; PLATFORM_ADMIN):
+{
+  "nomeNegocio": "Ponto Dona Esperança",
+  "slug": "ponto-dona-esperanca",
+  "ownerNome": "Dona Esperança",
+  "ownerContacto": "+244900000000",
+  "ownerEmail": "dona.esperanca@example.com",
+  "tipoNegocio": "VENDA_SIMPLES",
+  "entregaManual": true,
+  "levantamento": true
+}
+
+================================================================================
+15) Resultado do provision CONSUMA_PONTO_V1
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+================================================================================
+16) Resultado do preview CONSUMA_REST_V1
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+Payload de referência (execução externa; PLATFORM_ADMIN):
+{
+  "nomeNegocio": "Restaurante Diamante",
+  "slug": "restaurante-diamante",
+  "ownerNome": "Gestor Restaurante",
+  "ownerContacto": "+244911111111",
+  "ownerEmail": "gestor.restaurante@example.com",
+  "tipoNegocio": "RESTAURANTE",
+  "temMesas": true,
+  "quantidadeMesas": 10,
+  "temBarSeparado": true,
+  "exigeTurnoAberto": true,
+  "entrega": "TENANT_MANUAL"
+}
+
+================================================================================
+17) Resultado do provision CONSUMA_REST_V1
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+================================================================================
+18) Resultado QR/pedido
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+================================================================================
+19) Resultado POS/device
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+================================================================================
+20) Resultado pagamento/callback/polling
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+================================================================================
+21) Resultado turno/checklist/snapshot/evidence
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+================================================================================
+22) Resultado logistics mínimo
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+================================================================================
+23) Resultado multi-tenant
+================================================================================
+- N/A (não executado via HTTP/DB real neste ambiente).
+
+================================================================================
+24) Erros encontrados
+================================================================================
+BLOQUEANTES (ambiente):
+1) Docker daemon inacessível (`/var/run/docker.sock` permission denied) → bloqueou `docker compose up` e Testcontainers.
+2) Maven sem permissão/escrita em `~/.m2` → exigiu `-Dmaven.repo.local=/tmp/m2`.
+
+================================================================================
+25) Correções aplicadas
+================================================================================
+Escopo: estabilização para validação local (sem expandir domínio).
+- `pom.xml`: adicionada dependência `spring-boot-starter-actuator`
+- `src/main/resources/application.properties`: habilitado health/probes (Actuator)
+- `src/test/resources/application.properties`: excluída auto-config de security de management (evita conflitos ao introduzir Actuator em testes que desligam Security)
+- `docker-compose.local.yml`: criado/ajustado para Postgres+API local com secrets não-prod e mocks habilitados
+
+================================================================================
+26) Pendências
+================================================================================
+Para concluir o Prompt 40 em ambiente com Docker funcional:
+- Subir `docker compose -f docker-compose.local.yml up -d --build`
+- Validar logs de startup + Flyway em PostgreSQL limpo
+- Validar healthcheck (`/api/actuator/health`)
+- Reexecutar `mvn verify`/`mvn -Dit.test='*IT' verify` com Testcontainers efetivamente ativo
+- Executar testes manuais dos fluxos principais (templates, QR/pedido, POS/device, pagamento, turnos, snapshot/evidence, logistics, multi-tenant)
+
+================================================================================
+27) Riscos restantes
+================================================================================
+- Diferenças H2 vs PostgreSQL (constraints/índices/SQL) não cobertas sem IT/DB real.
+- Possíveis regressões de Flyway/PostgreSQL não detectadas sem execução em banco limpo.
+
+================================================================================
+28) Decisão final
+================================================================================
+APROVADO COM RESSALVAS
+- OK: compile + `mvn test` + consistência estática de migrations.
+- PENDENTE: Docker local, healthcheck real, Flyway em PostgreSQL limpo, ITs rodando, fluxos manuais.
+
+Pergunta do Prompt 40:
+“O backend da CONSUMA está tecnicamente validado em Docker local e pronto para avançar para sandbox operacional/pilotos controlados?”
+- Ainda NÃO validado “em Docker local” neste ambiente; requer execução das pendências em máquina com Docker daemon acessível.
+
+================================================================================
+29) Próximo passo recomendado
+================================================================================
+Reexecutar este Prompt 40 em ambiente com Docker funcional e anexar ao relatório:
+- saída de `docker compose ps`
+- logs do serviço API
+- resposta do healthcheck
+- evidência de Flyway aplicado
+- evidência de ITs não-skipped

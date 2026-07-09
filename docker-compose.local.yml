@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sistema-restauracao-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: restaurante_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - sistema-restauracao-postgres-data-local:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d restaurante_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sistema-restauracao-api:local
+    container_name: sistema-restauracao-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/restaurante_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_DEFER_DATASOURCE_INITIALIZATION: "false"
+      SPRING_SQL_INIT_MODE: never
+      APP_BASE_URL: http://localhost:8080/api
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:4200,http://localhost:5173,http://localhost:5174,http://localhost:8080
+      # Forçar mocks no perfil dev (application-dev.properties define mock=false por padrão).
+      # Spring relaxed binding: APP_PAYMENT_APPYPAY_MOCK -> app.payment.appypay.mock
+      # e APP_NOTIFICATION_TELCOSMS_MOCK -> app.notification.telcosms.mock
+      APP_PAYMENT_APPYPAY_MOCK: "true"
+      APP_NOTIFICATION_TELCOSMS_MOCK: "true"
+      MINIO_ENDPOINT: http://host.docker.internal:9000
+      MINIO_PUBLIC_URL: http://localhost:9000/restaurante-images
+      JWT_SECRET: "local-dev-jwt-secret-please-change-32chars-min-0000000000000000"
+      DEVICE_TOKEN_HASH_SECRET: "local-dev-device-token-hash-secret-please-change-32chars-min"
+      SYNC_CURSOR_HMAC_SECRET: "local-dev-sync-cursor-hmac-secret-please-change-32chars-min"
+      CONSUMA_OTP_HASH_PEPPER: "local-dev-otp-hash-pepper-please-change-32chars-min"
+      APPYPAY_WEBHOOK_SECRET: "local-dev-appypay-webhook-secret-please-change-32chars-min"
+      CONSUMA_SNAPSHOT_HMAC_SECRET_V1: "local-dev-snapshot-hmac-secret-v1-please-change-32chars-min"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8080:8080"
+
+volumes:
+  sistema-restauracao-postgres-data-local:

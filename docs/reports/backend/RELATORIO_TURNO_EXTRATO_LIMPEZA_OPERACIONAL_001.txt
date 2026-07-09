@@ -1,0 +1,241 @@
+RELATORIO_TURNO_EXTRATO_LIMPEZA_OPERACIONAL_001
+
+1. Identificacao
+Backend branch: backend/consuma-turno-extrato-limpeza-operacional-001
+Backend commit base: 2f61d2d67b7449bc8173fe035135985851759090
+Backend commit final: este commit da fase; SHA exacto informado na entrega final
+Frontend de referencia: ui/consuma-demo-freezy-app-pedidos-001 / 114d604eaa7370646997bb8479e8e3cbdacb2c56
+Frontend alterado: Nao
+
+2. Objectivo
+Refinar o extrato de turno como snapshot operacional e financeiro persistido no fecho, e consolidar limpeza operacional como classificacao auditavel de pendencias sem alterar estados de pedidos, pagamentos, ordens ou sessoes.
+
+3. Estado anterior
+TurnoOperacionalService ja persistia o pre-fecho no root de resumo_json e o snapshot financeiro em resumo_json.financeiro.
+O snapshot financeiro ja possuia hash canonico e assinatura quando habilitados.
+O fecho forcado ja registrava resumo_json.fechoForcadoPolicy.
+Faltava um bloco operacional canonico para identificar tipo de fecho, actor, pedidos, sessoes herdadas, ordens por status e limpeza operacional pos-fecho.
+
+4. Extrato actual auditado
+Item: entidade de turno
+Classe/arquivo: src/main/java/com/restaurante/model/entity/TurnoOperacional.java
+Como funciona hoje: armazena status, datas, usuario de fecho e resumo_json textual.
+Risco: resumo_json era flexivel e podia misturar pre-fecho vivo com snapshot.
+Decisao: preservar campo e enriquecer JSON de forma retrocompativel.
+
+Item: service de fecho
+Classe/arquivo: src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java
+Como funciona hoje: calcula pre-fecho, aplica politica normal/forcada, gera relatorio financeiro, persiste resumo_json e audita evento.
+Risco: extrato operacional incompleto.
+Decisao: adicionar resumo_json.operacional e resumo_json.limpezaOperacional.
+
+Item: pre-fecho
+Classe/arquivo: src/main/java/com/restaurante/service/operacao/TurnoResumoService.java
+Como funciona hoje: calcula pedidos, subpedidos, pagamentos gateway, sessoes abertas, dispositivos offline e alertas financeiros.
+Risco: nao contem ordens manuais por status.
+Decisao: usar pre-fecho como base e complementar ordens no snapshot.
+
+Item: snapshot financeiro
+Classe/arquivo: src/main/java/com/restaurante/financeiro/caixa/dto/ResumoFinanceiroFechoTurnoSnapshot.java
+Como funciona hoje: contem totais confirmados/pendentes/falhados, totais por metodo/origem, alertas e integridade.
+Risco: nao deve ser substituido por valores de pedido.
+Decisao: preservar como fonte financeira congelada.
+
+Item: relatorio financeiro
+Classe/arquivo: src/main/java/com/restaurante/financeiro/caixa/service/RelatorioCaixaTurnoService.java
+Como funciona hoje: soma ordens confirmadas, pagamentos gateway confirmados, pendentes e falhados.
+Risco: ordem expirada nao deve virar pagamento confirmado.
+Decisao: registrar status de ordens separadamente no snapshot operacional.
+
+Item: sessoes
+Classe/arquivo: src/main/java/com/restaurante/repository/SessaoConsumoRepository.java
+Como funciona hoje: pre-fecho conta ABERTA/AGUARDANDO_PAGAMENTO por unidade.
+Risco: sessao encerrada voltar a bloquear ou sessao herdada ficar invisivel.
+Decisao: manter contador aberto e adicionar contagem distinta de sessoes com pedido no turno por status.
+
+5. Snapshot operacional
+Novo bloco: resumo_json.operacional.
+Campos principais:
+- snapshotVersion
+- policyVersion
+- identificacao
+- pedidos
+- subPedidos
+- sessoes
+- pagamentos
+- ordensPagamento
+- dispositivos
+- preFecho
+- auditoria
+
+6. Snapshot financeiro
+Bloco preservado: resumo_json.financeiro.
+Versao preservada: 37.1.
+Integridade preservada: hash canonico e assinatura HMAC quando habilitados.
+Total confirmado continua vindo de pagamentos/ordens confirmadas, nao de total de pedidos.
+
+7. Fecho normal
+Quando o pre-fecho nao possui bloqueios duros:
+- turno fecha
+- tipoFecho=NORMAL
+- motivoFechoForcado fica ausente/null
+- snapshot operacional e financeiro sao persistidos
+- limpezaOperacional classifica SEM_PENDENCIAS quando nao ha bloqueios, alertas ou ordens ativas
+- ordem ativa pendente pode ficar registrada como pendencia sem ser confirmada automaticamente
+
+8. Fecho forcado
+Quando ha bloqueios herdaveis e motivo valido:
+- role superior e exigida
+- auto-fecho PONTO elegivel e tentado antes do snapshot
+- pre-fecho e recalculado
+- tipoFecho=FORCADO
+- motivoFechoForcado e persistido
+- pendencias herdadas ficam em limpezaOperacional e fechoForcadoPolicy
+- pedidos, pagamentos, ordens e sessoes nao elegiveis nao mudam de estado
+
+9. Fecho bloqueado
+Quando ha bloqueio nao ignoravel:
+- turno permanece ABERTO/EM_FECHO conforme estado anterior
+- resumo_json final de turno fechado nao e persistido
+- pagamentos, pedidos, ordens e sessoes nao sao alterados
+- evento de bloqueio financeiro critico permanece quando aplicavel
+
+10. Pendencias herdadas
+Registradas em resumo_json.limpezaOperacional.pendenciasHerdadas.
+Incluem sessoes abertas, pedidos nao terminais, subpedidos nao terminais, pagamentos pendentes, dispositivos offline, alertas financeiros e ordens ativas/expiradas/vencidas ainda ativas.
+
+11. Sessoes
+Estados contados como abertas pelo pre-fecho: ABERTA, AGUARDANDO_PAGAMENTO.
+Estados excluidos do contador aberto: ENCERRADA, EXPIRADA.
+Snapshot operacional registra sessoesEncerradas e sessoesExpiradas usando sessoes com pedido mapeado no turno.
+Sessoes herdadas sao listadas por id/status quando continuam abertas na unidade.
+
+12. Pedidos
+Fonte operacional: PedidoRepository.
+Pedidos por status entram no snapshot.
+Fecho nao cancela nem finaliza pedidos.
+
+13. Pagamentos
+Fonte financeira gateway: PagamentoGatewayRepository e RelatorioCaixaTurnoService.
+Pagamentos por status entram no snapshot.
+Fecho nao confirma, nao falha e nao estorna pagamentos.
+
+14. Ordens de pagamento
+Fonte: OrdemPagamentoRepository.
+Registrado:
+- ordensPagamentoPorStatus
+- ordensPagamentoAtivas
+- ordensPagamentoConfirmadas
+- ordensPagamentoCanceladas
+- ordensPagamentoExpiradas
+- ordensPagamentoVencidasAindaAtivas
+Comportamento de expiracao nao foi alterado.
+
+15. Dispositivos offline
+Fonte: TurnoResumoService/DispositivoOperacionalRepository.
+Registrado como indicador operacional com impactoFinanceiro=NAO_APLICAVEL.
+
+16. Auditoria
+Eventos existentes preservados:
+- TURNO_FECHADO
+- TURNO_FECHADO_FORCADO
+- TURNO_FECHO_BLOQUEADO_ALERTA_FINANCEIRO
+Resumo_json agora registra policyVersion=TURNO_EXTRATO_LIMPEZA_OPERACIONAL_001 e hash do snapshot financeiro.
+
+17. Integridade financeira
+Tabela:
+Campo financeiro: totalConfirmado
+Fonte: RelatorioCaixaTurnoService / resumo_json.financeiro.totalGeralConfirmado
+Inclui PAGO: Sim, pagamentos/ordens confirmadas
+Inclui PENDENTE: Nao
+Inclui CANCELADO: Nao
+Inclui EXPIRADO: Nao
+Inclui ESTORNADO: Nao
+Risco: inflar receita com pedido nao pago
+Decisao: confirmado vem de pagamentos/ordens confirmadas.
+
+Campo financeiro: totalPendente
+Fonte: RelatorioCaixaTurnoService
+Inclui PAGO: Nao
+Inclui PENDENTE: Sim
+Inclui CANCELADO: Nao
+Inclui EXPIRADO: Nao
+Inclui ESTORNADO: Nao
+Risco: confundir pendente com recebido
+Decisao: manter separado.
+
+Campo financeiro: totalFalhado
+Fonte: RelatorioCaixaTurnoService
+Inclui PAGO: Nao
+Inclui PENDENTE: Nao
+Inclui CANCELADO: Nao
+Inclui EXPIRADO: Nao
+Inclui ESTORNADO: Nao
+Risco: perda de diagnostico financeiro
+Decisao: manter separado.
+
+Campo financeiro: totalCancelado
+Fonte: ordens_pagamento status CANCELADA
+Inclui PAGO: Nao
+Inclui PENDENTE: Nao
+Inclui CANCELADO: Sim
+Inclui EXPIRADO: Nao
+Inclui ESTORNADO: Nao
+Risco: tratar cancelado como recebido
+Decisao: registrar separado no snapshot operacional.
+
+Campo financeiro: totalEstornado
+Fonte: pagamentos_gateway status ESTORNADO
+Inclui PAGO: Nao
+Inclui PENDENTE: Nao
+Inclui CANCELADO: Nao
+Inclui EXPIRADO: Nao
+Inclui ESTORNADO: Sim
+Risco: confundir estorno com receita liquida
+Decisao: registrar separado no snapshot operacional.
+
+18. Testes backend
+mvn -DskipTests compile: SUCCESS.
+mvn -Dtest=TurnoFechoSnapshotFinanceiroIT,TurnoOperacionalIT,TurnoPreFechoFinanceiroAlertasIT test: FAILURE esperado por runner errado; ITs exigem Failsafe/profile it.
+mvn -Pit -DskipITs=false -Dit.test=TurnoFechoSnapshotFinanceiroIT,TurnoOperacionalIT,TurnoPreFechoFinanceiroAlertasIT test-compile failsafe:integration-test failsafe:verify: SUCCESS, 11 testes, 0 falhas, 0 erros, 0 skipped.
+mvn -Dtest=*SessaoConsumo* test: SUCCESS, 24 testes, 0 falhas, 0 erros, 0 skipped.
+mvn -Pit -DskipITs=false -Dit.test=*Turno* test-compile failsafe:integration-test failsafe:verify: SUCCESS, 26 testes, 0 falhas, 0 erros, 0 skipped; aviso de fork JVM no encerramento, sem falha.
+mvn -Pit -DskipITs=false -Dit.test=*Snapshot* test-compile failsafe:integration-test failsafe:verify: SUCCESS, 14 testes, 0 falhas, 0 erros, 0 skipped; aviso de fork JVM no encerramento, sem falha.
+mvn -Dtest=*Extrato* -DfailIfNoTests=false test: FAILURE por inexistencia de suites *Extrato* e configuracao Surefire de fail em teste especificado sem match.
+mvn -Dtest=*Extrato* -Dsurefire.failIfNoSpecifiedTests=false test: FAILURE pelo mesmo motivo; a cobertura equivalente ficou em *Turno* e *Snapshot*.
+mvn -Dtest=*Extrato* -DfailIfNoSpecifiedTests=false test: FAILURE pelo mesmo motivo.
+mvn -Pit -DskipITs=false -Dit.test=*ConsumaDemoFreezy* test-compile failsafe:integration-test failsafe:verify: SUCCESS, 1 teste, 0 falhas, 0 erros, 0 skipped.
+mvn test: SUCCESS, 414 testes, 0 falhas, 0 erros, 3 skipped.
+mvn -Pit verify: SUCCESS, Surefire 414 testes, 0 falhas, 0 erros, 3 skipped; Failsafe 287 testes, 0 falhas, 0 erros, 0 skipped; aviso de fork JVM no encerramento, sem falha.
+
+19. Testes frontend
+N/A. Frontend nao foi alterado.
+
+20. Mermaid
+Criado docs/architecture/diagrams/turno-extrato-limpeza-operacional-flow.mmd.
+
+21. Documentacao
+Criado docs/architecture/TURNO_EXTRATO_LIMPEZA_OPERACIONAL_001.md.
+
+22. Arquivos alterados
+src/main/java/com/restaurante/repository/SessaoConsumoRepository.java
+src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java
+src/test/java/com/restaurante/operacao/TurnoFechoSnapshotFinanceiroIT.java
+src/test/java/com/restaurante/operacao/TurnoOperacionalIT.java
+src/test/java/com/restaurante/operacao/TurnoPreFechoFinanceiroAlertasIT.java
+docs/architecture/diagrams/turno-extrato-limpeza-operacional-flow.mmd
+docs/architecture/TURNO_EXTRATO_LIMPEZA_OPERACIONAL_001.md
+docs/reports/backend/RELATORIO_TURNO_EXTRATO_LIMPEZA_OPERACIONAL_001.txt
+docs/reports/fullstack/RELATORIO_TURNO_EXTRATO_LIMPEZA_OPERACIONAL_001.txt
+
+23. O que nao foi alterado
+frontend; Gestao de Turnos visual; Cardapio Publico; Acompanhamento Publico; App Pedidos; gateway; estorno; PDV; caixa; fiscal; KDS; REST demo; SERVICE; DELIVERY.
+
+24. Riscos restantes
+Nao ha migracao ampla de pendencias para turno seguinte.
+Ordens vencidas ainda ativas sao registradas, mas nao expiradas automaticamente.
+Frontend ainda nao exibe os novos blocos do extrato.
+Novos bloqueios nao ignoraveis precisam ser classificados em fases futuras.
+
+25. Decisao final
+APROVADO

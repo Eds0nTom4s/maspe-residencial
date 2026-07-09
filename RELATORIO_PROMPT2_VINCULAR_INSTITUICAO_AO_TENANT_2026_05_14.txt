@@ -1,0 +1,95 @@
+CONSUMA Backend — Prompt 2 (Vincular Instituicao ao Tenant)
+Data: 2026-05-14 (Africa/Luanda)
+
+1) RESUMO EXECUTIVO
+- Implementado o primeiro elo real entre o domínio SaaS e o domínio operacional: `Tenant 1:N Instituicao`.
+- `Instituicao` agora possui `tenant_id` obrigatório (NOT NULL) e relacionamento JPA `ManyToOne` com `Tenant`.
+- Criada migration Flyway `V3__link_instituicao_to_tenant.sql` com backfill compatível para bases existentes:
+  - cria Tenant LEGACY (tenant_code=LEGACY) se necessário
+  - vincula instituições existentes ao tenant LEGACY
+  - garante integridade com FK + NOT NULL
+- Adicionados métodos tenant-aware no `InstituicaoRepository`.
+- Adicionados testes de integração (PostgreSQL/Testcontainers) provando Tenant 1:N e NOT NULL em `instituicoes.tenant_id`.
+- Fluxos legados continuam existindo (getInstituicaoAtiva/findFirstByAtivaTrue não removidos).
+
+2) ESTADO ANTES
+- Tenant Core (V2) existia, mas `Instituicao` ainda era “órfã” do ponto de vista SaaS.
+- Domínio operacional seguia single-tenant via “instituição ativa”.
+
+3) ALTERAÇÕES DE DOMÍNIO (JPA)
+src/main/java/com/restaurante/model/entity/Instituicao.java
+- Adicionado:
+  - `@ManyToOne(fetch = LAZY, optional = false)`
+  - `@JoinColumn(name="tenant_id", nullable=false)`
+- Index:
+  - `idx_instituicao_tenant (tenant_id)`
+
+4) MIGRATION FLYWAY V3
+src/main/resources/db/migration/V3__link_instituicao_to_tenant.sql
+- Passos:
+  1) adiciona coluna `tenant_id` (nullable inicialmente)
+  2) cria índice `idx_instituicao_tenant`
+  3) cria Tenant LEGACY se não existir
+  4) cria subscrição ATIVA para o tenant LEGACY no plano PILOTO (mantém coerência do domínio SaaS)
+  5) backfill: seta `instituicoes.tenant_id` para LEGACY
+  6) impõe `NOT NULL` + FK `instituicoes(tenant_id) -> tenants(id)`
+
+5) COMPATIBILIDADE (LEGADO / DEV)
+src/main/java/com/restaurante/config/DataSeeder.java
+- No profile `dev`, o seed de Instituicao agora:
+  - cria (se necessário) o Tenant LEGACY + subscrição ATIVA no PILOTO
+  - associa a Instituicao seed ao tenant LEGACY
+
+6) REPOSITORY (TENANT-AWARE)
+src/main/java/com/restaurante/repository/InstituicaoRepository.java
+- Adicionado:
+  - `List<Instituicao> findByTenantId(Long tenantId)`
+  - `Optional<Instituicao> findFirstByTenantIdAndAtivaTrue(Long tenantId)`
+- Mantido:
+  - `findFirstByAtivaTrue()` (legado)
+
+7) TESTES
+src/test/java/com/restaurante/tenantcore/TenantCorePersistenceIT.java
+- Adicionado cenário:
+  - tenant pode ter múltiplas instituições
+  - Instituicao sem tenant falha (DataIntegrityViolationException)
+
+Observação:
+- Em ambientes sem Docker, os IT são ignorados (Testcontainers disabledWithoutDocker).
+
+8) COMANDOS EXECUTADOS
+- `mvn -q -DskipTests compile` -> OK
+- `mvn test -q` -> OK
+
+9) ARQUIVOS CRIADOS/ALTERADOS
+- `src/main/java/com/restaurante/model/entity/Instituicao.java`
+- `src/main/java/com/restaurante/repository/InstituicaoRepository.java`
+- `src/main/resources/db/migration/V3__link_instituicao_to_tenant.sql`
+- `src/main/java/com/restaurante/config/DataSeeder.java`
+- `src/test/java/com/restaurante/tenantcore/TenantCorePersistenceIT.java`
+- `docs/tenant-core/02-vincular-instituicao-ao-tenant.md`
+
+10) DECISÕES TÉCNICAS
+- Backfill via Tenant LEGACY para garantir transição sem quebrar dados existentes.
+- NOT NULL + FK no banco para impedir Instituicao órfã.
+- Mantidos fluxos legados sem refatoração (TenantContext fica para fases futuras).
+
+11) RISCOS RESTANTES
+- Ainda existe uso global de “instituição ativa”; vazamento multi-tenant ainda é possível até TenantContext/Guard.
+- Limites por plano ainda não são aplicados (Prompt 3).
+- Instituicao ainda não está “tenant-scoped” no nível de services/controllers (isso é deliberado nesta fase).
+
+12) CHECKLIST DE ACEITAÇÃO
+[OK] `V3__link_instituicao_to_tenant.sql` existe
+[OK] `instituicoes.tenant_id` criado e NOT NULL
+[OK] Relacionamento JPA Instituicao -> Tenant (ManyToOne) criado
+[OK] Backfill/compatibilidade para instituições existentes (Tenant LEGACY)
+[OK] Métodos de repository por tenant adicionados
+[OK] Testes provando Tenant 1:N Instituicao adicionados
+[OK] Fluxos legados preservados (não removidos)
+[OK] Projeto compila e testes executam
+[OK] Instituicao não fica sem Tenant (DB + JPA)
+
+13) PRÓXIMO PROMPT RECOMENDADO
+Prompt 3 — Limites por Tenant/Plano (TenantLimitService + validação de maxInstituicoes), sem ainda introduzir TenantContext.
+

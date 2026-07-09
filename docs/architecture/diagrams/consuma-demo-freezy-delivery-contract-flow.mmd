@@ -1,0 +1,57 @@
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#1a1a2e', 'edgeLabelBackground': '#ffffff'}}}%%
+flowchart TD
+    A([Pagamento confirmado\nStatusFinanceiro = PAGO]) --> B{MARK_DELIVERED\npermitido?}
+
+    B -->|Sim| C[Operador clica\nEntregar Pedido]
+    B -->|Não| BLOCK_A[❌ Botão não exibido\nallowedActions sem MARK_DELIVERED]
+
+    C --> D[PATCH /tenant/pedidos/{id}/entregar]
+
+    D --> E{Actor autenticado\ncom papel tenant?}
+    E -->|Não| ERR1[❌ 403 Forbidden]
+    E -->|Sim| F{Pedido pertence\nao tenant?}
+
+    F -->|Não| ERR2[❌ 404 Not Found]
+    F -->|Sim| G{Pedido está\nem estado terminal?}
+
+    G -->|FINALIZADO ou CANCELADO| ERR3[❌ 409 Conflict\nPedido já em estado terminal]
+    G -->|Não| H{StatusFinanceiro\n= PAGO?}
+
+    H -->|Não| ERR4[❌ 409 Conflict\nPagamento não confirmado]
+    H -->|Sim| I{MARK_DELIVERED\nem allowedActions?}
+
+    I -->|Não| ERR5[❌ 409 Conflict\nMARK_DELIVERED não permitido]
+    I -->|Sim| J[Subpedidos PRONTO → ENTREGUE]
+
+    J --> K[recalcularStatusPedido]
+    K --> L{Status derivado\n= FINALIZADO?}
+
+    L -->|Não| ERR6[❌ 409 Conflict\nStatus derivado inválido]
+    L -->|Sim| M[Auditoria: PEDIDO_STATUS_CHANGED\ncommand=MARK_DELIVERED\nactor, pedidoOrigem,\ntenantTemplate, tenant, timestamp]
+
+    M --> N[Verificar: pagamento\nnão foi alterado]
+    N --> O([✅ Pedido FINALIZADO\nResponse 200])
+
+    O --> P[GET /tenant/pedidos/{id}\nretorna FINALIZADO]
+    O --> Q[GET público retorna\nestado final]
+    O --> R[allowedActions sem\nMARK_DELIVERED\nnem CONFIRM_PAYMENT]
+
+    %% Bloqueios adicionais
+    BLOCK_B([❌ Sem pagamento]) -.->|impede| B
+    BLOCK_C([❌ Pedido CRIADO\nem espera de aceite]) -.->|impede| B
+    BLOCK_D([❌ Turno obrigatório\nnão aberto]) -.->|impede| B
+    BLOCK_E([❌ Subpedidos\nnão elegíveis]) -.->|impede| B
+    BLOCK_F([❌ Actor sem\npermissão]) -.->|impede| B
+    BLOCK_G([❌ Pedido\ncancelado]) -.->|impede| B
+
+    classDef success fill:#16a34a,color:#fff,stroke:#none
+    classDef error fill:#dc2626,color:#fff,stroke:#none
+    classDef block fill:#92400e,color:#fff,stroke:#none
+    classDef action fill:#1e40af,color:#fff,stroke:#none
+    classDef neutral fill:#374151,color:#fff,stroke:#none
+
+    class O success
+    class ERR1,ERR2,ERR3,ERR4,ERR5,ERR6 error
+    class BLOCK_A,BLOCK_B,BLOCK_C,BLOCK_D,BLOCK_E,BLOCK_F,BLOCK_G block
+    class J,K,M action
+    class P,Q,R neutral

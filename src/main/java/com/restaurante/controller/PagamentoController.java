@@ -93,7 +93,7 @@ public class PagamentoController {
                 usuario,
                 role,
                 ip,
-                request.getTelefone());
+                null);
 
         PagamentoGatewayResponse resposta = toResponse(pagamento);
 
@@ -101,7 +101,7 @@ public class PagamentoController {
                 ? "Pagamento GPO confirmado. Saldo creditado."
                 : "Referência gerada. Entidade: " + pagamento.getEntidade()
                   + " | Ref: " + pagamento.getReferencia()
-                  + " | Valor: " + com.restaurante.util.MoneyFormatter.format(pagamento.getAmount());
+                  + " | Valor: " + pagamento.getAmount() + " AOA";
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(mensagem, resposta));

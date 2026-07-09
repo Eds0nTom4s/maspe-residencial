@@ -5,15 +5,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
 
+import jakarta.validation.ConstraintViolationException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Tratador global de exceções da aplicação
@@ -65,6 +71,180 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Trata erros HTTP controlados lancados por servicos de dominio (ex: rate limit).
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatusException(
+            ResponseStatusException ex, WebRequest request) {
+
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        String error = status != null ? status.getReasonPhrase() : "Erro HTTP";
+        String code = status == HttpStatus.TOO_MANY_REQUESTS ? "RATE_LIMIT_EXCEEDED" : null;
+
+        log.warn("Erro HTTP controlado {}: {}", ex.getStatusCode().value(), ex.getReason());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(ex.getStatusCode().value())
+                .error(error)
+                .code(code)
+                .message(ex.getReason() != null ? ex.getReason() : error)
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(ex.getStatusCode()).body(errorResponse);
+    }
+
+    /**
+     * Trata ConflictException (409) — idempotência/concorrência.
+     */
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflictException(
+            ConflictException ex, WebRequest request) {
+
+        log.warn("Conflito: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Conflito")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    /**
+     * Trata falta de turno aberto em fluxos operacionais obrigatórios (409).
+     */
+    @ExceptionHandler(TurnoObrigatorioException.class)
+    public ResponseEntity<ErrorResponse> handleTurnoObrigatorioException(
+            TurnoObrigatorioException ex, WebRequest request) {
+
+        log.warn("Turno obrigatório: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Turno aberto obrigatório")
+                .code(TurnoObrigatorioException.CODE)
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    /**
+     * Trata conflito de versão do contrato KDS (409).
+     */
+    @ExceptionHandler(KdsSubPedidoConflictException.class)
+    public ResponseEntity<ErrorResponse> handleKdsSubPedidoConflictException(
+            KdsSubPedidoConflictException ex, WebRequest request) {
+
+        log.warn("Conflito KDS: statusAtual={} versionAtual={}", ex.getCurrentStatus(), ex.getCurrentVersion());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Conflito KDS")
+                .code("KDS_SUBPEDIDO_CONFLICT")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .additionalData(Map.of(
+                        "currentStatus", ex.getCurrentStatus() != null ? ex.getCurrentStatus().name() : null,
+                        "currentVersion", ex.getCurrentVersion()
+                ))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    /**
+     * Trata InvalidSignatureException (401) — callback com assinatura inválida.
+     */
+    @ExceptionHandler(InvalidSignatureException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidSignatureException(
+            InvalidSignatureException ex, WebRequest request) {
+
+        log.warn("Assinatura inválida: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .error("Assinatura inválida")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    /**
+     * DeviceUnauthorizedException (401) — autenticação de dispositivo inválida/ausente.
+     */
+    @ExceptionHandler(DeviceUnauthorizedException.class)
+    public ResponseEntity<ErrorResponse> handleDeviceUnauthorizedException(
+            DeviceUnauthorizedException ex, WebRequest request) {
+
+        log.warn("Device não autenticado: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .error("Não autenticado")
+                .code("DEVICE_UNAUTHORIZED")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    /**
+     * DeviceForbiddenException (403) — dispositivo autenticado mas não permitido (suspenso/revogado).
+     */
+    @ExceptionHandler(DeviceForbiddenException.class)
+    public ResponseEntity<ErrorResponse> handleDeviceForbiddenException(
+            DeviceForbiddenException ex, WebRequest request) {
+
+        log.warn("Device proibido: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.FORBIDDEN.value())
+                .error("Acesso negado")
+                .code("DEVICE_FORBIDDEN")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+    }
+
+    /**
+     * TenantTokenStaleException (401) — token tenant-scoped desatualizado após mudança de roles/membership.
+     */
+    @ExceptionHandler(TenantTokenStaleException.class)
+    public ResponseEntity<ErrorResponse> handleTenantTokenStaleException(
+            TenantTokenStaleException ex, WebRequest request
+    ) {
+        log.warn("Tenant token stale: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .error("Sessão desatualizada")
+                .code("TENANT_TOKEN_STALE")
+                .message(ex.getMessage() != null ? ex.getMessage() : "Sessão do tenant desatualizada. Selecione novamente o tenant.")
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    /**
      * Trata erros de validação (Bean Validation)
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -90,6 +270,104 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
+     * Trata parâmetros de rota/query inválidos (ex: enum não reconhecido).
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatchException(
+            MethodArgumentTypeMismatchException ex, WebRequest request) {
+
+        String parametro = ex.getName();
+        String valor = ex.getValue() != null ? ex.getValue().toString() : "null";
+        String mensagem = "Parâmetro inválido: " + parametro + "=" + valor;
+
+        log.warn("Erro de parâmetro: {}", mensagem);
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Parâmetro inválido")
+                .message(mensagem)
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
+     * Trata parâmetros obrigatórios ausentes (400) — evita 500 em erros do cliente.
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingServletRequestParameterException(
+            MissingServletRequestParameterException ex, WebRequest request
+    ) {
+        String path = request.getDescription(false).replace("uri=", "");
+        String msg = "Parâmetro obrigatório ausente: " + ex.getParameterName();
+
+        log.warn("Parâmetro obrigatório ausente: {} (path={})", ex.getParameterName(), path);
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Parâmetro obrigatório ausente")
+                .code("MISSING_PARAMETER")
+                .message(msg)
+                .path(path)
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
+     * Trata ConstraintViolationException (400) — validação em query params/path vars.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolationException(
+            ConstraintViolationException ex, WebRequest request
+    ) {
+        Map<String, String> errors = new HashMap<>();
+        if (ex.getConstraintViolations() != null) {
+            ex.getConstraintViolations().forEach(v -> {
+                String key = v.getPropertyPath() != null ? v.getPropertyPath().toString() : "param";
+                errors.put(key, v.getMessage());
+            });
+        }
+
+        log.warn("Violação de constraint (query/path): {}", errors);
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Parâmetros inválidos")
+                .message("Parâmetros inválidos fornecidos")
+                .path(request.getDescription(false).replace("uri=", ""))
+                .validationErrors(errors.isEmpty() ? null : errors)
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
+     * Trata negação de acesso por role/permissão insuficiente (403).
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(
+            AccessDeniedException ex, WebRequest request) {
+
+        log.warn("Acesso negado: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.FORBIDDEN.value())
+                .error("Acesso negado")
+                .code("TENANT_ROLE_FORBIDDEN")
+                .message("Você não tem permissão para acessar este recurso.")
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
     }
 
     /**
@@ -125,6 +403,33 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Trata ProvisioningException (erros padronizados para endpoints platform de provisionamento).
+     */
+    @ExceptionHandler(ProvisioningException.class)
+    public ResponseEntity<ProvisioningErrorResponse> handleProvisioningException(
+            ProvisioningException ex, WebRequest request
+    ) {
+        HttpStatus status = ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.BAD_REQUEST;
+        String path = request.getDescription(false).replace("uri=", "");
+        String correlationId = UUID.randomUUID().toString();
+
+        ProvisioningErrorResponse resp = new ProvisioningErrorResponse(
+                LocalDateTime.now(),
+                status.value(),
+                "Provisioning error",
+                ex.getMessage(),
+                ex.getCode(),
+                ex.getField(),
+                ex.getDetail(),
+                ex.getRecommendedAction(),
+                path,
+                correlationId,
+                ex.getExtra()
+        );
+        return ResponseEntity.status(status).body(resp);
+    }
+
+    /**
      * Trata exceções genéricas (500)
      */
     @ExceptionHandler(Exception.class)
@@ -152,19 +457,27 @@ public class GlobalExceptionHandler {
         private int status;
         private String error;
         private String message;
+        private String code;
         private String path;
         private Map<String, String> validationErrors;
+        private Map<String, Object> additionalData;
 
         public ErrorResponse() {
         }
 
-        public ErrorResponse(LocalDateTime timestamp, int status, String error, String message, String path, Map<String, String> validationErrors) {
+        public ErrorResponse(LocalDateTime timestamp, int status, String error, String message, String code, String path, Map<String, String> validationErrors) {
+            this(timestamp, status, error, message, code, path, validationErrors, null);
+        }
+
+        public ErrorResponse(LocalDateTime timestamp, int status, String error, String message, String code, String path, Map<String, String> validationErrors, Map<String, Object> additionalData) {
             this.timestamp = timestamp;
             this.status = status;
             this.error = error;
             this.message = message;
+            this.code = code;
             this.path = path;
             this.validationErrors = validationErrors;
+            this.additionalData = additionalData;
         }
 
         public LocalDateTime getTimestamp() { return timestamp; }
@@ -175,10 +488,14 @@ public class GlobalExceptionHandler {
         public void setError(String error) { this.error = error; }
         public String getMessage() { return message; }
         public void setMessage(String message) { this.message = message; }
+        public String getCode() { return code; }
+        public void setCode(String code) { this.code = code; }
         public String getPath() { return path; }
         public void setPath(String path) { this.path = path; }
         public Map<String, String> getValidationErrors() { return validationErrors; }
         public void setValidationErrors(Map<String, String> validationErrors) { this.validationErrors = validationErrors; }
+        public Map<String, Object> getAdditionalData() { return additionalData; }
+        public void setAdditionalData(Map<String, Object> additionalData) { this.additionalData = additionalData; }
 
         public static ErrorResponseBuilder builder() {
             return new ErrorResponseBuilder();
@@ -189,18 +506,22 @@ public class GlobalExceptionHandler {
             private int status;
             private String error;
             private String message;
+            private String code;
             private String path;
             private Map<String, String> validationErrors;
+            private Map<String, Object> additionalData;
 
             public ErrorResponseBuilder timestamp(LocalDateTime timestamp) { this.timestamp = timestamp; return this; }
             public ErrorResponseBuilder status(int status) { this.status = status; return this; }
             public ErrorResponseBuilder error(String error) { this.error = error; return this; }
             public ErrorResponseBuilder message(String message) { this.message = message; return this; }
+            public ErrorResponseBuilder code(String code) { this.code = code; return this; }
             public ErrorResponseBuilder path(String path) { this.path = path; return this; }
             public ErrorResponseBuilder validationErrors(Map<String, String> validationErrors) { this.validationErrors = validationErrors; return this; }
+            public ErrorResponseBuilder additionalData(Map<String, Object> additionalData) { this.additionalData = additionalData; return this; }
 
             public ErrorResponse build() {
-                return new ErrorResponse(timestamp, status, error, message, path, validationErrors);
+                return new ErrorResponse(timestamp, status, error, message, code, path, validationErrors, additionalData);
             }
         }
     }

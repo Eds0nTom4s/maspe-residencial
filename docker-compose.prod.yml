@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sistema-restauracao-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB obrigatório}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER obrigatório}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD obrigatório}
+    volumes:
+      - sistema-restauracao-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  sistema-restauracao-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sistema-restauracao-api:prod
+    container_name: sistema-restauracao-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8080
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_SQL_INIT_MODE: never
+      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL obrigatório}
+      CLIENT_APP_URL: ${CLIENT_APP_URL:-http://localhost:3000}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS obrigatório}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET obrigatório}
+      SOCIO_JWT_SECRET: ${SOCIO_JWT_SECRET:-${JWT_SECRET}}
+      SOCIO_JWT_ISSUER: ${SOCIO_JWT_ISSUER:-associagest}
+      CONSUMA_OTP_HASH_PEPPER: ${CONSUMA_OTP_HASH_PEPPER:?CONSUMA_OTP_HASH_PEPPER obrigatório}
+      APPYPAY_MOCK: ${APPYPAY_MOCK:-false}
+      APPYPAY_BASE_URL: ${APPYPAY_BASE_URL:-https://gwy-api.appypay.co.ao/v2.0}
+      APPYPAY_TOKEN_URL: ${APPYPAY_TOKEN_URL:-https://login.microsoftonline.com/auth.appypay.co.ao/oauth2/token}
+      APPYPAY_CLIENT_ID: ${APPYPAY_CLIENT_ID:?APPYPAY_CLIENT_ID obrigatório}
+      APPYPAY_CLIENT_SECRET: ${APPYPAY_CLIENT_SECRET:?APPYPAY_CLIENT_SECRET obrigatório}
+      APPYPAY_RESOURCE: ${APPYPAY_RESOURCE:?APPYPAY_RESOURCE obrigatório}
+      APPYPAY_METHOD_GPO: ${APPYPAY_METHOD_GPO:?APPYPAY_METHOD_GPO obrigatório}
+      APPYPAY_METHOD_REF: ${APPYPAY_METHOD_REF:?APPYPAY_METHOD_REF obrigatório}
+      APPYPAY_WEBHOOK_SECRET: ${APPYPAY_WEBHOOK_SECRET:-}
+      APPYPAY_WEBHOOK_SIGNATURE_REQUIRED: ${APPYPAY_WEBHOOK_SIGNATURE_REQUIRED:-true}
+      APPYPAY_TIMEOUT_MS: ${APPYPAY_TIMEOUT_MS:-20000}
+      TELCOSMS_MOCK: ${TELCOSMS_MOCK:-false}
+      TELCOSMS_BASE_URL: ${TELCOSMS_BASE_URL:-https://www.telcosms.co.ao}
+      TELCOSMS_API_KEY: ${TELCOSMS_API_KEY:?TELCOSMS_API_KEY obrigatório}
+      CONSUMA_SMS_PROVIDER: ${CONSUMA_SMS_PROVIDER:-telcosms}
+      CONSUMA_SMS_ENABLED: ${CONSUMA_SMS_ENABLED:-true}
+      CONSUMA_SMS_BASE_URL: ${CONSUMA_SMS_BASE_URL:-${TELCOSMS_BASE_URL:-https://www.telcosms.co.ao}}
+      CONSUMA_SMS_API_KEY: ${CONSUMA_SMS_API_KEY:-${TELCOSMS_API_KEY:?TELCOSMS_API_KEY obrigatório}}
+      CONSUMA_SMS_MOCK: ${CONSUMA_SMS_MOCK:-${TELCOSMS_MOCK:-false}}
+      CONSUMA_SMS_SENDER_ID: ${CONSUMA_SMS_SENDER_ID:-CONSUMA}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://host.docker.internal:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-restaurante-images}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000/restaurante-images}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8081:8080"
+
+volumes:
+  sistema-restauracao-postgres-data:

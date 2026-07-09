@@ -1,0 +1,4 @@
+Comando: mvn -DskipTests compile
+Data: 2026-07-06
+Resultado: PASS
+Resumo: BUILD SUCCESS, 2.620s, finalizado em 2026-07-06T11:27:41+01:00.

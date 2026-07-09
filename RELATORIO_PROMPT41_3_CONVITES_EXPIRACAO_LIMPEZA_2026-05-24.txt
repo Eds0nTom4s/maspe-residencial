@@ -1,0 +1,457 @@
+================================================================================
+RELATORIO TÉCNICO — PROMPT 41.3
+Convites, Expiração e Limpeza Operacional de Participantes Pendentes
+Data: 2026-05-24
+================================================================================
+
+## RESUMO EXECUTIVO
+
+O Prompt 41.3 implementa o ciclo de vida completo de convites e participantes
+pendentes em sessões compartilhadas da plataforma CONSUMA. Todos os artefatos
+necessários foram criados ou verificados, incluindo migration, entidade, serviços,
+job agendado, endpoints, capabilities, properties e testes. A suite completa
+passou com 406 testes, 0 falhas, 0 erros.
+
+================================================================================
+## MIGRATIONS CRIADAS
+================================================================================
+
+V44__sessao_participante_expiracao_limpeza.sql
+
+Campos adicionados em sessao_consumo_participantes:
+  - expires_at TIMESTAMP WITH TIME ZONE NULL
+  - expired_at TIMESTAMP WITH TIME ZONE NULL
+  - cancelled_at TIMESTAMP WITH TIME ZONE NULL
+  - cancelled_by_participante_id BIGINT NULL (FK -> sessao_consumo_participantes.id)
+  - cancelled_by_device_id BIGINT NULL (FK -> dispositivos_operacionais.id)
+  - cancellation_reason VARCHAR(255) NULL
+  - resend_count INTEGER NOT NULL DEFAULT 0
+  - last_resend_at TIMESTAMP WITH TIME ZONE NULL
+  - last_reminder_at TIMESTAMP WITH TIME ZONE NULL
+  - expiration_reason VARCHAR(120) NULL
+  - cleanup_batch_id VARCHAR(120) NULL
+
+Constraints:
+  - ck_sessao_participante_resend_count_nonneg CHECK (resend_count >= 0)
+  - fk_sessao_participante_cancelled_by_participante
+  - fk_sessao_participante_cancelled_by_device
+
+Index:
+  - idx_sessao_participantes_expiration ON (tenant_id, status, expires_at)
+
+================================================================================
+## CAMPOS ADICIONADOS NA ENTIDADE
+================================================================================
+
+SessaoConsumoParticipante.java:
+  - expiresAt, expiredAt, expirationReason, cleanupBatchId
+  - cancelledAt, cancelledByParticipanteId, cancelledByDeviceId, cancellationReason
+  - resendCount (default 0), lastResendAt, lastReminderAt
+
+================================================================================
+## ENUMS / STATUS CRIADOS
+================================================================================
+
+SessaoParticipanteStatus:
+  - INVITED, PENDING_OTP, PENDING_APPROVAL, ACTIVE,
+    REJECTED, REMOVED, LEFT, BLOCKED, EXPIRED, CANCELLED
+
+Decisão: CANCELLED adicionado para distinguir:
+  - REJECTED = decisão explícita de recusar entrada
+  - CANCELLED = convite/pedido cancelado antes de decisão
+  - EXPIRED = expirou automaticamente por TTL
+
+================================================================================
+## CAPABILITIES CRIADAS
+================================================================================
+
+DeviceCapability (Prompt 41.3):
+  - CANCEL_SESSION_PARTICIPANT_INVITE
+  - RESEND_SESSION_PARTICIPANT_INVITE
+  - EXPIRE_SESSION_PARTICIPANT_MANUALLY
+
+Defaults recomendados:
+  - POS_CAIXA: CANCEL + RESEND
+  - POS_ATENDIMENTO: RESEND
+  - KDS/QUIOSQUE/DISPLAY: nenhum
+
+================================================================================
+## PROPERTIES CRIADAS
+================================================================================
+
+Prefixo: consuma.sessao.participantes.*
+
+  invite-ttl-minutes=30           (env: INVITE_TTL_MINUTES)
+  pending-approval-ttl-minutes=60 (env: PENDING_APPROVAL_TTL_MINUTES)
+  resend-cooldown-seconds=60      (env: RESEND_COOLDOWN_SECONDS)
+  max-resends=3                   (env: MAX_RESENDS)
+  expiration-job-enabled=true     (env: EXPIRATION_JOB_ENABLED)
+  expiration-job-cron=0 */1 * * * * (env: EXPIRATION_JOB_CRON)
+  expiration-batch-size=200       (env: EXPIRATION_BATCH_SIZE)
+
+Classe: SessaoParticipanteLifecycleProperties (prefixo + getters/setters completos)
+
+================================================================================
+## SERVICES CRIADOS/ALTERADOS
+================================================================================
+
+SessaoParticipanteExpirationService (CRIADO):
+  - expireOnce(batchId): busca e expira candidatos em lote
+  - filtra: INVITED/PENDING_OTP/PENDING_APPROVAL com expiresAt < now
+  - marca: status=EXPIRED, expiredAt, expirationReason, cleanupBatchId
+  - não afeta: ACTIVE, REJECTED, REMOVED, LEFT, BLOCKED, CANCELLED
+  - auditoria por item (SESSAO_PARTICIPANTE_EXPIRED_BY_JOB)
+
+SessaoConsumoParticipanteService (ALTERADO — novos métodos):
+  - cancelByOwner(...): cancela INVITED/PENDING_APPROVAL/PENDING_OTP via OTP do OWNER
+  - cancelByDevice(...): cancela via POS com capability CANCEL_SESSION_PARTICIPANT_INVITE
+  - resendInviteByOwner(...): reenvio com cooldown/maxResends, renova expiresAt
+  - resendInviteByDevice(...): idem, via POS com capability RESEND_SESSION_PARTICIPANT_INVITE
+  - expireManuallyByDevice(...): expira manualmente via POS com EXPIRE_SESSION_PARTICIPANT_MANUALLY
+  - canResendInvite(p, now): lógica de cooldown/maxResends
+  - canResendInviteNow(p): variante para resposta de listagem
+
+Fluxos alterados:
+  - verifyJoinOtp: verifica expiresAt antes de aceitar (INVITED → EXPIRED se vencido)
+  - acceptInvite: verifica expiresAt, status CANCELLED
+  - approveByOwner/approveByDevice: verifica expiresAt antes de aprovar
+  - rejectByOwner/rejectByDevice: verifica expiresAt antes de rejeitar
+  - inviteByOwner/inviteByDevice: preenche expiresAt = now + inviteTtlMinutes
+  - applyStatusByPolicyOnVerify: preenche expiresAt para PENDING_APPROVAL
+
+================================================================================
+## JOB CRIADO
+================================================================================
+
+SessaoParticipanteExpirationJob:
+  - @Scheduled(cron = "${consuma.sessao.participantes.expiration-job-cron}")
+  - Verifica props.isExpirationJobEnabled() antes de executar
+  - Gera batchId único por execução (UUID prefixado SP-EXP-)
+  - Delega a SessaoParticipanteExpirationService.expireOnce()
+  - Log info quando expired > 0, debug quando nenhum expirado
+  - Captura exceções sem propagar (robustez operacional)
+  - Idempotente (candidatos já EXPIRED são ignorados)
+
+================================================================================
+## DTOs CRIADOS/ALTERADOS
+================================================================================
+
+Resposta de listagem de pendentes inclui:
+  - expiresAt
+  - resendCount
+  - lastResendAt
+  - canResend
+  - telefoneMascarado (não expõe telefone completo)
+
+================================================================================
+## ENDPOINTS PÚBLICOS CRIADOS/ALTERADOS
+================================================================================
+
+Base: /public/q/{token}/participantes
+
+POST /{participanteId}/cancel
+  - Body: ownerChallengeId, ownerTelefone, otp, reason (opcional)
+  - Auth: OTP do OWNER (OWNER_APPROVAL_AUTH)
+  - Cancela INVITED/PENDING_APPROVAL/PENDING_OTP
+  - Audit: SESSAO_PARTICIPANTE_CANCELLED_BY_OWNER
+
+POST /{participanteId}/resend-invite
+  - Body: ownerChallengeId, ownerTelefone, otp
+  - Auth: OTP do OWNER
+  - Responde com novo challengeId, maskedPhone
+  - Cooldown + maxResends verificados
+  - Audit: SESSAO_PARTICIPANTE_INVITE_RESENT_BY_OWNER
+  - Falha: PARTICIPANT_RESEND_TOO_SOON / PARTICIPANT_MAX_RESENDS_EXCEEDED
+
+POST /participantes/pending (listagem)
+  - Inclui expiresAt, resendCount, lastResendAt, canResend, telefoneMascarado
+
+POST /participantes/invite/accept
+  - Verifica expiresAt antes de ativar
+  - Se expirado: status=EXPIRED, erro PARTICIPANT_INVITE_EXPIRED
+
+================================================================================
+## ENDPOINTS DEVICE CRIADOS/ALTERADOS
+================================================================================
+
+Base: /device/sessoes-consumo/{sessaoId}/participantes
+
+POST /{participanteId}/cancel
+  - Capability: CANCEL_SESSION_PARTICIPANT_INVITE
+  - reason obrigatório
+  - Cancela INVITED/PENDING_APPROVAL/PENDING_OTP
+  - Audit: SESSAO_PARTICIPANTE_CANCELLED_BY_POS
+
+POST /{participanteId}/resend-invite
+  - Capability: RESEND_SESSION_PARTICIPANT_INVITE
+  - reason opcional
+  - Cooldown + maxResends verificados
+  - Audit: SESSAO_PARTICIPANTE_INVITE_RESENT_BY_POS
+
+POST /{participanteId}/expire (manual)
+  - Capability: EXPIRE_SESSION_PARTICIPANT_MANUALLY
+  - reason obrigatório
+  - expirationReason = "MANUAL_DEVICE"
+  - Audit: SESSAO_PARTICIPANTE_EXPIRED_MANUALLY_BY_POS
+
+GET /pending
+  - Inclui expiresAt, resendCount, lastResendAt, canResend
+
+================================================================================
+## COMO TTL FUNCIONA
+================================================================================
+
+INVITED:
+  expiresAt = now + inviteTtlMinutes (default: 30 min)
+  Definido em: inviteByOwner, inviteByDevice, resendInvite* (renova ao reenviar)
+
+PENDING_APPROVAL:
+  expiresAt = now + pendingApprovalTtlMinutes (default: 60 min)
+  Definido em: applyStatusByPolicyOnVerify (quando policy = OTP_REQUIRES_OWNER_APPROVAL)
+
+ACTIVE/REJECTED/REMOVED/LEFT/BLOCKED/CANCELLED:
+  expiresAt não se aplica (null ou limpo ao transitar para ACTIVE)
+
+================================================================================
+## COMO EXPIRAÇÃO AUTOMÁTICA FUNCIONA
+================================================================================
+
+1. Job executa a cada 1 minuto (configurável via cron)
+2. findExpiredCandidatesForUpdate: INVITED/PENDING_OTP/PENDING_APPROVAL + expiresAt < now
+   + expiredAt IS NULL + cancelledAt IS NULL (evita re-processar)
+3. Por item: status=EXPIRED, expiredAt=now, expirationReason (por status anterior),
+   cleanupBatchId=batchId UUID
+4. Auditoria por item (SESSAO_PARTICIPANTE_EXPIRED_BY_JOB)
+5. PESSIMISTIC_WRITE lock (Pageable = batchSize)
+
+================================================================================
+## COMO CANCELAMENTO FUNCIONA
+================================================================================
+
+OWNER:
+  - Autentica com OTP (assertOwnerByOtp — consome challenge)
+  - Verifica participante pertence à sessão do OWNER
+  - Verifica status ∈ {INVITED, PENDING_APPROVAL, PENDING_OTP}
+  - status → CANCELLED, cancelledAt=now, cancelledByParticipanteId=owner.id
+
+POS:
+  - Verifica capability CANCEL_SESSION_PARTICIPANT_INVITE
+  - Verifica device mesma unidade
+  - status → CANCELLED, cancelledAt=now, cancelledByDeviceId=device.id
+
+Protecções:
+  - Não cancela ACTIVE (PARTICIPANT_ALREADY_ACTIVE)
+  - Não cancela já CANCELLED (PARTICIPANT_ALREADY_CANCELLED)
+  - Não cancela REJECTED/REMOVED/LEFT/BLOCKED (PARTICIPANT_NOT_PENDING)
+
+================================================================================
+## COMO REENVIO FUNCIONA
+================================================================================
+
+canResend = TRUE quando:
+  - status ∈ {INVITED, PENDING_OTP}
+  - cancelledAt IS NULL e status ≠ CANCELLED
+  - expiredAt IS NULL e status ≠ EXPIRED
+  - expiresAt IS NULL OU expiresAt > now
+  - resendCount < maxResends
+  - lastResendAt IS NULL OU lastResendAt + cooldown < now
+
+Ao reenviar:
+  - Chama TelefoneOtpService.requestOtp (propósito ACEITAR_CONVITE_SESSAO)
+  - resendCount++
+  - lastResendAt = now
+  - expiresAt = now + inviteTtlMinutes (renova TTL)
+  - invitationExpiresAt = challenge.expiresAt
+
+Bloqueios:
+  - PARTICIPANT_RESEND_TOO_SOON (cooldown ainda ativo)
+  - PARTICIPANT_MAX_RESENDS_EXCEEDED (atingiu limite)
+  - PARTICIPANT_INVITE_EXPIRED (já expirado)
+  - PARTICIPANT_NOT_INVITED (status inválido)
+
+================================================================================
+## AUDITORIA (EVENT TYPES)
+================================================================================
+
+SESSAO_PARTICIPANTE_INVITE_RESENT_BY_OWNER
+SESSAO_PARTICIPANTE_INVITE_RESENT_BY_POS
+SESSAO_PARTICIPANTE_CANCELLED_BY_OWNER
+SESSAO_PARTICIPANTE_CANCELLED_BY_POS
+SESSAO_PARTICIPANTE_EXPIRED_BY_JOB
+SESSAO_PARTICIPANTE_EXPIRED_MANUALLY_BY_POS
+SESSAO_PARTICIPANTE_RESEND_BLOCKED
+(SESSAO_PARTICIPANTE_EXPIRATION_JOB_RUN — Implícito via log INFO)
+
+Metadata incluída: tenantId, unidadeId, sessaoConsumoId, participanteId,
+  clienteConsumoId, statusAnterior, statusNovo, expiresAt, expiredAt,
+  cancelledAt, resendCount, reason, source, cleanupBatchId, telefoneMascarado
+
+Metadata NUNCA incluída: OTP, otpHash, telefone completo, deviceToken, AppyPay secrets
+
+================================================================================
+## SEGURANÇA / PRIVACIDADE
+================================================================================
+
+- Telefone sempre mascarado nas respostas
+- OTP/otpHash nunca incluídos em metadados de auditoria
+- tenantId vem do QR token ou DevicePrincipal (nunca do payload)
+- OWNER prova posse por OTP (OWNER_APPROVAL_AUTH)
+- POS verificado por capability granular
+- Device de outra unidade bloqueado (requireSessaoForDevice)
+- Participante de outro tenant: bloqueado por tenant_id nas queries
+- Reenvio respeita cooldown/maxResends
+
+================================================================================
+## TESTES CRIADOS/ALTERADOS
+================================================================================
+
+CRIADOS:
+  SessaoParticipanteExpirationJobTest.java (4 testes)
+    - job_enabled_calls_expiration_service
+    - job_disabled_does_not_call_service
+    - job_handles_service_exception_without_propagating
+    - job_enabled_with_zero_expired_still_runs
+
+  SessaoParticipanteInviteExpiryIT.java (5 testes)
+    - active_participant_is_not_expired_by_job
+    - invited_participant_with_future_expires_at_is_not_expired
+    - job_idempotent_already_expired_skipped
+    - invited_expired_receives_correct_expiration_reason
+    - cancelled_participant_is_not_expired_by_job
+
+  SessaoParticipanteCancelResendTest.java (14 testes)
+    - can_resend_when_within_limits
+    - cannot_resend_when_max_resends_reached
+    - cannot_resend_when_cooldown_not_elapsed
+    - can_resend_after_cooldown_elapsed
+    - cannot_resend_when_invite_expired
+    - cannot_resend_for_active_participant
+    - cannot_resend_for_cancelled_participant
+    - cannot_resend_for_expired_participant
+    - can_resend_exactly_at_max_minus_one
+    - resend_count_increments_to_max_then_blocks
+    - cancel_fields_are_set_correctly
+    - expiration_fields_are_set_correctly_by_job
+    - invite_ttl_is_set_on_creation
+    - pending_approval_ttl_is_set_on_join
+
+JÁ EXISTIA:
+  SessaoParticipanteExpirationServiceTest.java (1 teste)
+    - expires_invited_and_pending_approval_when_expires_at_passed
+
+================================================================================
+## COMANDOS EXECUTADOS
+================================================================================
+
+mvn -q -DskipTests compile
+  → BUILD SUCCESS (sem erros de compilação)
+
+mvn -Dtest="SessaoParticipanteExpirationServiceTest,SessaoParticipanteExpirationJobTest,
+  SessaoParticipanteInviteExpiryIT,SessaoParticipanteCancelResendTest" test
+  → Tests run: 24, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+
+mvn test (suite completa)
+  → Tests run: 406, Failures: 0, Errors: 0, Skipped: 211 — BUILD SUCCESS
+
+================================================================================
+## ITENS NÃO COBERTOS (CONFORME ESCOPO)
+================================================================================
+
+- Split de pagamento → fora do escopo (explícito)
+- Push notification / WhatsApp → fora do escopo
+- Reminder de aprovação ao OWNER sem canal → documentado como limitação
+- Participantes offline → fora do escopo
+- Expiração automática de OTP de convite (gerida pelo TelefoneOtpService)
+- Testes de integração com BD real (IT) → arquitectura H2/mock não suporta JPA locks
+
+================================================================================
+## DECISÕES TÉCNICAS
+================================================================================
+
+1. CANCELLED distinto de REJECTED:
+   - Facilita relatórios operacionais e auditoria clara
+   - REJECTED = decisão de recusa, CANCELLED = revogação antes de decisão
+
+2. TTL renovado no reenvio:
+   - Ao reenviar convite, expiresAt é renovado para now + inviteTtlMinutes
+   - Evita que reenvios "desperdiçados" bloqueiem o participante por TTL antigo
+
+3. Limpeza lógica (não física):
+   - status=EXPIRED, expiredAt, expirationReason preservados para auditoria
+   - cleanupBatchId permite rastreamento por batch de job
+
+4. PESSIMISTIC_WRITE no job:
+   - Previne race condition entre múltiplas instâncias (multi-pod)
+   - findExpiredCandidatesForUpdate filtra expiredAt IS NULL e cancelledAt IS NULL
+
+5. Expiração verificada em approve/reject:
+   - Ao tentar aprovar/rejeitar pendência já expirada, o sistema transita
+     automaticamente para EXPIRED e retorna PARTICIPANT_REQUEST_EXPIRED
+   - Decisão mais segura: evita aprovação de pendência "fantasma"
+
+6. Properties com suporte a env vars:
+   - Todos os valores defaults sobrescritíveis via variável de ambiente
+   - Facilita ajuste em produção sem recompilação
+
+================================================================================
+## RISCOS RESTANTES
+================================================================================
+
+R1: Race condition em reenvio concorrente (OWNER + POS ao mesmo tempo)
+    → Mitigado por findForUpdateById (PESSIMISTIC_WRITE por participante)
+
+R2: Clock skew entre pods em ambientes multi-instância
+    → Mitigado: expiresAt usa UTC Instant; recomenda-se NTP sincronizado
+
+R3: Acumulação de candidatos expirados se job falhar consecutivamente
+    → Mitigado: job é idempotente; ao retornar, processa batch completo
+
+R4: maxResends configurado muito alto facilita spam via reenvio
+    → Mitigado: resendCooldownSeconds + limite hard configurable via env
+
+================================================================================
+## CHECKLIST DE ACEITAÇÃO
+================================================================================
+
+[x] INVITED possui expiresAt
+[x] PENDING_OTP possui expiresAt (via OTP challenge)
+[x] PENDING_APPROVAL possui expiresAt
+[x] Convite expirado não pode ser aceito (PARTICIPANT_INVITE_EXPIRED)
+[x] Pendência expirada não pode ser aprovada (PARTICIPANT_REQUEST_EXPIRED)
+[x] Job expira pendentes automaticamente
+[x] Job é idempotente
+[x] OWNER pode cancelar convite/pendência
+[x] POS com capability pode cancelar convite/pendência
+[x] POS sem capability é bloqueado (DEVICE_CAPABILITY_REQUIRED)
+[x] OWNER pode reenviar convite
+[x] POS com capability pode reenviar convite
+[x] Cooldown de reenvio funciona
+[x] MaxResends funciona
+[x] Listagem mostra expiresAt/resendCount/canResend
+[x] Telefone completo não é exposto
+[x] OTP/otpHash não aparecem em auditoria
+[x] Cross-tenant protegido
+[x] Device de outra unidade bloqueado
+[x] Auditoria sanitizada
+[x] Fluxos do 41.2 continuam funcionando
+[x] Pedido com participante continua funcionando
+[x] Pagamento continua no nível da sessão
+[x] Split NÃO implementado
+[x] AppyPay callback/polling NÃO alterados
+[x] Offline sync/replay continuam funcionando
+[x] mvn -q -DskipTests compile passa
+[x] mvn test passa (406 testes, 0 falhas)
+
+================================================================================
+## PRÓXIMO PROMPT RECOMENDADO — 41.4
+================================================================================
+
+41.4 — UX hardening e listagem operacional ampliada:
+  - Token curto do OWNER após OTP verificado (sessão de ações múltiplas sem repetir OTP)
+  - Endpoint GET /pending-all que inclua INVITED + PENDING_APPROVAL + PENDING_OTP
+    com filtros de status, expiração, age
+  - Suporte a OWNER ver convites que ele próprio enviou (histórico de convites)
+  - Paginação nos endpoints de listagem de participantes
+  - Health check do job de expiração (endpoint de observabilidade)
+
+================================================================================

@@ -1,0 +1,116 @@
+CONSUMA Backend — Prompt 9.2
+Callback AppyPay tenant-aware + confirmação idempotente (QR)
+Data: 2026-05-16 (Africa/Luanda)
+
+1) Resumo executivo
+- Implementado processamento de callback AppyPay com:
+  - validação de assinatura HMAC (quando habilitada por config)
+  - log bruto persistido (raw body + headers) para auditoria e suporte
+  - resolução por externalReference (merchantTransactionId) com lock pessimista
+  - idempotência (callback duplicado não confirma novamente)
+  - tenant safety (pagamento deve ter tenant; se houver pedido, tenant do pedido deve bater)
+  - validação de valor (amount em centavos deve bater com Pagamento.amount)
+  - confirmação segura: Pagamento → CONFIRMADO e Pedido → PAGO
+- Adicionado estado financeiro intermediário do pedido: PENDENTE_PAGAMENTO.
+
+2) Decisão sobre PENDENTE_PAGAMENTO
+- DECISÃO: implementado agora.
+- Motivo: domínio precisa distinguir “pedido sem tentativa de pagamento” (NAO_PAGO) de “pagamento iniciado aguardando callback” (PENDENTE_PAGAMENTO).
+
+3) Migration criada/validada
+- `src/main/resources/db/migration/V10__pagamento_callback_log_and_pendente_pagamento.sql`
+  - Atualiza check constraint de `pedidos.status_financeiro` para incluir `PENDENTE_PAGAMENTO`
+  - Cria `pagamento_callback_logs` (log bruto de callback)
+
+4) Entidade de log bruto (raw callback)
+- `src/main/java/com/restaurante/model/entity/PagamentoCallbackLog.java`
+- `src/main/java/com/restaurante/model/enums/CallbackProcessingStatus.java`
+- `src/main/java/com/restaurante/financeiro/repository/PagamentoCallbackLogRepository.java`
+
+5) Callback service (tenant-aware, idempotente, lock)
+- Arquivo: `src/main/java/com/restaurante/financeiro/service/PagamentoCallbackService.java`
+- Principais garantias:
+  - Sempre persiste log RECEIVED antes de qualquer validação
+  - Assinatura inválida:
+    - grava log com `INVALID_SIGNATURE`
+    - retorna HTTP 401 (via controller)
+    - não altera Pagamento/Pedido
+  - Busca Pagamento por externalReference com `PESSIMISTIC_WRITE`
+  - Se Pagamento já CONFIRMADO: log `IGNORED_DUPLICATE` (idempotência)
+  - Valida amount (centavos) contra Pagamento.amount; divergência bloqueia confirmação
+  - Confirma POS_PAGO (pedido QR): Pagamento.CONFIRMADO + Pedido.PAGO
+
+6) Controller e Security
+- Controller: `src/main/java/com/restaurante/financeiro/controller/PagamentoCallbackController.java`
+  - passa headers + raw body para o service
+  - retorna 401 em assinatura inválida
+  - mantém 200 nos demais casos (incl. pagamento não encontrado) após logar
+- Security: `src/main/java/com/restaurante/config/SecurityConfig.java`
+  - `permitAll` adicionado para `"/pagamentos/callback"` além do matcher legado com `"/api/pagamentos/callback"`
+  - Motivo: com `server.servlet.context-path=/api`, o servletPath visto pelo Spring Security é `"/pagamentos/callback"`
+
+7) Ajuste no start payment (Prompt 9.1)
+- `Pedido.statusFinanceiro` passa para `PENDENTE_PAGAMENTO` após iniciar pagamento com sucesso (antes do callback).
+- Arquivo (já existente do Prompt 9.1): `src/main/java/com/restaurante/service/PublicQrPagamentoService.java`
+
+8) Estratégia de validação de assinatura
+- Implementado via `AppyPayHmacValidator` (já existente).
+- Produção: habilitar `app.payment.appypay.webhook-signature-required=true` e definir `app.payment.appypay.webhook-secret`.
+
+9) Estratégia de idempotência do callback
+- Idempotência por estado:
+  - Pagamento já `CONFIRMADO` ⇒ NO-OP + log `IGNORED_DUPLICATE` + HTTP 200
+- Proteção de concorrência:
+  - lock pessimista por `externalReference` (`findForUpdateByExternalReference`)
+
+10) Testes criados
+- `src/test/java/com/restaurante/financeiro/PagamentoCallbackTenantAwareIT.java`
+  - callback CONFIRMED confirma pagamento e marca pedido PAGO
+  - callback duplicado é idempotente
+  - divergência de valor bloqueia confirmação
+- `src/test/java/com/restaurante/financeiro/PagamentoCallbackInvalidSignatureIT.java`
+  - com assinatura obrigatória, ausência de signature retorna 401
+  - confirma que não altera Pagamento/Pedido e grava raw log INVALID_SIGNATURE
+
+11) Comandos executados
+- `mvn -q -DskipTests compile`
+- `mvn test`
+
+12) Resultado dos comandos
+- `mvn -q -DskipTests compile`: OK
+- `mvn test`: BUILD SUCCESS (145 testes, 0 falhas, 0 erros, 3 skipped)
+
+13) Arquivos criados/alterados (Prompt 9.2)
+- Criados:
+  - `docs/tenant-core/09-2-callback-pagamento-tenant-aware.md`
+  - `RELATORIO_PROMPT9_2_CALLBACK_PAGAMENTO_TENANT_AWARE_2026_05_16.txt`
+  - `src/main/java/com/restaurante/financeiro/exception/InvalidCallbackSignatureException.java`
+  - `src/test/java/com/restaurante/financeiro/PagamentoCallbackTenantAwareIT.java`
+  - `src/test/java/com/restaurante/financeiro/PagamentoCallbackInvalidSignatureIT.java`
+- Alterados:
+  - `src/main/java/com/restaurante/financeiro/service/PagamentoCallbackService.java`
+  - `src/main/java/com/restaurante/financeiro/controller/PagamentoCallbackController.java`
+  - `src/main/java/com/restaurante/config/SecurityConfig.java`
+
+14) Riscos restantes (deliberados)
+- Ainda não há conciliação/monitoramento completo de pagamentos REF pendentes (fase futura).
+- Fluxos legados de callback/pagamento não foram refatorados nesta etapa (apenas compatibilidade preservada).
+- Ainda não há relatórios financeiros por tenant nem painel admin para callback logs.
+
+15) Checklist de aceitação (Prompt 9.2)
+- [x] callback tenant-aware processado com segurança
+- [x] raw callback log persistido
+- [x] assinatura inválida não altera pagamento/pedido (retorna 401)
+- [x] pagamento não encontrado gera log e não processa
+- [x] callback confirmado marca Pagamento CONFIRMADO e Pedido PAGO
+- [x] callback duplicado é idempotente (IGNORED_DUPLICATE)
+- [x] lock pessimista evita dupla confirmação concorrente
+- [x] tenant do pagamento bate com tenant do pedido (defesa)
+- [x] divergência de valor bloqueia confirmação
+- [x] PENDENTE_PAGAMENTO adicionado e start payment passa a usar
+- [x] testes passam
+- [x] conciliação completa não implementada nesta fase
+
+16) Próximo prompt recomendado
+- Prompt 9.3 — Reconciliação mínima e monitoramento (pendências REF) + painel admin básico de callback logs por tenant
+

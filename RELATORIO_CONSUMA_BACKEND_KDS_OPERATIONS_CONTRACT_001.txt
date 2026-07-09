@@ -1,0 +1,237 @@
+RELATORIO OBRIGATORIO
+CONSUMA - BACKEND - KDS-OPERATIONS-CONTRACT-001
+
+Data: 2026-06-13
+Branch: backend/kds-operations-contract-001
+Commit base validado: e4c9afce585660160ce6aa647c7be6bc9acc50a9
+Commit final: HEAD publicado desta branch na entrega final
+URL da branch remota: https://github.com/Eds0nTom4s/maspe-residencial/tree/backend/kds-operations-contract-001
+
+1. Objetivo
+
+Expor contrato backend tenant-scoped para operacao KDS cobrindo unidades de producao,
+fila de subpedidos, detalhe, filtros, transicoes operacionais, controle otimista por
+version, isolamento multi-tenant e compatibilidade com fluxos PONTO e RESTAURANTE.
+
+2. Escopo entregue
+
+* Endpoints novos:
+  - GET /tenant/kds/unidades-producao
+  - GET /tenant/kds/subpedidos
+  - GET /tenant/kds/subpedidos/{id}
+  - PATCH /tenant/kds/subpedidos/{id}/iniciar-preparo
+  - PATCH /tenant/kds/subpedidos/{id}/pronto
+  - PATCH /tenant/kds/subpedidos/{id}/entregar
+* Contrato de resposta:
+  - subPedidoId, pedidoId, pedidoNumero, status
+  - unidadeProducaoId, unidadeProducaoNome
+  - clienteNome, clienteTelefone
+  - mesaId, mesaNome, sessaoId
+  - itens com produtoId, produtoNome, quantidade e observacao
+  - createdAt, updatedAt e version
+  - summary com pendentes, emPreparacao, prontos, entregues e total
+* Regras:
+  - acesso exige token tenant-scoped com role TENANT_OWNER, TENANT_ADMIN,
+    TENANT_OPERATOR ou TENANT_KITCHEN
+  - PONTO sem sessao/mesa retorna campos nulos sem quebrar o contrato
+  - RESTAURANTE com sessao/mesa retorna os campos quando presentes
+  - cross-tenant retorna 404
+  - version obsoleta retorna 409 com estado atual
+
+3. Endpoints validados em teste automatizado
+
+* GET /tenant/kds/unidades-producao => 200
+* GET /tenant/kds/subpedidos?pedidoId={id} => 200
+* GET /tenant/kds/subpedidos?unidadeProducaoId={id} => 200
+* GET /tenant/kds/subpedidos?status={status} => 200
+* GET /tenant/kds/subpedidos/{id} => 200
+* PATCH /tenant/kds/subpedidos/{id}/iniciar-preparo => 200
+* PATCH /tenant/kds/subpedidos/{id}/pronto com version obsoleta => 409
+* PATCH /tenant/kds/subpedidos/{id}/pronto com version atual => 200
+* PATCH /tenant/kds/subpedidos/{id}/entregar => 200
+* PATCH /tenant/kds/subpedidos/{id}/pronto apos ENTREGUE => 400
+* GET /tenant/kds/subpedidos/{id} com outro tenant => 404
+* GET /tenant/pedidos?page=0&size=20 apos fluxo KDS => 200
+
+4. Docker sandbox local
+
+* imagem atualizada:
+  - sistema-restauracao-api:sandbox-local
+  - image sha256: d528f57936eebeb7c67b59c62e673e172489455699e216316fc199b13fcd2879
+* build:
+  - docker build -t sistema-restauracao-api:sandbox-local .
+  - resultado: BUILD SUCCESS
+  - tempo do stage Maven: 08:02 min
+* container atualizado:
+  - consuma-api-local
+  - container: 4f18901aabba11306386c66941a405215d0fcec9150d31b37c253334f92b3dcf
+  - porta: 0.0.0.0:8080->8080/tcp
+  - rede: consuma-sandbox-local
+* health:
+  - GET http://127.0.0.1:8080/api/actuator/health => 200
+  - resposta: {"status":"UP","groups":["liveness","readiness"]}
+* logs:
+  - Spring Boot iniciado com profiles sandbox-local,sandbox
+  - Flyway validou 74 migrations
+  - schema public em version 74, sem migration pendente
+  - Tomcat iniciado em /api na porta 8080
+  - AppyPay mock=true
+  - nenhum erro inesperado no startup
+
+5. Validacao runtime no container 8080
+
+* autenticacao:
+  - POST /api/auth/admin/login => 200
+  - POST /api/auth/tenant/select tenantId=2 => 200
+  - POST /api/auth/tenant/select tenantId=3 => 200
+* seguranca:
+  - GET /api/tenant/kds/unidades-producao sem Authorization => 401
+  - GET /api/tenant/kds/subpedidos/3 com token do tenant 2, sendo subpedido do tenant 3 => 404
+* tenant RESTAURANTE demo, tenantId 2:
+  - GET /api/tenant/kds/unidades-producao => 200
+  - unidades retornadas: Geral, Cozinha, Bar
+  - GET /api/tenant/kds/subpedidos => 200
+  - summary: total 6, pendentes 6, emPreparacao 0, prontos 0, entregues 0
+  - GET /api/tenant/kds/subpedidos/1 => 200
+  - detalhe validado: pedidoId 1, status PENDENTE, unidadeProducaoId 1, unidadeProducaoNome Geral,
+    sessaoId 1, itens 2, version 2
+  - evidencia REST com mesa/sessao: subpedidos 12, 13 e 17 retornaram sessaoId 3,
+    mesaId 1 e mesaNome "Mesa 1"
+* tenant PONTO demo, tenantId 3:
+  - GET /api/tenant/kds/unidades-producao => 200
+  - unidade retornada: Producao Geral
+  - GET /api/tenant/kds/subpedidos => 200
+  - summary antes da transicao runtime: total 13, pendentes 13, emPreparacao 0, prontos 0, entregues 0
+  - GET /api/tenant/kds/subpedidos/3 => 200
+  - detalhe validado: pedidoId 3, status CRIADO, unidadeProducaoId 4,
+    unidadeProducaoNome Producao Geral, sessaoId null, mesaId null, itens 2, version 1
+
+6. Transicoes runtime no container 8080
+
+* subPedido PONTO usado:
+  - id 3
+  - pedidoId 3
+  - status inicial CRIADO
+  - version inicial 1
+* iniciar preparo:
+  - PATCH /api/tenant/kds/subpedidos/3/iniciar-preparo com version 1 => 200
+  - status EM_PREPARACAO
+  - version 3
+* conflito otimista:
+  - PATCH /api/tenant/kds/subpedidos/3/pronto com version antiga 1 => 409
+  - code KDS_SUBPEDIDO_CONFLICT
+  - currentStatus EM_PREPARACAO
+  - currentVersion 3
+* pronto:
+  - PATCH /api/tenant/kds/subpedidos/3/pronto com version 3 => 200
+  - status PRONTO
+  - version 4
+* entregar:
+  - PATCH /api/tenant/kds/subpedidos/3/entregar com version 4 => 200
+  - status ENTREGUE
+  - version 5
+
+7. Testes automatizados executados
+
+* compilacao:
+  - mvn -DskipTests compile
+  - resultado: BUILD SUCCESS
+* test-compile:
+  - mvn test-compile
+  - resultado: BUILD SUCCESS
+* IT dedicado:
+  - mvn -Pit -Dit.test=KdsOperationsContractIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+* regressao focada:
+  - mvn -Pit -Dit.test=KdsOperationsContractIT,TenantPedidoControllerIT,PublicQrPedidoIT,PublicQrPaymentMethodsIT,TenantProvisioningAccessIT,PlatformUserPasswordManagementIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 21, Failures: 0, Errors: 0, Skipped: 0
+* suite unit/integracao leve:
+  - mvn clean test
+  - resultado: Tests run: 338, Failures: 0, Errors: 0, Skipped: 3
+* revalidacao apos hotfix de permissao tenant-scoped:
+  - mvn -DskipTests compile
+  - resultado: BUILD SUCCESS
+  - mvn -Pit -Dit.test=KdsOperationsContractIT failsafe:integration-test failsafe:verify
+  - resultado: Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+
+8. Persistencia e migracoes
+
+* migration nova:
+  - NENHUMA
+* justificativa:
+  - contrato KDS usa entidades e tabelas ja existentes: sub_pedidos, pedidos,
+    unidade_producao, itens_pedido, produtos, sessoes_consumo e mesas.
+  - version ja estava disponivel no modelo de SubPedido.
+
+9. Arquivos alterados
+
+* novos:
+  - src/main/java/com/restaurante/controller/TenantKdsController.java
+  - src/main/java/com/restaurante/dto/request/KdsTransitionRequest.java
+  - src/main/java/com/restaurante/dto/response/kds/KdsConflictResponse.java
+  - src/main/java/com/restaurante/dto/response/kds/KdsSubPedidoItemResponse.java
+  - src/main/java/com/restaurante/dto/response/kds/KdsSubPedidoListResponse.java
+  - src/main/java/com/restaurante/dto/response/kds/KdsSubPedidoResponse.java
+  - src/main/java/com/restaurante/dto/response/kds/KdsSummaryResponse.java
+  - src/main/java/com/restaurante/dto/response/kds/KdsUnidadeProducaoResponse.java
+  - src/main/java/com/restaurante/exception/KdsSubPedidoConflictException.java
+  - src/main/java/com/restaurante/service/kds/KdsOperationsService.java
+  - src/test/java/com/restaurante/kds/KdsOperationsContractIT.java
+  - RELATORIO_CONSUMA_BACKEND_KDS_OPERATIONS_CONTRACT_001.txt
+* modificados:
+  - src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+  - src/main/java/com/restaurante/repository/SubPedidoRepository.java
+
+10. Bugs encontrados e correcoes
+
+1)
+* descricao:
+  - O primeiro criterio de permissao KDS rejeitava tokens tenant-scoped derivados de platform admin
+    mesmo apos selecao explicita de tenant no sandbox.
+* impacto:
+  - endpoints /tenant/kds retornavam 403 no container para operador autenticado com tenantId e role TENANT_ADMIN.
+* correcao:
+  - regra ajustada para exigir tenantId e role tenant autorizada, sem bloquear o marcador platformAdmin
+    quando o token ja esta tenant-scoped.
+* validacao:
+  - tenant select tenantId 2/3 => 200
+  - GET /api/tenant/kds/unidades-producao com token tenant => 200
+  - endpoint sem token continua 401
+
+11. Regressoes verificadas
+
+* TenantPedidoControllerIT permaneceu verde
+* PublicQrPedidoIT permaneceu verde
+* PublicQrPaymentMethodsIT permaneceu verde
+* TenantProvisioningAccessIT permaneceu verde
+* PlatformUserPasswordManagementIT permaneceu verde
+* /tenant/pedidos continuou respondendo 200 apos o fluxo KDS no IT
+* sandbox local 8080 subiu com Flyway validado e health UP
+
+12. Limitacoes
+
+* A validacao runtime alterou o estado do subPedido 3 do tenant PONTO demo para ENTREGUE.
+  Essa alteracao foi intencional para validar o ciclo real KDS no sandbox local.
+* O contrato KDS nao introduz paginacao nesta fase; a resposta atual retorna a fila filtrada
+  e summary agregado em memoria.
+* Os logs registram 404 cross-tenant como erro no GlobalExceptionHandler, mas o status HTTP
+  retornado ao cliente foi o esperado para isolamento.
+
+13. Push
+
+Realizado na entrega final para a branch remota backend/kds-operations-contract-001.
+
+14. Pergunta final obrigatoria
+
+O backend ficou com contrato KDS tenant-scoped para listar unidades, listar/detalhar subpedidos,
+filtrar fila, operar transicoes CRIADO/PENDENTE -> EM_PREPARACAO -> PRONTO -> ENTREGUE,
+tratar conflitos por version, suportar PONTO sem sessao, RESTAURANTE com sessao/mesa e manter
+isolamento multi-tenant sem quebrar REST/PONTO/Auth/Provisioning?
+
+Resposta:
+SIM
+
+15. Status tecnico
+
+CONCLUIDO PARA REVISAO - contrato KDS implementado, testado, publicado no Docker sandbox local
+e publicado na branch backend/kds-operations-contract-001.

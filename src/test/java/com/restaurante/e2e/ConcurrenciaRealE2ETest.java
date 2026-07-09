@@ -60,9 +60,6 @@ public class ConcurrenciaRealE2ETest {
     @Autowired
     private ClienteRepository clienteRepository;
 
-    @org.springframework.boot.test.mock.mockito.MockBean
-    private io.minio.MinioClient minioClient;
-
     @Autowired
     private MesaRepository mesaRepository;
 
@@ -73,10 +70,19 @@ public class ConcurrenciaRealE2ETest {
     private ProdutoRepository produtoRepository;
 
     @Autowired
+    private TenantRepository tenantRepository;
+
+    @Autowired
+    private CategoriaProdutoRepository categoriaProdutoRepository;
+
+    @Autowired
     private CozinhaRepository cozinhaRepository;
 
     @Autowired
     private UnidadeAtendimentoRepository unidadeAtendimentoRepository;
+
+    @Autowired
+    private InstituicaoRepository instituicaoRepository;
     
     @Autowired
     private SubPedidoEventLogRepository subPedidoEventLogRepository;
@@ -96,13 +102,13 @@ public class ConcurrenciaRealE2ETest {
     void setupOnce() {
         baseUrl = "http://localhost:" + port;
         
-        // Criar usuário de teste com roles ATENDENTE e COZINHA para bypassar @PreAuthorize
+        // Criar usuário de teste com role ATENDENTE para bypassar @PreAuthorize
         User testUser = User.builder()
             .username("testuser")
             .password(passwordEncoder.encode("testpass"))
             .email("test@test.com")
             .ativo(true)
-            .roles(Set.of(Role.ROLE_ATENDENTE, Role.ROLE_COZINHA)) // Correção: Ambos os roles
+            .roles(Set.of(Role.ROLE_ATENDENTE)) // Correção: ROLE_ATENDENTE
             .build();
         userRepository.save(testUser);
         
@@ -143,6 +149,7 @@ public class ConcurrenciaRealE2ETest {
      * RISCO: CRÍTICO
      * Se falhar: Cliente pode ser cobrado 2x, pedido duplicado, estado inconsistente
      */
+    @Test
     @Order(1)
     @RepeatedTest(20) // Executar 20x para detectar flakiness
     @DisplayName("🔴 CRÍTICO: 2 atendentes entregando MESMO subpedido simultaneamente")
@@ -172,7 +179,7 @@ public class ConcurrenciaRealE2ETest {
             latch.countDown(); // Sinaliza que está pronto
             latch.await(); // Aguarda ambos estarem prontos
             
-            String url = baseUrl + "/subpedidos/" + subPedidoId + "/marcar-entregue";
+            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/marcar-entregue";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "atendenteA");
             headers.set("X-User-Role", "ATENDENTE");
@@ -191,7 +198,7 @@ public class ConcurrenciaRealE2ETest {
             latch.await();
             Thread.sleep(50); // 50ms depois (clique quase simultâneo)
             
-            String url = baseUrl + "/subpedidos/" + subPedidoId + "/marcar-entregue";
+            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/marcar-entregue";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "atendenteB");
             headers.set("X-User-Role", "ATENDENTE");
@@ -285,6 +292,7 @@ public class ConcurrenciaRealE2ETest {
         System.out.println("═══════════════════════════════════════════════════\n");
     }
 
+    @Test
     @Order(2)
     @RepeatedTest(20)
     @DisplayName("🔴 CRÍTICO: 2 cozinheiros assumindo MESMO subpedido simultaneamente")
@@ -307,7 +315,7 @@ public class ConcurrenciaRealE2ETest {
             latch.countDown();
             latch.await();
             
-            String url = baseUrl + "/subpedidos/" + subPedidoId + "/assumir";
+            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/assumir";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "cozinheiroA");
             headers.set("X-User-Role", "COZINHA");
@@ -321,7 +329,7 @@ public class ConcurrenciaRealE2ETest {
             latch.await();
             Thread.sleep(30);
             
-            String url = baseUrl + "/subpedidos/" + subPedidoId + "/assumir";
+            String url = baseUrl + "/api/subpedidos/" + subPedidoId + "/assumir";
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-User-Name", "cozinheiroB");
             headers.set("X-User-Role", "COZINHA");
@@ -433,12 +441,30 @@ public class ConcurrenciaRealE2ETest {
     }
 
     private SessaoConsumo criarSessaoConsumo(Cliente cliente) {
+        Tenant tenant = tenantRepository.findByTenantCode("LEGACY").orElseGet(() -> {
+            Tenant t = new Tenant();
+            t.setNome("LEGACY (test)");
+            t.setSlug("legacy-test");
+            t.setTenantCode("LEGACY");
+            t.setTipo(TenantTipo.INSTITUCIONAL);
+            t.setEstado(TenantEstado.ATIVO);
+            return tenantRepository.save(t);
+        });
+
+        Instituicao instituicao = new Instituicao();
+        instituicao.setTenant(tenant);
+        instituicao.setNome("Instituição Teste");
+        instituicao.setSigla("LEG");
+        instituicao.setAtiva(true);
+        instituicao = instituicaoRepository.save(instituicao);
+
         UnidadeAtendimento unidadeAtendimento = unidadeAtendimentoRepository.save(
             UnidadeAtendimento.builder()
                 .nome("Salão Principal")
                 .tipo(TipoUnidadeAtendimento.RESTAURANTE)
                 .descricao("Área de atendimento geral")
                 .ativa(true)
+                .instituicao(instituicao)
                 .build()
         );
 
@@ -446,6 +472,8 @@ public class ConcurrenciaRealE2ETest {
             Mesa.builder()
                 .referencia("Mesa " + System.currentTimeMillis())
                 .unidadeAtendimento(unidadeAtendimento)
+                .tenant(tenant)
+                .instituicao(instituicao)
                 .ativa(true)
                 .build()
         );
@@ -453,21 +481,49 @@ public class ConcurrenciaRealE2ETest {
         return sessaoConsumoRepository.save(
             SessaoConsumo.builder()
                 .mesa(mesa)
+                .tenant(tenant)
+                .instituicao(instituicao)
+                .unidadeAtendimento(unidadeAtendimento)
                 .cliente(cliente)
+                .status(StatusSessaoConsumo.ABERTA)
+                .modoAnonimo(false)
+                .tipoSessao(TipoSessao.PRE_PAGO)
                 .build()
         );
     }
 
     private Produto criarProduto() {
-        return produtoRepository.save(
-            Produto.builder()
-                .codigo("PROD-" + System.currentTimeMillis())
-                .nome("Produto Teste")
-                .preco(BigDecimal.valueOf(10.0))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
-                .disponivel(true)
-                .build()
-        );
+        Tenant tenant = tenantRepository.findByTenantCode("LEGACY").orElseGet(() -> {
+            Tenant t = new Tenant();
+            t.setNome("LEGACY (test)");
+            t.setSlug("legacy-test");
+            t.setTenantCode("LEGACY");
+            t.setTipo(TenantTipo.INSTITUCIONAL);
+            t.setEstado(TenantEstado.ATIVO);
+            return tenantRepository.save(t);
+        });
+
+        CategoriaProduto geral = categoriaProdutoRepository.findBySlugAndTenantId("geral", tenant.getId())
+                .orElseGet(() -> {
+                    CategoriaProduto cp = new CategoriaProduto();
+                    cp.setTenant(tenant);
+                    cp.setNome("Geral");
+                    cp.setSlug("geral");
+                    cp.setOrdem(0);
+                    cp.setAtivo(true);
+                    return categoriaProdutoRepository.save(cp);
+                });
+
+        Produto p = new Produto();
+        p.setTenant(tenant);
+        p.setCategoriaProduto(geral);
+        p.setCodigo("PROD-" + System.currentTimeMillis());
+        p.setNome("Produto Teste");
+        p.setPreco(BigDecimal.valueOf(10.0));
+        p.setCategoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL);
+        p.setDisponivel(true);
+        p.setAtivo(true);
+        return produtoRepository.save(p);
     }
 
     private Cozinha criarCozinha() {

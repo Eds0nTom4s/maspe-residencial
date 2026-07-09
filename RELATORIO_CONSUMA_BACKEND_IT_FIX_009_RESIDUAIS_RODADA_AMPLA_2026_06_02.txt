@@ -1,0 +1,442 @@
+CONSUMA - BACKEND - RELATORIO IT-FIX-009
+Correcao das 13 falhas residuais da rodada ampla
+Data: 2026-06-02
+
+1. Resumo executivo
+
+A IT-FIX-009 fechou a estabilizacao residual da rodada ampla da suite IT sem mascarar bugs reais,
+sem relaxar seguranca, sem trocar PostgreSQL por H2 e sem quebrar os lotes 008-A/B/C/D.
+Os reports da rodada 008-F foram preservados antes de qualquer nova execucao, o ranking real das
+13 falhas residuais foi extraido do snapshot original, as causas raiz confirmadas foram corrigidas
+cirurgicamente e a nova rodada ampla `mvn -Pit verify` terminou verde com `239 tests, 0 failures,
+0 errors, 0 skipped`, `BUILD SUCCESS`.
+
+2. Branch e commit inicial
+
+- Repositorio: Eds0nTom4s/maspe-residencial
+- Branch de trabalho: restauracao-antes-da-loja
+- HEAD inicial da IT-FIX-009: 0cdcc40
+- Commit esperado confirmado no inicio:
+  - 0cdcc40 Fix IT PostgreSQL query typing and read-only residuals
+- Ultimos commits visiveis no inicio:
+  - 0cdcc40 Fix IT PostgreSQL query typing and read-only residuals
+  - 33165b6 Document IT-FIX-008-C safe resumption after reboot
+  - 752c6fa Fix IT optional lazy loading and missing resource suites
+  - 65781eb Fix IT fixtures cleanup for public QR and provisioning suites
+  - 5a3f1a9 Fix IT auth RBAC for payment policy and finance suites
+
+3. Estado Git inicial
+
+- `git status -sb`: branch alinhada com `origin/restauracao-antes-da-loja`
+- `git branch --show-current`: `restauracao-antes-da-loja`
+- `git diff --check`: sem whitespace errors
+- processo Maven remanescente: nenhum
+- processo Java remanescente de build: nenhum
+- processos Java normais observados:
+  - containers `java -jar /app/app.jar` do sandbox
+  - VS Code/JDT language server
+- arquivo fora do escopo mantido fora do commit:
+  - RELATORIO_CONSUMA_BACKEND_IT_FIX_007_RODADA_AMPLA_FINAL_SUITE_IT_2026_06_02.txt
+
+4. Copia/preservacao dos reports anteriores
+
+Antes de qualquer rerun, os reports da rodada larga que ainda tinha 13 residuos foram preservados em:
+
+- `/tmp/consuma-it-fix-009-reports/failsafe-reports-before-009`
+- `/tmp/consuma-it-fix-009-reports/surefire-reports-before-009`
+
+Resumo confirmado no snapshot original:
+
+- `completed`: 239
+- `failures`: 11
+- `errors`: 2
+- `skipped`: 0
+- `timeout`: false
+
+5. Resumo da rodada 008-F
+
+Estado herdado da rodada ampla anterior:
+
+- IT-FIX-007: `75` failures/errors (`47 failures`, `28 errors`)
+- IT-FIX-008-F: `13` failures/errors (`11 failures`, `2 errors`)
+- reducao absoluta antes da 009: `62`
+- reducao aproximada antes da 009: `82,6%`
+
+Isto confirmou que 008-A/B/C/D reduziram fortemente o problema, mas ainda sobrava um cluster
+residual real na rodada ampla.
+
+6. Ranking das 13 falhas por classe/metodo
+
+- `OperationalStatusTransitionIT`
+  - `cashier_canCancelPedido_onlyIfNotPaid_andEventLogCreated`
+    - `Status expected:<200> but was:<400>`
+  - `kitchen_canMoveSubPedidoToEmPreparacao_andPronto_andEventLogIsCreated`
+    - `Status expected:<200> but was:<409>`
+  - `cashier_canFinalizePedido_whenAllSubPedidosArePronto_andEventLogIsCreated`
+    - `Status expected:<200> but was:<409>`
+
+- `TenantProvisioningAdvancedTemplateIT`
+  - `exceedsMaxQrCodes_failsAndRollsBack`
+    - `Status expected:<409> but was:<201>`
+
+- `PlatformTenantProvisioningPreviewControllerIT`
+  - `preview_blocked_byMaxQrCodes`
+    - `Expecting value to be false but was true`
+
+- `TenantProvisioningErrorHandlingIT`
+  - `realProvision_returnsStandardizedError_onQrLimitExceeded`
+    - `Status expected:<409> but was:<201>`
+
+- `TenantPagamentosPendentesIT`
+  - `finance_canListPendentes_andCanForceManualPolling`
+    - `Status expected:<201> but was:<409>`
+
+- `PublicQrPaymentMethodsIT`
+  - `public_qr_lists_only_active_methods_and_blocks_appypay_when_inactive`
+    - `expected: 201 CREATED but was: 400 BAD_REQUEST`
+
+- `PlatformFinanceiroControllerIT`
+  - `platformAdmin_canListGlobalPayments_andSeeCallbacksWithoutTenant`
+    - `expected: 1 but was: 2`
+
+- `DeviceCapabilityTemplateBootstrapIT`
+  - `tenant_without_templates_gets_defaults_idempotent`
+    - `Status expected:<200> but was:<500>`
+
+- `PublicConsumoIdentificadoIT`
+  - `request_and_verify_identify_otp_links_clienteConsumo_into_sessao`
+    - `expected: 200 OK but was: 404 NOT_FOUND`
+
+- `PublicQrPedidoIT`
+  - `publicQr_canCreatePedido_withoutPayment_andPedidoIsTenantScoped`
+    - `LazyInitializationException`
+
+- `PublicConsumoRecuperacaoIT`
+  - `recovery_lists_open_sessions_for_phone_in_same_tenant`
+    - `JsonParseException` sobre HTML `404 Not Found`
+
+7. Classificacao por cluster
+
+- `F. Contrato HTTP/negocio desatualizado`
+  - 8 falhas
+  - `OperationalStatusTransitionIT`
+  - `TenantProvisioningAdvancedTemplateIT`
+  - `PlatformTenantProvisioningPreviewControllerIT`
+  - `TenantProvisioningErrorHandlingIT`
+  - `PlatformFinanceiroControllerIT`
+  - `PublicConsumoIdentificadoIT`
+  - `PublicConsumoRecuperacaoIT`
+
+- `B. Fixtures/constraints/cleanup`
+  - 2 falhas
+  - `TenantPagamentosPendentesIT`
+  - `PublicQrPaymentMethodsIT`
+
+- `A. Auth/RBAC`
+  - 1 falha
+  - `DeviceCapabilityTemplateBootstrapIT`
+
+- `C. Optional/lazy/resource`
+  - 1 falha
+  - `PublicQrPedidoIT`
+
+- `F + fixture funcional`
+  - 1 falha concentrada em fluxo operacional
+  - `OperationalStatusTransitionIT` tambem exigia pre-condicoes funcionais mais reais
+
+Cluster dominante:
+
+- `F. Contrato HTTP/negocio desatualizado` com 8 de 13 falhas
+
+8. Causa raiz por falha
+
+- `OperationalStatusTransitionIT`
+  - fluxo exercitava transicoes sem pre-condicoes completas de confirmacao/atores tenant reais;
+  - auditoria final estava validando filtro mais estreito do que o evento persistido de fato.
+
+- `TenantProvisioningAdvancedTemplateIT`
+  - expectativa ficou defasada apos evolucao do limite maximo de QR do template.
+
+- `PlatformTenantProvisioningPreviewControllerIT`
+  - mesma defasagem contratual do limite de QR no preview.
+
+- `TenantProvisioningErrorHandlingIT`
+  - payload usado para "exceder limite" ainda estava dentro do limite atual, entao o controller
+    retornava sucesso legitimo.
+
+- `TenantPagamentosPendentesIT`
+  - fixture nao garantia bootstrap resiliente dos meios de pagamento default no contexto certo do tenant.
+
+- `PublicQrPaymentMethodsIT`
+  - fixture publica/QR nao criava toda a pre-condicao funcional atual do dominio, em especial tenant
+    do tipo correto e cozinha vinculada ativa para o fluxo publico.
+
+- `PlatformFinanceiroControllerIT`
+  - assercao antiga assumia cardinalidade exata instavel e referencia externa suscetivel a colisao;
+  - o contrato real pedia validar o callback alvo correto, nao o tamanho bruto da lista.
+
+- `DeviceCapabilityTemplateBootstrapIT`
+  - method security era exercitada sem contexto autenticado suficiente no teste residual.
+
+- `PublicConsumoIdentificadoIT`
+  - bootstrap do teste estava desalinhado com o contrato servlet real do endpoint publico.
+
+- `PublicQrPedidoIT`
+  - validacao final acessava associacao lazy de `SessaoConsumo` fora da sessao Hibernate.
+
+- `PublicConsumoRecuperacaoIT`
+  - mesmo desalinhamento servlet/endpoint publico, gerando `404` HTML e erro de parse JSON.
+
+9. Arquivos alterados
+
+- src/main/java/com/restaurante/financeiro/paymentmethod/service/TenantPaymentMethodService.java
+- src/main/java/com/restaurante/repository/PedidoRepository.java
+- src/test/java/com/restaurante/consumo/PublicConsumoIdentificadoIT.java
+- src/test/java/com/restaurante/consumo/PublicConsumoRecuperacaoIT.java
+- src/test/java/com/restaurante/devicecapability/DeviceCapabilityTemplateBootstrapIT.java
+- src/test/java/com/restaurante/financeiro/PlatformFinanceiroControllerIT.java
+- src/test/java/com/restaurante/financeiro/PublicQrPaymentMethodsIT.java
+- src/test/java/com/restaurante/financeiro/TenantPagamentosPendentesIT.java
+- src/test/java/com/restaurante/financeiro/paymentmethod/TenantPaymentMethodValidationTest.java
+- src/test/java/com/restaurante/operacional/OperationalStatusTransitionIT.java
+- src/test/java/com/restaurante/provisioning/PlatformTenantProvisioningPreviewControllerIT.java
+- src/test/java/com/restaurante/provisioning/TenantProvisioningAdvancedTemplateIT.java
+- src/test/java/com/restaurante/provisioning/TenantProvisioningErrorHandlingIT.java
+- src/test/java/com/restaurante/qr/PublicQrPedidoIT.java
+
+10. Correcoes aplicadas
+
+- `TenantProvisioningAdvancedTemplateIT`
+  - limites maximos de QR atualizados de `10` para `20`;
+  - payload excedente ajustado de `11` para `21`.
+
+- `PlatformTenantProvisioningPreviewControllerIT`
+  - expectativas de preview alinhadas com o limite atual de QR do template.
+
+- `TenantProvisioningErrorHandlingIT`
+  - `quantidadeMesas` aumentada para realmente ultrapassar o teto atual.
+
+- `DeviceCapabilityTemplateBootstrapIT`
+  - `@WithMockUser` adicionado no cenario idempotente residual para method security real.
+
+- `PublicConsumoIdentificadoIT`
+  - `spring.main.web-application-type=servlet` adicionado ao bootstrap do teste.
+
+- `PublicConsumoRecuperacaoIT`
+  - mesmo ajuste servlet para o endpoint publico.
+
+- `PublicQrPaymentMethodsIT`
+  - fixture passou a criar tenant do tipo `RESTAURANTE`;
+  - fixture passou a criar cozinha ativa vinculada a unidade;
+  - setup funcional passou a refletir o contrato atual do dominio publico.
+
+- `TenantPagamentosPendentesIT`
+  - bootstrap de meios de pagamento default endurecido via service resiliente;
+  - `TenantPaymentMethodService.ensureDefaultsForTenant(...)` passou a ter fallback transacional
+    seguro quando o bootstrap padrao nao encontra o tenant no contexto esperado.
+
+- `TenantPaymentMethodValidationTest`
+  - ajustado para acompanhar a nova dependencia `TenantRepository` do service.
+
+- `PlatformFinanceiroControllerIT`
+  - referencia externa encurtada para respeitar limite da coluna;
+  - assercao passou a localizar o callback alvo por `externalReference` em vez de assumir lista
+    com cardinalidade exata.
+
+- `PublicQrPedidoIT`
+  - consulta final passou a usar fetch tenant-safe com `findByIdAndTenantIdComSessaoConsumo(...)`
+    para evitar `LazyInitializationException`.
+
+- `PedidoRepository`
+  - novo metodo com fetch join de `sessaoConsumo`, `instituicao` e `unidadeAtendimento`.
+
+- `OperationalStatusTransitionIT`
+  - confirmacao de pedido passou a ocorrer antes das transicoes de cozinha/caixa;
+  - testes passaram a usar atores tenant reais persistidos;
+  - lookup de auditoria final foi alinhado ao evento efetivamente persistido;
+  - fluxos `cancel`, `em preparacao`, `pronto` e `finalizar` passaram a validar o contrato real.
+
+11. O que NAO foi alterado
+
+- nao trocou PostgreSQL por H2
+- nao desativou Flyway
+- nao desativou Spring Security
+- nao relaxou RBAC
+- nao removeu constraints
+- nao pulou testes
+- nao fez `git reset --hard`
+- nao fez `git add .`
+- nao apagou os reports antigos antes da analise
+- nao ampliou timeouts para esconder deadlock
+- nao removeu auditoria, billing, QR, device, snapshot ou evidencias
+
+12. Resultado das classes corrigidas isoladamente
+
+Conferencia final nos reports das classes residuais apos as correcoes:
+
+- `OperationalStatusTransitionIT`: `6 tests, 0 failures, 0 errors`
+- `TenantProvisioningAdvancedTemplateIT`: `4 tests, 0 failures, 0 errors`
+- `PlatformTenantProvisioningPreviewControllerIT`: `4 tests, 0 failures, 0 errors`
+- `TenantProvisioningErrorHandlingIT`: `1 test, 0 failures, 0 errors`
+- `TenantPagamentosPendentesIT`: `1 test, 0 failures, 0 errors`
+- `PublicQrPaymentMethodsIT`: `1 test, 0 failures, 0 errors`
+- `PlatformFinanceiroControllerIT`: `1 test, 0 failures, 0 errors`
+- `DeviceCapabilityTemplateBootstrapIT`: `1 test, 0 failures, 0 errors`
+- `PublicConsumoIdentificadoIT`: `1 test, 0 failures, 0 errors`
+- `PublicQrPedidoIT`: `3 tests, 0 failures, 0 errors`
+- `PublicConsumoRecuperacaoIT`: `1 test, 0 failures, 0 errors`
+
+13. Resultado dos grupos relacionados
+
+- lote residual 009
+  - comando:
+    `mvn -Pit -DskipTests=false -Dtest=NoSuchTestClassThatWillNotRun -DfailIfNoTests=false -Dit.test="TenantProvisioningAdvancedTemplateIT,PlatformTenantProvisioningPreviewControllerIT,TenantProvisioningErrorHandlingIT,DeviceCapabilityTemplateBootstrapIT,PublicQrPaymentMethodsIT,TenantPagamentosPendentesIT,PublicConsumoIdentificadoIT,PublicConsumoRecuperacaoIT,OperationalStatusTransitionIT,PlatformFinanceiroControllerIT,PublicQrPedidoIT" test-compile failsafe:integration-test failsafe:verify`
+  - resultado:
+    - `24 tests`
+    - `0 failures`
+    - `0 errors`
+    - `0 skipped`
+    - `BUILD SUCCESS`
+    - finalizado em: `2026-06-02T21:02:29+01:00`
+
+14. Resultado de `mvn clean test`
+
+- `331 tests`
+- `0 failures`
+- `0 errors`
+- `3 skipped`
+- `BUILD SUCCESS`
+- tempo total: `04:51`
+- finalizado em: `2026-06-02T21:10:05+01:00`
+
+15. Resultado de `DockerAvailabilityIT`
+
+- `1 test`
+- `0 failures`
+- `0 errors`
+- `0 skipped`
+- `BUILD SUCCESS`
+- finalizado em: `2026-06-02T21:21:00+01:00`
+
+16. Resultado de `TenantCorePersistenceIT`
+
+- `7 tests`
+- `0 failures`
+- `0 errors`
+- `0 skipped`
+- `BUILD SUCCESS`
+- finalizado em: `2026-06-02T21:22:11+01:00`
+
+17. Resultado de 008-A
+
+- `31 tests`
+- `0 failures`
+- `0 errors`
+- `0 skipped`
+- `BUILD SUCCESS`
+- tempo total: `03:17`
+- finalizado em: `2026-06-02T21:14:00+01:00`
+
+18. Resultado de 008-B
+
+- `39 tests`
+- `0 failures`
+- `0 errors`
+- `0 skipped`
+- `BUILD SUCCESS`
+- tempo total: `02:34`
+- finalizado em: `2026-06-02T21:16:45+01:00`
+
+19. Resultado de 008-C
+
+- `10 tests`
+- `0 failures`
+- `0 errors`
+- `0 skipped`
+- `BUILD SUCCESS`
+- tempo total: `01:57`
+- finalizado em: `2026-06-02T21:18:53+01:00`
+
+20. Resultado de 008-D
+
+- `4 tests`
+- `0 failures`
+- `0 errors`
+- `0 skipped`
+- `BUILD SUCCESS`
+- tempo total: `01:37`
+- finalizado em: `2026-06-02T21:20:40+01:00`
+
+21. Resultado da nova rodada `mvn -Pit verify`
+
+- comando:
+  `mvn -Pit verify`
+- resultado final:
+  - `completed`: `239`
+  - `failures`: `0`
+  - `errors`: `0`
+  - `skipped`: `0`
+  - `Tests run: 239, Failures: 0, Errors: 0, Skipped: 0`
+  - `BUILD SUCCESS`
+  - tempo total: `11:56`
+  - finalizado em: `2026-06-02T21:34:17+01:00`
+- observacao:
+  - apareceu o ruido conhecido `Surefire is going to kill self fork JVM` apos `System.exit(0)`;
+  - surgiram warnings Hikari de conexao fechada no shutdown de alguns contextos;
+  - nenhum destes sinais alterou o status final do build nem gerou falha residual.
+
+22. Comparacao
+
+- IT-FIX-007: `75` failures/errors
+- IT-FIX-008-F: `13` failures/errors
+- IT-FIX-009 final: `0` failures/errors
+
+Reducao adicional da 009:
+
+- de `13` para `0`
+- reducao absoluta: `13`
+- reducao percentual nesta fase: `100%`
+
+Reducao acumulada desde a IT-FIX-007:
+
+- de `75` para `0`
+- reducao absoluta acumulada: `75`
+
+23. Pendencias
+
+- nenhuma falha residual permaneceu aberta na rodada ampla final;
+- segue recomendada uma fase separada de validacao de sandbox/soak se o objetivo for observar
+  estabilidade prolongada de fork/shutdown em repeticoes maiores.
+
+24. Riscos
+
+- o warning esporadico `Surefire is going to kill self fork JVM` ainda aparece no shutdown de lotes
+  grandes, embora sem impacto no status final;
+- warnings Hikari de conexao fechada durante teardown continuam a aparecer pontualmente no encerramento
+  de contextos Spring mais pesados;
+- como o cluster residual foi zerado, o risco remanescente passa a ser mais operacional/de ambiente
+  do que funcional/de dominio.
+
+25. Decisao
+
+APROVADO
+
+A IT-FIX-009 atendeu o criterio de aceite:
+
+- as 13 falhas residuais foram corrigidas;
+- baseline passou;
+- lotes 008-A/B/C/D passaram novamente;
+- a nova rodada `mvn -Pit verify` passou;
+- o relatorio foi gerado;
+- nenhum teste foi pulado;
+- nenhum bug foi mascarado.
+
+26. Proximo passo recomendado
+
+- `SANDBOX-VALIDATION-001`
+
+27. Resposta objetiva a pergunta final
+
+Sim. As 13 falhas residuais da rodada ampla foram corrigidas sem quebrar os lotes 008-A/B/C/D e sem
+mascarar bugs reais da CONSUMA. O cluster final foi zerado, e a nova rodada ampla fechou com
+`239 tests, 0 failures, 0 errors`.

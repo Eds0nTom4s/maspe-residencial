@@ -1,0 +1,195 @@
+RELATORIO_SESSAO_CONSUMO_AUTO_CLOSURE_PONTO_001 — FULLSTACK
+===========================================================
+
+1. IDENTIFICAÇÃO
+----------------
+Backend branch:      backend/consuma-ponto-sessao-consumo-auto-closure-001
+Backend commit base: 6df9089f7262eb5b25772c4bac78e5a0e68916ee
+Backend commit final: 3c41cb2
+Frontend de referência: ui/consuma-demo-freezy-app-pedidos-001 @ 114d604eaa7370646997bb8479e8e3cbdacb2c56
+Frontend alterado: NÃO
+
+2. OBJECTIVO
+------------
+Implementar o auto-fecho da Sessão de Consumo exclusivamente para o fluxo CONSUMA PONTO
+quando todas as obrigações operacionais e financeiras da sessão estiverem resolvidas.
+Reduzir sessões abertas esquecidas e eliminar bloqueios indevidos no pré-fecho do turno.
+
+3. PROBLEMA AUDITADO
+--------------------
+Sessões de consumo abertas esquecidas bloqueiam o fecho normal do turno.
+Quando a equipa força o fecho do turno, as sessões continuam abertas na unidade,
+contaminando o turno seguinte. No CONSUMA PONTO o fecho manual constante não é viável.
+
+4. REGRA IMPLEMENTADA
+---------------------
+Se sessão ABERTA ou AGUARDANDO_PAGAMENTO pertence a template CONSUMA_PONTO_V1 ou PONTO_QR
+e tem ≥1 pedido
+e todos os pedidos estão em estado terminal (FINALIZADO/CANCELADO)
+e nenhum pedido não-cancelado tem pendência financeira (NAO_PAGO/PENDENTE_PAGAMENTO)
+e nenhum pedido não-cancelado tem subpedido PENDENTE ou EM_PREPARACAO
+e nenhuma OrdemPagamento AGUARDANDO_CONFIRMACAO activa
+→ sessão transiciona para ENCERRADA com auditoria SYSTEM.
+
+5. ESCOPO PONTO
+---------------
+Templates elegíveis: CONSUMA_PONTO_V1, CONSUMA_PONTO_QR
+Fluxos cobertos: balcão, QR público, grab-and-go
+Avaliação síncrona e transacional após eventos terminais de pedido/pagamento.
+
+6. PROTECÇÃO REST/KDS
+---------------------
+Sessões com templateCode != PONTO são rejeitadas imediatamente.
+REST/KDS, QR Mesa REST, CONSUMA_REST_KDS_V1 → retornam "não elegível" sem alteração.
+Testado: cenários 10 e 11.
+
+7. PONTOS DE CHAMADA
+--------------------
+PedidoService.recalcularStatusPedido()
+  → após FINALIZADO ou CANCELADO, se sessaoConsumo != null
+
+PedidoFinanceiroService.confirmarPagamentoPosPago()
+  → após confirmação, se sessaoConsumo != null
+
+PedidoFinanceiroService.estornarPagamento()
+  → após estorno, se sessaoConsumo != null
+
+8. SessaoConsumoAutoClosureService
+-----------------------------------
+Classe: com.restaurante.service.SessaoConsumoAutoClosureService
+Método principal: tryAutoCloseSessaoConsumo(Long sessaoId)
+Anotação: @Transactional
+Dependências: SessaoConsumoRepository, PedidoRepository,
+              OrdemPagamentoRepository, OperationalEventLogService
+
+9. PRÉ-CONDIÇÕES
+----------------
+Verificadas em sequência:
+1. sessaoId != null e sessao existe
+2. Status ABERTA ou AGUARDANDO_PAGAMENTO (não ENCERRADA/EXPIRADA — idempotência)
+3. templateCode PONTO
+4. ≥1 pedido
+5. Nenhum pedido CRIADO ou EM_ANDAMENTO
+6. Nenhum pedido não-cancelado com NAO_PAGO ou PENDENTE_PAGAMENTO
+7. Nenhum subpedido PENDENTE ou EM_PREPARACAO em pedido não-cancelado
+8. Nenhuma OrdemPagamento AGUARDANDO_CONFIRMACAO
+
+10. AUDITORIA
+-------------
+Mecanismo: OperationalEventLogService.logGenericForTenant()
+EventType: SESSAO_CONSUMO_ENCERRADA
+EntityType: SESSAO_CONSUMO
+Origem: SYSTEM
+Motivo: "Auto encerramento por conclusão de pedidos PONTO"
+Metadata: old_status, new_status, total_pedidos, reason=AUTO_CLOSURE_CONSUMA_PONTO
+
+11. IDEMPOTÊNCIA
+----------------
+Sessão ENCERRADA ou EXPIRADA: retorna sem save, sem auditoria duplicada.
+Concorrência: check de estado antes de agir. Risco residual aceite (baixo em PONTO).
+
+12. RELAÇÃO COM PRÉ-FECHO DO TURNO
+------------------------------------
+Sessão ENCERRADA não conta como sessoesAbertas.
+Fecho normal do turno possível se não houver outros bloqueios.
+Turno NÃO é encerrado automaticamente nesta fase.
+
+13. TESTES BACKEND
+------------------
+SessaoConsumoAutoClosureServiceTest — 20 cenários:
+ 1. PONTO + FINALIZADO + PAGO → ENCERRADA                         PASS
+ 2. PONTO + CANCELADO + sem pagamento → ENCERRADA                 PASS
+ 3. PONTO + pedido CRIADO → não encerra                           PASS
+ 4. PONTO + pedido EM_ANDAMENTO → não encerra                     PASS
+ 5. PONTO + NAO_PAGO → não encerra                                PASS
+ 6. PONTO + PENDENTE_PAGAMENTO → não encerra                      PASS
+ 7. PONTO + OrdemPagamento AGUARDANDO → não encerra               PASS
+ 8. PONTO + subpedido PENDENTE → não encerra                      PASS
+ 9. já ENCERRADA → idempotência                                   PASS
+10. REST/KDS → não encerra                                        PASS
+11. QR Mesa REST → não encerra                                    PASS
+12. após auto-fecho → status ENCERRADA                            PASS
+13. auditoria registada                                           PASS
+14. pagamento permanece PAGO                                      PASS
+15. pedido permanece FINALIZADO                                   PASS
+16. turno não alterado                                            PASS
+17. sem caixa/fiscal/extrato                                      PASS
+18. gateway não chamado                                           PASS
+19. sem pedidos → não encerra (aguarda scheduler)                 PASS
+20. AGUARDANDO_PAGAMENTO + liquidado → ENCERRADA                  PASS
+
+RESULTADO: 20/20 PASS — BUILD SUCCESS
+
+ConsumaDemoFreezyHappyPathIT: actualizado com validação de auto-closure
+  (sessão ENCERRADA após happy path completo)
+
+14. TESTES FRONTEND
+-------------------
+N/A — frontend não alterado nesta fase.
+
+15. MERMAID
+-----------
+docs/architecture/diagrams/sessao-consumo-auto-closure-ponto-flow.mmd
+Fluxo: pedido terminal → avaliação → bloqueios → encerramento → pré-fecho desbloqueado
+
+16. DOCUMENTAÇÃO
+----------------
+docs/architecture/SESSAO_CONSUMO_AUTO_CLOSURE_PONTO_001.md
+Contém: objectivo, problema, regra, escopo, estados, pré-condições, pontos de chamada,
+        auditoria, idempotência, relação com turno/pagamento/OrdemPagamento/FundoConsumo,
+        riscos restantes, casos futuros.
+
+17. ARQUIVOS ALTERADOS
+----------------------
+NOVOS (backend):
+  src/main/java/com/restaurante/service/SessaoConsumoAutoClosureService.java
+  src/test/java/com/restaurante/service/SessaoConsumoAutoClosureServiceTest.java
+  docs/architecture/SESSAO_CONSUMO_AUTO_CLOSURE_PONTO_001.md
+  docs/architecture/diagrams/sessao-consumo-auto-closure-ponto-flow.mmd
+
+MODIFICADOS (backend):
+  src/main/java/com/restaurante/service/PedidoService.java
+  src/main/java/com/restaurante/service/PedidoFinanceiroService.java
+  src/main/java/com/restaurante/financeiro/repository/OrdemPagamentoRepository.java
+  src/test/java/com/restaurante/qr/ConsumaDemoFreezyHappyPathIT.java
+
+18. O QUE NÃO FOI ALTERADO
+----------------------------
+- Frontend (ui/consuma-demo-freezy-app-pedidos-001): NÃO ALTERADO
+- Cardápio Público: NÃO ALTERADO
+- Acompanhamento Público: NÃO ALTERADO
+- App Pedidos: NÃO ALTERADO
+- Fecho normal de turno: NÃO ALTERADO
+- Fecho forçado de turno: NÃO ALTERADO
+- Extrato: NÃO CRIADO
+- Gateway de pagamento: NÃO CHAMADO
+- Estorno: lógica existente preservada (apenas ponto de chamada adicionado)
+- PDV: NÃO ALTERADO
+- Caixa: NÃO CRIADA
+- Fiscal/Invoice: NÃO CRIADO
+- KDS: NÃO ALTERADO
+- REST demo: NÃO ALTERADO
+- SERVICE: NÃO ALTERADO
+- DELIVERY: NÃO ALTERADO
+- PedidoPagamentoPolicy: preservada
+- OperationalTemplatePolicy: preservada
+- allowedActions: preservados
+- PaymentOrder: preservada
+- SessaoExpiracaoScheduler: compatível (ambos verificam estado antes de agir)
+
+19. RISCOS RESTANTES
+--------------------
+- Concorrência sem lock optimista: risco baixo em PONTO; mitigado por check de estado
+- templateCode null: sessão sem template passa verificação; normalizar em fase futura
+- Sessões REST sem templateCode: não bloqueadas pela regra REST se null; aceite
+- Scheduler de expiração: compatível com auto-fecho (ambos idempotentes)
+
+20. DECISÃO FINAL
+-----------------
+APROVADO
+
+Testes: 20/20 PASS
+Compilação: BUILD SUCCESS
+Regressão Demo Freezy V1: preservada
+Governança: respeitada — frontend, turno, fiscal, gateway, KDS não alterados
+Commit: 3c41cb2 — feat(backend): auto encerra sessao de consumo no ponto

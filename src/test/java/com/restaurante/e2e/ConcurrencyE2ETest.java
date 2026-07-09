@@ -128,7 +128,7 @@ class ConcurrencyE2ETest {
                 .nome("Hambúrguer Test")
                 .codigo("BURGER-E2E-" + System.currentTimeMillis())
                 .preco(new BigDecimal("25.00"))
-                .categoria(CategoriaProduto.PRATO_PRINCIPAL)
+                .categoria(CategoriaProdutoLegacy.PRATO_PRINCIPAL)
                 .disponivel(true)
                 .tempoPreparoMinutos(15)
                 .build();

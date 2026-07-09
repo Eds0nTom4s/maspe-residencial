@@ -1,0 +1,480 @@
+RELATORIO_PROMPT40_1_R_E2E_COMPLETO_CONSUMA_2026_05_29
+Data: 2026-05-29 (Africa/Luanda)
+Repo: /home/centraltec_admin/Documentos/Eng. Margarida/Sistema de Restauração
+
+====================================================================
+1) RESUMO EXECUTIVO
+====================================================================
+Objetivo: validar E2E local (Docker Compose + PostgreSQL real + Flyway real) e fluxos mínimos de CONSUMA, mantendo isolamento multi-tenant, sem criar funcionalidades novas.
+
+Resultado: APROVADO COM RESSALVAS (apto para Sandbox Operacional controlada).
+
+Motivo:
+- Stack local sobe limpo e saudável (PostgreSQL + API).
+- Flyway aplica em banco limpo (65 migrations, v65) e histórico consistente.
+- Healthcheck UP (liveness/readiness UP).
+- Templates CONSUMA_PONTO_V1 e CONSUMA_REST_V1 (preview + provision) OK.
+- QR público + cardápio + pedido público OK, com idempotência e rejeição cross-tenant.
+- Pagamento mínimo (GPO/AppyPay mock) OK: start, callback confirmado idempotente, mismatch não confirma, falha marca FALHOU, polling manual OK.
+- Device/POS/KDS OK: activation, heartbeat, bootstrap, sync catálogo, criação de pedidos e idempotência.
+- Produção/KDS OK: fila por unidade, diff endpoint OK, transições de status validadas (com correção de bug real).
+- Turno/checklists/pré-fecho/fecho OK (com validação de bloqueios e resolução real por liquidação de sessão).
+- Snapshot financeiro + integridade (hash+HMAC) OK; Evidence bundle OK após correção de bug real em queries de evidence.
+- Isolamento multi-tenant validado nos fluxos exercitados.
+
+Ressalvas:
+- Handlers de validação (MissingServletRequestParameterException) estão sendo reportados como 500 em alguns endpoints quando faltam query params (deveria ser 400) — não bloqueia E2E, mas é risco de observabilidade/UX API.
+- Migrations iniciais geram WARN “already exists, skipping” (scripts idempotentes/duplicados) mesmo em banco limpo; não falhou, mas é sinal de dívida técnica em migrações antigas.
+- CONSUMA_NETWORK não foi validado E2E (somente TENANT_OWN_DELIVERY/MANUAL).
+- Suíte total `mvn test` continua fora do escopo deste prompt (ressalvas herdadas do 40.3: Financeiro amplo fora do recorte, testes H2 sem schema, fixtures fixas).
+
+====================================================================
+2) OBJETIVO DA FASE
+====================================================================
+Provar que a CONSUMA consegue nascer limpa, migrar banco real, subir API, responder healthcheck, provisionar templates e operar fluxos E2E mínimos (QR/pedido/pagamento/device/KDS/turno/snapshot/evidence/logistics) mantendo isolamento multi-tenant e registrando pendências.
+
+====================================================================
+3) ESTADO INICIAL RECEBIDO DO PROMPT 40.3
+====================================================================
+Prompt 40.3 encerrou como “APROVADO COM RESSALVAS”, com grupos autorizados verdes (Device/POS/Offline Sync, Produção/KDS/Fila, Tenant/Admin/Provisioning, Billing/Inventory/Delivery, TenantRoleAuthorizationIT, Financeiro alvo).
+Ressalvas herdadas: módulo Financeiro amplo fora do escopo, testes H2 mal configurados, colisões de fixtures e falhas reais investigáveis (Turno/Status/PlatformObservabilidade/Public QR).
+
+====================================================================
+4) BRANCH E COMMIT
+====================================================================
+Branch atual: restauracao-antes-da-loja
+Commit atual: 8d56d82
+
+====================================================================
+5) WORKING TREE ANTES DAS ALTERAÇÕES (PASSO 1)
+====================================================================
+git status -sb (início do prompt): working tree SUJO.
+Arquivos modificados (início): docker-compose.local.yml; OperationalEventLogRepository; TenantResolver; OperationalEventLogService
+Arquivos novos (início): api-docs.local.json; V65__planos_piloto_aumentar_max_qr_codes.sql
+Stash existente: stash@{0}: On restauracao-antes-da-loja: wip prompt6 (station B)
+Observação: stash NÃO foi aplicado.
+
+====================================================================
+6) STASH EXISTENTE
+====================================================================
+stash@{0}: On restauracao-antes-da-loja: wip prompt6 (station B)
+
+====================================================================
+7) AMBIENTE USADO
+====================================================================
+SO host: Pop!_OS 22.04 LTS (docker info)
+Kernel: 6.17.9-76061709-generic
+Docker Engine: 29.4.1 (client+server)
+Docker Compose: v5.1.3
+
+====================================================================
+8) DOCKER DAEMON STATUS (PASSO 2)
+====================================================================
+`docker version`: OK (client+server).
+`docker info`: OK.
+`docker compose version`: OK.
+
+====================================================================
+9) DOCKER COMPOSE STATUS (PASSO 3)
+====================================================================
+Comandos executados:
+- docker compose -f docker-compose.local.yml down -v
+- docker compose -f docker-compose.local.yml up -d --build
+- docker compose -f docker-compose.local.yml ps
+
+Containers:
+- sistema-restauracao-postgres (postgres:16-alpine) healthy, porta 5432
+- sistema-restauracao-api (sistema-restauracao-api:local) up, porta 8080
+
+Logs verificados:
+- postgres: inicialização e readiness OK.
+- api: Spring Boot 3.2.2, Flyway valida e aplica migrations; sem BeanCreationException fatal após correções.
+
+====================================================================
+10) POSTGRESQL / FLYWAY STATUS (PASSO 5)
+====================================================================
+DB (docker-compose.local.yml):
+- POSTGRES_DB=restaurante_db
+- POSTGRES_USER=postgres
+
+Flyway:
+- Aplicadas 65 migrations, schema em v65.
+- Query evidência (flyway_schema_history, últimas 30): versões 36..65 retornadas com success=true.
+- Migrações 62/63/64/65 presentes e success=true.
+
+Tabelas evidenciadas por presença (amostragem):
+- multi-tenant: tenants, tenant_users, tenant_audit_logs
+- device/POS/KDS: dispositivos_operacionais, device_* (idempotency/capabilities)
+- templates: provisioning_templates, checklist_operacional_templates, device_capability_templates, payment_method_policy_templates
+- QR público: qr_code_tokens, qr_codes_operacionais, public_qr_*_requests
+- pagamentos: pagamentos_gateway, pagamento_callback_logs, pagamento_event_log, ordens_pagamento
+- evidence: turno_evidence_bundles, transaction_evidence_*
+- logistics: delivery_jobs, delivery_fee_quotes, courier_* (sem registros gerados no E2E)
+
+====================================================================
+11) HEALTHCHECK (PASSO 4)
+====================================================================
+GET http://localhost:8080/api/actuator/health -> HTTP 200, status UP
+GET http://localhost:8080/api/actuator/health/readiness -> HTTP 200, status UP
+GET http://localhost:8080/api/actuator/health/liveness -> HTTP 200, status UP
+
+====================================================================
+12) OBTENÇÃO DE TOKEN PLATFORM_ADMIN (PASSO 6)
+====================================================================
+Mecanismo:
+- POST http://localhost:8080/api/auth/jwt/login
+- Credenciais locais (sanitizadas): username=admin / password=admin123
+
+Validação:
+- Token emitido com role ["ROLE_ADMIN"].
+- Plataforma/tenant scoping exercitado via headers X-Tenant-Id e X-Tenant-Code quando aplicável.
+
+Segurança:
+- JWT completo NÃO registrado neste relatório. Apenas prefixo/sufixo foi observado localmente.
+
+====================================================================
+13) PREVIEW CONSUMA_PONTO_V1 (PASSO 7)
+====================================================================
+POST /api/platform/templates/CONSUMA_PONTO_V1/preview
+Payload (resumo):
+- tenant.nomeNegocio="Ponto Dona Esperança"
+- tenant.slug="ponto-dona-esperanca-e2e-20260529-0339"
+- tenant.tipo="VENDEDOR_RUA"
+- owner.nome="Dona Esperança"
+- ponto.entregaManual=true; ponto.allowPickup=true
+
+Resultado:
+- HTTP 200
+- templateCode="CONSUMA_PONTO", templateVersion=1
+- preview NÃO persistiu tenants: tenants_count permaneceu 1 e slug_count=0 após preview.
+
+====================================================================
+14) PROVISION CONSUMA_PONTO_V1 (PASSO 8)
+====================================================================
+POST /api/platform/templates/CONSUMA_PONTO_V1/provision
+Slug provisionado: ponto-dona-esperanca-e2e-20260529-0340
+
+Resultado:
+- HTTP 201
+- tenantId=2, tenantCode="PONTO"
+- instituicaoId=2, unidadeAtendimentoId=4
+- categorias criadas: 3 (Geral, Destaques, Promoções)
+- QR principal criado: qrCodeId=1, qrToken=q_EbRZZF6HZD2zrKsPzoorDQ
+- ownerUserId=5
+- Não criou mesas/unidades_producao/dispositivos/turnos por padrão (contagens=0 para tenantId=2)
+
+====================================================================
+15) PREVIEW CONSUMA_REST_V1 (PASSO 9)
+====================================================================
+POST /api/platform/templates/CONSUMA_REST_V1/preview
+Payload (resumo):
+- tenant.nomeNegocio="Restaurante Diamante E2E"
+- tenant.slug="restaurante-diamante-e2e-20260529-0342"
+- tenant.tipo="RESTAURANTE"
+- rest.temMesas=true; quantidadeMesas=10; gerarQrPorMesa=true
+- rest.temBarSeparado=true; rest.exigeTurnoAberto=true; rest.entrega="MANUAL"
+
+Resultado:
+- HTTP 200
+- templateCode="CONSUMA_REST", templateVersion=1
+- limites planejam QR_CODES=11, DISPOSITIVOS=2 (não excede máximo do plano).
+- preview NÃO persistiu tenant (slug_count=0).
+
+====================================================================
+16) PROVISION CONSUMA_REST_V1 (PASSO 10)
+====================================================================
+POST /api/platform/templates/CONSUMA_REST_V1/provision
+Slug provisionado: restaurante-diamante-e2e-20260529-0343
+
+Resultado:
+- HTTP 201
+- tenantId=3, tenantCode="RESTA"
+- instituicaoId=3, unidadeAtendimentoId=5
+- mesas criadas: 10
+- QR operacionais no DB: total=11 (10 MESA + 1 UNIDADE_ATENDIMENTO)
+- unidades_producao criadas: Geral(id=1), Cozinha(id=2), Bar(id=3)
+- dispositivos criados (PENDENTE_ATIVACAO): POS-PRINCIPAL(id=1), KDS-COZINHA(id=2)
+- categorias: 4 (Comidas, Bebidas, Sobremesas, Promoções)
+- qrPrincipal token: q_7HgLYGbrWKP5xeoMZTSQyp
+
+====================================================================
+17) SLUG DUPLICADO / ROLLBACK (PASSO 11)
+====================================================================
+Tentativas:
+- Re-provision PONTO com slug existente -> HTTP 409, mensagem “Slug já existe…”, sem criação parcial (tenants_total=3; slug_dup_count=1).
+- Re-provision REST com slug existente -> HTTP 409, mensagem “Slug já existe…”, sem criação parcial.
+
+====================================================================
+18) QR / CARDÁPIO / PEDIDO PÚBLICO (PASSO 12)
+====================================================================
+Tenant PONTO (tenantId=2):
+- Categorias listadas: 3.
+- Produto criado via /api/tenant/produtos (X-Tenant-Id: 2):
+  - produtoId=25, codigo=PONTO-ITEM-1, preco=500
+
+Cardápio público:
+- GET /api/public/q/q_EbRZZF6HZD2zrKsPzoorDQ/cardapio -> HTTP 200
+- tenantId=2, tenantCode=PONTO, produtosTotal=1
+
+Pedido público:
+- POST /api/public/q/{token}/pedidos -> HTTP 201
+- pedidoId=1, total=1000, statusOperacional=CRIADO, statusFinanceiro=NAO_PAGO
+
+Idempotência:
+- Repetição com mesma idempotencyKey retornou pedidoId=1 sem duplicar (pedidos_tenant2=1).
+
+Cross-tenant:
+- Tentativa de pedido no QR do PONTO com produtoId=26 (do REST) -> HTTP 400, “Produto inválido ou indisponível.”
+
+====================================================================
+19) PAGAMENTO / CALLBACK / POLLING MÍNIMO (PASSO 13)
+====================================================================
+Mock AppyPay:
+- APP_PAYMENT_APPYPAY_MOCK=true (docker-compose.local.yml)
+
+Pagamento pedidoId=1 (tenantId=2):
+- Start: POST /api/public/q/{token}/pedidos/1/pagamentos -> HTTP 201
+  - pagamentoId=1, externalReference=PONTQQDSBBYEXPR, statusPagamento=PENDENTE, valor=1000
+- Callback CONFIRMED:
+  - POST /api/pagamentos/callback (HMAC header calculado localmente) -> HTTP 200
+  - DB: pagamentos_gateway.status=CONFIRMADO; confirmed_at preenchido
+- Callback duplicado:
+  - processado como IGNORED_DUPLICATE (pagamento_callback_logs: PROCESSED=1, IGNORED_DUPLICATE=1)
+
+Pagamento pedidoId=2 (tenantId=2) — testes de mismatch/falha:
+- Start: pagamentoId=2, externalReference=PONTQQDW3WHT3RL
+- Callback CONFIRMED com amount divergente:
+  - payment permanece PENDENTE; callbackLog FAILED com “Valor divergente…”
+- Callback FAILED:
+  - payment status=FALHOU
+
+Polling manual:
+- POST /api/tenant/financeiro/pagamentos/{id}/poll (X-Tenant-Id: 2) -> HTTP 200
+- Correção aplicada para evitar 500 em Map.of(null) (ver seção 27).
+
+====================================================================
+20) POS / DEVICE (PASSO 14)
+====================================================================
+Tenant RESTA (tenantId=3):
+
+Ativação POS:
+- POST /api/tenant/dispositivos/1/activation-code (X-Tenant-Id: 3) -> 200
+- POST /api/device/activate -> 201
+  - dispositivoId=1, status=ATIVO (deviceToken não reportado; apenas prefixo observado localmente)
+
+Heartbeat/Bootstrap/Sync:
+- POST /api/device/heartbeat -> 200
+- GET /api/device/sync/bootstrap -> 200 (tenantId=3, tenantCode=RESTA)
+- GET /api/device/sync/catalogo -> 200 (categorias=4, produtos=2)
+
+Pedidos via POS (idempotência por header Idempotency-Key):
+- Antes de turno aberto: bloqueado com DEVICE_ORDER_TURNO_REQUIRED (policy exige turno).
+- Turno aberto id=2 (checklist ABERTURA fornecido) habilitou criação.
+- Pedidos criados:
+  - pedidoId=4 (comida) -> unidadeProducao=Cozinha
+  - pedidoId=5 (bebida) -> unidadeProducao=Bar
+  - Replay idempotente retornou idempotentReplay=true.
+
+Ativação KDS:
+- POST /api/tenant/dispositivos/2/activation-code -> 200
+- POST /api/device/activate -> 201 (dispositivoId=2, tipo=KDS, status=ATIVO)
+
+====================================================================
+21) PRODUÇÃO / KDS (PASSO 15)
+====================================================================
+Fila KDS (device KDS-COZINHA):
+- GET /api/device/sync/producao/fila?status=CRIADO -> 200 (1 item, unidade=Cozinha)
+- GET /api/device/sync/producao/fila/diff -> 200 (eventosCount=4, lastEventId=24)
+
+Transições de status (tenant endpoint /api/tenant/producao/subpedidos/{id}/status):
+- SubPedido 4 (Cozinha): CRIADO -> PENDENTE -> EM_PREPARACAO -> PRONTO -> ENTREGUE (HTTP 200 em todas).
+- SubPedido 3 (Geral) e 5 (Bar) também finalizados para liberar fecho de turno (HTTP 200).
+
+Ressalva resolvida:
+- Platform admin estava sendo interpretado como TENANT_KITCHEN (por uso indevido de hasAnyTenantRole em lógica de detecção) e bloqueava transições PENDENTE/ENTREGUE com 403.
+- Correção aplicada em SubPedidoStatusTransitionService (ver seção 27).
+
+====================================================================
+22) TURNO / CHECKLIST / PRÉ-FECHO (PASSO 16)
+====================================================================
+Turno operacional (tenantId=3, instituicaoId=3, unidadeAtendimentoId=5):
+- Abrir turno:
+  - POST /api/tenant/operacao/turnos/abrir -> 201, turnoId=2, status=ABERTO
+  - Checklist obrigatório ABERTURA aplicado: CAIXA_OK, TPA_OK, COZINHA_OK
+- /turnos/atual exige query params instituicaoId e unidadeAtendimentoId (ausentes geram 500 por handler atual); com params -> 200.
+
+Pré-fecho:
+- GET /api/tenant/operacao/turnos/2/pre-fecho -> 200
+- Demonstrou bloqueios reais quando havia subpedidos/pedidos/sessão em aberto.
+- Após finalizar subpedidos/pedidos e liquidar sessão, pre-fecho retornou podeFechar=true.
+
+Fecho:
+- POST /api/tenant/operacao/turnos/2/iniciar-fecho -> 200 (status=EM_FECHO)
+- POST /api/tenant/operacao/turnos/2/fechar com checklist FECHO (CAIXA_FECHADO, LIMPEZA_OK, SNAPSHOT_OK) -> 200, status=FECHADO.
+
+====================================================================
+23) SNAPSHOT FINANCEIRO / EVIDENCE (PASSO 17)
+====================================================================
+Snapshot financeiro:
+- GET /api/tenant/financeiro/turnos/2/snapshot/export -> 200
+- Integridade:
+  - snapshotHash (SHA-256): cf46c949d9e1b34dcb2eba7afa03192cbcb9781915cfb4e2bbe3db6e26c7f4dd
+  - snapshotSignature (HMAC-SHA256): 61e9cb9bb966b20c29eb4569038eced2488ba1ce98a1f7a27553cceba4eb4f48
+  - verificação: valido=true, assinaturaKeyFound=true (ACTIVE)
+
+Evidence bundle:
+- GET /api/tenant/operacao/turnos/2/snapshot/evidence-bundle -> 200
+- Verificação rápida: payload não contém strings “secret/JWT/DEVICE_TOKEN/APPYPAY_WEBHOOK_SECRET”.
+- Bug bloqueante corrigido (queries de evidence em inventário com parâmetros null, ver seção 27).
+
+====================================================================
+24) LOGISTICS MÍNIMO (PASSO 18)
+====================================================================
+Entrega manual do tenant:
+- GET /api/public/tenants/{tenantCode}/delivery/options (PONTO e RESTA) -> 200
+  - availableFulfillmentTypes: CUSTOMER_PICKUP, TENANT_DELIVERY
+- GET /api/tenant/delivery/policy (tenantId=2 e 3) -> 200
+  - mode="TENANT_OWN_DELIVERY"
+
+Sem rede CONSUMA:
+- delivery_jobs/courier_earnings/settlements: 0 registros para tenants 2 e 3 no E2E.
+- CONSUMA_NETWORK não validado neste prompt (registrado como pendência não-bloqueante).
+
+====================================================================
+25) ISOLAMENTO MULTI-TENANT (PASSO 19)
+====================================================================
+Validações executadas:
+- Cardápio PONTO (tenantId=2) retorna apenas produtoId=25.
+- Cardápio RESTA (tenantId=3) retorna apenas produtoId=26 e 27.
+- Pedido público por QR do PONTO rejeita produto do REST (HTTP 400).
+- device POS/KDS bootstrap indica tenantId=3 (não acessa tenantId=2).
+- pagamento_callback_logs registrou apenas tenant_id=2 (pagamentos do PONTO).
+- Contagem pedidos por tenant: tenantId=2 -> 2 pedidos; tenantId=3 -> 3 pedidos.
+
+Limitação documentada:
+- Não foi exercitado login de “usuário tenant comum” (não-admin) para provar 403 cross-tenant, pois o fluxo local disponível para este prompt expõe apenas ROLE_ADMIN com seleção explícita por header.
+
+====================================================================
+26) RESSALVAS HERDADAS DO 40.3 — ANÁLISE
+====================================================================
+1) TurnoOperacionalRequireOpenForOrdersIT:
+   - Comportamento confirmado: pedidos POS bloqueiam sem turno aberto (DEVICE_ORDER_TURNO_REQUIRED).
+   - Abrir turno exigiu checklist obrigatório — validado.
+   - Endpoint /turnos/atual exige query params; ausência gerou 500 (handler), classificado como bug de tratamento de erro (não-bloqueante).
+
+2) OperationalStatusTransitionIT:
+   - Bug real identificado: platform admin era interpretado como TENANT_KITCHEN e bloqueava transições PENDENTE/ENTREGUE.
+   - Corrigido em SubPedidoStatusTransitionService; transições completas validadas.
+
+3) PlatformObservabilidadeControllerIT:
+   - Token ROLE_ADMIN funcionou para endpoints platform-scoped usados (templates).
+
+4) PublicQrCardapioIT:
+   - Cardápio público via /public/q/{token}/cardapio validado com dados únicos.
+
+5) PublicQrPagamentoStartIT / PublicQrPedidoIdempotencyIT:
+   - Idempotência do pedido público validada (pedidoId não duplica).
+   - Pagamento start validado; callbacks idempotentes e mismatch validado com dados únicos.
+
+6) Testes H2 sem schema:
+   - Não abordado neste prompt (classificado como pendência de qualidade de teste; recomendação: migrar para it-postgres/Testcontainers ou recortar unit tests).
+
+7) Financeiro amplo:
+   - Não reaberto (fora do escopo), exceto polling mínimo e callback/pagamento E2E já dentro do fluxo autorizado.
+
+====================================================================
+27) CORREÇÕES APLICADAS (com justificativa)
+====================================================================
+Regra: somente bugs reais bloqueantes E2E (sem alterar regra de negócio para “fazer passar”).
+
+Produção:
+- src/main/java/com/restaurante/financeiro/service/PagamentoManualPollingService.java
+  - Bug real: Map.of("motivo", null) gerava NullPointerException e 500 no endpoint /tenant/financeiro/pagamentos/{id}/poll quando request.motivo ausente.
+  - Impacto: polling manual (fluxo E2E) quebrado.
+  - Fix: meta do event log só inclui motivo quando não-nulo; attempts sempre não-nulo.
+  - Validação após fix: /tenant/financeiro/pagamentos/1/poll -> HTTP 200.
+
+- src/main/java/com/restaurante/service/operacional/SubPedidoStatusTransitionService.java
+  - Bug real: detecção de TENANT_KITCHEN via tenantGuard.hasAnyTenantRole retornava true para PLATFORM_ADMIN e restringia transições indevidamente (403).
+  - Impacto: transições operacionais bloqueadas para platform admin; falha E2E em produção/KDS.
+  - Fix: detectar role TENANT_KITCHEN por ctx.roles (e nunca para platformAdmin); origem operacional também não infere roles tenant quando platformAdmin=true.
+  - Validação após fix: transições PENDENTE/EM_PREPARACAO/PRONTO/ENTREGUE -> HTTP 200.
+
+- src/main/java/com/restaurante/inventory/repository/InventoryMovementRepository.java
+- src/main/java/com/restaurante/inventory/repository/InventoryConsumptionRecordRepository.java
+- src/main/java/com/restaurante/inventory/repository/InventoryReturnRecordRepository.java
+  - Bug real: queries com padrão (:from is null or createdAt>=:from) causavam Postgres SQLState 42P18 (“could not determine data type of parameter $2”) quando from/to null.
+  - Impacto: evidence bundle de snapshot quebrava (HTTP 500).
+  - Fix: usar cast(:from as timestamp)/cast(:to as timestamp) para tipagem estável em Postgres.
+  - Validação após fix: /tenant/operacao/turnos/2/snapshot/evidence-bundle -> HTTP 200.
+
+Config:
+- docker-compose.local.yml
+  - Forçou mocks AppyPay/SMS e alinhou env vars para E2E local (sem desligar Spring Security / Flyway / ddl-auto).
+
+Migrações:
+- src/main/resources/db/migration/V65__planos_piloto_aumentar_max_qr_codes.sql
+  - Ajuste operacional (limites) necessário para planos piloto suportarem QR_CODES planejados em templates.
+  - Validado: Flyway aplicou v65 com success=true.
+
+Outros ajustes herdados/necessários para o E2E (já presentes no working tree ao iniciar):
+- TenantResolver / OperationalEventLogService / OperationalEventLogRepository: hardening de resolução de tenant e logging público/operacional (sem mascarar TenantContext).
+
+====================================================================
+28) ARQUIVOS ALTERADOS
+====================================================================
+Produção:
+- docker-compose.local.yml
+- src/main/java/com/restaurante/financeiro/service/PagamentoManualPollingService.java
+- src/main/java/com/restaurante/inventory/repository/InventoryConsumptionRecordRepository.java
+- src/main/java/com/restaurante/inventory/repository/InventoryMovementRepository.java
+- src/main/java/com/restaurante/inventory/repository/InventoryReturnRecordRepository.java
+- src/main/java/com/restaurante/repository/OperationalEventLogRepository.java
+- src/main/java/com/restaurante/security/tenant/TenantResolver.java
+- src/main/java/com/restaurante/service/operacional/OperationalEventLogService.java
+- src/main/java/com/restaurante/service/operacional/SubPedidoStatusTransitionService.java
+
+Novos:
+- src/main/resources/db/migration/V65__planos_piloto_aumentar_max_qr_codes.sql
+- api-docs.local.json (artefato local, não essencial para produção)
+
+====================================================================
+29) SEPARAÇÃO (TESTES x CONFIG x PRODUÇÃO)
+====================================================================
+- Testes: não foram adicionados/alterados neste prompt.
+- Config: docker-compose.local.yml (mocks e variáveis locais).
+- Produção: correções de bugs reais (polling manual, transições status, evidence queries).
+
+====================================================================
+30) PENDÊNCIAS
+====================================================================
+- Ajustar GlobalExceptionHandler / mapeamento de MissingServletRequestParameterException para 400 (atualmente retorna 500).
+- Revisar migrações antigas que produzem WARN “already exists, skipping” em banco limpo.
+- Validar CONSUMA_NETWORK E2E (matching/job/earning/settlement) quando gate estiver pronto.
+- Tratar suíte completa `mvn test` (fora do escopo): recorte Financeiro amplo, corrigir testes H2, eliminar colisões de fixtures.
+
+====================================================================
+31) RISCOS RESTANTES
+====================================================================
+- Erros 500 por falta de query params podem mascarar problemas reais e aumentar ruído de observabilidade.
+- Dívida de migrações idempotentes/duplicadas pode dificultar manutenção e diagnósticos em upgrades.
+- Evidence pipeline depende de queries com parâmetros opcionais: corrigidas as encontradas, mas recomenda-se varredura das demais queries semelhantes.
+
+====================================================================
+32) DECISÃO FINAL
+====================================================================
+APROVADO COM RESSALVAS
+
+====================================================================
+33) PRÓXIMO PASSO RECOMENDADO
+====================================================================
+Avançar para Sandbox Operacional controlada, com:
+- checklist de secrets fortes (JWT_SECRET, DEVICE_TOKEN_HASH_SECRET, SYNC_CURSOR_HMAC_SECRET, APPYPAY_WEBHOOK_SECRET, CONSUMA_SNAPSHOT_HMAC_SECRET_V1);
+- observabilidade mínima (logs/metrics) e ajuste de handlers 400/422;
+- cenário operacional reduzido (1 tenant PONTO + 1 tenant RESTA) repetindo os smoke steps.
+
+====================================================================
+34) PRÓXIMO PROMPT SUGERIDO
+====================================================================
+“Prompt 40.2 — Sandbox Operacional Controlada (Smoke + Observabilidade + Hardening de Erros 4xx/5xx)”
+

@@ -18,7 +18,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "instituicoes", indexes = {
     @Index(name = "idx_instituicao_ativa", columnList = "ativa"),
-    @Index(name = "idx_instituicao_sigla", columnList = "sigla", unique = true)
+    @Index(name = "idx_instituicao_sigla", columnList = "sigla", unique = true),
+    @Index(name = "idx_instituicao_tenant", columnList = "tenant_id")
 })
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -26,6 +27,10 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class Instituicao extends BaseEntity {
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
 
     @NotBlank(message = "O nome da instituição é obrigatório")
     @Column(nullable = false, length = 150)

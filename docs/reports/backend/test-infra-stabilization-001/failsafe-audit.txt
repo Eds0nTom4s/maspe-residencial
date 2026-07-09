@@ -1,0 +1,27 @@
+Data: 2026-07-06
+Escopo: auditoria Maven Failsafe
+
+Falhas iniciais identificadas:
+- PagamentoCallbackInvalidSignatureIT: iniciar pagamento retornava 400 em setup que nao aceitava pedido antes do pagamento.
+- PagamentoCallbackTenantAwareIT: dois cenarios com mesma causa.
+- SandboxDemoSeedRunnerIT: BusinessException `Pagamento disponivel apenas apos aceite do pedido.` durante seed demo.
+
+Configuracao final relevante:
+- api.version=1.44
+- debug=false
+- spring.main.banner-mode=off
+- spring.task.scheduling.enabled=false
+- logging reduzido para Spring/Hibernate/Flyway/Testcontainers
+- redirectTestOutputToFile=true
+- consuma.test.runner=failsafe
+
+Correcao de fixtures:
+- Pedidos de setup sao colocados em estado aceito antes de iniciar pagamento.
+- Seed sandbox demo aceita pedido antes de criar ordem manual.
+- Regra de produto permanece ativa.
+
+Resultado:
+- `mvn -Pit verify`: PASS, 274 Failsafe tests, 0 failures, 0 errors, 0 skipped.
+
+Risco residual:
+- Aviso nao bloqueante de shutdown do fork JVM apos sucesso; acompanhar em fase futura para encerrar threads nao-daemon com mais limpeza.

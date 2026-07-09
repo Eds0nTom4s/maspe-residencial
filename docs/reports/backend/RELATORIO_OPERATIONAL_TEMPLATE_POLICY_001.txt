@@ -1,0 +1,51 @@
+RELATORIO_OPERATIONAL_TEMPLATE_POLICY_001
+
+Identificacao
+Backend branch: backend/operational-template-policy-hardening-001
+Backend commit base: 1a247e827726a3047052590615a7a881782585b3
+Backend commit final: informado na entrega final
+
+Objetivo
+Centralizar as regras operacionais por template/origem sem redesenhar a maquina de estados.
+
+Problema tratado
+Aceite, pagamento, producao, KDS, caixa e turno tinham decisoes corretas, mas espalhadas por services e inferencias locais.
+
+Policy criada
+- OperationalTemplatePolicy.
+
+Templates tratados
+- CONSUMA_REST_V1.
+- CONSUMA_PONTO_V1.
+- QR_MESA.
+- QR_PRINCIPAL.
+- PDV_INTERNO.
+- KDS.
+- CAIXA.
+
+Integracao
+- PedidoPagamentoPolicy consulta OperationalTemplatePolicy para aceite antes de pagamento.
+- PedidoStatusTransitionService consulta OperationalTemplatePolicy para aceitar/rejeitar e turno.
+- SubPedido/KDS e caixa permanecem protegidos pelos guards existentes; policy documenta os limites.
+
+Matriz operacional
+- REST/QR exigem aceite antes do pagamento.
+- PONTO preserva pagamento imediato apenas para device/operador autenticado aplicavel.
+- PDV_INTERNO fica conceitual e sem fluxo falso.
+- KDS nao confirma pagamento.
+- CAIXA nao move producao.
+- Turno permanece obrigatorio.
+
+Testes backend
+- mvn -DskipTests compile: passou.
+- mvn -Dtest=OperationalTemplatePolicyTest,PedidoPagamentoPolicyTest test: passou.
+- mvn test: passou. Resultado: 365 testes, 0 falhas, 0 erros, 3 ignorados.
+- mvn -q -Pit -Dit.test=OperationalStatusTransitionIT,PublicQrPagamentoStartIT,DevicePedidoTurnoPolicyIT test-compile failsafe:integration-test failsafe:verify: passou. Resultado Failsafe: 15 concluidos, 0 falhas, 0 erros, 0 ignorados.
+
+Riscos restantes
+- Origem do pedido ainda e inferida, nao persistida.
+- Frontend ainda nao recebe allowedActions/capabilities.
+- PDV real, KDS completo, gateway real, estorno, conciliacao e fiscal seguem fora desta fase.
+
+Decisao final
+APROVADO COM RESSALVAS

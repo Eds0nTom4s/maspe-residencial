@@ -61,6 +61,20 @@ public interface FundoConsumoRepository extends JpaRepository<FundoConsumo, Long
     Optional<FundoConsumo> findByQrCodeSessaoAndAtivoTrue(@Param("qrCode") String qrCode);
 
     /**
+     * Busca fundo ativo por QR Code + tenant (tenant-safe).
+     */
+    @Query("""
+            SELECT f
+            FROM FundoConsumo f
+              JOIN FETCH f.sessaoConsumo s
+            WHERE s.qrCodeSessao = :qrCode
+              AND s.tenant.id = :tenantId
+              AND f.ativo = true
+            """)
+    Optional<FundoConsumo> findByTenantIdAndQrCodeSessaoAndAtivoTrue(@Param("tenantId") Long tenantId,
+                                                                     @Param("qrCode") String qrCode);
+
+    /**
      * Busca fundo pelo QR Code da sessão com finalidade de escrita/lock optimista.
      */
     @Query("SELECT f FROM FundoConsumo f JOIN FETCH f.sessaoConsumo WHERE f.sessaoConsumo.qrCodeSessao = :qrCode AND f.ativo = true")

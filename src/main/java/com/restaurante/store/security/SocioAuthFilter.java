@@ -12,6 +12,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -73,13 +74,13 @@ public class SocioAuthFilter extends OncePerRequestFilter {
     @Value("${store.socio.jwt.issuer:associagest}")
     private String expectedIssuer;
 
-    private final SocioVinculoRepository socioVinculoRepository;
-    private final ClienteRepository clienteRepository;
+    private final ObjectProvider<SocioVinculoRepository> socioVinculoRepositoryProvider;
+    private final ObjectProvider<ClienteRepository> clienteRepositoryProvider;
 
-    public SocioAuthFilter(SocioVinculoRepository socioVinculoRepository,
-                           ClienteRepository clienteRepository) {
-        this.socioVinculoRepository = socioVinculoRepository;
-        this.clienteRepository = clienteRepository;
+    public SocioAuthFilter(ObjectProvider<SocioVinculoRepository> socioVinculoRepositoryProvider,
+                           ObjectProvider<ClienteRepository> clienteRepositoryProvider) {
+        this.socioVinculoRepositoryProvider = socioVinculoRepositoryProvider;
+        this.clienteRepositoryProvider = clienteRepositoryProvider;
     }
 
     // ── Activação ─────────────────────────────────────────────────────────────
@@ -130,7 +131,10 @@ public class SocioAuthFilter extends OncePerRequestFilter {
             }
 
             // Garantir vínculo e Cliente
-            resolverIdentidade(socioId, nome, telefone, email);
+            if (!resolverIdentidade(socioId, nome, telefone, email)) {
+                chain.doFilter(request, response);
+                return;
+            }
 
             // Injectar autenticação — usa telefone como principal (compatível com motor existente)
             UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
@@ -186,7 +190,14 @@ public class SocioAuthFilter extends OncePerRequestFilter {
     /**
      * Cria ou actualiza SocioVinculo e garante existência do Cliente no motor.
      */
-    private void resolverIdentidade(String socioId, String nome, String telefone, String email) {
+    private boolean resolverIdentidade(String socioId, String nome, String telefone, String email) {
+        SocioVinculoRepository socioVinculoRepository = socioVinculoRepositoryProvider.getIfAvailable();
+        ClienteRepository clienteRepository = clienteRepositoryProvider.getIfAvailable();
+        if (socioVinculoRepository == null || clienteRepository == null) {
+            log.warn("[SocioAuthFilter] Repositórios de sócio indisponíveis; autenticação Store ignorada.");
+            return false;
+        }
+
         // 1. Criar ou actualizar SocioVinculo
         SocioVinculo vinculo = socioVinculoRepository.findBySocioId(socioId)
                 .orElseGet(() -> {
@@ -222,6 +233,7 @@ public class SocioAuthFilter extends OncePerRequestFilter {
                 }
             });
         }
+        return true;
     }
 
     /**

@@ -504,6 +504,10 @@ public class ProdutoService {
             case BEBIDA_NAO_ALCOOLICA -> "bebida-nao-alcoolica";
             case LANCHE -> "lanche";
             case PIZZA -> "pizza";
+            case VESTUARIO -> "vestuario";
+            case EQUIPAMENTO_DESPORTIVO -> "equipamento-desportivo";
+            case ACESSORIO -> "acessorio";
+            case COLECCIONAVEL -> "coleccionavel";
             case OUTROS -> "outros";
         };
     }
@@ -519,6 +523,10 @@ public class ProdutoService {
             case "bebida-nao-alcoolica" -> CategoriaProdutoLegacy.BEBIDA_NAO_ALCOOLICA;
             case "lanche" -> CategoriaProdutoLegacy.LANCHE;
             case "pizza" -> CategoriaProdutoLegacy.PIZZA;
+            case "vestuario" -> CategoriaProdutoLegacy.VESTUARIO;
+            case "equipamento-desportivo" -> CategoriaProdutoLegacy.EQUIPAMENTO_DESPORTIVO;
+            case "acessorio" -> CategoriaProdutoLegacy.ACESSORIO;
+            case "coleccionavel" -> CategoriaProdutoLegacy.COLECCIONAVEL;
             case "outros" -> CategoriaProdutoLegacy.OUTROS;
             case "geral" -> CategoriaProdutoLegacy.OUTROS;
             default -> null;

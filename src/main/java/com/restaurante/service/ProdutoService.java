@@ -12,6 +12,7 @@ import com.restaurante.model.enums.OperationalEntityType;
 import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.repository.CategoriaProdutoRepository;
+import com.restaurante.repository.ProdutoImagemRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.security.tenant.TenantContextHolder;
@@ -26,6 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -40,6 +43,7 @@ public class ProdutoService {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ProdutoService.class);
 
     private final ProdutoRepository produtoRepository;
+    private final ProdutoImagemRepository produtoImagemRepository;
     private final CategoriaProdutoRepository categoriaProdutoRepository;
     private final CategoriaProdutoService categoriaProdutoService;
     private final TenantRepository tenantRepository;
@@ -462,13 +466,28 @@ public class ProdutoService {
             response.setCategoriaProdutoSlug(produto.getCategoriaProduto().getSlug());
         }
         response.setUrlImagem(produto.getUrlImagem());
-        response.setImagensGaleria(produto.getImagensGaleria());
+        response.setImagensGaleria(resolveImagensGaleria(produto));
         response.setTempoPreparoMinutos(produto.getTempoPreparoMinutos());
         response.setDisponivel(produto.getDisponivel());
         response.setAtivo(produto.getAtivo());
         response.setCreatedAt(produto.getCreatedAt());
         response.setUpdatedAt(produto.getUpdatedAt());
         return response;
+    }
+
+    private List<String> resolveImagensGaleria(Produto produto) {
+        if (produto.getId() != null && produto.getTenant() != null && produto.getTenant().getId() != null) {
+            List<String> urls = produtoImagemRepository
+                    .findByTenantIdAndProdutoIdOrderByOrdemAsc(produto.getTenant().getId(), produto.getId())
+                    .stream()
+                    .map(imagem -> imagem.getUrl())
+                    .toList();
+            if (!urls.isEmpty()) {
+                return urls;
+            }
+        }
+        List<String> galeria = produto.getImagensGaleria();
+        return galeria != null ? new ArrayList<>(galeria) : Collections.emptyList();
     }
 
     private CategoriaProduto resolveCategoriaProdutoTenantAware(Long tenantId, ProdutoRequest request) {

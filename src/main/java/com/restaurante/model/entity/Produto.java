@@ -57,9 +57,7 @@ public class Produto extends BaseEntity {
     @Column(name = "url_imagem", length = 500)
     private String urlImagem;
 
-    @ElementCollection(fetch = FetchType.LAZY)
-    @CollectionTable(name = "produto_imagens", joinColumns = @JoinColumn(name = "produto_id"))
-    @Column(name = "imagem_url", length = 500)
+    @Transient
     private List<String> imagensGaleria = new ArrayList<>();
 
     @Column(name = "tempo_preparo_minutos")

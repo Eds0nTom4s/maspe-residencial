@@ -7,6 +7,7 @@ import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.VariacaoProduto;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusSubPedido;
+import com.restaurante.repository.ProdutoImagemRepository;
 import com.restaurante.store.dto.StoreOrderDTO;
 import com.restaurante.store.dto.StoreOrderTrackingDTO;
 import com.restaurante.store.dto.StoreProductDTO;
@@ -22,6 +23,12 @@ import java.util.stream.Collectors;
 @Component
 public class StoreMapper {
 
+    private final ProdutoImagemRepository produtoImagemRepository;
+
+    public StoreMapper(ProdutoImagemRepository produtoImagemRepository) {
+        this.produtoImagemRepository = produtoImagemRepository;
+    }
+
     public StoreProductDTO toProductDTO(Produto produto) {
         StoreProductDTO dto = new StoreProductDTO();
         dto.setId(produto.getId());
@@ -31,13 +38,27 @@ public class StoreMapper {
         dto.setPreco(produto.getPreco());
         dto.setCategoria(produto.getCategoria().name());
         dto.setUrlImagem(produto.getUrlImagem());
-        dto.setImagensGaleria(produto.getImagensGaleria());
+        dto.setImagensGaleria(resolveImagensGaleria(produto));
         dto.setDisponivel(produto.getDisponivel());
         dto.setVariacoes(produto.getVariacoes().stream()
                 .filter(v -> Boolean.TRUE.equals(v.getAtivo()))
                 .map(this::toVariationDTO)
                 .collect(Collectors.toList()));
         return dto;
+    }
+
+    private List<String> resolveImagensGaleria(Produto produto) {
+        if (produto.getId() != null && produto.getTenant() != null && produto.getTenant().getId() != null) {
+            List<String> urls = produtoImagemRepository
+                    .findByTenantIdAndProdutoIdOrderByOrdemAsc(produto.getTenant().getId(), produto.getId())
+                    .stream()
+                    .map(imagem -> imagem.getUrl())
+                    .toList();
+            if (!urls.isEmpty()) {
+                return urls;
+            }
+        }
+        return produto.getImagensGaleria() != null ? List.copyOf(produto.getImagensGaleria()) : List.of();
     }
 
     public StoreProductVariationDTO toVariationDTO(VariacaoProduto variacao) {

@@ -1,0 +1,178 @@
+RELATORIO_REGRESSION_PRODUTOS_CARDAPIO_500_001
+
+1. Identificacao
+
+Backend branch: main
+Backend commit base: 5fef798d1833c24201af8ecce06a8ffa0b2ce1d6
+Backend commit final: commit desta entrega de correcao
+Frontend branch, se alterado: N/A
+Frontend commit, se alterado: N/A
+
+2. Problema observado
+
+A pagina /app/cardapio apresentava "Erro ao carregar cardapio" porque a chamada:
+
+GET http://localhost:8081/api/tenant/produtos?size=100
+
+retornava 500 Internal Server Error no backend. A UI apenas exibiu a falha recebida do endpoint tenant de produtos.
+
+3. Evidencia DevTools
+
+Endpoint observado: GET /api/tenant/produtos?size=100
+Status observado: 500 Internal Server Error
+Authorization: presente no fluxo autenticado que alcancou o endpoint tenant
+Tenant/contexto: token tenant-scoped do usuario autenticado, resolvido pelo backend antes da serializacao da resposta
+Response body: nao usado como fonte de decisao; a causa raiz foi confirmada pelo stacktrace completo do backend
+
+Evidencia capturada em logs Docker:
+
+/tmp/cardapio-produtos-500-before.log
+/tmp/cardapio-produtos-500.log
+
+4. Endpoint afectado
+
+Controller: com.restaurante.controller.TenantProdutoController
+Endpoint: GET /tenant/produtos
+Rota externa via proxy: /api/tenant/produtos?size=100
+Service: com.restaurante.service.ProdutoService.listarTodosDoTenant(Pageable)
+Repository: com.restaurante.repository.ProdutoRepository.findByTenantId(Long, Pageable)
+DTO response: com.restaurante.dto.response.ProdutoResponse
+Entidade principal: com.restaurante.model.entity.Produto
+Entidade canonica de galeria: com.restaurante.model.entity.ProdutoImagem
+Tenant filter: TenantContextHolder.require().tenantId()
+Paginacao: Pageable recebido pelo controller e propagado ao repository
+
+5. Stacktrace backend
+
+Classe de erro principal:
+
+org.springframework.http.converter.HttpMessageNotWritableException:
+Could not write JSON: failed to lazily initialize a collection of role:
+com.restaurante.model.entity.Produto.imagensGaleria: could not initialize proxy - no Session
+
+Causa interna:
+
+org.hibernate.LazyInitializationException:
+failed to lazily initialize a collection of role:
+com.restaurante.model.entity.Produto.imagensGaleria: could not initialize proxy - no Session
+
+Cadeia de serializacao:
+
+ApiResponse["data"]
+-> PageImpl["content"]
+-> ProdutoResponse["imagensGaleria"]
+
+Classificacao da causa:
+J. Outro: conflito de mapeamento ORM/DTO com lazy collection serializada fora da sessao Hibernate.
+
+6. Causa raiz
+
+ProdutoService.mapToResponse atribuía diretamente produto.getImagensGaleria() ao ProdutoResponse.
+
+Depois do merge, Produto.imagensGaleria estava mapeado como @ElementCollection(fetch = LAZY) sobre a tabela produto_imagens. O objeto Page<ProdutoResponse> era montado dentro da transacao read-only, mas a colecao lazy era apenas referenciada no DTO. Quando Jackson serializava a resposta HTTP fora do escopo da sessao Hibernate, tentava inicializar Produto.imagensGaleria e disparava LazyInitializationException.
+
+Durante o teste de regressao foi confirmada uma segunda incompatibilidade relacionada: produto_imagens ja e a tabela canonica da entidade ProdutoImagem, com colunas obrigatorias tenant_id, produto_id, url e ordem. Persistir galeria via ElementCollection em Produto tentava inserir linhas sem tenant_id/url canonicos, gerando violacao de schema. Portanto a correcao nao poderia ser apenas abrir a transacao ou mascarar a lista; era necessario remover a dupla responsabilidade ORM.
+
+7. Relacao com V77
+
+Migration auditada: V77__store_schema_reconciliation.sql
+
+Resultado no banco Docker local:
+
+flyway_schema_history:
+77|store schema reconciliation|t
+
+Logs do backend Docker local:
+
+Current version of schema "public": 77
+
+Conclusao:
+
+A V77 estava aplicada com sucesso. O problema nao era migration ausente. A regressao surgiu da compatibilidade entre o schema consolidado de produto_imagens e o mapeamento Produto.imagensGaleria como ElementCollection, competindo com a entidade ProdutoImagem.
+
+8. Correcao realizada
+
+Backend:
+
+- Produto.imagensGaleria deixou de ser persistido como ElementCollection e passou a ser @Transient.
+- ProdutoService passou a resolver imagensGaleria pela entidade canonica ProdutoImagemRepository.findByTenantIdAndProdutoIdOrderByOrdemAsc.
+- ProdutoResponse continua expondo imagensGaleria, mas recebe uma lista materializada de URLs antes da serializacao JSON.
+- StoreMapper recebeu a mesma resolucao por ProdutoImagemRepository para reduzir o risco Store/Socio apontado no merge anterior.
+- Foi preservado tenant isolation usando tenantId do produto antes de buscar imagens.
+- Nao houve fallback silencioso para lista vazia quando o erro real ocorre; apenas produtos sem galeria retornam lista vazia controlada.
+
+Teste de regressao:
+
+- Adicionado TenantProdutoControllerIT.
+- O teste cria tenant, usuario tenant-scoped, categoria, produto e galeria pela entidade ProdutoImagem.
+- Executa GET /tenant/produtos?size=100 com token tenant-scoped.
+- Valida HTTP 200, success true, produto esperado e imagensGaleria serializada.
+
+9. Testes executados
+
+Comando: mvn -DskipTests compile
+Resultado: BUILD SUCCESS
+
+Comando: mvn -Pit -Dit.test=TenantProdutoControllerIT verify
+Resultado: BUILD SUCCESS
+Surefire: 432 tests, 0 failures, 0 errors, 3 skipped
+Failsafe: 1 test, 0 failures, 0 errors, 0 skipped
+
+Comando: mvn test
+Resultado: BUILD SUCCESS
+Surefire: 432 tests, 0 failures, 0 errors, 3 skipped
+
+Comando: mvn -Pit verify
+Resultado: BUILD SUCCESS
+Surefire: 432 tests, 0 failures, 0 errors, 3 skipped
+Failsafe: 288 tests, 0 failures, 0 errors, 0 skipped
+
+Comando: mvn -Dtest=*Store* test
+Resultado: BUILD SUCCESS
+Surefire: 16 tests, 0 failures, 0 errors, 0 skipped
+
+10. Validacao manual
+
+Validacao realizada:
+
+- Erro inicial confirmado nos logs do backend Docker local.
+- V77 confirmada como aplicada no banco Docker local.
+- Logs do backend Docker local confirmam schema Flyway na versao 77.
+- Endpoint corrigido validado tecnicamente em teste de integracao full context com MockMvc, token tenant-scoped e PostgreSQL Testcontainers.
+- Fluxos Store/Socio validados por smoke tecnico focado com mvn -Dtest=*Store* test.
+
+Validacao nao realizada nesta fase:
+
+- Nao foi feito deploy Docker do backend corrigido, por proibicao explicita do prompt.
+- Portanto nao foi possivel confirmar no browser /app/cardapio contra a imagem Docker atualizada.
+
+Decisao de validacao:
+
+A validacao manual de browser fica condicionada a um deploy Docker posterior, precedido do backup obrigatorio do banco usado pelo ambiente Docker.
+
+11. O que nao foi alterado
+
+- Frontend nao foi alterado.
+- Docker nao foi alterado.
+- Banco nao foi alterado manualmente.
+- Volumes nao foram alterados.
+- Seed nao foi alterado.
+- Nenhuma migration nova foi criada.
+- V77 nao foi editada.
+- Proxy/UI nao foi alterado.
+- Contrato visual do cardapio nao foi alterado.
+- Fluxo de pagamento nao foi alterado.
+- Turnos, sessoes, fecho forcado e extrato nao foram alterados.
+
+12. Riscos restantes
+
+- O backend Docker local continua executando a imagem antiga ate que seja feito novo build/deploy seguro.
+- Como existe V77 no ambiente Docker, o proximo deploy deve manter a regra operacional: identificar o banco, executar backup antes de subir o backend e validar nos logs se a V77 ja estava aplicada ou foi aplicada com sucesso.
+- A confirmacao visual final em /app/cardapio deve ser feita somente apos o deploy do backend corrigido.
+- A solucao usa consultas por produto para resolver galeria; e correta para a regressao, mas pode ser otimizada em fase futura se houver carga alta no catalogo.
+
+13. Decisao final
+
+CORRECAO APROVADA COM RESSALVAS
+
+Ressalva: a correcao backend e os testes passaram, incluindo regressao do endpoint e smoke Store/Socio. A validacao manual no browser contra Docker atualizado nao foi executada porque o prompt proibiu deploy Docker nesta fase.

@@ -44,6 +44,7 @@ public class PedidoStatusTransitionService {
     private final OperationalTemplatePolicy operationalTemplatePolicy;
     private final OrdemPagamentoService ordemPagamentoService;
     private final PedidoAllowedActionsService pedidoAllowedActionsService;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     /**
      * Atualiza status operacional do Pedido de forma segura.
@@ -64,7 +65,7 @@ public class PedidoStatusTransitionService {
         validarTurnoObrigatorio(pedido);
 
         if (novoStatus == StatusPedido.FINALIZADO) {
-            return finalizarPedido(ctx, pedido, motivo, ip, userAgent);
+            return entregarPedido(pedidoId, ip, userAgent);
         }
 
         if (novoStatus != StatusPedido.CANCELADO) {
@@ -306,25 +307,23 @@ public class PedidoStatusTransitionService {
     }
 
     private TenantPedidoDetalheResponse finalizarPedido(TenantContext ctx, Pedido pedido, String motivo, String ip, String userAgent) {
-        String template = operationalTemplatePolicy.resolveTemplateCode(pedido);
-        com.restaurante.model.enums.PedidoOrigem origem = operationalTemplatePolicy.resolvePedidoOrigem(pedido, resolveOrigem());
-        boolean isOptionalKitchen = operationalTemplatePolicy.productionFlow(template, origem) == OperationalTemplatePolicy.ProductionFlow.OPTIONAL;
+        boolean directDelivery = operationalCapabilitiesPolicy.canDeliverWithoutReady(pedido);
 
-        // Para finalizar pedido, exige PRONTO/ENTREGUE ou PENDENTE quando KitchenFlow é OPTIONAL.
+        // Sem produção, PONTO entrega directamente; os demais fluxos exigem PRONTO.
         List<SubPedido> subs = getSubPedidosOrThrow(pedido);
         for (SubPedido sp : subs) {
             if (sp.getStatus() == null) {
                 throw new ConflictException("Não é possível finalizar: existe subpedido sem status.");
             }
             if (sp.getStatus() == StatusSubPedido.ENTREGUE) continue;
-            if (sp.getStatus() != StatusSubPedido.PRONTO && !(isOptionalKitchen && sp.getStatus() == StatusSubPedido.PENDENTE)) {
+            if (sp.getStatus() != StatusSubPedido.PRONTO && !(directDelivery && sp.getStatus() == StatusSubPedido.PENDENTE)) {
                 throw new ConflictException("Não é possível finalizar: existem subpedidos que não estão PRONTO.");
             }
         }
 
         var now = java.time.LocalDateTime.now();
         for (SubPedido sp : subs) {
-            if (sp.getStatus() == StatusSubPedido.PRONTO || (isOptionalKitchen && sp.getStatus() == StatusSubPedido.PENDENTE)) {
+            if (sp.getStatus() == StatusSubPedido.PRONTO || (directDelivery && sp.getStatus() == StatusSubPedido.PENDENTE)) {
                 String anteriorStatus = sp.getStatus().name();
                 sp.setStatus(StatusSubPedido.ENTREGUE);
                 sp.setEntregueEm(now);

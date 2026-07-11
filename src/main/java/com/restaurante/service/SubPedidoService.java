@@ -11,6 +11,7 @@ import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.service.validator.TransicaoEstadoValidator;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -50,6 +51,7 @@ public class SubPedidoService {
     private final TransicaoEstadoValidator transicaoValidator;
     private final PedidoService pedidoService; // Injeção lazy para evitar circular dependency
     private final NotificacaoService notificacaoService;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     public SubPedidoService(
         SubPedidoRepository subPedidoRepository,
@@ -58,7 +60,8 @@ public class SubPedidoService {
         EventLogService eventLogService,
         TransicaoEstadoValidator transicaoValidator,
         @Lazy PedidoService pedidoService, // LAZY: evita dependência circular
-        NotificacaoService notificacaoService
+        NotificacaoService notificacaoService,
+        OperationalCapabilitiesPolicy operationalCapabilitiesPolicy
     ) {
         this.subPedidoRepository = subPedidoRepository;
         this.cozinhaRepository = cozinhaRepository;
@@ -67,6 +70,7 @@ public class SubPedidoService {
         this.transicaoValidator = transicaoValidator;
         this.pedidoService = pedidoService;
         this.notificacaoService = notificacaoService;
+        this.operationalCapabilitiesPolicy = operationalCapabilitiesPolicy;
     }
 
     /**
@@ -233,6 +237,10 @@ public class SubPedidoService {
         // BUSCAR SubPedido (usa @Version para concorrência otimista)
         SubPedido subPedido = buscarPorId(id);
         StatusSubPedido estadoAtual = subPedido.getStatus();
+
+        if (novoStatus == StatusSubPedido.EM_PREPARACAO || novoStatus == StatusSubPedido.PRONTO) {
+            operationalCapabilitiesPolicy.assertPedidoCanUseProduction(subPedido.getPedido());
+        }
         
         log.info("Alterando status SubPedido {} de {} para {}", id, estadoAtual, novoStatus);
         
@@ -397,7 +405,9 @@ public class SubPedidoService {
      */
     @Transactional(readOnly = true)
     public List<SubPedido> buscarAtivosPorCozinha(Long cozinhaId) {
-        return subPedidoRepository.findSubPedidosAtivosByCozinha(cozinhaId);
+        return subPedidoRepository.findSubPedidosAtivosByCozinha(cozinhaId).stream()
+                .filter(subPedido -> operationalCapabilitiesPolicy.canEnterKds(subPedido.getPedido()))
+                .toList();
     }
 
     /**
@@ -405,7 +415,9 @@ public class SubPedidoService {
      */
     @Transactional(readOnly = true)
     public List<SubPedido> buscarProntosPorCozinha(Long cozinhaId) {
-        return subPedidoRepository.findByCozinhaIdAndStatusOrderByCreatedAtAsc(cozinhaId, StatusSubPedido.PRONTO);
+        return subPedidoRepository.findByCozinhaIdAndStatusOrderByCreatedAtAsc(cozinhaId, StatusSubPedido.PRONTO).stream()
+                .filter(subPedido -> operationalCapabilitiesPolicy.canEnterKds(subPedido.getPedido()))
+                .toList();
     }
 
     /**
@@ -414,7 +426,9 @@ public class SubPedidoService {
     @Transactional(readOnly = true)
     public List<SubPedido> buscarComAtraso(int minutosAtraso) {
         LocalDateTime tempoLimite = LocalDateTime.now().minusMinutes(minutosAtraso);
-        return subPedidoRepository.findSubPedidosComAtraso(tempoLimite);
+        return subPedidoRepository.findSubPedidosComAtraso(tempoLimite).stream()
+                .filter(subPedido -> operationalCapabilitiesPolicy.canEnterKds(subPedido.getPedido()))
+                .toList();
     }
 
     /**

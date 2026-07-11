@@ -14,6 +14,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.OperationalEventLogService;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ public class TenantOperationalModulesService {
     private final TenantOperationalModulesConfigRepository repository;
     private final OperationalEventLogService operationalEventLogService;
     private final ObjectProvider<TenantSessaoConsumoConfigService> sessaoConsumoConfigServiceProvider;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     @Transactional(readOnly = true)
     public TenantOperationalModulesResponse obterDoTenantAtual() {
@@ -176,6 +178,8 @@ public class TenantOperationalModulesService {
     }
 
     public TenantOperationalModulesResponse toResponse(TenantOperationalModulesConfig config) {
+        OperationalCapabilitiesPolicy.Capabilities capabilities =
+                operationalCapabilitiesPolicy.resolve(config.getTenant());
         return TenantOperationalModulesResponse.builder()
                 .tenantId(config.getTenant() != null ? config.getTenant().getId() : null)
                 .sessaoConsumoEnabled(config.isSessaoConsumoEnabled())
@@ -183,7 +187,8 @@ public class TenantOperationalModulesService {
                 .mesasEnabled(config.isMesasEnabled())
                 .qrMesaEnabled(config.isQrMesaEnabled())
                 .caixaEnabled(config.isCaixaEnabled())
-                .kdsEnabled(config.isKdsEnabled())
+                .productionEnabled(capabilities.productionEnabled())
+                .kdsEnabled(capabilities.kdsEnabled())
                 .configuredByPlatformUserId(config.getConfiguredByPlatformUserId())
                 .configuredAt(config.getConfiguredAt())
                 .build();

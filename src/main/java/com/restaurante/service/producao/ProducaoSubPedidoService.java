@@ -12,6 +12,7 @@ import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.SubPedidoStatusTransitionService;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,7 @@ public class ProducaoSubPedidoService {
     private final SubPedidoRepository subPedidoRepository;
     private final UnidadeProducaoService unidadeProducaoService;
     private final SubPedidoStatusTransitionService subPedidoStatusTransitionService;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     @Transactional(readOnly = true)
     public List<SubPedidoProducaoResponse> listarSubPedidosDaUnidade(Long unidadeProducaoId, StatusSubPedido status) {
@@ -54,6 +56,7 @@ public class ProducaoSubPedidoService {
         }
 
         if (tenantId == null) throw new BusinessException("TenantContext obrigatório.");
+        operationalCapabilitiesPolicy.assertProductionEnabled(tenantId);
         unidadeProducaoService.buscarPorIdETenant(unidadeProducaoId, tenantId);
 
         List<SubPedido> subs = subPedidoRepository.findByTenantIdAndUnidadeProducaoIdAndStatusOrderByCreatedAtDesc(
@@ -88,6 +91,7 @@ public class ProducaoSubPedidoService {
 
         SubPedido sp = subPedidoRepository.findByIdAndTenantId(subPedidoId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("SubPedido", "id", subPedidoId));
+        operationalCapabilitiesPolicy.assertPedidoCanUseProduction(sp.getPedido());
         return toDto(sp);
     }
 

@@ -53,6 +53,7 @@ import com.restaurante.service.PedidoNumberService;
 import com.restaurante.service.SessaoConsumoService;
 import com.restaurante.service.SubPedidoService;
 import com.restaurante.service.operacional.OperationalEventLogService;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import com.restaurante.service.producao.RotaProducaoService;
 import com.restaurante.service.producao.UnidadeProducaoService;
 import jakarta.persistence.EntityManager;
@@ -104,6 +105,7 @@ public class DevicePedidoService {
     private final RotaProducaoService rotaProducaoService;
     private final UnidadeProducaoService unidadeProducaoService;
     private final OperationalEventLogService operationalEventLogService;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     @Transactional
     public DevicePedidoResponse criarPedido(DeviceCriarPedidoRequest request, String idempotencyKey, String userAgent, String ip) {
@@ -160,6 +162,7 @@ public class DevicePedidoService {
                 DeviceErrorResponse.DeviceRecoveryAction.NONE,
                 null
         ));
+        boolean productionEnabled = operationalCapabilitiesPolicy.resolve(tenant).productionEnabled();
         Instituicao inst = instituicaoRepository.findById(device.instituicaoId())
                 .filter(i -> i.getTenant() != null && i.getTenant().getId().equals(tenantId))
                 .orElseThrow(() -> new DeviceApiException(
@@ -318,24 +321,26 @@ public class DevicePedidoService {
                 subPedido.setTenant(tenant);
 
                 com.restaurante.model.entity.UnidadeProducao unidadeProducao = null;
-                for (DeviceCriarPedidoItemRequest itemReq : itensReq) {
-                    Produto prod = porId.get(itemReq.getProdutoId());
-                    if (prod == null || prod.getCategoriaProduto() == null) {
-                        throw new DeviceApiException(HttpStatus.CONFLICT,
-                                DeviceErrorResponse.DeviceErrorCode.DEVICE_ORDER_PRODUCT_UNAVAILABLE,
-                                "Produto inválido ou indisponível.",
-                                true,
-                                DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
-                                Map.of("produtoId", itemReq.getProdutoId()));
-                    }
-                    var resolved = rotaProducaoService.resolverUnidadeProducaoParaCategoria(
-                            tenantId, inst.getId(), prod.getCategoriaProduto().getId()
-                    );
-                    if (unidadeProducao == null) {
-                        unidadeProducao = resolved;
-                    } else if (!unidadeProducao.getId().equals(resolved.getId())) {
-                        unidadeProducao = unidadeProducaoService.obterDefaultParaInstituicao(tenantId, inst.getId());
-                        break;
+                if (productionEnabled) {
+                    for (DeviceCriarPedidoItemRequest itemReq : itensReq) {
+                        Produto prod = porId.get(itemReq.getProdutoId());
+                        if (prod == null || prod.getCategoriaProduto() == null) {
+                            throw new DeviceApiException(HttpStatus.CONFLICT,
+                                    DeviceErrorResponse.DeviceErrorCode.DEVICE_ORDER_PRODUCT_UNAVAILABLE,
+                                    "Produto inválido ou indisponível.",
+                                    true,
+                                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
+                                    Map.of("produtoId", itemReq.getProdutoId()));
+                        }
+                        var resolved = rotaProducaoService.resolverUnidadeProducaoParaCategoria(
+                                tenantId, inst.getId(), prod.getCategoriaProduto().getId()
+                        );
+                        if (unidadeProducao == null) {
+                            unidadeProducao = resolved;
+                        } else if (!unidadeProducao.getId().equals(resolved.getId())) {
+                            unidadeProducao = unidadeProducaoService.obterDefaultParaInstituicao(tenantId, inst.getId());
+                            break;
+                        }
                     }
                 }
                 subPedido.setUnidadeProducao(unidadeProducao);

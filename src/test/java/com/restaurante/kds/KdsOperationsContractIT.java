@@ -11,8 +11,11 @@ import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantOperacaoPolicy;
+import com.restaurante.model.entity.TenantOperationalModulesConfig;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.PaymentMethodCode;
+import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.repository.CategoriaProdutoRepository;
@@ -20,6 +23,8 @@ import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.SubPedidoRepository;
+import com.restaurante.repository.TenantOperacaoPolicyRepository;
+import com.restaurante.repository.TenantOperationalModulesConfigRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
@@ -66,6 +71,8 @@ class KdsOperationsContractIT extends PostgresTestcontainersConfig {
     @Autowired PedidoRepository pedidoRepository;
     @Autowired SubPedidoRepository subPedidoRepository;
     @Autowired CozinhaRepository cozinhaRepository;
+    @Autowired TenantOperacaoPolicyRepository tenantOperacaoPolicyRepository;
+    @Autowired TenantOperationalModulesConfigRepository tenantOperationalModulesConfigRepository;
     @Autowired JdbcTemplate jdbcTemplate;
 
     @BeforeEach
@@ -87,15 +94,56 @@ class KdsOperationsContractIT extends PostgresTestcontainersConfig {
 
     @Test
     @WithMockUser(username = "tenant-owner")
-    void tenantKds_contractListsTransitionsAndConflictsForPontoWithoutSession() throws Exception {
+    void tenantKds_rejectsPontoDefaultWithoutChangingSubPedido() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("KDSA");
         Produto produto = criarProduto(prov.getTenantId(), "Produto KDS A");
         publicarCardapioForTest(prov.getTenantId());
         long pedidoId = criarPedidoPublicoPonto(prov.getQrToken(), produto.getId());
         long subPedidoId = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId).getFirst().getId();
+        StatusSubPedido statusInicial = subPedidoRepository.findById(subPedidoId).orElseThrow().getStatus();
 
         Pedido pedido = pedidoRepository.findByIdAndTenantIdComSessaoConsumo(pedidoId, prov.getTenantId()).orElseThrow();
         assertThat(pedido.getSessaoConsumo()).isNull();
+
+        TenantContextHolder.set(new TenantContext(
+                prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
+                Set.of("TENANT_OWNER"), TenantResolutionSource.JWT, false, false
+        ));
+
+        mockMvc.perform(get("/tenant/kds/unidades-producao").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("KDS_DISABLED_FOR_OPERATION"));
+
+        mockMvc.perform(get("/tenant/kds/subpedidos")
+                        .param("pedidoId", String.valueOf(pedidoId))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("KDS_DISABLED_FOR_OPERATION"));
+
+        mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/iniciar-preparo", subPedidoId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"version\":0}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("KDS_DISABLED_FOR_OPERATION"));
+
+        mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/pronto", subPedidoId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"version\":0}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("KDS_DISABLED_FOR_OPERATION"));
+
+        assertThat(subPedidoRepository.findById(subPedidoId).orElseThrow().getStatus()).isEqualTo(statusInicial);
+    }
+
+    @Test
+    @WithMockUser(username = "tenant-owner")
+    void tenantKds_contractListsTransitionsAndConflictsForRestEnabledWithoutSession() throws Exception {
+        ProvisionarTenantResponse prov = provisionTenant("KDSR");
+        enableKdsAndProduction(prov.getTenantId());
+        Produto produto = criarProduto(prov.getTenantId(), "Produto KDS REST");
+        publicarCardapioForTest(prov.getTenantId());
+        long pedidoId = criarPedidoPublicoPonto(prov.getQrToken(), produto.getId());
+        long subPedidoId = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId).getFirst().getId();
 
         TenantContextHolder.set(new TenantContext(
                 prov.getTenantId(), prov.getTenantCode(), prov.getOwnerUserId(),
@@ -181,6 +229,7 @@ class KdsOperationsContractIT extends PostgresTestcontainersConfig {
     void tenantKds_hidesSubPedidoFromOtherTenant() throws Exception {
         ProvisionarTenantResponse tenantA = provisionTenant("KDSB");
         ProvisionarTenantResponse tenantB = provisionTenant("KDSC");
+        enableKdsAndProduction(tenantA.getTenantId());
         Produto produtoB = criarProduto(tenantB.getTenantId(), "Produto KDS B");
         publicarCardapioForTest(tenantB.getTenantId());
         long pedidoB = criarPedidoPublicoPonto(tenantB.getQrToken(), produtoB.getId());
@@ -193,6 +242,26 @@ class KdsOperationsContractIT extends PostgresTestcontainersConfig {
 
         mockMvc.perform(get("/tenant/kds/subpedidos/{id}", subPedidoB).accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound());
+    }
+
+    private void enableKdsAndProduction(long tenantId) {
+        Tenant tenant = tenantRepository.findById(tenantId).orElseThrow();
+        tenant.setTemplateCode("CONSUMA_REST");
+        tenant.setTemplateVersion(1);
+        tenantRepository.saveAndFlush(tenant);
+
+        TenantOperacaoPolicy policy = tenantOperacaoPolicyRepository.findByTenantId(tenantId)
+                .orElseGet(TenantOperacaoPolicy::new);
+        policy.setTenant(tenant);
+        policy.setProductionEnabled(true);
+        policy.setKdsEnabled(true);
+        tenantOperacaoPolicyRepository.saveAndFlush(policy);
+
+        TenantOperationalModulesConfig modules = tenantOperationalModulesConfigRepository.findByTenantId(tenantId)
+                .orElseGet(TenantOperationalModulesConfig::new);
+        modules.setTenant(tenant);
+        modules.setKdsEnabled(true);
+        tenantOperationalModulesConfigRepository.saveAndFlush(modules);
     }
 
     private ProvisionarTenantResponse provisionTenant(String prefix) {

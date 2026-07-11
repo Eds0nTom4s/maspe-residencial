@@ -20,6 +20,7 @@ import com.restaurante.repository.UnidadeProducaoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.operacional.SubPedidoStatusTransitionService;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class KdsOperationsService {
     private final UnidadeProducaoRepository unidadeProducaoRepository;
     private final SubPedidoRepository subPedidoRepository;
     private final SubPedidoStatusTransitionService transitionService;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     @Transactional(readOnly = true)
     public List<KdsUnidadeProducaoResponse> listarUnidadesProducao() {
@@ -148,12 +150,15 @@ public class KdsOperationsService {
                 TenantUserRole.TENANT_OPERATOR,
                 TenantUserRole.TENANT_KITCHEN
         );
+        operationalCapabilitiesPolicy.assertKdsEnabled(ctx.tenantId());
         return ctx.tenantId();
     }
 
     private SubPedido loadSubPedido(Long id, Long tenantId) {
-        return subPedidoRepository.findKdsContractByIdAndTenant(id, tenantId)
+        SubPedido subPedido = subPedidoRepository.findKdsContractByIdAndTenant(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("SubPedido", "id", id));
+        operationalCapabilitiesPolicy.assertPedidoCanUseKds(subPedido.getPedido());
+        return subPedido;
     }
 
     private void assertVersionMatches(SubPedido subPedido, KdsTransitionRequest request) {

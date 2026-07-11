@@ -47,6 +47,7 @@ import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.service.SessaoConsumoAutoClosureService;
 import com.restaurante.service.operacional.OperationalEventLogService;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -99,6 +100,7 @@ public class TurnoOperacionalService {
     private final UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     private final UserRepository userRepository;
     private final TurnoOperacionalRepository turnoOperacionalRepository;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     @Transactional
     public TurnoOperacionalResponse abrirTurno(AbrirTurnoRequest request, String ip, String userAgent) {
@@ -177,10 +179,13 @@ public class TurnoOperacionalService {
     public OperacaoConfigResponse getConfig() {
         TenantContext ctx = TenantContextHolder.require();
         policy.assertCanRead(ctx);
+        OperationalCapabilitiesPolicy.Capabilities capabilities = operationalCapabilitiesPolicy.resolve(ctx.tenantId());
         return OperacaoConfigResponse.builder()
                 .turnoObrigatorio(operacaoProperties.isTurnoObrigatorio())
                 .pedidosEscopo(operacaoProperties.getPedidosEscopo())
                 .extratoTurnoEnabled(operacaoProperties.isExtratoTurnoEnabled())
+                .productionEnabled(capabilities.productionEnabled())
+                .kdsEnabled(capabilities.kdsEnabled())
                 .build();
     }
 

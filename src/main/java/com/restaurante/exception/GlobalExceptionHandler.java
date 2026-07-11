@@ -161,6 +161,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
     }
 
+    @ExceptionHandler(OperationalCapabilityDisabledException.class)
+    public ResponseEntity<ErrorResponse> handleOperationalCapabilityDisabledException(
+            OperationalCapabilityDisabledException ex, WebRequest request) {
+
+        log.warn("Capability operacional desactivada: {}", ex.getCode());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Capability operacional desactivada")
+                .code(ex.getCode())
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
     /**
      * Trata InvalidSignatureException (401) — callback com assinatura inválida.
      */

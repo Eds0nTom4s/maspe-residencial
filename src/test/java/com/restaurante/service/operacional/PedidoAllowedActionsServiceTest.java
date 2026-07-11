@@ -38,13 +38,23 @@ class PedidoAllowedActionsServiceTest {
 
     private final OperacaoProperties operacaoProperties = new OperacaoProperties();
     private final OrdemPagamentoRepository ordemPagamentoRepository = Mockito.mock(OrdemPagamentoRepository.class);
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy = Mockito.mock(OperationalCapabilitiesPolicy.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-06T12:00:00Z"), ZoneOffset.UTC);
-    private final PedidoAllowedActionsService service = new PedidoAllowedActionsService(
-            new OperationalTemplatePolicy(),
-            operacaoProperties,
-            ordemPagamentoRepository,
-            clock
-    );
+    private final PedidoAllowedActionsService service;
+
+    PedidoAllowedActionsServiceTest() {
+        when(operationalCapabilitiesPolicy.canUseProduction(Mockito.any(Pedido.class)))
+                .thenAnswer(invocation -> !isPonto(invocation.getArgument(0)));
+        when(operationalCapabilitiesPolicy.canDeliverWithoutReady(Mockito.any(Pedido.class)))
+                .thenAnswer(invocation -> isPonto(invocation.getArgument(0)));
+        service = new PedidoAllowedActionsService(
+                new OperationalTemplatePolicy(),
+                operacaoProperties,
+                ordemPagamentoRepository,
+                clock,
+                operationalCapabilitiesPolicy
+        );
+    }
 
     @Test
     void pedidoCriadoPublicoQrRetornaAcceptERejectParaOperadorPermitido() {
@@ -257,6 +267,13 @@ class PedidoAllowedActionsServiceTest {
         subPedido.setStatus(subPedidoStatus);
         pedido.setSubPedidos(List.of(subPedido));
         return pedido;
+    }
+
+    private boolean isPonto(Pedido pedido) {
+        return pedido != null
+                && pedido.getTenant() != null
+                && pedido.getTenant().getTemplateCode() != null
+                && pedido.getTenant().getTemplateCode().startsWith("CONSUMA_PONTO");
     }
 
     private OrdemPagamento ordem(Pedido pedido, OrdemPagamentoStatus status, LocalDateTime expiresAt) {

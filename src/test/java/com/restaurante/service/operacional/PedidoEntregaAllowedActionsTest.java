@@ -52,13 +52,23 @@ class PedidoEntregaAllowedActionsTest {
 
     private final OperacaoProperties operacaoProperties = new OperacaoProperties();
     private final OrdemPagamentoRepository ordemPagamentoRepository = Mockito.mock(OrdemPagamentoRepository.class);
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy = Mockito.mock(OperationalCapabilitiesPolicy.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-06T12:00:00Z"), ZoneOffset.UTC);
-    private final PedidoAllowedActionsService service = new PedidoAllowedActionsService(
-            new OperationalTemplatePolicy(),
-            operacaoProperties,
-            ordemPagamentoRepository,
-            clock
-    );
+    private final PedidoAllowedActionsService service;
+
+    PedidoEntregaAllowedActionsTest() {
+        when(operationalCapabilitiesPolicy.canUseProduction(Mockito.any(Pedido.class)))
+                .thenAnswer(invocation -> !isPonto(invocation.getArgument(0)));
+        when(operationalCapabilitiesPolicy.canDeliverWithoutReady(Mockito.any(Pedido.class)))
+                .thenAnswer(invocation -> isPonto(invocation.getArgument(0)));
+        service = new PedidoAllowedActionsService(
+                new OperationalTemplatePolicy(),
+                operacaoProperties,
+                ordemPagamentoRepository,
+                clock,
+                operationalCapabilitiesPolicy
+        );
+    }
 
     // ─────────────────────────────────────────────────────────────────────────────
     // TESTE 1: Pedido sem pagamento PAGO não retorna MARK_DELIVERED
@@ -221,6 +231,38 @@ class PedidoEntregaAllowedActionsTest {
     }
 
     @Test
+    void pontoComOrdemActivaNaoLiberaMarkDelivered() {
+        Pedido pedido = pedido("CONSUMA_PONTO", StatusPedido.EM_ANDAMENTO,
+                StatusFinanceiroPedido.NAO_PAGO, true, StatusSubPedido.PENDENTE);
+        when(ordemPagamentoRepository.findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(1L, 100L))
+                .thenReturn(Optional.of(ordem(pedido, OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO, now().plusMinutes(10))));
+
+        PedidoAllowedActionsService.PedidoCapabilities caps = service.evaluate(pedido, ctx(TenantUserRole.TENANT_OWNER));
+
+        assertThat(caps.allowedActions()).doesNotContain(PedidoAllowedAction.MARK_DELIVERED);
+        assertThat(caps.actionReasons()).containsEntry(
+                PedidoAllowedAction.MARK_DELIVERED,
+                "Entrega permitida apenas após pagamento confirmado."
+        );
+    }
+
+    @Test
+    void pontoComOrdemExpiradaNaoLiberaMarkDelivered() {
+        Pedido pedido = pedido("CONSUMA_PONTO", StatusPedido.EM_ANDAMENTO,
+                StatusFinanceiroPedido.NAO_PAGO, true, StatusSubPedido.PENDENTE);
+        when(ordemPagamentoRepository.findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(1L, 100L))
+                .thenReturn(Optional.of(ordem(pedido, OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO, now().minusMinutes(1))));
+
+        PedidoAllowedActionsService.PedidoCapabilities caps = service.evaluate(pedido, ctx(TenantUserRole.TENANT_OWNER));
+
+        assertThat(caps.allowedActions()).doesNotContain(PedidoAllowedAction.MARK_DELIVERED);
+        assertThat(caps.actionReasons()).containsEntry(
+                PedidoAllowedAction.MARK_DELIVERED,
+                "Entrega permitida apenas após pagamento confirmado."
+        );
+    }
+
+    @Test
     void restPagoComSubPedidoPendenteNaoLiberaMarkDelivered() {
         Pedido pedido = pedido("CONSUMA_REST", StatusPedido.EM_ANDAMENTO,
                 StatusFinanceiroPedido.PAGO, true, StatusSubPedido.PENDENTE);
@@ -274,6 +316,30 @@ class PedidoEntregaAllowedActionsTest {
         subPedido.setStatus(subPedidoStatus);
         pedido.setSubPedidos(List.of(subPedido));
         return pedido;
+    }
+
+    private boolean isPonto(Pedido pedido) {
+        return pedido != null
+                && pedido.getTenant() != null
+                && pedido.getTenant().getTemplateCode() != null
+                && pedido.getTenant().getTemplateCode().startsWith("CONSUMA_PONTO");
+    }
+
+    private OrdemPagamento ordem(Pedido pedido, OrdemPagamentoStatus status, LocalDateTime expiresAt) {
+        OrdemPagamento ordem = new OrdemPagamento();
+        ordem.setId(200L);
+        ordem.setTenant(pedido.getTenant());
+        ordem.setPedido(pedido);
+        ordem.setStatus(status);
+        ordem.setValor(new BigDecimal("10.00"));
+        ordem.setMoeda("AOA");
+        ordem.setMetodoSolicitado(MetodoPagamentoManual.TPA);
+        ordem.setExpiresAt(expiresAt);
+        return ordem;
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
 
     private TenantContext ctx(TenantUserRole role) {

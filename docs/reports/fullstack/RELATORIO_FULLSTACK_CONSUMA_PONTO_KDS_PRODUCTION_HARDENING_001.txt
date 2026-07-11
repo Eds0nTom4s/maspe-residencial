@@ -1,0 +1,114 @@
+RELATORIO_FULLSTACK_CONSUMA_PONTO_KDS_PRODUCTION_HARDENING_001
+
+1. Identificacao
+Data: 2026-07-11, timezone Africa/Luanda.
+Backend branch: backend/consuma-ponto-kds-production-capabilities-hardening-001
+Backend base: d0464552849395a783fc7e8553520e2b1d31989e
+Backend commits finais: informados na entrega.
+Frontend branch: ui/consuma-ponto-kds-production-capabilities-hardening-001
+Frontend base: 59fe20b01e15e5f906167e27eae0aa4093ce6fb2
+Frontend commits finais: informados na entrega.
+
+2. Baselines
+A fase parte das bases funcionais limpas informadas acima. As branches de
+auditoria foram usadas como evidencia, nao como base funcional de implementacao.
+
+3. Causa
+KDS e producao estavam declarados como desligados no PONTO, mas a regra nao era
+aplicada de forma central a todos os pontos de entrada. Backend e frontend podiam
+expor caminhos de cozinha por fallback, URL directa ou contratos incompletos.
+
+4. Policy criada ou consolidada
+OperationalCapabilitiesPolicy e a fonte central tenant-scoped para producao,
+KDS, fila, comandos e entrega sem PRONTO. O frontend consome os contratos
+efectivos por useOperationalCapabilitiesStore e falha fechado.
+
+5. Configuracao padrao
+CONSUMA PONTO: productionEnabled=false e kdsEnabled=false quando ausente ou null.
+False explicito prevalece. KDS exige producao, operacao e modulo activos.
+REST e outros templates preservam o comportamento legado quando nao configurados.
+
+6. Endpoints protegidos
+Endpoints, services de KDS, sync de device e transicoes de producao validam a
+policy antes de consultar ou alterar estado. Violacoes retornam HTTP 409 com
+codigo estruturado, sem sucesso silencioso e sem 500.
+
+7. Fila KDS
+Fila moderna, legada, device e producao excluem ou rejeitam PONTO desactivado.
+REST explicitamente habilitado continua operacional. Tenant scope foi testado.
+
+8. Eventos
+Eventos de entrada KDS, PRONTO e libertacao automatica nao sao publicados para
+operacoes sem producao. Eventos gerais de atendimento continuam disponiveis.
+
+9. Subpedidos
+PONTO sem producao nao recebe rota/unidade de cozinha nem transicoes de preparacao.
+O agregado de itens permanece por compatibilidade da maquina de estados, sem ser
+um subfluxo obrigatorio KDS.
+
+10. AllowedActions
+Backend remove START_PREPARATION e MARK_READY quando a capability esta desligada.
+MARK_DELIVERED depende de actor, estado PAGO, ausencia de ordem activa e regras
+operacionais. Frontend renderiza comandos somente a partir de allowedActions.
+
+11. Entrega
+PONTO PAGO pode seguir directamente para entrega sem PRONTO. Nao pago, ordem
+activa e ordem expirada sem pagamento confirmado continuam bloqueados.
+
+12. UI
+useOperationalCapabilitiesStore combina /tenant/operacao/config e
+/tenant/modulos-operacionais. False, contradicao ou erro de carregamento resultam
+em KDS desactivado; o estado de loading nunca assume capability activa.
+
+13. Menu
+Dashboard e Inicio do tenant ocultam acessos de KDS/producao quando desactivados.
+REST explicitamente habilitado preserva o acesso.
+
+14. Rota
+A rota app.kds possui meta requiresKds. O guard carrega capabilities antes do
+guard de turno e redirecciona acesso directo para /app/dashboard com mensagem
+operacional. Nenhuma consulta de fila KDS e feita no acesso bloqueado.
+
+15. Testes backend
+mvn -DskipTests compile: SUCCESS, 1530 classes.
+Focados: 45 unitarios + 3 KDS IT + 1 happy path IT + 13 transicoes IT, SUCCESS.
+mvn test: SUCCESS, 444 testes, 0 falhas, 0 erros, 3 skipped.
+mvn -Pit verify: SUCCESS, 444 unitarios + 289 ITs, 0 falhas, 0 erros;
+3 skipped unitarios. O verify completo foi repetido apos corrigir um teste legado
+que exercia finalizacao nao paga; o segundo ciclo fechou BUILD SUCCESS.
+
+16. Testes frontend
+npm run typecheck: SUCCESS.
+npm run lint: SUCCESS.
+npm run test: SUCCESS, 17 arquivos e 113 testes.
+npm run test:e2e: SUCCESS, 19 testes passaram e 1 foi ignorado por depender de
+credenciais externas.
+npm run build: SUCCESS, 468 modulos transformados.
+
+17. E2E
+ConsumaDemoFreezyHappyPathIT prova QR, envio, aceite, ordem, confirmacao,
+pagamento, ausencia de KDS, entrega sem PRONTO, finalizacao e auto-fecho.
+KdsOperationsContractIT prova 409 e ausencia de transicao em comandos directos.
+Playwright prova menu oculto, URL directa redireccionada sem request KDS, fallback
+fechado e REST habilitado preservado. A validacao foi tecnica, sem deploy externo.
+
+18. Nao regressao REST
+REST com capabilities explicitamente activas conserva menu, rota, fila e ciclo de
+preparacao. A suite ampla backend e a suite E2E frontend passaram.
+
+19. Arquivos alterados
+Backend: 20 arquivos de producao Java e 8 arquivos de teste Java, alem dos
+relatorios backend e fullstack.
+Frontend: auth/guard, rotas, Dashboard, Inicio, tipos, store de capabilities,
+testes unitarios e Playwright, alem do relatorio frontend.
+Os inventarios completos constam nos relatorios de cada repositorio.
+
+20. Riscos restantes
+Nao foi realizado deploy Docker nesta fase. O Docker externo permaneceu
+inalterado. O banco nao foi alterado manualmente e nenhuma migration foi criada.
+O E2E foi tecnico, por ITs Spring e Playwright. Habilitacao futura de KDS para
+PONTO precisa de contrato persistido, autorizacao e testes proprios; nao deve
+depender de fallback.
+
+21. Decisao final
+KDS DEFAULT OFF IMPLEMENTADO E PROVADO

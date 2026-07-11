@@ -241,7 +241,7 @@ public class OperationalTemplatePolicy {
         return TEMPLATE_REST_V1.equals(normalizeTemplateCode(templateCode, null));
     }
 
-    private boolean isPontoTemplate(String templateCode) {
+    public boolean isPontoTemplate(String templateCode) {
         return TEMPLATE_PONTO_V1.equals(normalizeTemplateCode(templateCode, null));
     }
 

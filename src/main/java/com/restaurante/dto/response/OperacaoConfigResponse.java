@@ -14,4 +14,6 @@ public class OperacaoConfigResponse {
     private boolean turnoObrigatorio;
     private String pedidosEscopo;
     private boolean extratoTurnoEnabled;
+    private boolean productionEnabled;
+    private boolean kdsEnabled;
 }

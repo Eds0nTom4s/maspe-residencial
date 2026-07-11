@@ -1,0 +1,90 @@
+RELATORIO_ALINHAMENTO_MAIN_REMOTA_ANTES_MERGE_KDS_001
+
+1. Branch
+Backend branch: main
+
+2. HEAD local inicial
+d0464552849395a783fc7e8553520e2b1d31989e
+
+3. HEAD remoto inicial
+5fef798d1833c24201af8ecce06a8ffa0b2ce1d6
+
+4. Resultado origin/main...main
+Resultado inicial: 0 1.
+Interpretacao: origin/main era ancestral directo de main, e main possuia um unico
+commit local exclusivo.
+
+5. Commit exclusivo
+d0464552849395a783fc7e8553520e2b1d31989e
+Mensagem: fix(backend): corrige 500 em produtos do cardapio
+Origem: correcao fullstack anteriormente aprovada para a regressao do endpoint
+GET /tenant/produtos.
+
+6. Auditoria do commit
+Arquivos:
+- docs/reports/fullstack/RELATORIO_REGRESSION_PRODUTOS_CARDAPIO_500_001.txt
+- src/main/java/com/restaurante/model/entity/Produto.java
+- src/main/java/com/restaurante/service/ProdutoService.java
+- src/main/java/com/restaurante/store/mapper/StoreMapper.java
+- src/test/java/com/restaurante/controller/TenantProdutoControllerIT.java
+
+Escopo:
+- remove o mapeamento ORM duplicado de imagensGaleria em Produto;
+- resolve a galeria pela entidade canonica ProdutoImagemRepository;
+- preserva o filtro tenant-scoped;
+- cobre a serializacao da galeria em TenantProdutoControllerIT;
+- documenta a regressao de Produtos/Cardapio e o smoke Store/Socio.
+
+Conteudo inesperado: nenhum.
+Secrets, .env, backups, dumps, logs pesados ou temporarios: nenhum.
+Commit esperado: Sim.
+
+7. Estado de REBASE_HEAD
+REBASE_HEAD presente: Sim.
+Valor residual: 7790bd765a282055df3bb8dc6ba2488388bf4c45.
+git status nao indicou rebase.
+Nao existia .git/rebase-merge.
+Nao existia .git/rebase-apply.
+git rebase --show-current-patch informou que nao havia rebase em progresso.
+
+8. Rebase activo
+Nao. REBASE_HEAD foi classificado como referencia residual e nao foi removido.
+
+9. Testes
+mvn -DskipTests compile: BUILD SUCCESS; 1528 fontes compiladas.
+mvn test: BUILD SUCCESS; Surefire 432 testes, 0 falhas, 0 erros, 3 skipped.
+mvn -Pit verify: BUILD SUCCESS; Surefire 432 testes, 0 falhas, 0 erros,
+3 skipped; Failsafe 288 testes, 0 falhas, 0 erros, 0 skipped.
+Observacao: o aviso de encerramento tardio do fork Surefire nao alterou o resultado
+final BUILD SUCCESS.
+
+10. Push
+Comando: git push origin main
+Resultado: fast-forward 5fef798..d046455, sem force.
+
+11. HEAD local final
+d0464552849395a783fc7e8553520e2b1d31989e
+
+12. HEAD remoto final
+d0464552849395a783fc7e8553520e2b1d31989e
+
+13. Resultado final
+origin/main...main: 0 0.
+origin/main contem d046455: Sim.
+
+14. Docker
+Nao alterado. Nenhuma imagem foi criada e nenhum container foi reiniciado.
+
+15. Banco
+Nao alterado. Nenhuma migration foi aplicada manualmente.
+
+16. Frontend
+Nao alterado. HEAD permaneceu em e359c7f124d86396294bdba8f677858619c3047f
+e o worktree permaneceu limpo.
+
+17. Decisao
+MAIN BACKEND ALINHADA COM ORIGIN/MAIN
+
+Observacao de governanca:
+Este relatorio foi integrado em commit documental separado e publicado antes da
+retomada do merge controlado do hardening KDS.

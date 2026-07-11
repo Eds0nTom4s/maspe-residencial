@@ -15,6 +15,7 @@ import com.restaurante.service.device.DeviceFilaDiffService;
 import com.restaurante.service.device.DeviceReadOnlySyncService;
 import com.restaurante.service.device.DeviceSyncVersionService;
 import com.restaurante.service.producao.ProducaoKdsService;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import com.restaurante.service.metrics.DeviceSyncMetricsService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -42,6 +43,7 @@ public class DeviceSyncController {
 
     private final DeviceReadOnlySyncService syncService;
     private final ProducaoKdsService producaoKdsService;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
     private final DeviceSyncVersionService versionService;
     private final DeviceFilaDiffService filaDiffService;
     private final DeviceSyncMetricsService metrics;
@@ -246,6 +248,7 @@ public class DeviceSyncController {
     ) {
         return metrics.timeSync("PRODUCAO", () -> {
             DevicePrincipal device = requireDevicePrincipal();
+            operationalCapabilitiesPolicy.assertProductionEnabled(device.tenantId());
             var ver = versionService.computeProducao(device, updatedSince);
             if (ver.fullSyncRequired()) {
                 metrics.recordFullSyncRequired("PRODUCAO", ver.fullSyncReason());
@@ -288,6 +291,7 @@ public class DeviceSyncController {
     ) {
         return metrics.timeSync("PRODUCAO_FILA", () -> {
             DevicePrincipal device = requireDevicePrincipal();
+            operationalCapabilitiesPolicy.assertProductionEnabled(device.tenantId());
             Long unidadeProducaoId = device.unidadeProducaoId();
             if (unidadeProducaoId == null) {
                 throw new com.restaurante.exception.ConflictException("DEVICE_PRODUCTION_UNIT_AMBIGUOUS");

@@ -220,8 +220,8 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
     }
 
     @Test
-    @WithMockUser(username = "cashier-user")
-    void cashier_canFinalizePedido_whenAllSubPedidosArePronto_andEventLogIsCreated() throws Exception {
+    @WithMockUser(username = "operator-user")
+    void operator_canFinalizePaidPedido_whenAllSubPedidosArePronto_andEventLogIsCreated() throws Exception {
         Setup setup = setupTenantAndPedido("op-status-6", "OS6");
         pedidoService.confirmar(setup.pedidoId);
 
@@ -240,11 +240,15 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
                         .content("{\"status\":\"PRONTO\",\"motivo\":\"Finalizado\"}"))
                 .andExpect(status().isOk());
 
-        // Agora: caixa finaliza pedido (FINALIZADO), entregando subpedidos PRONTO -> ENTREGUE
-        User cashier = criarTenantActor(setup.tenant, TenantUserRole.TENANT_CASHIER, "cashier-os6");
+        Pedido pedidoPago = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
+        pedidoPago.setStatusFinanceiro(StatusFinanceiroPedido.PAGO);
+        pedidoRepository.saveAndFlush(pedidoPago);
+
+        // Agora: operador finaliza pedido (FINALIZADO), entregando subpedidos PRONTO -> ENTREGUE
+        User operator = criarTenantActor(setup.tenant, TenantUserRole.TENANT_OPERATOR, "operator-os6");
         TenantContextHolder.set(new TenantContext(
-                setup.tenant.getId(), setup.tenant.getTenantCode(), cashier.getId(),
-                Set.of(TenantUserRole.TENANT_CASHIER.name()),
+                setup.tenant.getId(), setup.tenant.getTenantCode(), operator.getId(),
+                Set.of(TenantUserRole.TENANT_OPERATOR.name()),
                 TenantResolutionSource.JWT, false, false
         ));
 
@@ -255,7 +259,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
 
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedido.FINALIZADO);
-        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.NAO_PAGO);
+        assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PAGO);
 
         var sub = subPedidoRepository.findByIdAndTenantId(setup.subPedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(sub.getStatus()).isEqualTo(StatusSubPedido.ENTREGUE);

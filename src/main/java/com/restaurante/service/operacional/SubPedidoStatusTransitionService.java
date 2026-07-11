@@ -37,6 +37,7 @@ public class SubPedidoStatusTransitionService {
     private final PedidoService pedidoService;
     private final PedidoRepository pedidoRepository;
     private final OperationalEventLogService operationalEventLogService;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     @Transactional
     public SubPedidoProducaoResponse atualizarStatus(Long subPedidoId, StatusSubPedido novoStatus, String motivo, String ip, String userAgent) {
@@ -89,6 +90,10 @@ public class SubPedidoStatusTransitionService {
 
         SubPedido sp = subPedidoRepository.findByIdAndTenantId(subPedidoId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+
+        if (novoStatus == StatusSubPedido.EM_PREPARACAO || novoStatus == StatusSubPedido.PRONTO) {
+            operationalCapabilitiesPolicy.assertPedidoCanUseProduction(sp.getPedido());
+        }
 
         StatusSubPedido anterior = sp.getStatus();
         if (!sp.podeTransicionarPara(novoStatus)) {

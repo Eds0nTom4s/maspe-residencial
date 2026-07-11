@@ -42,11 +42,13 @@ public class PedidoAllowedActionsService {
     private static final String REASON_PAYMENT_ORDER_EXPIRED = "Ordem de pagamento expirada.";
     private static final String REASON_PAYMENT_ORDER_STATUS = "Ordem de pagamento não está aguardando confirmação.";
     private static final String REASON_PAYMENT_NOT_CONFIRMED = "Entrega permitida apenas após pagamento confirmado.";
+    private static final String REASON_PRODUCTION_DISABLED = "Este pedido não utiliza fluxo de produção.";
 
     private final OperationalTemplatePolicy operationalTemplatePolicy;
     private final OperacaoProperties operacaoProperties;
     private final OrdemPagamentoRepository ordemPagamentoRepository;
     private final Clock clock;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     public PedidoCapabilities evaluate(Pedido pedido, TenantContext ctx) {
         if (pedido == null) {
@@ -234,20 +236,26 @@ public class PedidoAllowedActionsService {
         }
 
         List<SubPedido> subPedidos = subPedidos(pedido);
-        if (subPedidos.stream().anyMatch(sp -> sp.getStatus() == StatusSubPedido.PENDENTE)) {
-            allowed.add(PedidoAllowedAction.START_PREPARATION);
+        boolean productionEnabled = operationalCapabilitiesPolicy.canUseProduction(pedido);
+        if (!productionEnabled) {
+            reasons.put(PedidoAllowedAction.START_PREPARATION, REASON_PRODUCTION_DISABLED);
+            reasons.put(PedidoAllowedAction.MARK_READY, REASON_PRODUCTION_DISABLED);
         } else {
-            reasons.put(PedidoAllowedAction.START_PREPARATION, REASON_SUBPEDIDOS);
+            if (subPedidos.stream().anyMatch(sp -> sp.getStatus() == StatusSubPedido.PENDENTE)) {
+                allowed.add(PedidoAllowedAction.START_PREPARATION);
+            } else {
+                reasons.put(PedidoAllowedAction.START_PREPARATION, REASON_SUBPEDIDOS);
+            }
+            if (subPedidos.stream().anyMatch(sp -> sp.getStatus() == StatusSubPedido.EM_PREPARACAO)) {
+                allowed.add(PedidoAllowedAction.MARK_READY);
+            } else {
+                reasons.put(PedidoAllowedAction.MARK_READY, REASON_SUBPEDIDOS);
+            }
         }
-        if (subPedidos.stream().anyMatch(sp -> sp.getStatus() == StatusSubPedido.EM_PREPARACAO)) {
-            allowed.add(PedidoAllowedAction.MARK_READY);
-        } else {
-            reasons.put(PedidoAllowedAction.MARK_READY, REASON_SUBPEDIDOS);
-        }
-        boolean isOptionalKitchen = operationalTemplatePolicy.productionFlow(template, origem) == OperationalTemplatePolicy.ProductionFlow.OPTIONAL;
+        boolean directDelivery = operationalCapabilitiesPolicy.canDeliverWithoutReady(pedido);
         if (!subPedidos.isEmpty() && subPedidos.stream().allMatch(sp ->
                 sp.getStatus() == StatusSubPedido.PRONTO || sp.getStatus() == StatusSubPedido.ENTREGUE ||
-                (isOptionalKitchen && sp.getStatus() == StatusSubPedido.PENDENTE))) {
+                (directDelivery && sp.getStatus() == StatusSubPedido.PENDENTE))) {
             // MARK_DELIVERED exige pagamento confirmado por contrato operacional.
             if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
                 reasons.put(PedidoAllowedAction.MARK_DELIVERED, REASON_PAYMENT_NOT_CONFIRMED);

@@ -2,6 +2,7 @@ package com.restaurante.service;
 
 import com.restaurante.exception.PermissaoNegadaException;
 import com.restaurante.exception.TransicaoInvalidaException;
+import com.restaurante.exception.OperationalCapabilityDisabledException;
 import com.restaurante.model.entity.Cliente;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Pedido;
@@ -73,6 +74,9 @@ class SubPedidoStateMachineTest {
     @Mock
     private com.restaurante.notificacao.service.NotificacaoService notificacaoService;
 
+    @Mock
+    private com.restaurante.service.operacional.OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
+
     private SubPedidoService subPedidoService;
 
     private Cozinha cozinha;
@@ -92,8 +96,10 @@ class SubPedidoStateMachineTest {
                 eventLogService,
                 transicaoEstadoValidator,
                 pedidoService,
-                notificacaoService
+                notificacaoService,
+                operationalCapabilitiesPolicy
         );
+        when(operationalCapabilitiesPolicy.canEnterKds(any(Pedido.class))).thenReturn(true);
 
         cozinha = Cozinha.builder()
                 .nome("Cozinha Central")
@@ -196,6 +202,21 @@ class SubPedidoStateMachineTest {
                 any(), any(), anyLong()
         );
         verify(pedidoService, times(1)).recalcularStatusPedido(pedido.getId());
+    }
+
+    @Test
+    void pontoSemProducaoNaoPodeAssumirSubPedidoPeloEndpointLegado() {
+        autenticarComo("ROLE_COZINHA");
+        SubPedido atual = criarSubPedidoComStatus(StatusSubPedido.PENDENTE);
+        when(subPedidoRepository.findByIdWithDetails(atual.getId())).thenReturn(java.util.Optional.of(atual));
+        doThrow(OperationalCapabilityDisabledException.production())
+                .when(operationalCapabilitiesPolicy).assertPedidoCanUseProduction(pedido);
+
+        assertThrows(OperationalCapabilityDisabledException.class,
+                () -> subPedidoService.assumir(atual.getId()));
+
+        verify(subPedidoRepository, never()).save(any(SubPedido.class));
+        verify(pedidoService, never()).recalcularStatusPedido(anyLong());
     }
 
     @Test

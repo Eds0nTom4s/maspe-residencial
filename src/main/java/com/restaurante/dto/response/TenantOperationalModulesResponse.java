@@ -15,6 +15,7 @@ public class TenantOperationalModulesResponse {
     private boolean mesasEnabled;
     private boolean qrMesaEnabled;
     private boolean caixaEnabled;
+    private boolean productionEnabled;
     private boolean kdsEnabled;
     private Long configuredByPlatformUserId;
     private LocalDateTime configuredAt;

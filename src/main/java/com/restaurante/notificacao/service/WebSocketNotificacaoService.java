@@ -3,7 +3,7 @@ package com.restaurante.notificacao.service;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.notificacao.dto.NotificacaoSubPedidoDTO;
-import lombok.RequiredArgsConstructor;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -31,9 +31,13 @@ public class WebSocketNotificacaoService {
     private static final Logger log = LoggerFactory.getLogger(WebSocketNotificacaoService.class);
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
-    public WebSocketNotificacaoService(SimpMessagingTemplate messagingTemplate) {
+    public WebSocketNotificacaoService(
+            SimpMessagingTemplate messagingTemplate,
+            OperationalCapabilitiesPolicy operationalCapabilitiesPolicy) {
         this.messagingTemplate = messagingTemplate;
+        this.operationalCapabilitiesPolicy = operationalCapabilitiesPolicy;
     }
 
     /**
@@ -60,7 +64,9 @@ public class WebSocketNotificacaoService {
         );
 
         // Broadcast para múltiplos canais
-        notificarCozinha(notificacao);
+        if (canUseProduction(subPedido)) {
+            notificarCozinha(notificacao);
+        }
         notificarAtendentes(notificacao);
         notificarSubPedidoEspecifico(notificacao);
         notificarPedido(notificacao);
@@ -71,6 +77,9 @@ public class WebSocketNotificacaoService {
      * Usado quando novo pedido entra na fila da cozinha
      */
     public void notificarNovoSubPedido(SubPedido subPedido, String usuario) {
+        if (!canUseProduction(subPedido)) {
+            return;
+        }
         log.info("Notificando novo SubPedido: {} para cozinha {}", 
             subPedido.getNumero(), subPedido.getCozinha().getNome());
 
@@ -88,6 +97,9 @@ public class WebSocketNotificacaoService {
      * Prioridade ALTA - atendente deve buscar
      */
     public void notificarSubPedidoPronto(SubPedido subPedido, String usuario) {
+        if (!canUseProduction(subPedido)) {
+            return;
+        }
         log.info("🔔 SubPedido PRONTO: {} - Notificando atendentes", 
             subPedido.getNumero());
 
@@ -119,8 +131,10 @@ public class WebSocketNotificacaoService {
             NotificacaoSubPedidoDTO.TipoAcaoSubPedido.CANCELAMENTO
         );
 
-        // Notifica todos os canais (importante)
-        notificarCozinha(notificacao);
+        // O canal de cozinha só existe quando o pedido participa da produção.
+        if (canUseProduction(subPedido)) {
+            notificarCozinha(notificacao);
+        }
         notificarAtendentes(notificacao);
         notificarSubPedidoEspecifico(notificacao);
         notificarPedido(notificacao);
@@ -133,6 +147,9 @@ public class WebSocketNotificacaoService {
      * BROADCAST CRÍTICO: Cozinha, Bar, Painel Gerente, Balcão
      */
     public void notificarPedidoLiberadoAutomaticamente(com.restaurante.model.entity.Pedido pedido) {
+        if (!operationalCapabilitiesPolicy.canUseProduction(pedido)) {
+            return;
+        }
         log.info("🟢 PEDIDO_LIBERADO_AUTOMATICAMENTE: {} - Enviando para produção", 
             pedido.getNumero());
 
@@ -252,6 +269,10 @@ public class WebSocketNotificacaoService {
     }
 
     // ========== MÉTODOS PRIVADOS DE ENVIO ==========
+
+    private boolean canUseProduction(SubPedido subPedido) {
+        return subPedido != null && operationalCapabilitiesPolicy.canUseProduction(subPedido.getPedido());
+    }
 
     /**
      * Envia notificação para cozinha específica

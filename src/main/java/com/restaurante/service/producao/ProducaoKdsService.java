@@ -10,6 +10,7 @@ import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -35,6 +36,7 @@ public class ProducaoKdsService {
     private final TenantGuard tenantGuard;
     private final ProducaoScopeResolver scopeResolver;
     private final SubPedidoRepository subPedidoRepository;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     @Value("${consuma.producao.default-lookback-hours:12}")
     private int defaultLookbackHours;
@@ -50,7 +52,9 @@ public class ProducaoKdsService {
 
     @Transactional(readOnly = true)
     public MinhaUnidadeProducaoResponse minhaUnidade() {
-        return scopeResolver.minhaUnidade();
+        MinhaUnidadeProducaoResponse unidade = scopeResolver.minhaUnidade();
+        operationalCapabilitiesPolicy.assertProductionEnabled(unidade.tenantId());
+        return unidade;
     }
 
     @Transactional(readOnly = true)
@@ -60,6 +64,7 @@ public class ProducaoKdsService {
                                                                   String search,
                                                                   Pageable pageable) {
         MinhaUnidadeProducaoResponse unidade = scopeResolver.minhaUnidade();
+        operationalCapabilitiesPolicy.assertProductionEnabled(unidade.tenantId());
         if (unidade.modoResolucao() == MinhaUnidadeProducaoResponse.ModoResolucao.EXPLICIT_REQUIRED || unidade.unidadeProducaoId() == null) {
             throw new ConflictException("PRODUCTION_UNIT_AMBIGUOUS");
         }
@@ -77,6 +82,7 @@ public class ProducaoKdsService {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_OPERATOR);
 
         Long tenantId = scopeResolver.requireTenantId();
+        operationalCapabilitiesPolicy.assertProductionEnabled(tenantId);
         Pageable effective = effectivePageable(pageable);
         LocalDateTime[] period = effectivePeriod(de, ate);
 
@@ -93,6 +99,7 @@ public class ProducaoKdsService {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_OPERATOR);
 
         Long tenantId = scopeResolver.requireTenantId();
+        operationalCapabilitiesPolicy.assertProductionEnabled(tenantId);
         LocalDateTime[] period = effectivePeriod(de, ate);
         return computeMetricas(tenantId, unidadeProducaoId, period[0], period[1]);
     }
@@ -100,6 +107,7 @@ public class ProducaoKdsService {
     @Transactional(readOnly = true)
     public ProducaoMetricasResponse metricasMinhaUnidade(LocalDateTime de, LocalDateTime ate) {
         MinhaUnidadeProducaoResponse unidade = scopeResolver.minhaUnidade();
+        operationalCapabilitiesPolicy.assertProductionEnabled(unidade.tenantId());
         if (unidade.modoResolucao() == MinhaUnidadeProducaoResponse.ModoResolucao.EXPLICIT_REQUIRED || unidade.unidadeProducaoId() == null) {
             throw new ConflictException("PRODUCTION_UNIT_AMBIGUOUS");
         }

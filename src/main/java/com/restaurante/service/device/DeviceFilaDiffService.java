@@ -12,6 +12,7 @@ import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.repository.OperationalEventLogRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.service.producao.ProducaoKdsService;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -30,6 +31,7 @@ public class DeviceFilaDiffService {
 
     private final OperationalEventLogRepository operationalEventLogRepository;
     private final ProducaoKdsService producaoKdsService;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     public record DiffResult(DeviceFilaDiffSyncResponse data,
                              boolean fullSyncRequired,
@@ -51,6 +53,7 @@ public class DeviceFilaDiffService {
     @Transactional(readOnly = true)
     public DiffResult diff(DevicePrincipal device, Long sinceEventId, Integer limit) {
         requireCapability(device, DeviceCapability.VIEW_PRODUCTION);
+        operationalCapabilitiesPolicy.assertProductionEnabled(device.tenantId());
         if (device.unidadeProducaoId() == null) {
             throw new ConflictException("DEVICE_PRODUCTION_UNIT_AMBIGUOUS");
         }

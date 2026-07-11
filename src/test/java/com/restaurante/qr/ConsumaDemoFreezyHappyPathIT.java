@@ -15,14 +15,19 @@ import com.restaurante.model.entity.Tenant;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.TenantCardapioConfigRepository;
+import com.restaurante.repository.TenantOperacaoPolicyRepository;
+import com.restaurante.repository.TenantOperationalModulesConfigRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.CozinhaRepository;
+import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.service.ProdutoService;
+import com.restaurante.service.TenantOperationalModulesService;
 import com.restaurante.service.TenantProvisioningService;
+import com.restaurante.service.operacao.TurnoOperacionalService;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -57,6 +62,8 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
     @Autowired ObjectMapper objectMapper;
     @Autowired TenantProvisioningService provisioningService;
     @Autowired ProdutoService produtoService;
+    @Autowired TenantOperationalModulesService tenantOperationalModulesService;
+    @Autowired TurnoOperacionalService turnoOperacionalService;
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
@@ -65,6 +72,9 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired CozinhaRepository cozinhaRepository;
     @Autowired TenantCardapioConfigRepository tenantCardapioConfigRepository;
+    @Autowired TenantOperacaoPolicyRepository tenantOperacaoPolicyRepository;
+    @Autowired TenantOperationalModulesConfigRepository tenantOperationalModulesConfigRepository;
+    @Autowired SubPedidoRepository subPedidoRepository;
     @Autowired TenantRepository tenantRepository;
 
     @AfterEach
@@ -97,6 +107,13 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         Tenant tenant = tenantRepository.findById(tenantResp.getTenantId()).orElseThrow();
         tenant.setTemplateCode("CONSUMA_PONTO_V1");
         tenantRepository.saveAndFlush(tenant);
+        var operacaoPolicy = tenantOperacaoPolicyRepository.findByTenantId(tenant.getId()).orElseThrow();
+        operacaoPolicy.setProductionEnabled(false);
+        operacaoPolicy.setKdsEnabled(false);
+        tenantOperacaoPolicyRepository.saveAndFlush(operacaoPolicy);
+        var modules = tenantOperationalModulesConfigRepository.findByTenantId(tenant.getId()).orElseThrow();
+        modules.setKdsEnabled(false);
+        tenantOperationalModulesConfigRepository.saveAndFlush(modules);
 
         var ua = unidadeAtendimentoRepository.findById(tenantResp.getUnidadeAtendimentoId()).orElseThrow();
         com.restaurante.model.entity.Cozinha cozinha = new com.restaurante.model.entity.Cozinha();
@@ -108,7 +125,15 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         unidadeAtendimentoRepository.saveAndFlush(ua);
 
         // 2. Configura e publica produto
-        TenantContextHolder.set(new TenantContext(tenantResp.getTenantId(), tenantResp.getTenantCode(), tenantResp.getOwnerUserId(), Set.of("ROLE_GERENTE"), TenantResolutionSource.JWT, false, false));
+        TenantContextHolder.set(new TenantContext(tenantResp.getTenantId(), tenantResp.getTenantCode(), tenantResp.getOwnerUserId(), Set.of("ROLE_ADMIN"), TenantResolutionSource.JWT, true, true));
+        var operacaoConfig = turnoOperacionalService.getConfig();
+        assertThat(operacaoConfig.isProductionEnabled()).isFalse();
+        assertThat(operacaoConfig.isKdsEnabled()).isFalse();
+
+        var modulesConfig = tenantOperationalModulesService.obterDoTenantAtual();
+        assertThat(modulesConfig.isProductionEnabled()).isFalse();
+        assertThat(modulesConfig.isKdsEnabled()).isFalse();
+
         CategoriaProduto geral = categoriaProdutoRepository.findBySlugAndTenantId("geral", tenantResp.getTenantId()).orElseThrow();
         produtoService.criarTenantAware(ProdutoRequest.builder()
                 .codigo("AGUA-500")
@@ -152,6 +177,8 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         assertThat(createJson.at("/data/statusOperacional").asText()).isEqualTo("CRIADO");
         assertThat(createJson.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
         assertThat(createJson.at("/data/paymentOrder").isMissingNode() || createJson.at("/data/paymentOrder").isNull()).isTrue();
+        assertThat(subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId))
+                .allSatisfy(subPedido -> assertThat(subPedido.getUnidadeProducao()).isNull());
 
         // 4. Operador abre turno (obrigatório para aceitar/entregar)
         TenantContextHolder.set(new TenantContext(tenantResp.getTenantId(), tenantResp.getTenantCode(), tenantResp.getOwnerUserId(), Set.of("TENANT_OWNER", "TENANT_OPERATOR", "TENANT_CASHIER"), TenantResolutionSource.JWT, false, false));
@@ -205,6 +232,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         assertThat(aceitarJson.at("/data/paymentOrder/status").asText()).isEqualTo("AGUARDANDO_CONFIRMACAO");
         assertThat(aceitarJson.at("/data/paymentOrder/valor").asDouble()).isEqualTo(500.0);
         assertThat(aceitarJson.at("/data/paymentOrder/expiresAt").asText()).isNotBlank();
+        assertMissingAllowedAction(aceitarJson.at("/data"), "MARK_DELIVERED");
 
         // 6. Cliente vê a Ordem de Pagamento no acompanhamento
         TenantContextHolder.clear();
@@ -242,6 +270,8 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         assertThat(getJson.at("/data/paymentOrder/status").asText()).isEqualTo("CONFIRMADA");
         assertAllSubPedidosStatus(getJson.at("/data"), "PENDENTE");
         assertAllowedAction(getJson.at("/data"), "MARK_DELIVERED");
+        assertMissingAllowedAction(getJson.at("/data"), "START_PREPARATION");
+        assertMissingAllowedAction(getJson.at("/data"), "MARK_READY");
 
         // 9. Operador entrega o pedido
         String respEntregar = mockMvc.perform(patch("/tenant/pedidos/" + pedidoId + "/entregar"))

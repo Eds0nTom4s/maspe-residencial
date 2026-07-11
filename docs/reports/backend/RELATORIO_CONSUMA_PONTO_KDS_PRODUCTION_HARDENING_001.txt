@@ -1,0 +1,136 @@
+RELATORIO_CONSUMA_PONTO_KDS_PRODUCTION_HARDENING_001
+
+1. Identificacao
+Data: 2026-07-11, timezone Africa/Luanda.
+Backend branch: backend/consuma-ponto-kds-production-capabilities-hardening-001
+Backend commit base: d0464552849395a783fc7e8553520e2b1d31989e
+Backend commit funcional: informado na entrega final.
+Backend commit documental: commit que contem este relatorio.
+Frontend branch: ui/consuma-ponto-kds-production-capabilities-hardening-001
+Frontend commit base: 59fe20b01e15e5f906167e27eae0aa4093ce6fb2
+
+2. Causa
+A configuracao KDS DEFAULT OFF existia de forma declarativa, mas nao era uma
+capability central aplicada a fila, endpoints, transicoes, eventos, DTOs e
+allowedActions. Ausencia ou contradicao de configuracao podia manter caminhos de
+producao acessiveis para CONSUMA PONTO.
+
+3. Policy central
+Classe: OperationalCapabilitiesPolicy.
+Escopo: tenant e unidade do pedido/operacao.
+Fontes: tenant, TenantOperacaoPolicy, TenantOperationalModulesConfig e
+OperationalTemplatePolicy.
+Decisoes: productionEnabled, kdsEnabled, canEnterKds, canUseProduction e
+canDeliverWithoutReady.
+
+4. Configuracao padrao
+CONSUMA PONTO inclui template PONTO canonico e tenants VENDEDOR_RUA/LOJA.
+Fallback PONTO ausente ou null: productionEnabled=false e kdsEnabled=false.
+Valor false persistido e sempre respeitado.
+KDS efectivo exige simultaneamente producao, operacao KDS e modulo KDS activos.
+Para templates nao PONTO, o fallback legado foi preservado para evitar regressao.
+
+5. Endpoints e comandos protegidos
+KdsOperationsService valida a capability antes de consultar fila ou transicionar.
+DeviceSyncController, DeviceFilaDiffService, ProducaoKdsService,
+ProducaoSubPedidoService, SubPedidoStatusTransitionService e SubPedidoService
+tambem aplicam a policy antes de operacoes de producao.
+Erro de dominio: HTTP 409.
+Codigos: KDS_DISABLED_FOR_OPERATION e PRODUCTION_DISABLED_FOR_OPERATION.
+Mensagens operacionais: "O KDS nao esta activo para esta operacao." e
+"Este pedido nao utiliza fluxo de producao."
+
+6. Fila KDS
+Pedidos PONTO com capability desactivada sao rejeitados antes da query e nao sao
+expostos pelas filas moderna, legada, de device ou de producao.
+Os testes cobrem PONTO excluido, REST habilitado preservado e isolamento tenant.
+
+7. Eventos
+WebSocketNotificacaoService nao publica entrada em KDS, pronto ou libertacao
+automatica quando producao esta desactivada. Broadcasts operacionais de pedido e
+atendimento continuam activos.
+
+8. Subpedidos
+Nao e criada rota/unidade de producao para pedido PONTO sem producao.
+O agregado SubPedido existente continua a representar os itens, pois faz parte da
+maquina de estado do pedido, mas nao se torna subfluxo obrigatorio de cozinha.
+Comandos EM_PREPARACAO e PRONTO sao rejeitados pela policy.
+
+9. AllowedActions
+START_PREPARATION e MARK_READY nao sao expostas quando producao esta desactivada.
+MARK_DELIVERED e exposta somente quando o pedido PONTO esta pago, sem ordem activa
+e satisfaz as demais regras. A decisao permanece no backend.
+
+10. Entrega
+Pedido PONTO PAGO pode ser entregue sem passar por EM_PREPARACAO ou PRONTO.
+Pedido nao pago, com ordem activa ou com ordem expirada sem pagamento confirmado
+continua sem permissao de entrega.
+O caminho generico para FINALIZADO foi delegado ao fluxo protegido de entrega,
+eliminando o bypass de actor/financeiro detectado durante o verify.
+
+11. DTOs
+GET /tenant/operacao/config retorna productionEnabled e kdsEnabled efectivos.
+GET /tenant/modulos-operacionais retorna productionEnabled e kdsEnabled coerentes
+com a mesma policy.
+
+12. Nao regressao REST
+REST explicitamente habilitado conserva fila KDS, ciclo de preparacao e comandos.
+O fallback legado de templates nao PONTO nao foi alterado.
+
+13. Testes backend
+mvn -DskipTests compile: SUCCESS, 1530 classes compiladas.
+Testes unitarios focados: SUCCESS, 45 testes, 0 falhas, 0 erros.
+KdsOperationsContractIT: SUCCESS, 3 testes, 0 falhas, 0 erros.
+ConsumaDemoFreezyHappyPathIT: SUCCESS, 1 teste, 0 falhas, 0 erros.
+OperationalStatusTransitionIT: SUCCESS, 13 testes, 0 falhas, 0 erros.
+mvn test: SUCCESS, 444 testes, 0 falhas, 0 erros, 3 skipped.
+mvn -Pit verify: SUCCESS; Surefire 444 testes, 0 falhas, 0 erros,
+3 skipped; Failsafe 289 testes, 0 falhas, 0 erros, 0 skipped.
+Observacao: o primeiro verify detectou um teste legado que finalizava pedido nao
+pago com actor sem permissao. O teste foi corrigido para o contrato legitimo e o
+verify completo foi repetido com BUILD SUCCESS. O aviso de encerramento do fork
+Surefire nao alterou o resultado.
+
+14. Arquivos alterados
+src/main/java/com/restaurante/controller/DeviceSyncController.java
+src/main/java/com/restaurante/dto/response/OperacaoConfigResponse.java
+src/main/java/com/restaurante/dto/response/TenantOperationalModulesResponse.java
+src/main/java/com/restaurante/exception/GlobalExceptionHandler.java
+src/main/java/com/restaurante/exception/OperationalCapabilityDisabledException.java
+src/main/java/com/restaurante/notificacao/service/WebSocketNotificacaoService.java
+src/main/java/com/restaurante/service/PublicQrPedidoService.java
+src/main/java/com/restaurante/service/SubPedidoService.java
+src/main/java/com/restaurante/service/TenantOperationalModulesService.java
+src/main/java/com/restaurante/service/device/DeviceFilaDiffService.java
+src/main/java/com/restaurante/service/device/DevicePedidoService.java
+src/main/java/com/restaurante/service/kds/KdsOperationsService.java
+src/main/java/com/restaurante/service/operacao/TurnoOperacionalService.java
+src/main/java/com/restaurante/service/operacional/OperationalCapabilitiesPolicy.java
+src/main/java/com/restaurante/service/operacional/OperationalTemplatePolicy.java
+src/main/java/com/restaurante/service/operacional/PedidoAllowedActionsService.java
+src/main/java/com/restaurante/service/operacional/PedidoStatusTransitionService.java
+src/main/java/com/restaurante/service/operacional/SubPedidoStatusTransitionService.java
+src/main/java/com/restaurante/service/producao/ProducaoKdsService.java
+src/main/java/com/restaurante/service/producao/ProducaoSubPedidoService.java
+src/test/java/com/restaurante/kds/KdsOperationsContractIT.java
+src/test/java/com/restaurante/notificacao/service/WebSocketNotificacaoServiceTest.java
+src/test/java/com/restaurante/operacional/OperationalStatusTransitionIT.java
+src/test/java/com/restaurante/qr/ConsumaDemoFreezyHappyPathIT.java
+src/test/java/com/restaurante/service/SubPedidoStateMachineTest.java
+src/test/java/com/restaurante/service/operacional/OperationalCapabilitiesPolicyTest.java
+src/test/java/com/restaurante/service/operacional/PedidoAllowedActionsServiceTest.java
+src/test/java/com/restaurante/service/operacional/PedidoEntregaAllowedActionsTest.java
+
+15. Fora do escopo
+Fluxo financeiro, gateway, banco, migration, Docker, Business Account, Tenant
+Select, remocao global do KDS e comportamento habilitado do REST nao foram
+alterados. O banco nao foi alterado manualmente e nenhuma migration foi criada.
+
+16. Riscos restantes
+A validacao E2E foi tecnica, com integracao backend e Playwright, sem deploy
+externo. O Docker externo permaneceu inalterado. Uma configuracao futura que
+habilite KDS para PONTO deve ser tratada como contrato explicito e receber bateria
+dedicada.
+
+17. Decisao final
+KDS DEFAULT OFF IMPLEMENTADO E PROVADO

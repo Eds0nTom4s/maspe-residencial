@@ -4,6 +4,7 @@ Data: 2026-07-12
 Branch: backend/consuma-appypay-idempotencia-reconciliacao-001
 Base obrigatoria: 77ec9b9d2ac8b92a87991bde8a630c305b9e5050
 Commit funcional: 6b3fb4b15737bab5ef38763b8a5f376bf6621bff
+Commit de hardening do fingerprint: 01a5b5f
 
 ======================================================================
 1. ESCOPO E GOVERNACAO
@@ -101,8 +102,31 @@ Estados:
 Chave logica de deduplicacao:
 - pagamento bloqueado por id sob lock;
 - gateway_charge_id/external_reference pertencem ao pagamento;
-- estado remoto raw + SHA-256 da resposta serializada;
+- estado remoto raw + SHA-256 do payload canonico v1;
 - estado persistente de reconciliacao.
+
+Payload canonico v1:
+- prefixo de versao appypay-reconciliation:v1;
+- campos com nome e valor codificados por comprimento para evitar ambiguidades;
+- chargeId;
+- merchantTransactionId;
+- status normalizado em uppercase/trim;
+- amount;
+- paymentMethod normalizado em uppercase/trim;
+- entity;
+- reference;
+- errorMessage.
+
+Campos volateis deliberadamente excluidos do fingerprint:
+- paymentUrl;
+- createdAt;
+- expiresAt.
+
+gateway_response continua a preservar a resposta JSON integral para auditoria; a
+deduplicacao usa somente o payload canonico. V79 criou o indice parcial de selecao
+idx_pagamento_reconciliation_eligible. Nao existe indice separado de deduplicacao,
+porque existe um unico estado/fingerprint por pagamento e toda a decisao ocorre
+sob o lock pessimista da propria linha.
 
 ======================================================================
 4. IMPLEMENTACAO
@@ -111,7 +135,8 @@ Chave logica de deduplicacao:
 AppyPayReconciliationService:
 - permanece como scheduler/orquestrador;
 - consulta o gateway fora da auto-invocacao transaccional;
-- serializa e calcula SHA-256 da resposta;
+- serializa a resposta integral para auditoria e calcula SHA-256 do payload
+  canonico v1;
 - delega a transicao ao bean transaccional separado;
 - classifica falhas inesperadas como temporarias com backoff.
 
@@ -143,8 +168,9 @@ Migration V79:
 mvn -DskipTests compile:
 - BUILD SUCCESS.
 
-Testes focados AppyPayReconciliationProcessorTest:
-- 6 executados;
+Testes focados AppyPay:
+- AppyPayReconciliationProcessorTest: 6 executados;
+- AppyPayReconciliationFingerprintTest: 3 executados;
 - 0 falhas;
 - 0 erros;
 - resposta PENDING repetida sem evento;
@@ -154,20 +180,23 @@ Testes focados AppyPayReconciliationProcessorTest:
 - falha temporaria agenda retry sem evento;
 - lock PESSIMISTIC_WRITE comprovado;
 - restart simulado reconstruindo o processor sobre estado persistido.
+- campos volateis nao alteram o fingerprint;
+- mudanca de estado remoto altera o fingerprint;
+- normalizacao e representacao canonica comprovadas.
 
 Checkout focado:
 - StoreCheckoutServiceTest: 7 executados, 0 falhas, 0 erros.
 
 mvn test / Surefire:
 - BUILD SUCCESS;
-- 456 testes;
+- 459 testes;
 - 0 falhas;
 - 0 erros;
 - 3 ignorados.
 
 mvn -Pit verify:
 - BUILD SUCCESS;
-- Surefire: 456 testes, 0 falhas, 0 erros, 3 ignorados;
+- Surefire: 459 testes, 0 falhas, 0 erros, 3 ignorados;
 - Failsafe: 290 testes, 0 falhas, 0 erros, 0 ignorados;
 - KdsOperationsContractIT: 3/0/0;
 - PagamentoGatewayPollingIT: 1/0/0;

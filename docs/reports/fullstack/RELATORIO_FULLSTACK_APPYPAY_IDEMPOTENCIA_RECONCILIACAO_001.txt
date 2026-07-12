@@ -4,6 +4,7 @@ Data: 2026-07-12
 Branch: backend/consuma-appypay-idempotencia-reconciliacao-001
 Base: 77ec9b9d2ac8b92a87991bde8a630c305b9e5050
 Commit funcional: 6b3fb4b15737bab5ef38763b8a5f376bf6621bff
+Commit de hardening do fingerprint: 01a5b5f
 
 ESCOPO
 
@@ -29,15 +30,21 @@ MUDANCA INTERNA
 - worker transaccional separado elimina auto-invocacao;
 - lock pessimista serializa instancias;
 - V79 persiste fingerprint, estado remoto, tentativas, backoff, erro e estado;
+- fingerprint SHA-256 usa payload canonico v1 com chargeId,
+  merchantTransactionId, status, amount, paymentMethod, entity, reference e
+  errorMessage;
+- paymentUrl, createdAt e expiresAt sao excluidos por serem volateis;
+- V79 possui indice parcial de selecao; a deduplicacao nao usa indice separado,
+  pois o estado unico do pagamento e protegido por PESSIMISTIC_WRITE;
 - evento de confirmacao ocorre apenas no dominio depois do sucesso;
 - falha permanente do pedido passa a BLOQUEADO_DOMINIO e sai do ciclo repetitivo.
 
 VALIDACOES
 
 - compile: BUILD SUCCESS;
-- testes focados AppyPay: 6/0/0;
+- testes focados AppyPay: 9/0/0;
 - checkout focado: 7/0/0;
-- Surefire: 456 testes, 0 falhas, 0 erros, 3 ignorados;
+- Surefire: 459 testes, 0 falhas, 0 erros, 3 ignorados;
 - Failsafe: 290 testes, 0 falhas, 0 erros, 0 ignorados;
 - PublicQrPedidoIT: 7/0/0;
 - ConsumaDemoFreezyHappyPathIT: 1/0/0;

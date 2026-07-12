@@ -14,11 +14,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
-import java.util.HexFormat;
 
 @Service
 @RequiredArgsConstructor
@@ -94,7 +90,7 @@ public class AppyPayReconciliationService {
         String serialized = serialize(response);
         return processor.processar(pagamentoId, status,
                 response != null ? response.getStatus() : null,
-                serialized, sha256(serialized));
+                serialized, AppyPayReconciliationFingerprint.sha256(response));
     }
 
     private String serialize(Object value) {
@@ -102,15 +98,6 @@ public class AppyPayReconciliationService {
             return objectMapper.writeValueAsString(value);
         } catch (Exception e) {
             return String.valueOf(value);
-        }
-    }
-
-    private String sha256(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 indisponível", e);
         }
     }
 

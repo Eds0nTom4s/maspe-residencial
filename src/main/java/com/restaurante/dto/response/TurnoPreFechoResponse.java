@@ -13,6 +13,7 @@ public class TurnoPreFechoResponse {
     private boolean podeFechar;
     private List<String> bloqueios = new ArrayList<>();
     private List<String> avisos = new ArrayList<>();
+    private List<TurnoPendenciaResponse> pendencias = new ArrayList<>();
 
     private Map<String, Long> pedidosPorStatus;
     private Map<String, Long> subPedidosPorStatus;

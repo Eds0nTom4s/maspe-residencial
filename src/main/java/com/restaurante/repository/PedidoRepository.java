@@ -108,15 +108,17 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     );
 
     @Query("SELECT p FROM Pedido p " +
+           "LEFT JOIN p.sessaoConsumo sc " +
+           "JOIN p.turnoOperacional turno " +
            "WHERE p.tenant.id = :tenantId " +
-           "AND p.turnoOperacional.id IN :turnoIds " +
+           "AND turno.id IN :turnoIds " +
            "AND (cast(:statusOperacional as string) IS NULL OR p.status = :statusOperacional) " +
            "AND (cast(:statusFinanceiro as string) IS NULL OR p.statusFinanceiro = :statusFinanceiro) " +
            "AND (cast(:inicio as timestamp) IS NULL OR p.createdAt >= :inicio) " +
            "AND (cast(:fim as timestamp) IS NULL OR p.createdAt <= :fim) " +
-           "AND (cast(:instituicaoId as long) IS NULL OR p.sessaoConsumo.instituicao.id = :instituicaoId OR p.turnoOperacional.instituicao.id = :instituicaoId) " +
-           "AND (cast(:unidadeAtendimentoId as long) IS NULL OR p.sessaoConsumo.unidadeAtendimento.id = :unidadeAtendimentoId OR p.turnoOperacional.unidadeAtendimento.id = :unidadeAtendimentoId) " +
-           "AND (cast(:mesaId as string) IS NULL OR p.sessaoConsumo.mesa.id = :mesaId)")
+           "AND (cast(:instituicaoId as long) IS NULL OR sc.instituicao.id = :instituicaoId OR turno.instituicao.id = :instituicaoId) " +
+           "AND (cast(:unidadeAtendimentoId as long) IS NULL OR sc.unidadeAtendimento.id = :unidadeAtendimentoId OR turno.unidadeAtendimento.id = :unidadeAtendimentoId) " +
+           "AND (cast(:mesaId as string) IS NULL OR sc.mesa.id = :mesaId)")
     Page<Pedido> findTenantPedidosWithFiltersAndTurnos(
             @Param("tenantId") Long tenantId,
             @Param("turnoIds") List<Long> turnoIds,
@@ -128,6 +130,14 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
             @Param("unidadeAtendimentoId") Long unidadeAtendimentoId,
             @Param("mesaId") Long mesaId,
             Pageable pageable
+    );
+
+    @Query("select p from Pedido p where p.tenant.id = :tenantId and p.turnoOperacional.id = :turnoId " +
+           "and p.status not in (com.restaurante.model.enums.StatusPedido.FINALIZADO, com.restaurante.model.enums.StatusPedido.CANCELADO) " +
+           "order by p.createdAt asc")
+    List<Pedido> findNonTerminalByTenantIdAndTurnoOperacionalId(
+            @Param("tenantId") Long tenantId,
+            @Param("turnoId") Long turnoId
     );
 
     /**

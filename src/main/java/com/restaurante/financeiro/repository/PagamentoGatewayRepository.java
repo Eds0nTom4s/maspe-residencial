@@ -180,8 +180,12 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
 
     @Query("SELECT p FROM Pagamento p WHERE p.status = 'PENDENTE' " +
            "AND p.gatewayChargeId IS NOT NULL AND p.createdAt <= :createdBefore " +
+           "AND (p.reconciliationStatus IS NULL OR p.reconciliationStatus NOT IN " +
+           "('BLOQUEADO_DOMINIO', 'CONCLUIDO')) " +
+           "AND (p.reconciliationNextAttemptAt IS NULL OR p.reconciliationNextAttemptAt <= :now) " +
            "ORDER BY p.createdAt ASC")
     List<Pagamento> findPagamentosParaReconciliacao(@Param("createdBefore") LocalDateTime createdBefore,
+                                                     @Param("now") LocalDateTime now,
                                                      Pageable pageable);
 
     @Query(value = """

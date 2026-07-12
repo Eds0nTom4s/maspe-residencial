@@ -9,6 +9,7 @@ import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import com.restaurante.service.PedidoPagamentoPolicy;
+import com.restaurante.financeiro.reconciliation.service.PagamentoReconciliationCaseService;
 import com.restaurante.store.service.StorePaymentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,7 @@ class AppyPayReconciliationProcessorTest {
     @Mock StorePaymentService storePaymentService;
     @Mock PagamentoEventLogRepository eventLogRepository;
     @Mock PedidoPagamentoPolicy pedidoPagamentoPolicy;
+    @Mock PagamentoReconciliationCaseService reconciliationCaseService;
 
     private AppyPayReconciliationProcessor processor;
     private Pagamento pagamento;
@@ -41,7 +43,8 @@ class AppyPayReconciliationProcessorTest {
     @BeforeEach
     void setUp() {
         processor = new AppyPayReconciliationProcessor(pagamentoRepository, pagamentoGatewayService,
-                pagamentoConfirmacaoService, storePaymentService, eventLogRepository, pedidoPagamentoPolicy);
+                pagamentoConfirmacaoService, storePaymentService, eventLogRepository, pedidoPagamentoPolicy,
+                reconciliationCaseService);
         pagamento = new Pagamento();
         pagamento.setId(8L);
         pagamento.setStatus(StatusPagamentoGateway.PENDENTE);
@@ -68,7 +71,7 @@ class AppyPayReconciliationProcessorTest {
 
         AppyPayReconciliationProcessor aposRestart = new AppyPayReconciliationProcessor(
                 pagamentoRepository, pagamentoGatewayService, pagamentoConfirmacaoService,
-                storePaymentService, eventLogRepository, pedidoPagamentoPolicy);
+                storePaymentService, eventLogRepository, pedidoPagamentoPolicy, reconciliationCaseService);
         aposRestart.processar(8L, StatusPagamentoGateway.CONFIRMADO, "CONFIRMED", "{}", "hash-confirmado");
 
         verify(pagamentoConfirmacaoService, times(1)).confirmarPosPagoPorGateway(
@@ -91,6 +94,7 @@ class AppyPayReconciliationProcessorTest {
         assertThat(pagamento.getReconciliationLastError()).contains("após aceite");
         verifyNoInteractions(eventLogRepository, pagamentoConfirmacaoService);
         verify(pedidoPagamentoPolicy, times(1)).assertPodeConfirmarPagamento(any(), any());
+        verify(reconciliationCaseService, times(1)).materialize(eq(pagamento), any());
     }
 
     @Test

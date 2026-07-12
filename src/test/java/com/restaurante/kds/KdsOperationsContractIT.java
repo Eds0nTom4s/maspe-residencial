@@ -99,8 +99,7 @@ class KdsOperationsContractIT extends PostgresTestcontainersConfig {
         Produto produto = criarProduto(prov.getTenantId(), "Produto KDS A");
         publicarCardapioForTest(prov.getTenantId());
         long pedidoId = criarPedidoPublicoPonto(prov.getQrToken(), produto.getId());
-        long subPedidoId = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId).getFirst().getId();
-        StatusSubPedido statusInicial = subPedidoRepository.findById(subPedidoId).orElseThrow().getStatus();
+        assertThat(subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId)).isEmpty();
 
         Pedido pedido = pedidoRepository.findByIdAndTenantIdComSessaoConsumo(pedidoId, prov.getTenantId()).orElseThrow();
         assertThat(pedido.getSessaoConsumo()).isNull();
@@ -120,19 +119,19 @@ class KdsOperationsContractIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("KDS_DISABLED_FOR_OPERATION"));
 
-        mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/iniciar-preparo", subPedidoId)
+        mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/iniciar-preparo", Long.MAX_VALUE)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"version\":0}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("KDS_DISABLED_FOR_OPERATION"));
 
-        mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/pronto", subPedidoId)
+        mockMvc.perform(patch("/tenant/kds/subpedidos/{id}/pronto", Long.MAX_VALUE)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"version\":0}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("KDS_DISABLED_FOR_OPERATION"));
 
-        assertThat(subPedidoRepository.findById(subPedidoId).orElseThrow().getStatus()).isEqualTo(statusInicial);
+        assertThat(subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId)).isEmpty();
     }
 
     @Test
@@ -230,6 +229,7 @@ class KdsOperationsContractIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse tenantA = provisionTenant("KDSB");
         ProvisionarTenantResponse tenantB = provisionTenant("KDSC");
         enableKdsAndProduction(tenantA.getTenantId());
+        enableKdsAndProduction(tenantB.getTenantId());
         Produto produtoB = criarProduto(tenantB.getTenantId(), "Produto KDS B");
         publicarCardapioForTest(tenantB.getTenantId());
         long pedidoB = criarPedidoPublicoPonto(tenantB.getQrToken(), produtoB.getId());

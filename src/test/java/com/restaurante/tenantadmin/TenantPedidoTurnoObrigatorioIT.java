@@ -168,7 +168,9 @@ class TenantPedidoTurnoObrigatorioIT extends PostgresTestcontainersConfig {
         mockMvc.perform(get("/tenant/pedidos").param("page", "0").param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1))
-                .andExpect(jsonPath("$.data.content[0].id").value(pedido.getId()));
+                .andExpect(jsonPath("$.data.content[0].id").value(pedido.getId()))
+                .andExpect(jsonPath("$.data.content[0].instituicaoId").value(instituicao.getId()))
+                .andExpect(jsonPath("$.data.content[0].unidadeAtendimentoId").value(unidade.getId()));
 
         mockMvc.perform(get("/tenant/pedidos")
                         .param("instituicaoId", instituicao.getId().toString())

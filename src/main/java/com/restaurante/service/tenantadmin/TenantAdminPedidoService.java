@@ -108,8 +108,14 @@ public class TenantAdminPedidoService {
 
     private TenantPedidoResumoResponse toResumo(Pedido p, TenantContext tenantContext) {
         SessaoConsumo s = p.getSessaoConsumo();
-        Long instId = s != null && s.getInstituicao() != null ? s.getInstituicao().getId() : null;
-        Long uaId = s != null && s.getUnidadeAtendimento() != null ? s.getUnidadeAtendimento().getId() : null;
+        Long instId = s != null && s.getInstituicao() != null
+                ? s.getInstituicao().getId()
+                : p.getTurnoOperacional() != null && p.getTurnoOperacional().getInstituicao() != null
+                        ? p.getTurnoOperacional().getInstituicao().getId() : null;
+        Long uaId = s != null && s.getUnidadeAtendimento() != null
+                ? s.getUnidadeAtendimento().getId()
+                : p.getTurnoOperacional() != null && p.getTurnoOperacional().getUnidadeAtendimento() != null
+                        ? p.getTurnoOperacional().getUnidadeAtendimento().getId() : null;
         Mesa mesa = s != null ? s.getMesa() : null;
         var capabilities = pedidoAllowedActionsService.evaluate(p, tenantContext);
         return TenantPedidoResumoResponse.builder()
@@ -149,6 +155,15 @@ public class TenantAdminPedidoService {
                 ctx.mesaId(s.getMesa().getId());
                 ctx.mesaReferencia(s.getMesa().getReferencia());
                 ctx.mesaNumero(s.getMesa().getNumero());
+            }
+        } else if (p.getTurnoOperacional() != null) {
+            if (p.getTurnoOperacional().getInstituicao() != null) {
+                ctx.instituicaoId(p.getTurnoOperacional().getInstituicao().getId());
+                ctx.instituicaoNome(p.getTurnoOperacional().getInstituicao().getNome());
+            }
+            if (p.getTurnoOperacional().getUnidadeAtendimento() != null) {
+                ctx.unidadeAtendimentoId(p.getTurnoOperacional().getUnidadeAtendimento().getId());
+                ctx.unidadeAtendimentoNome(p.getTurnoOperacional().getUnidadeAtendimento().getNome());
             }
         }
 

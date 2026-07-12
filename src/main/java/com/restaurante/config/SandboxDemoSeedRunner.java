@@ -504,8 +504,9 @@ public class SandboxDemoSeedRunner {
                            boolean confirmarPagamento,
                            MetodoPagamentoManual metodoPagamento) {
         String idempotencyKey = tenant.getTenantCode() + "-" + suffix;
+        QrCodeOperacional principalQr = findPrincipalQr(tenant);
         PublicQrPedidoResponse response = publicQrPedidoService.criarPedidoPublicoPorQrToken(
-                findPrincipalQr(tenant).getToken(),
+                principalQr.getToken(),
                 idempotencyKey,
                 PublicQrPedidoRequest.builder()
                         .idempotencyKey(idempotencyKey)
@@ -531,10 +532,10 @@ public class SandboxDemoSeedRunner {
             if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
                 aceitarPedidoDemoParaPagamento(pedido);
                 var sessao = pedido.getSessaoConsumo();
-                var unidade = sessao != null ? sessao.getUnidadeAtendimentoEfetiva() : null;
+                var unidade = sessao != null ? sessao.getUnidadeAtendimentoEfetiva() : principalQr.getUnidadeAtendimento();
                 OrdemPagamento ordem = ordemPagamentoService.criarOrdemPagamentoPedido(
                         tenant,
-                        sessao != null ? sessao.getInstituicao() : null,
+                        sessao != null ? sessao.getInstituicao() : principalQr.getInstituicao(),
                         unidade,
                         sessao != null ? sessao.getMesa() : null,
                         pedido.getTurnoOperacional(),

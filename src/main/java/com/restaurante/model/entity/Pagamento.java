@@ -2,6 +2,7 @@ package com.restaurante.model.entity;
 
 import com.restaurante.financeiro.enums.MetodoPagamentoAppyPay;
 import com.restaurante.financeiro.enums.PagamentoPollingStatus;
+import com.restaurante.financeiro.enums.StatusReconciliacaoAppyPay;
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import jakarta.persistence.*;
@@ -143,6 +144,28 @@ public class Pagamento extends BaseEntity {
     @Column(name = "gateway_response", columnDefinition = "TEXT")
     private String gatewayResponse; // Resposta completa do gateway (JSON)
 
+    @Column(name = "reconciliation_last_response_hash", length = 64)
+    private String reconciliationLastResponseHash;
+
+    @Column(name = "reconciliation_last_remote_status", length = 50)
+    private String reconciliationLastRemoteStatus;
+
+    @Column(name = "reconciliation_last_attempt_at")
+    private LocalDateTime reconciliationLastAttemptAt;
+
+    @Column(name = "reconciliation_next_attempt_at")
+    private LocalDateTime reconciliationNextAttemptAt;
+
+    @Column(name = "reconciliation_attempts", nullable = false)
+    private int reconciliationAttempts;
+
+    @Column(name = "reconciliation_last_error", columnDefinition = "TEXT")
+    private String reconciliationLastError;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reconciliation_status", length = 50)
+    private StatusReconciliacaoAppyPay reconciliationStatus;
+
     @Column(length = 500)
     private String observacoes;
 
@@ -219,6 +242,13 @@ public class Pagamento extends BaseEntity {
     public String getReferencia() { return referencia; }
     public LocalDateTime getConfirmedAt() { return confirmedAt; }
     public String getGatewayResponse() { return gatewayResponse; }
+    public String getReconciliationLastResponseHash() { return reconciliationLastResponseHash; }
+    public String getReconciliationLastRemoteStatus() { return reconciliationLastRemoteStatus; }
+    public LocalDateTime getReconciliationLastAttemptAt() { return reconciliationLastAttemptAt; }
+    public LocalDateTime getReconciliationNextAttemptAt() { return reconciliationNextAttemptAt; }
+    public int getReconciliationAttempts() { return reconciliationAttempts; }
+    public String getReconciliationLastError() { return reconciliationLastError; }
+    public StatusReconciliacaoAppyPay getReconciliationStatus() { return reconciliationStatus; }
     public String getObservacoes() { return observacoes; }
 
     // ── Setters ───────────────────────────────────────────────────────────────
@@ -237,6 +267,13 @@ public class Pagamento extends BaseEntity {
     public void setReferencia(String referencia) { this.referencia = referencia; }
     public void setConfirmedAt(LocalDateTime confirmedAt) { this.confirmedAt = confirmedAt; }
     public void setGatewayResponse(String gatewayResponse) { this.gatewayResponse = gatewayResponse; }
+    public void setReconciliationLastResponseHash(String value) { this.reconciliationLastResponseHash = value; }
+    public void setReconciliationLastRemoteStatus(String value) { this.reconciliationLastRemoteStatus = value; }
+    public void setReconciliationLastAttemptAt(LocalDateTime value) { this.reconciliationLastAttemptAt = value; }
+    public void setReconciliationNextAttemptAt(LocalDateTime value) { this.reconciliationNextAttemptAt = value; }
+    public void setReconciliationAttempts(int value) { this.reconciliationAttempts = value; }
+    public void setReconciliationLastError(String value) { this.reconciliationLastError = value; }
+    public void setReconciliationStatus(StatusReconciliacaoAppyPay value) { this.reconciliationStatus = value; }
     public void setObservacoes(String observacoes) { this.observacoes = observacoes; }
     public boolean isPollingEnabled() { return pollingEnabled; }
     public void setPollingEnabled(boolean pollingEnabled) { this.pollingEnabled = pollingEnabled; }

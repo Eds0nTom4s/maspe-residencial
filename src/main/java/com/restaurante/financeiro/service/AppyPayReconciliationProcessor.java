@@ -9,6 +9,8 @@ import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.entity.PagamentoEventLog;
 import com.restaurante.service.PedidoPagamentoPolicy;
+import com.restaurante.financeiro.reconciliation.model.ReconciliationCaseOrigin;
+import com.restaurante.financeiro.reconciliation.service.PagamentoReconciliationCaseService;
 import com.restaurante.store.service.StorePaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,7 @@ public class AppyPayReconciliationProcessor {
     private final StorePaymentService storePaymentService;
     private final PagamentoEventLogRepository eventLogRepository;
     private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
+    private final PagamentoReconciliationCaseService reconciliationCaseService;
 
     @Transactional
     public AppyPayReconciliationService.ResultadoReconcilicao processar(
@@ -133,6 +136,7 @@ public class AppyPayReconciliationProcessor {
         pagamento.setReconciliationNextAttemptAt(null);
         pagamento.setReconciliationLastError(limit(ex.getMessage(), 4000));
         pagamentoRepository.save(pagamento);
+        reconciliationCaseService.materialize(pagamento, ReconciliationCaseOrigin.AUTOMATIC_BLOCK);
     }
 
     private void registrarEvento(TipoEventoFinanceiro tipo, Pagamento pagamento, String motivo) {

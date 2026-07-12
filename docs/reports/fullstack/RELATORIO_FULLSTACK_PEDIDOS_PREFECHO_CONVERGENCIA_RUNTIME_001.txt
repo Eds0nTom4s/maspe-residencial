@@ -1,0 +1,51 @@
+RELATORIO_FULLSTACK_PEDIDOS_PREFECHO_CONVERGENCIA_RUNTIME_001
+
+1. Identificacao
+Backend branch: backend/consuma-pedidos-prefecho-convergencia-runtime-001
+Backend base informada: 8f9b406763771618766296fed700c8659af88f7d
+Hardening KDS/Producao: e45c9d1759dc2c3cbdfb0d83d87485a3835aa7f6 presente como ancestral.
+Backend commit funcional: 369326867eb9f3c3d3049fea444157e9d646ac2e
+Frontend alterado nesta fase: nao.
+
+2. Causa raiz
+O fluxo CONSUMA PONTO com productionEnabled=false e kdsEnabled=false permite pedidos sem subpedidos. O backend ainda tinha pontos que assumiam subpedidos para total, allowedActions e transicao, criando risco de pedido resolvido continuar a contaminar o pre-fecho.
+
+3. Correcao backend
+Pedido.calcularTotal() soma itens directos quando nao ha subpedidos.
+Quando ha subpedidos, os totais dos subpedidos prevalecem e itens directos nao sao somados de novo.
+Subtotal nulo nao quebra o calculo.
+Pedido sem itens e sem subpedidos calcula zero.
+
+4. Transicoes sem producao
+PONTO sem producao pode aceitar pedido sem subpedidos e passar para EM_ANDAMENTO.
+PONTO pago pode ser entregue sem PRONTO e passar para FINALIZADO.
+PONTO nao pago continua sem MARK_DELIVERED.
+REST/KDS com producao continua exigindo subpedidos.
+
+5. Auto-fecho e pre-fecho
+Apos FINALIZADO persistido, o auto-fecho de sessao e chamado para pedidos sem subpedidos.
+SessaoConsumoAutoClosureService segue idempotente e nao fecha sessao prematuramente quando existe outro pedido nao terminal ou pendencia financeira/operacional.
+ConsumaDemoFreezyHappyPathIT valida que a sessao encerrada deixa de aparecer como aberta no pre-fecho.
+
+6. Preservacao REST/KDS
+KDS nao foi desativado globalmente.
+REST/KDS continua preservado pelas suites KdsOperationsContractIT, Producao*IT e OperationalStatusTransitionIT.
+
+7. Validacao
+Testes focados: 40 testes, 0 falhas, 0 erros, 0 skipped.
+Compile: mvn -DskipTests compile -> BUILD SUCCESS.
+Surefire anterior: 450 testes, 0 falhas, 0 erros, 3 skipped.
+Failsafe anterior: 290 testes, 0 falhas, 0 erros, 0 skipped.
+
+8. Governanca
+SQL manual: nao executado.
+Docker: nao alterado durante os commits desta correcao.
+Banco: nao alterado manualmente.
+Deploy externo: nao executado.
+Turno 17 real: nao reconciliado em runtime.
+
+9. Limitacao
+O turno 17 real ainda precisa de validacao apos deploy local/controlado. Esta fase nao declara CONVERGENCIA RESTAURADA E FECHO OPERACIONAL DESBLOQUEADO.
+
+10. Decisao
+CORRECÇÃO BACKEND APROVADA — VALIDAÇÃO RUNTIME PENDENTE

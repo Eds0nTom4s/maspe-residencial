@@ -1,0 +1,237 @@
+RELATORIO APPYPAY IDEMPOTENCIA E RECONCILIACAO 001
+
+Data: 2026-07-12
+Branch: backend/consuma-appypay-idempotencia-reconciliacao-001
+Base obrigatoria: 77ec9b9d2ac8b92a87991bde8a630c305b9e5050
+Commit funcional: 6b3fb4b15737bab5ef38763b8a5f376bf6621bff
+
+======================================================================
+1. ESCOPO E GOVERNACAO
+======================================================================
+
+Escopo executado:
+- auditoria da reconciliacao AppyPay;
+- contrato persistente de idempotencia;
+- correcao da fronteira transaccional;
+- lock pessimista, deduplicacao por fingerprint e backoff;
+- testes focados, suite completa e prova runtime.
+
+Fora do escopo e nao alterado:
+- pedido legado 42 e turno 17;
+- pre-fecho historico;
+- ordens expiradas;
+- reconciliacao manual de dados legados.
+
+Eventos antigos apagados: nao.
+Pagamento id=8 alterado manualmente: nao.
+Confirmacao directa no banco: nao.
+UPDATE ou DELETE manual: nao.
+SQL manual de escrita: nao.
+Consultas SQL read-only: sim, exclusivamente para captura da prova runtime.
+Scheduler desactivado: nao.
+
+======================================================================
+2. AUDITORIA E CAUSA RAIZ
+======================================================================
+
+Fluxo anterior:
+1. AppyPayReconciliationService.reconciliarPagamentosPendentes() era disparado
+   pelo cron default 0 */15 * * * *.
+2. PagamentoGatewayRepository.findPagamentosParaReconciliacao() seleccionava
+   qualquer pagamento PENDENTE antigo com gateway_charge_id.
+3. O scheduler chamava reconciliarPagamento() no mesmo bean.
+4. A anotacao @Transactional desse metodo nao era interceptada por causa da
+   auto-invocacao.
+5. A resposta remota era gravada em gateway_response.
+6. Um evento CONFIRMACAO_PAGAMENTO era gravado antes da confirmacao de dominio.
+7. PagamentoConfirmacaoService rejeitava o pedido nao aceite.
+8. O loop capturava a excepcao e o pagamento continuava PENDENTE e elegivel.
+
+Causa raiz comprovada:
+- auto-invocacao anulava a fronteira transaccional pretendida;
+- auditoria de sucesso ocorria antes do sucesso de dominio;
+- nao existia estado persistente de reconciliacao nem fingerprint da resposta;
+- a query ignorava ultima tentativa, proxima tentativa e falha permanente;
+- a captura externa da excepcao mantinha o registo no mesmo ciclo infinito.
+
+Pagamento analisado: id=8.
+Estado local pre-deploy: PENDENTE; confirmed_at nulo.
+Resposta remota persistida: CONFIRMED.
+Pedido relacionado: id=26.
+Estado do pedido: CRIADO / PENDENTE_PAGAMENTO.
+Pre-condicao violada: pagamento so pode ser confirmado apos aceite do pedido.
+
+O contexto inicial documentava 169 eventos. Como o scheduler antigo permaneceu
+activo ate ao deploy, a captura imediatamente anterior ao deploy encontrou 198.
+Nenhum dos 198 eventos foi apagado ou modificado.
+
+======================================================================
+3. CONTRATO DE IDEMPOTENCIA IMPLEMENTADO
+======================================================================
+
+1. Mesma resposta remota sem mudanca real nao cria novo evento.
+2. CONFIRMACAO_PAGAMENTO deixa de ser criada pelo orquestrador antes do dominio.
+3. A confirmacao POS_PAGO continua centralizada em PagamentoConfirmacaoService,
+   que persiste estado, confirmed_at, estado financeiro e evento na mesma
+   transaccao depois de validar o dominio.
+4. Falha de pre-condicao e classificada como BLOQUEADO_DOMINIO, sem evento falso.
+5. Falha remota temporaria e classificada como RETRY_AGENDADO, com backoff
+   exponencial persistente entre 15 minutos e 24 horas, sem evento de confirmacao.
+6. Pagamentos bloqueados ou concluidos deixam de ser seleccionados pelo cron.
+7. O controlo sobrevive a restart e multiplas instancias porque reside no banco.
+8. findForUpdateById usa PESSIMISTIC_WRITE; duas instancias nao processam a mesma
+   transicao simultaneamente.
+
+Campos persistentes introduzidos pela V79:
+- reconciliation_last_response_hash;
+- reconciliation_last_remote_status;
+- reconciliation_last_attempt_at;
+- reconciliation_next_attempt_at;
+- reconciliation_attempts;
+- reconciliation_last_error;
+- reconciliation_status.
+
+Estados:
+- ELIGIVEL;
+- AGUARDANDO_MUDANCA_REMOTA;
+- RETRY_AGENDADO;
+- BLOQUEADO_DOMINIO;
+- CONCLUIDO.
+
+Chave logica de deduplicacao:
+- pagamento bloqueado por id sob lock;
+- gateway_charge_id/external_reference pertencem ao pagamento;
+- estado remoto raw + SHA-256 da resposta serializada;
+- estado persistente de reconciliacao.
+
+======================================================================
+4. IMPLEMENTACAO
+======================================================================
+
+AppyPayReconciliationService:
+- permanece como scheduler/orquestrador;
+- consulta o gateway fora da auto-invocacao transaccional;
+- serializa e calcula SHA-256 da resposta;
+- delega a transicao ao bean transaccional separado;
+- classifica falhas inesperadas como temporarias com backoff.
+
+AppyPayReconciliationProcessor:
+- novo bean @Service;
+- processar() e registrarFalhaTemporaria() sao @Transactional;
+- adquire lock pessimista por pagamento;
+- grava resposta, fingerprint, tentativa, erro, proxima tentativa e estado;
+- valida previamente a politica do pedido POS_PAGO;
+- nao cria evento de confirmacao antes do sucesso;
+- usa os servicos de dominio existentes para convergir o pagamento.
+
+PagamentoGatewayRepository:
+- query de elegibilidade recebe now;
+- exclui BLOQUEADO_DOMINIO e CONCLUIDO;
+- respeita reconciliation_next_attempt_at.
+
+Migration V79:
+- aplicada pelo Flyway;
+- installed_on: 2026-07-12 18:24:43.285906 UTC;
+- success: true;
+- preserva todas as linhas existentes;
+- cria indice parcial de elegibilidade para PENDENTE.
+
+======================================================================
+5. TESTES E VALIDACOES
+======================================================================
+
+mvn -DskipTests compile:
+- BUILD SUCCESS.
+
+Testes focados AppyPayReconciliationProcessorTest:
+- 6 executados;
+- 0 falhas;
+- 0 erros;
+- resposta PENDING repetida sem evento;
+- CONFIRMED repetido confirma apenas uma vez;
+- pedido nao aceite bloqueia sem confirmacao/evento falso;
+- pedido aceite converge e preenche confirmed_at;
+- falha temporaria agenda retry sem evento;
+- lock PESSIMISTIC_WRITE comprovado;
+- restart simulado reconstruindo o processor sobre estado persistido.
+
+Checkout focado:
+- StoreCheckoutServiceTest: 7 executados, 0 falhas, 0 erros.
+
+mvn test / Surefire:
+- BUILD SUCCESS;
+- 456 testes;
+- 0 falhas;
+- 0 erros;
+- 3 ignorados.
+
+mvn -Pit verify:
+- BUILD SUCCESS;
+- Surefire: 456 testes, 0 falhas, 0 erros, 3 ignorados;
+- Failsafe: 290 testes, 0 falhas, 0 erros, 0 ignorados;
+- KdsOperationsContractIT: 3/0/0;
+- PagamentoGatewayPollingIT: 1/0/0;
+- AppyPay callback e payment policy: verdes;
+- PublicQrPedidoIT: 7/0/0;
+- ConsumaDemoFreezyHappyPathIT: 1/0/0;
+- REST, PONTO, KDS, producao, device e checkout sem regressao observada.
+
+Observacao do runner:
+- Failsafe emitiu aviso de encerramento forcado da JVM 30 segundos depois de
+  System.exit(0), mas finalizou BUILD SUCCESS e publicou o resumo 290/0/0/0.
+
+======================================================================
+6. PROVA RUNTIME SANDBOX
+======================================================================
+
+Artefacto:
+- JAR no container SHA-256:
+  0cdd6e2507993db658989235215a588e17af9c9fbb895c35a2c89cd31ea5df15
+- imagem: sha256:efb69ff9c4187cef1d958793f3ffda23530b9592143889d7c3ba426019f1e026
+- commit funcional de origem: 6b3fb4b15737bab5ef38763b8a5f376bf6621bff
+- health final: UP.
+
+Baseline imediatamente antes do deploy:
+- pagamento id=8: PENDENTE;
+- confirmed_at: nulo;
+- estado remoto persistido: CONFIRMED;
+- eventos APPYPAY_RECONCILIACAO: 198.
+
+Primeiro ciclo corrigido, 2026-07-12 18:30 UTC:
+- pagamento consultado uma vez;
+- resposta remota: CONFIRMED;
+- pre-condicao do pedido recusada;
+- reconciliation_status: BLOQUEADO_DOMINIO;
+- reconciliation_attempts: 1;
+- reconciliation_last_error: Pagamento so pode ser confirmado apos aceite do pedido.;
+- pagamento permaneceu PENDENTE;
+- confirmed_at permaneceu nulo;
+- eventos permaneceram 198;
+- ciclo terminou com erros=0.
+
+Ciclos posteriores observados:
+- pagamento id=8 nao voltou a ser seleccionado;
+- reconciliation_attempts permaneceu 1;
+- reconciliation_last_attempt_at permaneceu 2026-07-12 18:30:00.570066 UTC;
+- nao houve repeticao de erro para id=8 nos logs;
+- eventos permaneceram 198;
+- ultimo evento historico permaneceu em 2026-07-12 18:00:00.345282 UTC,
+  anterior ao deploy corrigido.
+
+Resultado runtime:
+- contagem inicial: 198;
+- contagem apos multiplos ciclos: 198;
+- eventos novos sem mudanca externa: 0;
+- falsa confirmacao: nao;
+- eventos antigos preservados: 198 de 198.
+
+======================================================================
+7. DECISAO
+======================================================================
+
+APPYPAY IDEMPOTENTE COM PAGAMENTO LEGADO BLOQUEADO
+
+A reconciliacao deixou de poluir a auditoria e o pagamento id=8 foi classificado
+como bloqueio permanente de dominio sem ser confirmado nem alterado manualmente.
+O estado financeiro nao converge para CONFIRMADO porque o pedido legado nao cumpre
+a pre-condicao; esse bloqueio e agora explicito, persistente e nao repetitivo.

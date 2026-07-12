@@ -219,7 +219,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         assertThat(beforeAcceptData.at("/statusOperacional").asText()).isEqualTo("CRIADO");
         assertThat(beforeAcceptData.at("/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
         assertPaymentOrderAbsent(beforeAcceptData);
-        assertAllSubPedidosStatus(beforeAcceptData, "CRIADO");
+        assertNoSubPedidos(beforeAcceptData);
 
         // 5. Operador aceita o pedido -> gera Ordem de Pagamento
         String respAceitar = mockMvc.perform(patch("/tenant/pedidos/" + pedidoId + "/aceitar"))
@@ -228,7 +228,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         JsonNode aceitarJson = objectMapper.readTree(respAceitar);
         assertThat(aceitarJson.at("/data/statusOperacional").asText()).isEqualTo("EM_ANDAMENTO");
         assertThat(aceitarJson.at("/data/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
-        assertAllSubPedidosStatus(aceitarJson.at("/data"), "PENDENTE");
+        assertNoSubPedidos(aceitarJson.at("/data"));
         assertThat(aceitarJson.at("/data/paymentOrder/status").asText()).isEqualTo("AGUARDANDO_CONFIRMACAO");
         assertThat(aceitarJson.at("/data/paymentOrder/valor").asDouble()).isEqualTo(500.0);
         assertThat(aceitarJson.at("/data/paymentOrder/expiresAt").asText()).isNotBlank();
@@ -268,7 +268,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         assertThat(getJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
         assertThat(getJson.at("/data/statusOperacional").asText()).isEqualTo("EM_ANDAMENTO");
         assertThat(getJson.at("/data/paymentOrder/status").asText()).isEqualTo("CONFIRMADA");
-        assertAllSubPedidosStatus(getJson.at("/data"), "PENDENTE");
+        assertNoSubPedidos(getJson.at("/data"));
         assertAllowedAction(getJson.at("/data"), "MARK_DELIVERED");
         assertMissingAllowedAction(getJson.at("/data"), "START_PREPARATION");
         assertMissingAllowedAction(getJson.at("/data"), "MARK_READY");
@@ -280,7 +280,7 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         JsonNode entregarJson = objectMapper.readTree(respEntregar);
         assertThat(entregarJson.at("/data/statusOperacional").asText()).isEqualTo("FINALIZADO");
         assertThat(entregarJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
-        assertAllSubPedidosStatus(entregarJson.at("/data"), "ENTREGUE");
+        assertNoSubPedidos(entregarJson.at("/data"));
         assertMissingAllowedAction(entregarJson.at("/data"), "MARK_DELIVERED");
         assertMissingAllowedAction(entregarJson.at("/data"), "CONFIRM_PAYMENT");
 
@@ -338,6 +338,12 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
             assertThat(subPedido.at("/status").asText()).isEqualTo(expectedStatus);
         }
         assertThat(count).isGreaterThan(0);
+    }
+
+    private void assertNoSubPedidos(JsonNode data) {
+        JsonNode subPedidos = data.at("/subPedidos");
+        assertThat(subPedidos.isArray()).isTrue();
+        assertThat(subPedidos).isEmpty();
     }
 
     private void assertAllowedAction(JsonNode data, String expectedAction) {

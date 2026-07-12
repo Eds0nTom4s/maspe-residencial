@@ -471,6 +471,15 @@ public class OrdemPagamentoService {
             }
         }
 
+        if ((inst == null || unidade == null) && pedido.getTurnoOperacional() != null) {
+            if (inst == null) {
+                inst = pedido.getTurnoOperacional().getInstituicao();
+            }
+            if (unidade == null) {
+                unidade = pedido.getTurnoOperacional().getUnidadeAtendimento();
+            }
+        }
+
         if (inst == null || unidade == null) {
             List<SubPedido> subPedidos = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedido.getId());
             if (!subPedidos.isEmpty()) {

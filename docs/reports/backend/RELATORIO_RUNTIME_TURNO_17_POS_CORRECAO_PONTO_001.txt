@@ -1,0 +1,382 @@
+RELATORIO_RUNTIME_TURNO_17_POS_CORRECAO_PONTO_001
+VALIDACAO CONTROLADA DO TURNO 17 APOS CORRECAO PONTO SEM SUBPEDIDOS
+
+Data da captura: 2026-07-12
+Branch backend: backend/consuma-pedidos-prefecho-convergencia-runtime-001
+Base: 8f9b406763771618766296fed700c8659af88f7d
+Commit funcional esperado: 369326867eb9f3c3d3049fea444157e9d646ac2e
+Commit documental no worktree: 2ee25941377dd36ef25b656d51efd47591d0906b
+Worktree antes da validacao: limpo
+Codigo alterado nesta fase: nao
+Build/restart executado nesta fase: nao
+SQL manual de escrita: nao
+Fecho forcado: nao
+
+======================================================================
+1. RUNTIME CARREGADO
+======================================================================
+
+Servidor: sandbox
+Porta: 8080
+Container: consuma-api-sandbox
+Imagem: sistema-restauracao-api:sandbox
+Image ID: sha256:1bfbd2713c27e74e4d84abcfe6d882e738b299d3285ef4e1106d519205671c54
+Digest: nao publicado no daemon local
+Container criado em: 2026-07-12T10:12:49.136642378Z
+Container iniciado em: 2026-07-12T10:12:50.693664590Z
+Imagem criada em: 2026-07-12T10:12:49.009352025Z
+Health: UP
+JAR: /app/app.jar
+Tamanho do JAR: 90.498.629 bytes
+SHA-256 do JAR: 0518a3faee5d398a08fc1c3bafa60039c226e62554f76a742cd8b8dfe4568137
+Branch de origem: backend/consuma-pedidos-prefecho-convergencia-runtime-001
+Commit funcional: 369326867eb9f3c3d3049fea444157e9d646ac2e
+Classificacao: RUNTIME_ALINHADO
+
+Servidor: local
+Porta: 8081
+Container: consuma-api-local
+Imagem: sistema-restauracao-api:sandbox-local
+Image ID: sha256:71046eecacba5f32ba5a017e67f059f216b02ffcc4af3f43a90da97abd2cf40f
+Digest: nao publicado no daemon local
+Container criado em: 2026-07-12T10:12:49.135778632Z
+Container iniciado em: 2026-07-12T10:12:50.696576451Z
+Imagem criada em: 2026-07-12T10:12:49.023544120Z
+Health: UP
+JAR: /app/app.jar
+Tamanho do JAR: 90.498.629 bytes
+SHA-256 do JAR: 0518a3faee5d398a08fc1c3bafa60039c226e62554f76a742cd8b8dfe4568137
+Branch de origem: backend/consuma-pedidos-prefecho-convergencia-runtime-001
+Commit funcional: 369326867eb9f3c3d3049fea444157e9d646ac2e
+Classificacao: RUNTIME_ALINHADO
+
+Prova de proveniencia:
+- os dois containers executam JARs byte a byte identicos;
+- o checksum dos JARs nos containers coincide com o artefacto target/sistema-restauracao-1.0.0.jar da branch;
+- a camada COPY do historico das duas imagens foi criada em 2026-07-12T11:12:47+01:00;
+- a branch estava limpa no commit documental 2ee2594 e contem o commit funcional 3693268;
+- o fluxo runtime abaixo prova as tres mudancas funcionais do commit: total por itens directos, ausencia de subpedidos e entrega paga sem PRONTO.
+
+Ressalva de rastreabilidade:
+O JAR nao contem git.properties nem build-info com SHA Git. A associacao ao commit foi
+comprovada por checksum do artefacto, historico da imagem, continuidade do worktree e
+comportamento funcional. Recomenda-se incorporar revision/build-time como labels OCI e
+em actuator/info nos proximos builds.
+
+======================================================================
+2. MIGRACAO V78
+======================================================================
+
+Nome: V78__item_pedido_subpedido_optional_for_ponto.sql
+Descricao Flyway: item pedido subpedido optional for ponto
+Caminho: src/main/resources/db/migration/V78__item_pedido_subpedido_optional_for_ponto.sql
+SHA-256 do ficheiro: bc95839115dee204ce2338508db728c3709c20081c272440585b8e6c706810b4
+Checksum Flyway: 811924588
+Tabela afectada: itens_pedido
+Coluna afectada: sub_pedido_id
+DDL: sim
+DML: nao
+Comando: ALTER TABLE itens_pedido ALTER COLUMN sub_pedido_id DROP NOT NULL
+Dados alterados pela migration: nenhum
+Relacao com pedidos: permite itens directamente associados ao pedido.
+Relacao com sessoes: nenhuma alteracao directa.
+Relacao com subpedidos: torna a associacao opcional para fluxos sem producao.
+Relacao com pagamentos: nenhuma alteracao directa.
+Idempotencia operacional: controlada pelo Flyway; aplicada uma vez em cada banco.
+Risco: baixo no DDL, mas requer codigo que trate sub_pedido_id nulo.
+
+Sandbox:
+- versao: 78
+- installed_by: postgres
+- installed_on: 2026-07-12 10:13:30.161595
+- execution_time: 56 ms
+- success: true
+
+Local:
+- versao: 78
+- installed_by: consuma
+- installed_on: 2026-07-12 10:13:29.979158
+- execution_time: 110 ms
+- success: true
+
+Conclusao V78: aplicada com sucesso nos dois ambientes; nao foi reaplicada,
+reparada ou modificada durante esta validacao.
+
+======================================================================
+3. RECONCILIACAO APPYPAY - PAGAMENTO ID 8
+======================================================================
+
+Ambiente afectado: sandbox, porta 8080
+Tenant: 21
+Template: RESTAURANTE_SIMPLES
+Pedido relacionado: 26 / PED-QAB0688-20260610-000001
+Turno relacionado: nenhum
+Sessao relacionada: 28, ABERTA
+Origem: AppyPayReconciliationService, scheduler a cada 15 minutos
+Migration/startup runner: nao
+
+Estado anterior comprovavel:
+- pagamento PENDENTE;
+- pedido CRIADO e PENDENTE_PAGAMENTO;
+- confirmed_at nulo;
+- gateway_response foi inicialmente preenchida no primeiro ciclo registado.
+
+Estado posterior:
+- pagamento continua PENDENTE;
+- pedido continua CRIADO e PENDENTE_PAGAMENTO;
+- confirmed_at continua nulo;
+- gateway_response permanece registada;
+- a confirmacao de dominio falha com: pagamento so pode ser confirmado apos aceite do pedido.
+
+Campos/efeitos alterados:
+- gateway_response foi persistida;
+- updated_at do pagamento foi alterado no primeiro ciclo observado;
+- pagamento_event_log recebe um novo evento CONFIRMACAO_PAGAMENTO em cada tentativa,
+  embora a confirmacao de dominio falhe.
+
+Auditoria:
+- 169 eventos APPYPAY_RECONCILIACAO para o pagamento id=8 na captura;
+- primeiro evento: 2026-07-09 02:15:00.806563;
+- ultimo evento da captura: 2026-07-12 10:45:00.190207;
+- os logs do container actual mostram repeticao em 10:15, 10:30 e 10:45 UTC;
+- nao e uma execucao unica nem limitada ao arranque.
+
+Idempotencia: NAO
+Alteracao esperada: NAO
+Risco: BLOQUEANTE PARA A AUDITORIA FINANCEIRA DO SANDBOX
+
+Causa tecnica inferida a partir do codigo e dos dados:
+- reconciliarPagamentosPendentes() chama reconciliarPagamento() no mesmo bean;
+- a anotacao @Transactional de reconciliarPagamento() nao e interceptada numa auto-invocacao;
+- gateway_response e o evento financeiro sao persistidos antes da confirmacao de dominio;
+- a excecao e capturada pelo loop externo, deixando o pagamento elegivel para o ciclo seguinte;
+- o resultado e um evento de confirmacao falso/repetido sem mudanca para CONFIRMADO.
+
+Comparacao local:
+- o pagamento id=8 do banco local e outro registo, ja CONFIRMADO;
+- nao possui eventos APPYPAY_RECONCILIACAO;
+- o processo repetitivo foi observado apenas no sandbox.
+
+======================================================================
+4. TURNO 17
+======================================================================
+
+Ambiente: local
+Porta: 8081
+Endpoint base: http://localhost:8081/api
+Tenant: 3 / CONSUMAPONTODEMO
+Template: CONSUMA_PONTO
+Instituicao: 2 / CONSUMA Ponto Demo
+Unidade: 2 / Unidade Principal
+Aberto em: 2026-07-10 22:13:33.306507
+Estado encontrado no inicio da validacao: CANCELADO
+Cancelado em/actualizado em: 2026-07-12 08:29:27.649445
+Motivo registado: valor operacional existente no evento de cancelamento
+
+O turno 17 ja tinha sido cancelado antes deste diagnostico. Por regra de dominio,
+nao pode ser fechado novamente. Nenhum POST de fecho foi executado.
+
+GET /api/tenant/operacao/turnos/17/pre-fecho
+HTTP: 200
+podeFechar: false
+Pedidos mapeados: 4
+- FINALIZADO: 3
+- CRIADO: 1
+Subpedidos mapeados: 4
+- ENTREGUE: 3
+- CRIADO: 1
+Pagamentos gateway mapeados: 0
+Sessoes abertas contadas: 2
+Dispositivos offline: 0
+
+Bloqueios devolvidos:
+- 1 subpedido nao terminal;
+- 1 pedido nao terminal;
+- 2 sessoes operacionalmente abertas.
+
+Pedidos do turno 17:
+- pedido 39: FINALIZADO, NAO_PAGO, subpedido 39 ENTREGUE;
+- pedido 40: FINALIZADO, NAO_PAGO, subpedido 40 ENTREGUE;
+- pedido 41: FINALIZADO, NAO_PAGO, subpedido 41 ENTREGUE;
+- pedido 42: CRIADO, NAO_PAGO, subpedido 42 CRIADO.
+
+Pedido bloqueante:
+ID: 42
+Numero: PED-CONSUMAPONTODEMO-20260712-000001
+Criado em: 2026-07-12 00:43:44.408411
+Classificacao: CRIADO_ANTES_DO_HARDENING
+Status operacional: CRIADO
+Status financeiro: NAO_PAGO
+Origem: QR_PRINCIPAL
+Total: 3.000,00
+Itens: 1 linha, quantidade 3, subtotal 3.000,00
+Sessao associada: nenhuma
+Subpedido: 42, CRIADO
+Unidade de producao do subpedido: nula
+KDS/production do tenant: desactivados
+Deveria existir no modelo actual: nao
+
+Visibilidade:
+- GET /api/tenant/pedidos?page=0&size=50: HTTP 200, 1 pedido, apenas pedido 43 do turno 18;
+- GET com instituicaoId=2 e unidadeAtendimentoId=2: HTTP 200, mesmo resultado;
+- pedido 42 na listagem: nao;
+- GET /api/tenant/pedidos/42: HTTP 200;
+- pedido 42 no detalhe directo: sim.
+
+AllowedActions do pedido 42:
+- VIEW_PAYMENT
+
+ActionReasons relevantes:
+- ACCEPT_ORDER, REJECT_ORDER, CANCEL_ORDER, START_PREPARATION, MARK_READY e
+  MARK_DELIVERED indisponiveis porque o pedido nao pertence a um turno aberto.
+
+Acao normal disponivel para resolucao: nao
+Conclusao: o pedido e localizavel por ID e pelo pre-fecho, mas continua invisivel
+na listagem operacional e sem transicao valida por o turno estar cancelado.
+
+Causa da invisibilidade:
+TenantAdminPedidoService.listarPedidos() consulta apenas IDs de turnos ABERTO/EM_FECHO
+quando turno obrigatorio esta activo. O detalhe consulta por pedidoId + tenantId e,
+por isso, consegue devolver o pedido historico.
+
+Sessoes bloqueantes:
+- sessao 80: ABERTA, criada em 2026-07-12 00:43:13, sem pedidos associados;
+- sessao 81: ABERTA, criada em 2026-07-12 08:32:53, sem pedidos associados.
+
+Inconsistencia de escopo do pre-fecho:
+A sessao 81 foi aberta depois do cancelamento do turno 17 e durante o turno 18.
+TurnoResumoService conta todas as sessoes ABERTA/AGUARDANDO_PAGAMENTO da unidade,
+sem vinculo ao turno ou janela temporal. Assim, o pre-fecho historico do turno 17
+e contaminado por uma sessao do turno seguinte.
+
+Ordens de pagamento do turno 17:
+- 7 ordens em AGUARDANDO_CONFIRMACAO, todas com expires_at no passado;
+- valor total: 19.400,00;
+- o resumoCaixa apresenta totalPendente=19.400,00;
+- o pre-fecho nao gera bloqueio/aviso para essas ordens porque o mapa financeiro
+  usado no bloqueio conta pagamentos_gateway, nao ordens_pagamento.
+
+Essa divergencia exige auditoria propria: ordens expiradas permanecem com estado
+AGUARDANDO_CONFIRMACAO e pedidos FINALIZADO/NAO_PAGO nao sao classificados como
+bloqueio financeiro pelo pre-fecho actual.
+
+======================================================================
+5. HAPPY PATH CONTROLADO POS-DEPLOY
+======================================================================
+
+Ambiente: local, porta 8081
+Tenant controlado: 4 / OMELH / CONSUMA_PONTO
+Instituicao/unidade: 3/3
+Turno controlado: 9, ABERTO
+productionEnabled: false
+kdsEnabled: false
+sessaoConsumoEnabled: false
+Pre-fecho inicial: podeFechar=true, zero bloqueios e zero sessoes abertas
+
+Pedido criado: 44 / PED-OMELH-20260712-000001
+Criado em: 2026-07-12 10:53:29.601979
+Classificacao: CRIADO_DEPOIS_DO_HARDENING
+Produto: id 19, quantidade 2, preco unitario 500,00
+Total calculado: 1.000,00
+Soma dos itens directos: 1.000,00
+Itens com sub_pedido_id: 0
+Subpedidos criados: 0
+
+Fluxo HTTP:
+- POST QR pedido: 201 / CRIADO / NAO_PAGO;
+- PATCH aceitar: 200 / EM_ANDAMENTO / ordem 35 AGUARDANDO_CONFIRMACAO;
+- PATCH entregar antes de pagar: 409 / entrega nao permitida por pagamento nao confirmado;
+- PATCH confirmar ordem TPA: 200 / ordem CONFIRMADA;
+- GET detalhe pago: PAGO, EM_ANDAMENTO, allowedActions contem MARK_DELIVERED;
+- START_PREPARATION e MARK_READY ausentes;
+- PATCH entregar: 200 / FINALIZADO / PAGO;
+- GET acompanhamento publico: 200 / FINALIZADO / PAGO.
+
+Pagamento:
+- ordem 35 CONFIRMADA, TPA, valor 1.000,00;
+- pagamento gateway 18 CONFIRMADO;
+- entrega antes do pagamento permaneceu bloqueada.
+
+Sessao de consumo:
+- nenhuma sessao foi criada ou associada ao pedido 44;
+- o PONTO padrao no runtime tem sessaoConsumoEnabled=false e pedidoDiretoEnabled=true;
+- portanto auto-fecho de sessao nao e aplicavel a este caminho padrao.
+
+Ressalva de teste:
+ConsumaDemoFreezyHappyPathIT prova auto-fecho num tenant inicialmente provisionado
+como RESTAURANTE_SIMPLES e depois reclassificado como PONTO, mantendo capacidades de
+sessao. Os tenants PONTO provisionados no runtime actual possuem sessao desactivada.
+Logo, o runtime provou o happy path directo sem sessao, mas nao reproduziu uma sessao
+PONTO elegivel para auto-fecho sem alterar configuracao operacional.
+
+Pre-fecho final do turno controlado 9:
+- HTTP 200;
+- podeFechar=true;
+- bloqueios=[];
+- pedidos: FINALIZADO=1, nao terminais=0;
+- subpedidos: todos os estados=0;
+- pagamentos: CONFIRMADO=1, PENDENTE=0;
+- sessoesAbertas=0;
+- resumo TPA confirmado=1.000,00.
+
+Conclusao do fluxo novo:
+- total por itens directos: provado;
+- pedido PONTO sem subpedidos: provado;
+- entrega paga sem PRONTO: provada;
+- entrega sem pagamento: bloqueada;
+- convergencia do pre-fecho para o pedido novo: provada;
+- auto-fecho de sessao PONTO no runtime default: nao aplicavel/nao provado.
+
+======================================================================
+6. FECHO DO TURNO 17
+======================================================================
+
+Pre-fecho final observado: podeFechar=false
+Fecho normal executado: nao
+Fecho forcado executado: nao
+HTTP de fecho: nao executado por criterio de governanca
+Estado final do turno 17: CANCELADO
+Snapshot/extrato de fecho: nao gerado nesta fase
+Fechado por/em: nao aplicavel; o turno foi cancelado previamente
+
+Motivos para nao executar POST /turnos/17/fechar:
+- o turno ja estava CANCELADO;
+- pre-fecho com podeFechar=false;
+- pedido/subpedido legado sem acao de dominio disponivel;
+- sessoes abertas, incluindo uma sessao do turno seguinte;
+- checklist de fecho nao concluido.
+
+======================================================================
+7. RISCOS E PROXIMAS FASES
+======================================================================
+
+Riscos bloqueantes:
+1. AppyPay sandbox nao idempotente: evento de confirmacao falso e repetido a cada 15 minutos.
+2. Pedido 42 legado invisivel na listagem operacional e sem acao normal apos cancelamento do turno.
+3. Pre-fecho de turno historico conta sessoes abertas do turno seguinte.
+
+Riscos adicionais:
+4. Sessoes PONTO 80/81 sem pedidos nao sao elegiveis ao auto-fecho por terminalidade.
+5. Ordens expiradas permanecem AGUARDANDO_CONFIRMACAO e nao viram bloqueio financeiro.
+6. Pedidos FINALIZADO/NAO_PAGO coexistem com ordens pendentes antigas.
+7. Imagens nao embarcam SHA Git em metadata/actuator.
+8. Auto-fecho de sessao PONTO nao foi exercitado no runtime default porque sessoes estao desactivadas.
+
+Proximas fases recomendadas:
+1. Corrigir a transacao/idempotencia da reconciliacao AppyPay e deduplicar apenas por mecanismo auditavel, sem apagar historico.
+2. Criar servico de reconciliacao legada para pedido/subpedido 42, com dry-run, auditoria e autorizacao explicita.
+3. Tornar a listagem capaz de abrir pendencias de um turno historico/pre-fecho sem misturar o escopo do turno actual.
+4. Vincular sessoes ao turno ou aplicar criterio temporal/relacional no pre-fecho.
+5. Classificar ordens expiradas e alinhar bloqueios financeiros com resumoCaixa.
+6. Alinhar o teste de auto-fecho com as capacidades reais do template CONSUMA_PONTO default.
+
+======================================================================
+8. DECISAO FINAL
+======================================================================
+
+NOVO HAPPY PATH PROVADO — TURNO 17 EXIGE RECONCILIAÇÃO LEGADA
+
+Observacao obrigatoria:
+A decisao reconhece que a correcao do pedido PONTO directo funciona no runtime.
+Ela nao aprova o fecho do turno 17, que ja estava cancelado, nem aprova a rotina
+AppyPay do sandbox, classificada como risco bloqueante e nao idempotente.

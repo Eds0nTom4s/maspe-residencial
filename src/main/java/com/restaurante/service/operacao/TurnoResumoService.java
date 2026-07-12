@@ -2,6 +2,7 @@ package com.restaurante.service.operacao;
 
 import com.restaurante.config.OperacaoProperties;
 import com.restaurante.dto.response.TurnoPreFechoResponse;
+import com.restaurante.dto.response.TurnoPendenciaResponse;
 import com.restaurante.financeiro.monitoramento.dto.TurnoPagamentoAlertasResponse;
 import com.restaurante.financeiro.service.PagamentoPendenteQueryService;
 import com.restaurante.financeiro.caixa.service.RelatorioCaixaTurnoService;
@@ -92,6 +93,16 @@ public class TurnoResumoService {
         );
         if (subNaoTerminais > 0) {
             resp.getBloqueios().add("Existem subpedidos em aberto (não terminais): " + subNaoTerminais);
+            subPedidoRepository.findNonTerminalByTenantIdAndPedidoTurnoOperacionalId(
+                    turno.getTenant().getId(), turno.getId()).forEach(sp -> resp.getPendencias().add(
+                    TurnoPendenciaResponse.builder()
+                            .categoria("SUBPEDIDO_NAO_TERMINAL")
+                            .pedidoId(sp.getPedido().getId())
+                            .pedidoNumero(sp.getPedido().getNumero())
+                            .subPedidoId(sp.getId())
+                            .status(sp.getStatus().name())
+                            .acaoRecomendada("Abrir o pedido e concluir a ação operacional permitida.")
+                            .build()));
         }
 
         // Bloqueios: pedidos não terminais
@@ -100,12 +111,31 @@ public class TurnoResumoService {
         );
         if (pedidosNaoTerminais > 0) {
             resp.getBloqueios().add("Existem pedidos em aberto (não terminais): " + pedidosNaoTerminais);
+            pedidoRepository.findNonTerminalByTenantIdAndTurnoOperacionalId(
+                    turno.getTenant().getId(), turno.getId()).forEach(p -> resp.getPendencias().add(
+                    TurnoPendenciaResponse.builder()
+                            .categoria("PEDIDO_NAO_TERMINAL")
+                            .pedidoId(p.getId())
+                            .pedidoNumero(p.getNumero())
+                            .status(p.getStatus().name())
+                            .acaoRecomendada("Abrir o pedido e concluir ou cancelar pela máquina de estados.")
+                            .build()));
         }
 
         // Bloqueio: sessões operacionalmente abertas (ABERTA ou AGUARDANDO_PAGAMENTO)
         if (sessoesOperacionaisAbertas > 0) {
             resp.getBloqueios().add("Existem sessões de consumo operacionalmente abertas (ABERTA/AGUARDANDO_PAGAMENTO): "
                     + sessoesOperacionaisAbertas);
+            sessaoConsumoRepository.findByTenantIdAndUnidadeAtendimentoIdAndStatusIn(
+                    turno.getTenant().getId(), turno.getUnidadeAtendimento().getId(),
+                    Set.of(StatusSessaoConsumo.ABERTA, StatusSessaoConsumo.AGUARDANDO_PAGAMENTO)
+            ).forEach(s -> resp.getPendencias().add(
+                    TurnoPendenciaResponse.builder()
+                            .categoria("SESSAO_OPERACIONAL_ABERTA")
+                            .sessaoId(s.getId())
+                            .status(s.getStatus().name())
+                            .acaoRecomendada("Encerrar a sessão pelo fluxo operacional ou aguardar o auto-fecho elegível.")
+                            .build()));
         }
 
         long pagamentosPendentes = pagPorStatus.getOrDefault(StatusPagamentoGateway.PENDENTE.name(), 0L);

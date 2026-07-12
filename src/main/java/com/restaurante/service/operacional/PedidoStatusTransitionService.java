@@ -21,6 +21,7 @@ import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.PedidoService;
+import com.restaurante.service.SessaoConsumoAutoClosureService;
 import com.restaurante.service.operacional.PedidoAllowedActionsService;
 import com.restaurante.service.tenantadmin.TenantAdminPedidoService;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,7 @@ public class PedidoStatusTransitionService {
     private final OrdemPagamentoService ordemPagamentoService;
     private final PedidoAllowedActionsService pedidoAllowedActionsService;
     private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
+    private final SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService;
 
     /**
      * Atualiza status operacional do Pedido de forma segura.
@@ -150,7 +152,12 @@ public class PedidoStatusTransitionService {
         }
         subPedidoRepository.saveAll(subs);
 
-        pedidoService.recalcularStatusPedido(pedido.getId());
+        if (subs.isEmpty()) {
+            pedido.setStatus(StatusPedido.EM_ANDAMENTO);
+            pedidoRepository.saveAndFlush(pedido);
+        } else {
+            pedidoService.recalcularStatusPedido(pedido.getId());
+        }
         Pedido after = pedidoRepository.findByIdAndTenantIdComItens(pedido.getId(), ctx.tenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
 
@@ -343,11 +350,20 @@ public class PedidoStatusTransitionService {
 
         // Recalcula status do pedido de forma centralizada
         var beforePedidoStatus = pedido.getStatus();
-        pedidoService.recalcularStatusPedido(pedido.getId());
+        if (subs.isEmpty()) {
+            pedido.setStatus(StatusPedido.FINALIZADO);
+            pedidoRepository.saveAndFlush(pedido);
+        } else {
+            pedidoService.recalcularStatusPedido(pedido.getId());
+        }
         Pedido after = pedidoRepository.findByIdAndTenantId(pedido.getId(), ctx.tenantId()).orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
 
         if (after.getStatus() != StatusPedido.FINALIZADO) {
             throw new ConflictException("Não foi possível finalizar o pedido: status derivado não é FINALIZADO.");
+        }
+
+        if (subs.isEmpty() && after.getSessaoConsumo() != null) {
+            sessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo(after.getSessaoConsumo().getId());
         }
 
         if (beforePedidoStatus != after.getStatus()) {
@@ -454,7 +470,7 @@ public class PedidoStatusTransitionService {
 
     private List<SubPedido> getSubPedidosOrThrow(Pedido pedido) {
         List<SubPedido> subs = pedido.getSubPedidos() != null ? pedido.getSubPedidos() : List.of();
-        if (subs.isEmpty()) {
+        if (subs.isEmpty() && operationalCapabilitiesPolicy.canUseProduction(pedido)) {
             throw new ConflictException("Pedido não possui subpedidos para transição operacional.");
         }
         return subs;

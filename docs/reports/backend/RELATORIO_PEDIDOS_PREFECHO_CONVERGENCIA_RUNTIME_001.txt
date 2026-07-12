@@ -1,0 +1,77 @@
+RELATORIO_PEDIDOS_PREFECHO_CONVERGENCIA_RUNTIME_001
+
+1. Identificacao
+Branch: backend/consuma-pedidos-prefecho-convergencia-runtime-001
+Base informada: 8f9b406763771618766296fed700c8659af88f7d
+Hardening KDS/Producao integrado: e45c9d1759dc2c3cbdfb0d83d87485a3835aa7f6 presente como ancestral.
+Commit funcional: 369326867eb9f3c3d3049fea444157e9d646ac2e
+
+2. Causa raiz
+Pedidos CONSUMA PONTO com producao desativada podem existir sem subpedidos. O fluxo anterior ainda dependia de subpedidos para calculo derivado de total, allowedActions e transicoes operacionais, o que deixava o pre-fecho e a conclusao do pedido inconsistentes quando o pedido era resolvido por itens directos.
+
+3. Calculo de total
+Pedido.calcularTotal() agora usa a seguinte precedencia:
+- se existem subpedidos, soma os totais dos subpedidos;
+- se nao existem subpedidos, soma os subtotais dos itens directos do pedido;
+- subtotal nulo em item directo e tratado como zero;
+- pedido sem itens e sem subpedidos calcula zero.
+
+Esta precedencia evita dupla contabilizacao quando o pedido contem simultaneamente itens e subpedidos, preservando o comportamento REST/KDS que usa subpedidos como agregado operacional.
+
+4. Transicoes PONTO sem producao
+PedidoStatusTransitionService aceita pedidos sem subpedidos apenas quando a policy indica que producao nao e usada.
+No aceite, pedido PONTO sem subpedidos passa para EM_ANDAMENTO.
+Na entrega, pedido PONTO sem subpedidos passa para FINALIZADO.
+Fluxos com producao continuam exigindo subpedidos.
+
+5. Entrega e pagamento
+A entrega directa sem estado PRONTO so e permitida quando OperationalCapabilitiesPolicy.canDeliverWithoutReady(pedido) retorna verdadeiro.
+MARK_DELIVERED continua bloqueado quando o pedido nao esta PAGO.
+Ordens de pagamento activas/expiradas e pagamento nao confirmado nao foram relaxados por esta fase.
+
+6. Auto-fecho de sessao
+Apos persistir o estado terminal do pedido sem subpedidos com saveAndFlush, PedidoStatusTransitionService chama SessaoConsumoAutoClosureService.tryAutoCloseSessaoConsumo().
+A chamada ocorre na mesma transaccao e depois da persistencia do estado FINALIZADO, reduzindo risco de visibilidade transaccional incompleta.
+SessaoConsumoAutoClosureService permanece idempotente e nao encerra sessoes com pedido CRIADO, EM_ANDAMENTO, pendencia financeira, ordem activa, subpedido pendente, sessao vazia, REST ou KDS.
+
+7. REST/KDS preservado
+REST/KDS continua com producao e subpedidos como fluxo operacional.
+OperationalStatusTransitionIT, KdsOperationsContractIT e suites de producao/KDS passaram na validacao ampla.
+Nenhuma regra global de KDS foi removida.
+
+8. Testes adicionados e revalidados
+Novo teste: src/test/java/com/restaurante/model/entity/PedidoCalcularTotalTest.java
+Testes reforcados:
+- PedidoEntregaAllowedActionsTest cobre PONTO pago sem subpedidos e PONTO nao pago sem subpedidos;
+- ConsumaDemoFreezyHappyPathIT cobre pedido PONTO sem subpedidos ate FINALIZADO, auto-fecho e pre-fecho sem sessao aberta.
+
+9. Validacao
+Testes focados:
+mvn -Dtest=PedidoCalcularTotalTest,PedidoEntregaAllowedActionsTest,SessaoConsumoAutoClosureServiceTest test
+Resultado: 40 testes, 0 falhas, 0 erros, 0 skipped.
+
+mvn -DskipTests compile
+Resultado: BUILD SUCCESS.
+
+mvn test
+Resultado: BUILD SUCCESS.
+Surefire: 450 testes, 0 falhas, 0 erros, 3 skipped.
+
+mvn -Pit verify
+Resultado: BUILD SUCCESS.
+Surefire: 450 testes, 0 falhas, 0 erros, 3 skipped.
+Failsafe: 290 testes, 0 falhas, 0 erros, 0 skipped.
+
+10. Governanca
+SQL manual: nao executado.
+Docker: nao alterado durante os commits desta correcao.
+Banco: nao alterado manualmente.
+Fecho forcado: nao executado.
+Turno 17: nao reconciliado manualmente.
+Pedido/subpedido/sessao existentes: nao alterados manualmente.
+
+11. Limitacao runtime
+O turno 17 observado no runtime local permanece pendente de validacao operacional depois de deploy controlado. Esta fase aprova o backend por codigo e testes, mas nao declara a convergencia operacional restaurada no runtime existente.
+
+12. Decisao
+CORRECÇÃO BACKEND APROVADA — VALIDAÇÃO RUNTIME PENDENTE

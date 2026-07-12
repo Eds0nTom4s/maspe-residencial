@@ -142,6 +142,46 @@ class TenantPedidoTurnoObrigatorioIT extends PostgresTestcontainersConfig {
                 .andExpect(jsonPath("$.code").value("TURNO_ABERTO_OBRIGATORIO"));
     }
 
+    @Test
+    @WithMockUser(username = "tenant-owner")
+    void turnoEmFecho_listsPedidoWithoutSessao_withAndWithoutOperationalScope() throws Exception {
+        ProvisionarTenantResponse provisioned = provisionTenant();
+        setTenantContext(provisioned);
+
+        Tenant tenant = tenantRepository.findById(provisioned.getTenantId()).orElseThrow();
+        Instituicao instituicao = instituicaoRepository.findById(provisioned.getInstituicaoId()).orElseThrow();
+        UnidadeAtendimento unidade = unidadeAtendimentoRepository.findById(provisioned.getUnidadeAtendimentoId()).orElseThrow();
+        User owner = userRepository.findById(provisioned.getOwnerUserId()).orElseThrow();
+        TurnoOperacional turno = criarTurno(tenant, instituicao, unidade, owner, TurnoOperacionalStatus.EM_FECHO);
+
+        Pedido pedido = new Pedido();
+        pedido.setTenant(tenant);
+        pedido.setNumero("TP-SEM-SESSAO-" + UUID.randomUUID());
+        pedido.setSessaoConsumo(null);
+        pedido.setTurnoOperacional(turno);
+        pedido.setStatus(StatusPedido.CRIADO);
+        pedido.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
+        pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
+        pedido.setTotal(new BigDecimal("25.00"));
+        pedido = pedidoRepository.saveAndFlush(pedido);
+
+        mockMvc.perform(get("/tenant/pedidos").param("page", "0").param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(pedido.getId()))
+                .andExpect(jsonPath("$.data.content[0].instituicaoId").value(instituicao.getId()))
+                .andExpect(jsonPath("$.data.content[0].unidadeAtendimentoId").value(unidade.getId()));
+
+        mockMvc.perform(get("/tenant/pedidos")
+                        .param("instituicaoId", instituicao.getId().toString())
+                        .param("unidadeAtendimentoId", unidade.getId().toString())
+                        .param("page", "0")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(pedido.getId()));
+    }
+
     private ProvisionarTenantResponse provisionTenant() {
         TenantContextHolder.set(new TenantContext(
                 null, null, 1L, Set.of(Role.ROLE_ADMIN.name()),

@@ -30,9 +30,10 @@ public class ItemPedido extends BaseEntity {
     @JoinColumn(name = "pedido_id", nullable = true)
     private Pedido pedido;
 
-    // Relacionamento OBRIGATÓRIO com SubPedido (novo modelo)
+    // Opcional para CONSUMA PONTO quando produção/KDS estão desativados.
+    // Fluxos produtivos continuam atribuindo SubPedido pela camada de domínio.
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "sub_pedido_id", nullable = false)
+    @JoinColumn(name = "sub_pedido_id")
     private SubPedido subPedido;
 
     // Relacionamento OBRIGATÓRIO com Produto

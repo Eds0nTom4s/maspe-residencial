@@ -322,9 +322,16 @@ public class Pedido extends BaseEntity {
      * Calcula o total do pedido somando todos os subpedidos
      */
     public BigDecimal calcularTotal() {
-        BigDecimal totalCalculado = subPedidos.stream()
-            .map(sp -> sp.getTotal() != null ? sp.getTotal() : BigDecimal.ZERO)
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalCalculado;
+        if (subPedidos == null || subPedidos.isEmpty()) {
+            totalCalculado = itens == null ? BigDecimal.ZERO : itens.stream()
+                    .map(item -> item.getSubtotal() != null ? item.getSubtotal() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        } else {
+            totalCalculado = subPedidos.stream()
+                    .map(sp -> sp.getTotal() != null ? sp.getTotal() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
         
         this.total = totalCalculado;
         return totalCalculado;

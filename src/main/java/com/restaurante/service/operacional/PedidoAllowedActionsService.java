@@ -253,9 +253,9 @@ public class PedidoAllowedActionsService {
             }
         }
         boolean directDelivery = operationalCapabilitiesPolicy.canDeliverWithoutReady(pedido);
-        if (!subPedidos.isEmpty() && subPedidos.stream().allMatch(sp ->
+        if ((subPedidos.isEmpty() && directDelivery) || (!subPedidos.isEmpty() && subPedidos.stream().allMatch(sp ->
                 sp.getStatus() == StatusSubPedido.PRONTO || sp.getStatus() == StatusSubPedido.ENTREGUE ||
-                (directDelivery && sp.getStatus() == StatusSubPedido.PENDENTE))) {
+                (directDelivery && sp.getStatus() == StatusSubPedido.PENDENTE)))) {
             // MARK_DELIVERED exige pagamento confirmado por contrato operacional.
             if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
                 reasons.put(PedidoAllowedAction.MARK_DELIVERED, REASON_PAYMENT_NOT_CONFIRMED);
@@ -283,12 +283,16 @@ public class PedidoAllowedActionsService {
 
     private boolean allSubPedidosAre(Pedido pedido, StatusSubPedido status) {
         List<SubPedido> subPedidos = subPedidos(pedido);
-        return !subPedidos.isEmpty() && subPedidos.stream().allMatch(sp -> sp.getStatus() == status);
+        return subPedidos.isEmpty()
+                ? !operationalCapabilitiesPolicy.canUseProduction(pedido)
+                : subPedidos.stream().allMatch(sp -> sp.getStatus() == status);
     }
 
     private boolean hasCancelableSubPedidos(Pedido pedido) {
         List<SubPedido> subPedidos = subPedidos(pedido);
-        return !subPedidos.isEmpty() && subPedidos.stream()
+        return subPedidos.isEmpty()
+                ? !operationalCapabilitiesPolicy.canUseProduction(pedido)
+                : subPedidos.stream()
                 .allMatch(sp -> sp.getStatus() != null
                         && !sp.getStatus().isTerminal()
                         && sp.getStatus().podeTransicionarPara(StatusSubPedido.CANCELADO));

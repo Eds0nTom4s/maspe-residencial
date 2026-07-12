@@ -276,6 +276,33 @@ class PedidoEntregaAllowedActionsTest {
         );
     }
 
+    @Test
+    void pontoPagoSemSubPedidosLiberaMarkDeliveredSemPronto() {
+        Pedido pedido = pedidoSemSubPedidos("CONSUMA_PONTO", StatusPedido.EM_ANDAMENTO,
+                StatusFinanceiroPedido.PAGO, true);
+
+        PedidoAllowedActionsService.PedidoCapabilities caps = service.evaluate(pedido, ctx(TenantUserRole.TENANT_OWNER));
+
+        assertThat(caps.allowedActions()).contains(PedidoAllowedAction.MARK_DELIVERED);
+        assertThat(caps.allowedActions())
+                .doesNotContain(PedidoAllowedAction.START_PREPARATION, PedidoAllowedAction.MARK_READY);
+        assertThat(caps.actionReasons()).doesNotContainKey(PedidoAllowedAction.MARK_DELIVERED);
+    }
+
+    @Test
+    void pontoNaoPagoSemSubPedidosNaoLiberaMarkDelivered() {
+        Pedido pedido = pedidoSemSubPedidos("CONSUMA_PONTO", StatusPedido.EM_ANDAMENTO,
+                StatusFinanceiroPedido.NAO_PAGO, true);
+
+        PedidoAllowedActionsService.PedidoCapabilities caps = service.evaluate(pedido, ctx(TenantUserRole.TENANT_OWNER));
+
+        assertThat(caps.allowedActions()).doesNotContain(PedidoAllowedAction.MARK_DELIVERED);
+        assertThat(caps.actionReasons()).containsEntry(
+                PedidoAllowedAction.MARK_DELIVERED,
+                "Entrega permitida apenas após pagamento confirmado."
+        );
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────────
@@ -315,6 +342,17 @@ class PedidoEntregaAllowedActionsTest {
         subPedido.setPedido(pedido);
         subPedido.setStatus(subPedidoStatus);
         pedido.setSubPedidos(List.of(subPedido));
+        return pedido;
+    }
+
+    private Pedido pedidoSemSubPedidos(
+            String templateCode,
+            StatusPedido status,
+            StatusFinanceiroPedido statusFinanceiro,
+            boolean turnoAberto
+    ) {
+        Pedido pedido = pedido(templateCode, status, statusFinanceiro, turnoAberto, StatusSubPedido.PENDENTE);
+        pedido.setSubPedidos(List.of());
         return pedido;
     }
 

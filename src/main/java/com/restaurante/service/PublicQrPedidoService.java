@@ -152,17 +152,18 @@ public class PublicQrPedidoService {
                 Cozinha cozinha = entry.getKey();
                 List<PublicQrPedidoItemRequest> itensReq = entry.getValue();
 
-                SubPedido subPedido = SubPedido.builder()
-                        .numero(pedido.getNumero() + "-" + contadorSubPedido)
-                        .pedido(pedido)
-                        .cozinha(cozinha)
-                        .unidadeAtendimento(unidadeAtendimento)
-                        .status(StatusSubPedido.CRIADO)
-                        .build();
-                subPedido.setTenant(tenant);
-
-                com.restaurante.model.entity.UnidadeProducao unidadeProducao = null;
+                SubPedido subPedido = null;
                 if (productionEnabled) {
+                    subPedido = SubPedido.builder()
+                            .numero(pedido.getNumero() + "-" + contadorSubPedido)
+                            .pedido(pedido)
+                            .cozinha(cozinha)
+                            .unidadeAtendimento(unidadeAtendimento)
+                            .status(StatusSubPedido.CRIADO)
+                            .build();
+                    subPedido.setTenant(tenant);
+
+                    com.restaurante.model.entity.UnidadeProducao unidadeProducao = null;
                     for (PublicQrPedidoItemRequest itemReq : itensReq) {
                         Produto prod = produtos.stream()
                                 .filter(p -> p.getId().equals(itemReq.getProdutoId()))
@@ -181,9 +182,9 @@ public class PublicQrPedidoService {
                             break;
                         }
                     }
+                    subPedido.setUnidadeProducao(unidadeProducao);
+                    contadorSubPedido++;
                 }
-                subPedido.setUnidadeProducao(unidadeProducao);
-                contadorSubPedido++;
 
                 for (PublicQrPedidoItemRequest itemReq : itensReq) {
                     Produto produto = produtos.stream()
@@ -203,7 +204,9 @@ public class PublicQrPedidoService {
                     item.calcularSubtotal();
 
                     pedido.adicionarItem(item);
-                    subPedido.adicionarItem(item);
+                    if (subPedido != null) {
+                        subPedido.adicionarItem(item);
+                    }
 
                     itensResponse.add(PublicQrPedidoItemResponse.builder()
                             .produtoId(produto.getId())
@@ -214,8 +217,10 @@ public class PublicQrPedidoService {
                             .build());
                 }
 
-                subPedido.calcularTotal();
-                pedido.getSubPedidos().add(subPedido);
+                if (subPedido != null) {
+                    subPedido.calcularTotal();
+                    pedido.getSubPedidos().add(subPedido);
+                }
             }
 
             pedido.calcularTotal();

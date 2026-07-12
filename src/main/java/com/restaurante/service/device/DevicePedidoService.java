@@ -311,17 +311,17 @@ public class DevicePedidoService {
                 Cozinha cozinha = entry.getKey();
                 List<DeviceCriarPedidoItemRequest> itensReq = entry.getValue();
 
-                SubPedido subPedido = SubPedido.builder()
-                        .numero(pedido.getNumero() + "-" + contadorSubPedido)
-                        .pedido(pedido)
-                        .cozinha(cozinha)
-                        .unidadeAtendimento(ua)
-                        .status(StatusSubPedido.CRIADO)
-                        .build();
-                subPedido.setTenant(tenant);
-
+                SubPedido subPedido = null;
                 com.restaurante.model.entity.UnidadeProducao unidadeProducao = null;
                 if (productionEnabled) {
+                    subPedido = SubPedido.builder()
+                            .numero(pedido.getNumero() + "-" + contadorSubPedido)
+                            .pedido(pedido)
+                            .cozinha(cozinha)
+                            .unidadeAtendimento(ua)
+                            .status(StatusSubPedido.CRIADO)
+                            .build();
+                    subPedido.setTenant(tenant);
                     for (DeviceCriarPedidoItemRequest itemReq : itensReq) {
                         Produto prod = porId.get(itemReq.getProdutoId());
                         if (prod == null || prod.getCategoriaProduto() == null) {
@@ -342,9 +342,9 @@ public class DevicePedidoService {
                             break;
                         }
                     }
+                    subPedido.setUnidadeProducao(unidadeProducao);
+                    contadorSubPedido++;
                 }
-                subPedido.setUnidadeProducao(unidadeProducao);
-                contadorSubPedido++;
 
                 List<DevicePedidoItemResponse> itensSub = new ArrayList<>();
                 for (DeviceCriarPedidoItemRequest itemReq : itensReq) {
@@ -361,7 +361,9 @@ public class DevicePedidoService {
                     item.calcularSubtotal();
 
                     pedido.adicionarItem(item);
-                    subPedido.adicionarItem(item);
+                    if (subPedido != null) {
+                        subPedido.adicionarItem(item);
+                    }
 
                     DevicePedidoItemResponse ir = new DevicePedidoItemResponse();
                     ir.setItemPedidoId(item.getId()); // após persist, mas já útil para placeholder
@@ -375,16 +377,18 @@ public class DevicePedidoService {
                     itensSub.add(ir);
                 }
 
-                subPedido.calcularTotal();
-                pedido.getSubPedidos().add(subPedido);
+                if (subPedido != null) {
+                    subPedido.calcularTotal();
+                    pedido.getSubPedidos().add(subPedido);
 
-                DeviceSubPedidoResponse sr = new DeviceSubPedidoResponse();
-                sr.setSubPedidoId(subPedido.getId());
-                sr.setUnidadeProducaoId(unidadeProducao != null ? unidadeProducao.getId() : null);
-                sr.setUnidadeProducaoNome(unidadeProducao != null ? unidadeProducao.getNome() : null);
-                sr.setStatus(subPedido.getStatus());
-                sr.setItens(itensSub);
-                subResp.add(sr);
+                    DeviceSubPedidoResponse sr = new DeviceSubPedidoResponse();
+                    sr.setSubPedidoId(subPedido.getId());
+                    sr.setUnidadeProducaoId(unidadeProducao != null ? unidadeProducao.getId() : null);
+                    sr.setUnidadeProducaoNome(unidadeProducao != null ? unidadeProducao.getNome() : null);
+                    sr.setStatus(subPedido.getStatus());
+                    sr.setItens(itensSub);
+                    subResp.add(sr);
+                }
             }
 
             pedido.calcularTotal();

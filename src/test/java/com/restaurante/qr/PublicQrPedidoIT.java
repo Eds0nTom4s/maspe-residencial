@@ -340,6 +340,8 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, tenant.getId()).orElseThrow();
         assertThat(pedido.getSessaoConsumo()).isNull();
         assertThat(pedido.getTenant().getId()).isEqualTo(tenant.getId());
+        assertThat(pedido.getItens()).isNotEmpty();
+        assertThat(subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId)).isEmpty();
     }
 
     private Tenant criarTenant(String nome, String slug, String tenantCode) {

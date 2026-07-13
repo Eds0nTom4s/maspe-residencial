@@ -9,7 +9,6 @@ import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.Pagamento;
 import com.restaurante.model.entity.PagamentoEventLog;
 import com.restaurante.service.PedidoPagamentoPolicy;
-import com.restaurante.financeiro.reconciliation.model.ReconciliationCaseOrigin;
 import com.restaurante.financeiro.reconciliation.service.PagamentoReconciliationCaseService;
 import com.restaurante.store.service.StorePaymentService;
 import lombok.RequiredArgsConstructor;
@@ -76,6 +75,7 @@ public class AppyPayReconciliationProcessor {
             }
 
             confirmarNoDominio(pagamento);
+            reconciliationCaseService.onAutomaticConfirmed(pagamento);
             pagamento.setReconciliationStatus(StatusReconciliacaoAppyPay.CONCLUIDO);
             pagamento.setReconciliationNextAttemptAt(null);
             pagamento.setReconciliationLastError(null);
@@ -88,6 +88,7 @@ public class AppyPayReconciliationProcessor {
             pagamento.setReconciliationStatus(StatusReconciliacaoAppyPay.CONCLUIDO);
             pagamento.setReconciliationNextAttemptAt(null);
             pagamentoRepository.save(pagamento);
+            reconciliationCaseService.onPermanentExternalFailure(pagamento);
             registrarEvento(TipoEventoFinanceiro.PAGAMENTO_FALHOU, pagamento,
                     "Pagamento marcado como falho via reconciliação AppyPay");
             return AppyPayReconciliationService.ResultadoReconcilicao.FALHOU;
@@ -97,6 +98,7 @@ public class AppyPayReconciliationProcessor {
         pagamento.setReconciliationNextAttemptAt(now.plusMinutes(backoffMinutes(pagamento.getReconciliationAttempts())));
         pagamento.setReconciliationLastError(null);
         pagamentoRepository.save(pagamento);
+        reconciliationCaseService.onTemporaryFailure(pagamento);
         return AppyPayReconciliationService.ResultadoReconcilicao.AGUARDANDO;
     }
 
@@ -113,6 +115,7 @@ public class AppyPayReconciliationProcessor {
         pagamento.setReconciliationLastError(limit(erro, 4000));
         pagamento.setReconciliationNextAttemptAt(now.plusMinutes(backoffMinutes(pagamento.getReconciliationAttempts())));
         pagamentoRepository.save(pagamento);
+        reconciliationCaseService.onTemporaryFailure(pagamento);
     }
 
     private void confirmarNoDominio(Pagamento pagamento) {
@@ -136,7 +139,7 @@ public class AppyPayReconciliationProcessor {
         pagamento.setReconciliationNextAttemptAt(null);
         pagamento.setReconciliationLastError(limit(ex.getMessage(), 4000));
         pagamentoRepository.save(pagamento);
-        reconciliationCaseService.materialize(pagamento, ReconciliationCaseOrigin.AUTOMATIC_BLOCK);
+        reconciliationCaseService.onDomainBlocked(pagamento);
     }
 
     private void registrarEvento(TipoEventoFinanceiro tipo, Pagamento pagamento, String motivo) {

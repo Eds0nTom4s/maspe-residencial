@@ -20,6 +20,7 @@ public class PagamentoReconciliationCaseEvent extends BaseEntity {
     @Column(name="user_agent", length=255) private String userAgent;
     @Column(name="correlation_id", nullable=false, length=100) private String correlationId;
     @Column(name="idempotency_key", length=100) private String idempotencyKey;
+    @Column(name="command_fingerprint", length=64) private String commandFingerprint;
     @Enumerated(EnumType.STRING) @Column(nullable=false, length=40) private ReconciliationCaseAction action;
     @Column(name="before_state", columnDefinition="text") private String beforeState;
     @Column(name="after_state", columnDefinition="text") private String afterState;

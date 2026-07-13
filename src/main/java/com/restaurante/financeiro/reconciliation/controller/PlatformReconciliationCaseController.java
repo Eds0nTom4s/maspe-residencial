@@ -23,5 +23,5 @@ public class PlatformReconciliationCaseController {
     @PostMapping("/{id}/classify") public Detail classify(@PathVariable Long id,@RequestParam Long tenantId,@Valid @RequestBody ClassifyRequest r,@RequestHeader("Idempotency-Key")String k,HttpServletRequest h){return service.classify(id,tenantId,r,k,h,true);}
     @PostMapping("/{id}/retry") public Detail retry(@PathVariable Long id,@RequestParam Long tenantId,@Valid @RequestBody CommandContext r,@RequestHeader("Idempotency-Key")String k,HttpServletRequest h){return service.retry(id,tenantId,r,k,h,true);}
     @PostMapping("/{id}/close") public Detail close(@PathVariable Long id,@RequestParam Long tenantId,@Valid @RequestBody CloseRequest r,@RequestHeader("Idempotency-Key")String k,HttpServletRequest h){return service.close(id,tenantId,r,k,h,true);}
-    @PostMapping("/materialize") public BackfillResult materialize(@RequestParam(defaultValue="true") boolean dryRun){return service.backfill(dryRun);}
+    @PostMapping("/materialize") public BackfillResult materialize(@RequestParam Long tenantId,@RequestParam(defaultValue="true") boolean dryRun,@RequestBody(required=false) @Valid MaterializeRequest request,@RequestHeader(value="Idempotency-Key",required=false)String key,HttpServletRequest http){return service.backfill(tenantId,dryRun,request,key,http);}
 }

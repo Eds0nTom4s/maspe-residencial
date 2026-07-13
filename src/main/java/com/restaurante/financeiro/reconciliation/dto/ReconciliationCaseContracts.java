@@ -21,4 +21,5 @@ public final class ReconciliationCaseContracts {
     public record Summary(Long caseId, Long version, TenantRef tenant, Long pagamentoId, Long pedidoId, String externalReference, String remoteStatus, String localStatus, String reconciliationStatus, ReconciliationCaseStatus status, ReconciliationCaseClassification classification, Assignee assignedTo, LocalDateTime openedAt, LocalDateTime updatedAt, long ageHours, String attentionLevel) {}
     public record Detail(Summary summary, String technicalReason, int attempts, LocalDateTime lastAttemptAt, String responseFingerprint, Eligibility eligibility, List<Event> administrativeHistory, boolean gatewayPayloadIncluded) {}
     public record BackfillResult(boolean dryRun, long eligible, long created, long alreadyExisting) {}
+    public record MaterializeRequest(@NotBlank @Size(max=1000) String reason) {}
 }

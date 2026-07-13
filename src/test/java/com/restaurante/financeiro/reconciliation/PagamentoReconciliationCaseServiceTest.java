@@ -10,6 +10,7 @@ import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.*;
 import com.restaurante.repository.*;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.security.tenant.*;
 import com.restaurante.service.PedidoPagamentoPolicy;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.*;
@@ -32,6 +33,9 @@ class PagamentoReconciliationCaseServiceTest {
     @Mock TenantGuard tenantGuard;
     @Mock PedidoPagamentoPolicy paymentPolicy;
     @Mock ReconciliationAuditContext auditContext;
+    @Spy ReconciliationCommandFingerprint fingerprints=new ReconciliationCommandFingerprint();
+    @Spy ReconciliationCaseStateMachine stateMachine=new ReconciliationCaseStateMachine();
+    @Mock ReconciliationMaterializationAuditRepository materializationAudits;
     @Mock HttpServletRequest http;
     @InjectMocks PagamentoReconciliationCaseService service;
     Pagamento payment; PagamentoReconciliationCase adminCase; Tenant tenant;
@@ -45,6 +49,34 @@ class PagamentoReconciliationCaseServiceTest {
         lenient().when(events.findByReconciliationCaseIdAndActionAndIdempotencyKey(anyLong(),any(),anyString())).thenReturn(Optional.empty());
         lenient().when(auditContext.current(http)).thenReturn(new ReconciliationAuditContext.Actor(7L,"TENANT_FINANCE","TENANT","127.0.0.1","test","corr-1"));
         lenient().when(cases.save(any())).thenAnswer(i->i.getArgument(0));lenient().when(events.save(any())).thenAnswer(i->i.getArgument(0));
+    }
+    @AfterEach void cleanup(){TenantContextHolder.clear();}
+
+    @Test void platformVeNotaRestritaETenantNaoRecebeNenhumDadoDela(){
+        PagamentoReconciliationCaseEvent restricted=new PagamentoReconciliationCaseEvent();restricted.setId(99L);restricted.setAction(ReconciliationCaseAction.NOTE_ADDED);restricted.setNoteVisibility(ReconciliationNoteVisibility.PLATFORM_ONLY);restricted.setReason("segredo operacional");restricted.setActorRoles("ROLE_ADMIN");restricted.setActorOrigin("PLATFORM_ADMIN");restricted.setCorrelationId("private-corr");
+        PagamentoReconciliationCaseEvent visible=new PagamentoReconciliationCaseEvent();visible.setId(100L);visible.setAction(ReconciliationCaseAction.NOTE_ADDED);visible.setNoteVisibility(ReconciliationNoteVisibility.TENANT);visible.setReason("nota tenant");visible.setActorRoles("TENANT_OWNER");visible.setActorOrigin("TENANT");visible.setCorrelationId("tenant-corr");
+        when(events.findByReconciliationCaseIdOrderByCreatedAtAsc(5L)).thenReturn(List.of(restricted,visible));when(cases.findTenantCase(5L,10L)).thenReturn(Optional.of(adminCase));
+        assertThat(service.detail(5L,10L,true).administrativeHistory()).extracting(Event::reason).containsExactly("segredo operacional","nota tenant");
+        TenantContext ctx=new TenantContext(10L,"T10",7L,Set.of("TENANT_OWNER"),TenantResolutionSource.JWT,false,false);TenantContextHolder.set(ctx);when(tenantGuard.requireContext()).thenReturn(ctx);
+        Detail tenantDetail=service.detail(5L,null,false);assertThat(tenantDetail.administrativeHistory()).extracting(Event::reason).containsExactly("nota tenant");assertThat(tenantDetail.toString()).doesNotContain("segredo operacional","ROLE_ADMIN","private-corr");
+    }
+
+    @Test void mesmaChaveComPayloadDiferenteConflitaEmTodosComandos(){
+        authorizeCase();
+        assertConflict(ReconciliationCaseAction.ASSIGNED,fingerprints.calculate(5L,ReconciliationCaseAction.ASSIGNED,Map.of("version",0L,"assignedToUserId",9L,"reason","original")),()->service.assign(5L,10L,new AssignRequest(0L,10L,"alterado"),"same",http,true));
+        assertConflict(ReconciliationCaseAction.NOTE_ADDED,fingerprints.calculate(5L,ReconciliationCaseAction.NOTE_ADDED,Map.of("version",0L,"content","original","noteType",ReconciliationNoteType.ANALYSIS,"noteVisibility",ReconciliationNoteVisibility.TENANT)),()->service.note(5L,10L,new NoteRequest(0L,"alterado",ReconciliationNoteType.ANALYSIS,ReconciliationNoteVisibility.TENANT),"same",http,true));
+        assertConflict(ReconciliationCaseAction.CLASSIFIED,fingerprints.calculate(5L,ReconciliationCaseAction.CLASSIFIED,Map.of("version",0L,"classification",ReconciliationCaseClassification.DADO_LEGADO,"reason","original")),()->service.classify(5L,10L,new ClassifyRequest(0L,ReconciliationCaseClassification.OUTRO,"alterado"),"same",http,true));
+        assertConflict(ReconciliationCaseAction.RETRY_REQUESTED,fingerprints.calculate(5L,ReconciliationCaseAction.RETRY_REQUESTED,Map.of("version",0L,"reason","original")),()->service.retry(5L,10L,new CommandContext(0L,"alterado"),"same",http,true));
+        assertConflict(ReconciliationCaseAction.CLOSED,fingerprints.calculate(5L,ReconciliationCaseAction.CLOSED,Map.of("version",0L,"resolution","ACCOUNTING","reason","original")),()->service.close(5L,10L,new CloseRequest(0L,"ACCOUNTING","alterado"),"same",http,true));
+    }
+
+    @Test void mesmaChaveEMesmoPayloadEhReplayValido(){
+        authorizeCase();NoteRequest req=new NoteRequest(0L,"conteúdo normalizado",ReconciliationNoteType.EVIDENCE,ReconciliationNoteVisibility.TENANT);String fp=fingerprints.calculate(5L,ReconciliationCaseAction.NOTE_ADDED,Map.of("version",0L,"content",req.content(),"noteType",req.type(),"noteVisibility",req.visibility()));PagamentoReconciliationCaseEvent e=new PagamentoReconciliationCaseEvent();e.setCommandFingerprint(fp);when(events.findByReconciliationCaseIdAndActionAndIdempotencyKey(5L,ReconciliationCaseAction.NOTE_ADDED,"replay")).thenReturn(Optional.of(e));service.note(5L,10L,req,"replay",http,true);verify(events,never()).save(argThat(x->x.getAction()==ReconciliationCaseAction.NOTE_ADDED));
+    }
+
+    @Test void responsavelCashierMesmoActivoEhRecusado(){
+        authorizeCase();User cashier=new User();cashier.setId(30L);TenantUser membership=new TenantUser();membership.setRole(com.restaurante.model.enums.TenantUserRole.TENANT_CASHIER);membership.setEstado(com.restaurante.model.enums.TenantUserEstado.ATIVO);when(users.findById(30L)).thenReturn(Optional.of(cashier));when(tenantUsers.findByTenantIdAndUserIdAndEstado(10L,30L,com.restaurante.model.enums.TenantUserEstado.ATIVO)).thenReturn(Optional.of(membership));
+        assertThatThrownBy(()->service.assign(5L,10L,new AssignRequest(0L,30L,"atribuir"),"assign-cashier",http,true)).isInstanceOf(com.restaurante.exception.BusinessException.class).hasMessageContaining("role financeira");
     }
 
     @Test void materializacaoEhIdempotente(){
@@ -65,7 +97,7 @@ class PagamentoReconciliationCaseServiceTest {
     @Test void retryElegivelApenasAgendaENaoConfirma(){
         authorizeCase();when(payments.findForUpdateById(8L)).thenReturn(Optional.of(payment));
         Detail result=service.retry(5L,10L,new CommandContext(0L,"domínio corrigido e validado"),"retry-2",http,true);
-        assertThat(payment.getReconciliationStatus()).isEqualTo(StatusReconciliacaoAppyPay.ELIGIVEL);assertThat(payment.getStatus()).isEqualTo(StatusPagamentoGateway.PENDENTE);assertThat(payment.getConfirmedAt()).isNull();assertThat(result.summary().status()).isEqualTo(ReconciliationCaseStatus.RESOLVIDO);verify(payments).findForUpdateById(8L);
+        assertThat(payment.getReconciliationStatus()).isEqualTo(StatusReconciliacaoAppyPay.ELIGIVEL);assertThat(payment.getStatus()).isEqualTo(StatusPagamentoGateway.PENDENTE);assertThat(payment.getConfirmedAt()).isNull();assertThat(result.summary().status()).isEqualTo(ReconciliationCaseStatus.PRONTO_PARA_NOVA_TENTATIVA);assertThat(adminCase.isActive()).isTrue();verify(payments).findForUpdateById(8L);
         assertThat(result.eligibility().localReference()).isEqualTo("RE***08");
     }
 
@@ -75,4 +107,5 @@ class PagamentoReconciliationCaseServiceTest {
     }
 
     private void authorizeCase(){when(cases.findTenantCase(5L,10L)).thenReturn(Optional.of(adminCase));}
+    private void assertConflict(ReconciliationCaseAction action,String stored,org.assertj.core.api.ThrowableAssert.ThrowingCallable call){PagamentoReconciliationCaseEvent e=new PagamentoReconciliationCaseEvent();e.setCommandFingerprint(stored);when(events.findByReconciliationCaseIdAndActionAndIdempotencyKey(5L,action,"same")).thenReturn(Optional.of(e));assertThatThrownBy(call).isInstanceOf(ConflictException.class).hasMessageContaining("IDEMPOTENCY_CONFLICT");}
 }

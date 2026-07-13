@@ -77,6 +77,7 @@ class AppyPayReconciliationProcessorTest {
         verify(pagamentoConfirmacaoService, times(1)).confirmarPosPagoPorGateway(
                 eq(8L), eq("APPYPAY_RECONCILIACAO"), eq("SYSTEM"), isNull(), isNull());
         assertThat(pagamento.getReconciliationStatus()).isEqualTo(StatusReconciliacaoAppyPay.CONCLUIDO);
+        verify(reconciliationCaseService).onAutomaticConfirmed(pagamento);
     }
 
     @Test
@@ -94,7 +95,7 @@ class AppyPayReconciliationProcessorTest {
         assertThat(pagamento.getReconciliationLastError()).contains("após aceite");
         verifyNoInteractions(eventLogRepository, pagamentoConfirmacaoService);
         verify(pedidoPagamentoPolicy, times(1)).assertPodeConfirmarPagamento(any(), any());
-        verify(reconciliationCaseService, times(1)).materialize(eq(pagamento), any());
+        verify(reconciliationCaseService, times(1)).onDomainBlocked(eq(pagamento));
     }
 
     @Test
@@ -123,6 +124,7 @@ class AppyPayReconciliationProcessorTest {
         assertThat(pagamento.getReconciliationNextAttemptAt()).isAfter(pagamento.getReconciliationLastAttemptAt());
         assertThat(pagamento.getReconciliationLastError()).isEqualTo("timeout remoto");
         verifyNoInteractions(eventLogRepository, pagamentoConfirmacaoService);
+        verify(reconciliationCaseService).onTemporaryFailure(pagamento);
     }
 
     @Test

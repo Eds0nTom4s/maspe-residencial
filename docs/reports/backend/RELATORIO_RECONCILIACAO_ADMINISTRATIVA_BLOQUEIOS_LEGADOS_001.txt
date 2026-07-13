@@ -1,0 +1,67 @@
+RELATORIO RECONCILIACAO ADMINISTRATIVA BLOQUEIOS LEGADOS 001
+Data: 2026-07-13 (Africa/Luanda)
+
+BASELINE
+Branch: backend/consuma-reconciliacao-administrativa-bloqueios-legados-001
+Base: 7b8121adb8080cbc37cc804dfea8403cb1d97971
+Causa: AppyPay remoto CONFIRMED, pagamento local PENDENTE e pedido ainda CRIADO; a politica exige aceite antes da confirmacao.
+
+MODELO ADOPTADO
+PagamentoReconciliationCase mantem investigacao, atribuicao e resolucao sem substituir Pagamento.
+PagamentoReconciliationCaseEvent e append-only e guarda actor, roles, origem, IP, User-Agent, correlationId, estados, motivo e Idempotency-Key, sem JWT nem payload AppyPay integral.
+O caso usa optimistic locking pela version de BaseEntity. Retry bloqueia Pagamento com PESSIMISTIC_WRITE.
+
+MAQUINA DE ESTADOS
+ABERTO, EM_ANALISE, AGUARDANDO_CORRECCAO_DOMINIO, AGUARDANDO_ACCAO_FINANCEIRA_EXTERNA, PRONTO_PARA_NOVA_TENTATIVA, RESOLVIDO, ENCERRADO_SEM_CONVERGENCIA.
+As operacoes implementadas nao confirmam pagamentos. Retry apenas move reconciliation_status de BLOQUEADO_DOMINIO para ELIGIVEL, se todas as politicas passarem. Close encerra apenas o caso.
+
+CLASSIFICACOES
+PEDIDO_NAO_ACEITE, PEDIDO_CANCELADO, PEDIDO_NAO_ENCONTRADO, VALOR_DIVERGENTE, REFERENCIA_DIVERGENTE, TENANT_DIVERGENTE, ESTADO_FINANCEIRO_INCOMPATIVEL, ORDEM_PAGAMENTO_INEXISTENTE, ORDEM_PAGAMENTO_EXPIRADA, RESPOSTA_GATEWAY_INCONSISTENTE, NECESSITA_REEMBOLSO_EXTERNO, DADO_LEGADO, OUTRO.
+
+ENDPOINTS
+Tenant: GET list/detail/eligibility e POST assign/notes/classify/retry/close sob /tenant/financeiro/reconciliation-cases.
+Platform: os mesmos contratos sob /platform/financeiro/reconciliation-cases, sempre com tenantId explicito; POST /materialize oferece dry-run e execucao idempotente.
+
+ROLES E ISOLAMENTO
+Leitura tenant: TENANT_OWNER, TENANT_ADMIN, TENANT_FINANCE, TENANT_CASHIER.
+Escrita tenant: TENANT_OWNER, TENANT_ADMIN, TENANT_FINANCE.
+TENANT_OPERATOR e TENANT_KITCHEN nao possuem acesso.
+Platform: ROLE_ADMIN/PLATFORM_ADMIN com tenant alvo explicito. Recursos sao consultados por caseId + tenantId; prova cross-tenant retornou 404.
+
+CONCORRENCIA E IDEMPOTENCIA
+Indice unico parcial ux_reconciliation_case_active_payment garante um caso activo por pagamento.
+Indice unico parcial ux_reconciliation_event_idempotency garante comando unico por caso, accao e Idempotency-Key.
+Replays sao reconhecidos antes da validacao de version. Conflito optimistic retorna HTTP 409 pelo handler global.
+Retry usa findForUpdateById com PESSIMISTIC_WRITE; o scheduler exclui BLOQUEADO_DOMINIO.
+
+MIGRATION E BACKFILL
+V80__pagamento_reconciliation_administrative_cases.sql, confirmada como proxima versao depois de V79.
+Flyway aplicou V80 no PostgreSQL sandbox sem alterar pagamentos, pedidos ou eventos antigos.
+Backfill e endpoint platform versionado: dry-run encontrou 6 elegiveis; execucao criou 6; replay criou 0 e reportou 6 existentes.
+Origem auditada: LEGACY_BACKFILL/SYSTEM. Nenhuma escrita SQL manual foi usada.
+
+TESTES
+mvn -DskipTests compile: BUILD SUCCESS, 53.423 s.
+Focados: 10 testes, 0 falhas, 0 erros, 0 ignorados, 3.521 s somados nas classes focadas.
+mvn test: Surefire 463 testes, 0 falhas, 0 erros, 3 ignorados, 03:53 min.
+mvn -Pit verify: Surefire 463/0/0/3; Failsafe 290 testes, 0 falhas, 0 erros, 0 ignorados; BUILD SUCCESS em 16:10 min.
+Aviso JVM: "Surefire is going to kill self fork JVM" apos System.exit(0); nao alterou o resultado verde.
+FlywayBaselinePostgresIT validou as 80 migrations.
+
+RUNTIME SANDBOX
+Health: UP. Hash JAR host/container: 3f22b96f7301d869ba0ae401abf9c8a2a3b04314d8ce536e83c525f7e75fa433.
+Pagamento 8 antes: PENDENTE, confirmed_at NULL, BLOQUEADO_DOMINIO, remoto CONFIRMED, attempts 1, eventos 198.
+Caso: id 3, unico activo, tenant 21, pedido 26, ABERTO -> EM_ANALISE.
+Eligibility: retryPossible=false; bloqueio DOMAIN_POLICY porque pedido esta CRIADO.
+Retry controlado: HTTP 409; nenhuma alteracao financeira.
+Nota EVIDENCE append-only adicionada; classificacao PEDIDO_NAO_ACEITE; responsavel tenant user 15; todas as accoes auditadas como PLATFORM_ADMIN com correlationId.
+Depois de restart: pagamento PENDENTE, confirmed_at NULL, BLOQUEADO_DOMINIO; 198 eventos; 1 caso activo; 4 eventos administrativos; scheduler selection count 0; health UP.
+Close definitivo nao foi executado.
+
+LIMITACOES E RISCOS
+Nao houve frontend nesta branch. Refund, chargeback e convergencia contabil externa continuam fora do escopo.
+A resposta remota integral permanece governada em Pagamento.gatewayResponse e nao e devolvida pelos DTOs.
+O sandbox contem outros cinco bloqueios que foram materializados pelo backfill controlado; nenhum estado financeiro foi alterado.
+
+DECISAO
+RECONCILIAÇÃO ADMINISTRATIVA IMPLEMENTADA COM PAGAMENTO LEGADO PENDENTE

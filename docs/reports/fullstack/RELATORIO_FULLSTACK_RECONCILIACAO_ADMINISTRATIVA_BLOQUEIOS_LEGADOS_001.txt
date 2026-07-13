@@ -1,0 +1,30 @@
+RELATORIO FULLSTACK RECONCILIACAO ADMINISTRATIVA BLOQUEIOS LEGADOS 001
+Data: 2026-07-13 (Africa/Luanda)
+
+ESCOPO
+Esta entrega e backend-only. Nao houve alteracao frontend. Foram publicados contratos REST tenant-aware para futura UI administrativa.
+
+CONTRATOS DISPONIVEIS
+Tenant: listagem paginada, detalhe sanitizado, elegibilidade, atribuicao, notas append-only, classificacao, retry condicionado e encerramento administrativo.
+Platform: mesmos contratos com tenantId alvo explicito, mais materializacao legada com dry-run.
+DTOs nao incluem gateway_response, JWT, tokens, chaves, credenciais ou assinatura de callback. Referencias sao mascaradas.
+
+SEGURANCA E UX FUTURA
+A UI deve usar version devolvida pelo detalhe e Idempotency-Key em todos os POSTs.
+HTTP 409 representa dominio ainda invalido, replay conflitante ou optimistic locking.
+TENANT_CASHIER e somente leitura; TENANT_OWNER, TENANT_ADMIN e TENANT_FINANCE podem comandar; PLATFORM_ADMIN deve seleccionar tenant explicitamente.
+AllowedActions e policyChecks devem conduzir a apresentacao da UI; nunca deve existir botao de confirmacao forcada.
+
+PROVA
+Pagamento 8 permaneceu PENDENTE, confirmed_at NULL e BLOQUEADO_DOMINIO.
+Um unico caso activo foi listado e detalhado; retry foi recusado porque o pedido continua CRIADO; nota, classificacao PEDIDO_NAO_ACEITE e responsavel foram auditados.
+Eventos financeiros antes/depois: 198/198. Eventos apagados: 0.
+Surefire: 463 testes, 0 falhas, 0 erros, 3 ignorados.
+Failsafe: 290 testes, 0 falhas, 0 erros, 0 ignorados.
+Runtime apos restart: health UP e caso preservado.
+
+PROXIMA FASE
+Construir a UI administrativa consumindo os contratos, sem ampliar permissoes nem introduzir confirmacao financeira manual.
+
+DECISAO
+RECONCILIAÇÃO ADMINISTRATIVA IMPLEMENTADA COM PAGAMENTO LEGADO PENDENTE

@@ -65,3 +65,13 @@ O sandbox contem outros cinco bloqueios que foram materializados pelo backfill c
 
 DECISAO
 RECONCILIAÇÃO ADMINISTRATIVA IMPLEMENTADA COM PAGAMENTO LEGADO PENDENTE
+
+HARDENING 001 - 2026-07-13
+Notas PLATFORM_ONLY passaram a ser filtradas integralmente no detalhe tenant; platform continua a ve-las. Actor, roles, motivo e correlationId restritos nao vazam.
+V81 adicionou command_fingerprint SHA-256, auditoria governada de materializacao e foreign keys para tenant, pagamento, pedido e actor, todas sem ON DELETE CASCADE.
+Mesma Idempotency-Key e mesmo payload produz replay; payload diferente retorna HTTP 409 IDEMPOTENCY_CONFLICT para assign, note, classify, retry e close.
+Materializacao agora exige tenantId e usa query tenant-scoped; execucao exige motivo, Idempotency-Key, actor platform e correlationId. Operacao global foi removida deste contrato.
+Retry move o caso para PRONTO_PARA_NOVA_TENTATIVA e preserva active=true. O processor resolve apenas depois da confirmacao automatica, volta a aguardar correcao em novo bloqueio e encaminha falha permanente para accao financeira externa.
+Responsavel deve ter associacao activa no mesmo tenant e role TENANT_OWNER, TENANT_ADMIN ou TENANT_FINANCE.
+Validacao: compile verde; Surefire 467/0/0/3; Failsafe 292/0/0/0; verify 10:59 min. Aviso tardio da JVM fork permaneceu nao fatal.
+Runtime: V81 aplicada uma vez; platform restricted notes=1; tenant restricted notes=0; outro tenant dry-run eligible/created=0/0; retry=409; pagamento 8 PENDENTE, confirmed_at NULL, BLOQUEADO_DOMINIO, 198 eventos, 1 caso activo; scheduler selection=0; health UP.

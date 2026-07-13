@@ -28,3 +28,9 @@ Construir a UI administrativa consumindo os contratos, sem ampliar permissoes ne
 
 DECISAO
 RECONCILIAÇÃO ADMINISTRATIVA IMPLEMENTADA COM PAGAMENTO LEGADO PENDENTE
+
+HARDENING 001
+A futura UI tenant nunca recebe notas PLATFORM_ONLY; a UI platform recebe ambas as visibilidades. Todos os comandos devem reenviar a mesma Idempotency-Key somente com payload semanticamente identico.
+Retry bem sucedido representa apenas PRONTO_PARA_NOVA_TENTATIVA; a UI nao deve apresentar o caso como resolvido ate o processor concluir automaticamente.
+Materializacao platform requer tenantId explicito e, para dryRun=false, motivo e Idempotency-Key. Nao existe materializacao global neste contrato.
+Validacao final: Surefire 467 testes e Failsafe 292 testes sem falhas; runtime health UP e pagamento legado preservado com 198 eventos.

@@ -8,6 +8,7 @@ import com.restaurante.financeiro.reconciliation.repository.*;
 import com.restaurante.financeiro.reconciliation.service.*;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.*;
+import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.*;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.security.tenant.*;
@@ -36,6 +37,7 @@ class PagamentoReconciliationCaseServiceTest {
     @Spy ReconciliationCommandFingerprint fingerprints=new ReconciliationCommandFingerprint();
     @Spy ReconciliationCaseStateMachine stateMachine=new ReconciliationCaseStateMachine();
     @Mock ReconciliationMaterializationAuditRepository materializationAudits;
+    @Mock ReconciliationMaterializationLock materializationLock;
     @Mock HttpServletRequest http;
     @InjectMocks PagamentoReconciliationCaseService service;
     Pagamento payment; PagamentoReconciliationCase adminCase; Tenant tenant;
@@ -79,6 +81,21 @@ class PagamentoReconciliationCaseServiceTest {
         assertThatThrownBy(()->service.assign(5L,10L,new AssignRequest(0L,30L,"atribuir"),"assign-cashier",http,true)).isInstanceOf(com.restaurante.exception.BusinessException.class).hasMessageContaining("role financeira");
     }
 
+    @Test void allowedActionsRespeitamActorEstadoEBlockers(){
+        when(cases.findTenantCase(5L,10L)).thenReturn(Optional.of(adminCase));
+        TenantContext cashier=new TenantContext(10L,"T10",30L,Set.of("TENANT_CASHIER"),TenantResolutionSource.JWT,false,false);
+        TenantContextHolder.set(cashier);when(tenantGuard.requireContext()).thenReturn(cashier);
+        assertThat(service.eligibility(5L,null,false).allowedActions()).isEmpty();
+
+        TenantContext finance=new TenantContext(10L,"T10",31L,Set.of("TENANT_FINANCE"),TenantResolutionSource.JWT,false,false);
+        TenantContextHolder.set(finance);when(tenantGuard.requireContext()).thenReturn(finance);
+        when(tenantGuard.hasAnyTenantRole(any(TenantUserRole[].class))).thenReturn(true);
+        assertThat(service.eligibility(5L,null,false).allowedActions()).containsExactly("NOTE","ASSIGN","CLASSIFY","RETRY","CLOSE");
+
+        adminCase.setStatus(ReconciliationCaseStatus.RESOLVIDO);adminCase.setActive(false);
+        assertThat(service.eligibility(5L,null,false).allowedActions()).isEmpty();
+    }
+
     @Test void materializacaoEhIdempotente(){
         when(cases.findByPagamentoIdAndActiveTrue(8L)).thenReturn(Optional.empty(),Optional.of(adminCase));
         PagamentoReconciliationCase first=service.materialize(payment,ReconciliationCaseOrigin.LEGACY_BACKFILL);
@@ -89,7 +106,7 @@ class PagamentoReconciliationCaseServiceTest {
 
     @Test void retryInvalidoNaoAlteraPagamento(){
         doThrow(new IllegalStateException("pedido não aceite")).when(paymentPolicy).assertPodeConfirmarPagamento(any(),any());
-        authorizeCase();when(payments.findForUpdateById(8L)).thenReturn(Optional.of(payment));
+        authorizeCase();
         assertThatThrownBy(()->service.retry(5L,10L,new CommandContext(0L,"reavaliar após correcção"),"retry-1",http,true)).isInstanceOf(ConflictException.class).hasMessageContaining("DOMAIN_POLICY");
         assertThat(payment.getStatus()).isEqualTo(StatusPagamentoGateway.PENDENTE);assertThat(payment.getReconciliationStatus()).isEqualTo(StatusReconciliacaoAppyPay.BLOQUEADO_DOMINIO);assertThat(payment.getConfirmedAt()).isNull();verify(payments,never()).save(any());
     }
@@ -106,6 +123,6 @@ class PagamentoReconciliationCaseServiceTest {
         assertThat(adminCase.getStatus()).isEqualTo(ReconciliationCaseStatus.ENCERRADO_SEM_CONVERGENCIA);assertThat(payment.getStatus()).isEqualTo(StatusPagamentoGateway.PENDENTE);assertThat(payment.getConfirmedAt()).isNull();assertThat(payment.getReconciliationStatus()).isEqualTo(StatusReconciliacaoAppyPay.BLOQUEADO_DOMINIO);verifyNoInteractions(payments);
     }
 
-    private void authorizeCase(){when(cases.findTenantCase(5L,10L)).thenReturn(Optional.of(adminCase));}
+    private void authorizeCase(){when(cases.findTenantCaseForUpdate(5L,10L)).thenReturn(Optional.of(adminCase));}
     private void assertConflict(ReconciliationCaseAction action,String stored,org.assertj.core.api.ThrowableAssert.ThrowingCallable call){PagamentoReconciliationCaseEvent e=new PagamentoReconciliationCaseEvent();e.setCommandFingerprint(stored);when(events.findByReconciliationCaseIdAndActionAndIdempotencyKey(5L,action,"same")).thenReturn(Optional.of(e));assertThatThrownBy(call).isInstanceOf(ConflictException.class).hasMessageContaining("IDEMPOTENCY_CONFLICT");}
 }

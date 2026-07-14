@@ -1,0 +1,34 @@
+package com.restaurante.service.business;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.Test;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+
+class CanonicalCommandSupportTest {
+
+    @Test
+    void fingerprint_isStableForEquivalentMapOrdering() {
+        CanonicalCommandSupport support = new CanonicalCommandSupport(new ObjectMapper(), mock(EntityManager.class));
+        Map<String, Object> first = new LinkedHashMap<>();
+        first.put("vertical", "CONSUMA_PONTO");
+        first.put("planoCodigo", "PRO");
+        Map<String, Object> second = new LinkedHashMap<>();
+        second.put("planoCodigo", "PRO");
+        second.put("vertical", "CONSUMA_PONTO");
+
+        assertThat(support.fingerprint(first)).isEqualTo(support.fingerprint(second)).hasSize(64);
+    }
+
+    @Test
+    void fingerprint_changesWhenLogicalPayloadChanges() {
+        CanonicalCommandSupport support = new CanonicalCommandSupport(new ObjectMapper(), mock(EntityManager.class));
+        assertThat(support.fingerprint(Map.of("planoCodigo", "PRO")))
+                .isNotEqualTo(support.fingerprint(Map.of("planoCodigo", "PILOTO")));
+    }
+}

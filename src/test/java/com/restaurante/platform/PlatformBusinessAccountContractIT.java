@@ -97,22 +97,32 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
         String adminToken = globalToken(platformAdmin, "ROLE_ADMIN");
         String createResp = mockMvc.perform(post("/platform/business-accounts")
                         .header("Authorization", "Bearer " + adminToken)
+                        .header("Idempotency-Key", "contract-create-" + suffix)
+                        .header("X-Correlation-Id", "contract-create-" + suffix)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
                                   "nome": "Conta Contract %s",
                                   "slug": "conta-contract-%s",
-                                  "estado": "ATIVA",
-                                  "responsavelUserId": %d,
                                   "maxTenants": 2,
-                                  "tenantIds": [%d]
+                                  "responsavelPrincipal": {
+                                    "strategy": "ASSOCIATE_EXISTING",
+                                    "userId": %d,
+                                    "confirmExistingUser": true
+                                  }
                                 }
-                                """.formatted(suffix, suffix, ownerOne.getId(), tenantOne.getTenantId())))
+                                """.formatted(suffix, suffix, ownerOne.getId())))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
         JsonNode created = objectMapper.readTree(createResp).path("data");
         long businessAccountId = created.path("id").asLong();
+        mockMvc.perform(post("/platform/business-accounts/{id}/tenants/{tenantId}", businessAccountId, tenantOne.getTenantId())
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isCreated());
+        created = objectMapper.readTree(mockMvc.perform(get("/platform/business-accounts/{id}", businessAccountId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
         assertThat(created.path("maxTenants").asInt()).isEqualTo(2);
         assertThat(created.path("tenantCount").asLong()).isEqualTo(1L);
 
@@ -264,10 +274,11 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
                         .content("""
                                 {
                                   "criarBusinessAccountSeAusente": true,
+                                  "responsavelUserId": %d,
                                   "statusPagamento": "PAGO",
                                   "observacao": "aprovado pelo comercial"
                                 }
-                                """))
+                                """.formatted(ownerOne.getId())))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode onboardingApproved = objectMapper.readTree(onboardingApproveResp).path("data");

@@ -188,6 +188,9 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
                                                      @Param("now") LocalDateTime now,
                                                      Pageable pageable);
 
+    List<Pagamento> findByTenantIdAndReconciliationStatus(Long tenantId,
+            com.restaurante.financeiro.enums.StatusReconciliacaoAppyPay reconciliationStatus);
+
     @Query(value = """
             select p.id
             from pagamentos_gateway p

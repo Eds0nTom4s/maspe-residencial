@@ -75,3 +75,14 @@ Retry move o caso para PRONTO_PARA_NOVA_TENTATIVA e preserva active=true. O proc
 Responsavel deve ter associacao activa no mesmo tenant e role TENANT_OWNER, TENANT_ADMIN ou TENANT_FINANCE.
 Validacao: compile verde; Surefire 467/0/0/3; Failsafe 292/0/0/0; verify 10:59 min. Aviso tardio da JVM fork permaneceu nao fatal.
 Runtime: V81 aplicada uma vez; platform restricted notes=1; tenant restricted notes=0; outro tenant dry-run eligible/created=0/0; retry=409; pagamento 8 PENDENTE, confirmed_at NULL, BLOQUEADO_DOMINIO, 198 eventos, 1 caso activo; scheduler selection=0; health UP.
+
+FINAL HARDENING 001 - 2026-07-14
+Version passou a ser obrigatoria por @NotNull em CommandContext, AssignRequest, NoteRequest, ClassifyRequest e CloseRequest. Testes HTTP provaram 400 sem version e 409 para version desactualizada, sem HTTP 500.
+AllowedActions tornou-se autoritativa por actor, contexto, active, blockers e transicoes: CASHIER e estados terminais recebem lista vazia; tenant financeiro e platform recebem apenas accoes aceites pelos endpoints.
+Comandos administrativos usam PESSIMISTIC_WRITE no caso antes da consulta da Idempotency-Key. Duas transaccoes com key/fingerprint iguais geram um evento e replay; fingerprint divergente retorna IDEMPOTENCY_CONFLICT.
+Materializacao platform usa pg_advisory_xact_lock derivado por SHA-256 da Idempotency-Key dentro da transaccao. O indice/auditoria unique permanece como segunda barreira persistente.
+Testes focados: Surefire 16/0/0/0 e PostgreSQL Failsafe 6/0/0/0.
+Validacao final: mvn -DskipTests compile BUILD SUCCESS; mvn test Surefire 475/0/0/3; mvn -Pit verify Surefire 475/0/0/3 e Failsafe 298/0/0/0, BUILD SUCCESS em 11:21 min. O aviso tardio do fork JVM permaneceu nao fatal.
+Runtime final: retry HTTP 409 por DOMAIN_POLICY; pagamento 8 PENDENTE, confirmed_at NULL, BLOQUEADO_DOMINIO; eventos financeiros 198 antes/depois; 1 caso activo; scheduler selection=0; health UP. Nenhuma migration foi reaplicada e nenhum SQL manual de escrita foi executado.
+Commits funcionais: bdf011b (fix) e e3a7fc8 (test).
+Decisao: HARDENING ADMINISTRATIVO FINAL APROVADO COM LEGADO FINANCEIRO PRESERVADO.

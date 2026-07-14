@@ -34,3 +34,9 @@ A futura UI tenant nunca recebe notas PLATFORM_ONLY; a UI platform recebe ambas 
 Retry bem sucedido representa apenas PRONTO_PARA_NOVA_TENTATIVA; a UI nao deve apresentar o caso como resolvido ate o processor concluir automaticamente.
 Materializacao platform requer tenantId explicito e, para dryRun=false, motivo e Idempotency-Key. Nao existe materializacao global neste contrato.
 Validacao final: Surefire 467 testes e Failsafe 292 testes sem falhas; runtime health UP e pagamento legado preservado com 198 eventos.
+
+FINAL HARDENING 001
+Todos os comandos exigem version; ausencia produz HTTP 400 e version desactualizada produz HTTP 409. A UI deve tratar allowedActions como lista autoritativa e nunca inferir escrita por role isoladamente.
+TENANT_CASHIER e casos RESOLVIDO/ENCERRADO recebem allowedActions vazia. Tenant financeiro e platform recebem somente NOTE, ASSIGN, CLASSIFY, RETRY e CLOSE quando actor, active, blockers e maquina de estados autorizam.
+Replays concorrentes sao serializados no caso; materializacao concorrente e serializada por Idempotency-Key no PostgreSQL. Payload divergente continua a produzir IDEMPOTENCY_CONFLICT.
+Prova final: Surefire 475 testes e Failsafe 298 testes sem falhas; retry runtime 409; pagamento 8 e 198 eventos preservados; health UP.

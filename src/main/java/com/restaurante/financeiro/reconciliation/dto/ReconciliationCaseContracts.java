@@ -8,11 +8,11 @@ import java.util.List;
 
 public final class ReconciliationCaseContracts {
     private ReconciliationCaseContracts() {}
-    public record CommandContext(Long version, @NotBlank @Size(max=1000) String reason) {}
-    public record AssignRequest(Long version, @NotNull Long assignedToUserId, @NotBlank @Size(max=1000) String reason) {}
-    public record NoteRequest(Long version, @NotBlank @Size(max=4000) String content, @NotNull ReconciliationNoteType type, @NotNull ReconciliationNoteVisibility visibility) {}
-    public record ClassifyRequest(Long version, @NotNull ReconciliationCaseClassification classification, @NotBlank @Size(max=1000) String reason) {}
-    public record CloseRequest(Long version, @NotBlank @Pattern(regexp="EXTERNAL_REFUND|HISTORICAL_DATA|ACCOUNTING|NOT_AUTOMATICALLY_RECONCILABLE") String resolution, @NotBlank @Size(max=1000) String reason) {}
+    public record CommandContext(@NotNull Long version, @NotBlank @Size(max=1000) String reason) {}
+    public record AssignRequest(@NotNull Long version, @NotNull Long assignedToUserId, @NotBlank @Size(max=1000) String reason) {}
+    public record NoteRequest(@NotNull Long version, @NotBlank @Size(max=4000) String content, @NotNull ReconciliationNoteType type, @NotNull ReconciliationNoteVisibility visibility) {}
+    public record ClassifyRequest(@NotNull Long version, @NotNull ReconciliationCaseClassification classification, @NotBlank @Size(max=1000) String reason) {}
+    public record CloseRequest(@NotNull Long version, @NotBlank @Pattern(regexp="EXTERNAL_REFUND|HISTORICAL_DATA|ACCOUNTING|NOT_AUTOMATICALLY_RECONCILABLE") String resolution, @NotBlank @Size(max=1000) String reason) {}
     public record TenantRef(Long id, String code) {}
     public record Assignee(Long id, String username) {}
     public record PolicyCheck(String code, boolean passed, String detail) {}

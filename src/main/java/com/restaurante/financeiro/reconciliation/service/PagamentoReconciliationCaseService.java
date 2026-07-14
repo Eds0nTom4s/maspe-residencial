@@ -36,6 +36,7 @@ public class PagamentoReconciliationCaseService {
     private final ReconciliationCommandFingerprint fingerprints;
     private final ReconciliationCaseStateMachine stateMachine;
     private final ReconciliationMaterializationAuditRepository materializationAudits;
+    private final ReconciliationMaterializationLock materializationLock;
 
     @Transactional
     public PagamentoReconciliationCase materialize(Pagamento payment, ReconciliationCaseOrigin origin) {
@@ -85,7 +86,7 @@ public class PagamentoReconciliationCaseService {
 
     @Transactional(readOnly=true)
     public Eligibility eligibility(Long id, Long explicitTenantId, boolean platform) {
-        return eligibilityOf(getAuthorized(id,explicitTenantId,platform,false));
+        return eligibilityOf(getAuthorized(id,explicitTenantId,platform,false),platform);
     }
 
     @Transactional
@@ -93,6 +94,7 @@ public class PagamentoReconciliationCaseService {
         PagamentoReconciliationCase c=getAuthorized(id,explicitTenantId,platform,true); requireKey(key);
         String fp=fingerprints.calculate(c.getId(),ReconciliationCaseAction.ASSIGNED,Map.of("version",req.version(),"assignedToUserId",req.assignedToUserId(),"reason",req.reason()));
         if(replayed(c,ReconciliationCaseAction.ASSIGNED,key,fp)) return detailOf(c,platform); checkVersion(c,req.version());
+        requireAllowed(c,"ASSIGN",platform);
         User next=users.findById(req.assignedToUserId()).orElseThrow(()->new ResourceNotFoundException("Responsável não encontrado."));
         var membership=tenantUsers.findByTenantIdAndUserIdAndEstado(c.getTenant().getId(),next.getId(),TenantUserEstado.ATIVO).orElseThrow(()->new BusinessException("Responsável não pertence activamente ao tenant do caso."));
         if(!EnumSet.of(TenantUserRole.TENANT_OWNER,TenantUserRole.TENANT_ADMIN,TenantUserRole.TENANT_FINANCE).contains(membership.getRole()))throw new BusinessException("Responsável deve possuir role financeira administrativa.");
@@ -108,6 +110,7 @@ public class PagamentoReconciliationCaseService {
         if(!platform&&req.visibility()==ReconciliationNoteVisibility.PLATFORM_ONLY)throw new BusinessException("Nota PLATFORM_ONLY é exclusiva da plataforma.");
         String fp=fingerprints.calculate(c.getId(),ReconciliationCaseAction.NOTE_ADDED,Map.of("version",req.version(),"content",req.content(),"noteType",req.type(),"noteVisibility",req.visibility()));
         if(replayed(c,ReconciliationCaseAction.NOTE_ADDED,key,fp)) return detailOf(c,platform); checkVersion(c,req.version());
+        requireAllowed(c,"NOTE",platform);
         audit(c,ReconciliationCaseAction.NOTE_ADDED,null,null,req.content(),key,fp,req.type(),req.visibility(),http);
         return detailOf(c,platform);
     }
@@ -117,6 +120,7 @@ public class PagamentoReconciliationCaseService {
         PagamentoReconciliationCase c=getAuthorized(id,explicitTenantId,platform,true); requireKey(key);
         String fp=fingerprints.calculate(c.getId(),ReconciliationCaseAction.CLASSIFIED,Map.of("version",req.version(),"classification",req.classification(),"reason",req.reason()));
         if(replayed(c,ReconciliationCaseAction.CLASSIFIED,key,fp)) return detailOf(c,platform); checkVersion(c,req.version());
+        requireAllowed(c,"CLASSIFY",platform);
         String before=c.getClassification()==null?null:c.getClassification().name(); c.setClassification(req.classification());
         if(c.getStatus()==ReconciliationCaseStatus.ABERTO)stateMachine.transition(c,ReconciliationCaseStatus.EM_ANALISE);
         audit(c,ReconciliationCaseAction.CLASSIFIED,before,req.classification().name(),req.reason(),key,fp,null,null,http);
@@ -128,6 +132,7 @@ public class PagamentoReconciliationCaseService {
         PagamentoReconciliationCase c=getAuthorized(id,explicitTenantId,platform,true); requireKey(key);
         String fp=fingerprints.calculate(c.getId(),ReconciliationCaseAction.RETRY_REQUESTED,Map.of("version",req.version(),"reason",req.reason()));
         if(replayed(c,ReconciliationCaseAction.RETRY_REQUESTED,key,fp)) return detailOf(c,platform); checkVersion(c,req.version());
+        requireAllowed(c,"RETRY",platform);
         Pagamento p=payments.findForUpdateById(c.getPagamento().getId()).orElseThrow(()->new ResourceNotFoundException("Pagamento não encontrado."));
         List<String> blockers=blockers(p); if(!blockers.isEmpty())throw new ConflictException("Retry bloqueado: "+String.join("; ",blockers));
         p.setReconciliationStatus(StatusReconciliacaoAppyPay.ELIGIVEL); p.setReconciliationNextAttemptAt(LocalDateTime.now()); payments.save(p);
@@ -142,7 +147,7 @@ public class PagamentoReconciliationCaseService {
         PagamentoReconciliationCase c=getAuthorized(id,explicitTenantId,platform,true); requireKey(key);
         String fp=fingerprints.calculate(c.getId(),ReconciliationCaseAction.CLOSED,Map.of("version",req.version(),"resolution",req.resolution(),"reason",req.reason()));
         if(replayed(c,ReconciliationCaseAction.CLOSED,key,fp)) return detailOf(c,platform); checkVersion(c,req.version());
-        if(c.getStatus()==ReconciliationCaseStatus.ABERTO)throw new ConflictException("Caso deve estar em análise antes do encerramento.");
+        requireAllowed(c,"CLOSE",platform);
         stateMachine.transition(c,ReconciliationCaseStatus.ENCERRADO_SEM_CONVERGENCIA);c.setActive(false);c.setResolvedAt(LocalDateTime.now());
         c.setResolvedBy(actor(http).origin());c.setResolution(req.resolution());c.setResolutionReason(req.reason());
         audit(c,ReconciliationCaseAction.CLOSED,null,c.getStatus().name(),req.reason(),key,fp,null,null,http);
@@ -155,6 +160,7 @@ public class PagamentoReconciliationCaseService {
         if(tenantId==null)throw new BusinessException("tenantId explícito é obrigatório.");
         if(!dryRun){requireKey(key);if(request==null||request.reason()==null||request.reason().isBlank())throw new BusinessException("Motivo é obrigatório.");}
         String materializeFingerprint=!dryRun?fingerprints.calculate(tenantId,ReconciliationCaseAction.OPENED,Map.of("tenantId",tenantId,"dryRun",false,"reason",request.reason())):null;
+        if(!dryRun)materializationLock.acquire("reconciliation-materialize:"+key);
         if(!dryRun){var old=materializationAudits.findByIdempotencyKey(key);if(old.isPresent()){if(!Objects.equals(old.get().getCommandFingerprint(),materializeFingerprint))throw new ConflictException("IDEMPOTENCY_CONFLICT");return new BackfillResult(false,old.get().getEligibleCount(),old.get().getCreatedCount(),old.get().getEligibleCount()-old.get().getCreatedCount());}}
         List<Pagamento> blocked=payments.findByTenantIdAndReconciliationStatus(tenantId,StatusReconciliacaoAppyPay.BLOQUEADO_DOMINIO);
         long existing=blocked.stream().filter(p->cases.findByPagamentoIdAndActiveTrue(p.getId()).isPresent()).count();
@@ -166,7 +172,8 @@ public class PagamentoReconciliationCaseService {
 
     private PagamentoReconciliationCase getAuthorized(Long id,Long explicitTenantId,boolean platform,boolean write){
         Long tenantId=authorizedTenant(explicitTenantId,platform,write);
-        return cases.findTenantCase(id,tenantId).orElseThrow(()->new ResourceNotFoundException("Caso não encontrado."));
+        Optional<PagamentoReconciliationCase> result=write?cases.findTenantCaseForUpdate(id,tenantId):cases.findTenantCase(id,tenantId);
+        return result.orElseThrow(()->new ResourceNotFoundException("Caso não encontrado."));
     }
     private Long authorizedTenant(Long explicitTenantId,boolean platform,boolean write){
         if(platform){tenantGuard.assertPlatformAdmin();if(explicitTenantId==null)throw new BusinessException("tenantId explícito é obrigatório para PLATFORM_ADMIN.");return explicitTenantId;}
@@ -175,10 +182,24 @@ public class PagamentoReconciliationCaseService {
         else tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER,TenantUserRole.TENANT_ADMIN,TenantUserRole.TENANT_FINANCE,TenantUserRole.TENANT_CASHIER);
         return c.tenantId();
     }
-    private Eligibility eligibilityOf(PagamentoReconciliationCase c){Pagamento p=c.getPagamento();List<String>b=blockers(p);return new Eligibility(b.isEmpty(),b.isEmpty()?List.of("RETRY","NOTE","ASSIGN","CLASSIFY","CLOSE"):List.of("NOTE","ASSIGN","CLASSIFY","CLOSE"),checks(p,b),p.getReconciliationLastRemoteStatus(),p.getStatus().name(),p.getPedido()==null?null:p.getPedido().getStatus().name(),p.getAmount(),sanitize(p.getExternalReference()),b);}
+    private Eligibility eligibilityOf(PagamentoReconciliationCase c,boolean platform){Pagamento p=c.getPagamento();List<String>b=blockers(p);boolean retryPossible=b.isEmpty()&&c.isActive()&&stateMachine.canTransition(c.getStatus(),ReconciliationCaseStatus.PRONTO_PARA_NOVA_TENTATIVA);return new Eligibility(retryPossible,allowedActions(c,platform,retryPossible),checks(p,b),p.getReconciliationLastRemoteStatus(),p.getStatus().name(),p.getPedido()==null?null:p.getPedido().getStatus().name(),p.getAmount(),sanitize(p.getExternalReference()),b);}
+    private List<String> allowedActions(PagamentoReconciliationCase c,boolean platform,boolean retryPossible){
+        if(!c.isActive()||c.getStatus().terminal()||!canWrite(platform))return List.of();
+        List<String> allowed=new ArrayList<>(List.of("NOTE","ASSIGN","CLASSIFY"));
+        if(retryPossible)allowed.add("RETRY");
+        if(stateMachine.canTransition(c.getStatus(),ReconciliationCaseStatus.ENCERRADO_SEM_CONVERGENCIA))allowed.add("CLOSE");
+        return List.copyOf(allowed);
+    }
+    private boolean canWrite(boolean platform){return platform||tenantGuard.hasAnyTenantRole(TenantUserRole.TENANT_OWNER,TenantUserRole.TENANT_ADMIN,TenantUserRole.TENANT_FINANCE);}
+    private void requireAllowed(PagamentoReconciliationCase c,String action,boolean platform){
+        List<String> actionBlockers="RETRY".equals(action)?blockers(c.getPagamento()):List.of();
+        boolean retryPossible="RETRY".equals(action)&&actionBlockers.isEmpty()&&stateMachine.canTransition(c.getStatus(),ReconciliationCaseStatus.PRONTO_PARA_NOVA_TENTATIVA);
+        if("RETRY".equals(action)&&!actionBlockers.isEmpty())throw new ConflictException("Retry bloqueado: "+String.join("; ",actionBlockers));
+        if(!allowedActions(c,platform,retryPossible).contains(action))throw new ConflictException("Acção administrativa não permitida no estado actual: "+action+".");
+    }
     private List<String> blockers(Pagamento p){List<String>b=new ArrayList<>();if(p.getStatus()!=StatusPagamentoGateway.PENDENTE)b.add("PAYMENT_NOT_PENDING");if(p.getReconciliationStatus()!=StatusReconciliacaoAppyPay.BLOQUEADO_DOMINIO)b.add("NOT_DOMAIN_BLOCKED");if(!"CONFIRMED".equalsIgnoreCase(p.getReconciliationLastRemoteStatus())&&!"CONFIRMADO".equalsIgnoreCase(p.getReconciliationLastRemoteStatus()))b.add("REMOTE_NOT_CONFIRMED");if(p.getReconciliationLastResponseHash()==null)b.add("REMOTE_FINGERPRINT_MISSING");if(p.getPedido()==null)b.add("PEDIDO_NOT_FOUND");else try{paymentPolicy.assertPodeConfirmarPagamento(p.getPedido(),PedidoPagamentoPolicy.PaymentFlow.GATEWAY_CONFIRMATION);}catch(RuntimeException e){b.add("DOMAIN_POLICY: "+e.getMessage());}return b;}
     private List<PolicyCheck> checks(Pagamento p,List<String>b){return List.of(new PolicyCheck("PAYMENT_PENDING",p.getStatus()==StatusPagamentoGateway.PENDENTE,p.getStatus().name()),new PolicyCheck("DOMAIN_ELIGIBLE",b.stream().noneMatch(x->x.startsWith("DOMAIN_POLICY")),p.getPedido()==null?"pedido ausente":p.getPedido().getStatus().name()),new PolicyCheck("REMOTE_CONFIRMED",b.stream().noneMatch(x->x.equals("REMOTE_NOT_CONFIRMED")),String.valueOf(p.getReconciliationLastRemoteStatus())),new PolicyCheck("FINGERPRINT_PRESENT",p.getReconciliationLastResponseHash()!=null,"payload integral não exposto"));}
-    private Detail detailOf(PagamentoReconciliationCase c,boolean platform){List<Event> h=events.findByReconciliationCaseIdOrderByCreatedAtAsc(c.getId()).stream().filter(e->platform||e.getNoteVisibility()!=ReconciliationNoteVisibility.PLATFORM_ONLY).map(e->new Event(e.getId(),e.getAction(),e.getActorUserId(),e.getActorRoles(),e.getActorOrigin(),e.getReason(),e.getNoteType(),e.getNoteVisibility(),e.getCorrelationId(),e.getCreatedAt())).toList();Pagamento p=c.getPagamento();return new Detail(summary(c),p.getReconciliationLastError(),p.getReconciliationAttempts(),p.getReconciliationLastAttemptAt(),p.getReconciliationLastResponseHash(),eligibilityOf(c),h,false);}
+    private Detail detailOf(PagamentoReconciliationCase c,boolean platform){List<Event> h=events.findByReconciliationCaseIdOrderByCreatedAtAsc(c.getId()).stream().filter(e->platform||e.getNoteVisibility()!=ReconciliationNoteVisibility.PLATFORM_ONLY).map(e->new Event(e.getId(),e.getAction(),e.getActorUserId(),e.getActorRoles(),e.getActorOrigin(),e.getReason(),e.getNoteType(),e.getNoteVisibility(),e.getCorrelationId(),e.getCreatedAt())).toList();Pagamento p=c.getPagamento();return new Detail(summary(c),p.getReconciliationLastError(),p.getReconciliationAttempts(),p.getReconciliationLastAttemptAt(),p.getReconciliationLastResponseHash(),eligibilityOf(c,platform),h,false);}
     private Summary summary(PagamentoReconciliationCase c){Pagamento p=c.getPagamento();LocalDateTime u=Optional.ofNullable(c.getUpdatedAt()).orElse(c.getOpenedAt());return new Summary(c.getId(),c.getVersion(),new TenantRef(c.getTenant().getId(),c.getTenant().getTenantCode()),p.getId(),c.getPedido()==null?null:c.getPedido().getId(),sanitize(p.getExternalReference()),p.getReconciliationLastRemoteStatus(),p.getStatus().name(),p.getReconciliationStatus()==null?null:p.getReconciliationStatus().name(),c.getStatus(),c.getClassification(),c.getAssignedTo()==null?null:new Assignee(c.getAssignedTo().getId(),c.getAssignedTo().getUsername()),c.getOpenedAt(),u,Duration.between(c.getOpenedAt(),LocalDateTime.now()).toHours(),Duration.between(c.getOpenedAt(),LocalDateTime.now()).toHours()>24?"HIGH":"NORMAL");}
     private String sanitize(String s){if(s==null||s.length()<5)return s;return s.substring(0,2)+"***"+s.substring(s.length()-2);}
     private void checkVersion(PagamentoReconciliationCase c,Long v){if(v==null||!Objects.equals(v,c.getVersion()))throw new OptimisticLockException("Versão desactualizada.");}

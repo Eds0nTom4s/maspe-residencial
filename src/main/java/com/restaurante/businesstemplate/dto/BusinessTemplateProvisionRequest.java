@@ -79,6 +79,11 @@ public class BusinessTemplateProvisionRequest {
     @AllArgsConstructor
     @Builder
     public static class OwnerInfo {
+        /**
+         * Associação inequívoca usada apenas pelo contrato canónico. Quando
+         * presente, impede qualquer reutilização implícita por email/telefone.
+         */
+        private Long existingUserId;
         @NotBlank
         private String nome;
         private String telefone;

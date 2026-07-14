@@ -1,6 +1,9 @@
 package com.restaurante.controller;
 
-import com.restaurante.dto.request.BusinessAccountCreateRequest;
+import com.restaurante.dto.business.BusinessProvisioningContracts.AccountActivationRequest;
+import com.restaurante.dto.business.BusinessProvisioningContracts.CanonicalAccountCreateRequest;
+import com.restaurante.dto.business.BusinessProvisioningContracts.ManagerCommandRequest;
+import com.restaurante.dto.business.BusinessProvisioningContracts.ReplaceOwnerRequest;
 import com.restaurante.dto.request.BusinessAccountEstadoUpdateRequest;
 import com.restaurante.dto.request.BusinessAccountLimitsUpdateRequest;
 import com.restaurante.dto.request.BusinessAccountMemberCreateRequest;
@@ -15,8 +18,10 @@ import com.restaurante.dto.response.BusinessAccountSummaryResponse;
 import com.restaurante.dto.response.PlatformTenantResponse;
 import com.restaurante.model.enums.BusinessAccountEstado;
 import com.restaurante.service.BusinessAccountService;
+import com.restaurante.service.business.BusinessAccountGovernanceService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -31,6 +36,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -42,6 +48,7 @@ import java.util.List;
 public class PlatformBusinessAccountController {
 
     private final BusinessAccountService businessAccountService;
+    private final BusinessAccountGovernanceService governanceService;
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -86,9 +93,50 @@ public class PlatformBusinessAccountController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<BusinessAccountResponse>> criar(@Valid @RequestBody BusinessAccountCreateRequest request) {
+    public ResponseEntity<ApiResponse<BusinessAccountResponse>> criar(
+            @Valid @RequestBody CanonicalAccountCreateRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("X-Correlation-Id") String correlationId,
+            HttpServletRequest httpRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("BusinessAccount criada", businessAccountService.criar(request)));
+                .body(ApiResponse.success("BusinessAccount criada em RASCUNHO",
+                        governanceService.create(request, idempotencyKey, httpRequest)));
+    }
+
+    @PostMapping("/{id}/owner/replace")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BusinessAccountResponse>> replaceOwner(
+            @PathVariable Long id,
+            @Valid @RequestBody ReplaceOwnerRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("X-Correlation-Id") String correlationId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponse.success("Responsável principal substituído",
+                governanceService.replaceOwner(id, request, idempotencyKey, httpRequest)));
+    }
+
+    @PostMapping("/{id}/managers")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BusinessAccountMemberResponse>> upsertManager(
+            @PathVariable Long id,
+            @Valid @RequestBody ManagerCommandRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("X-Correlation-Id") String correlationId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponse.success("Gestor da Conta Empresarial actualizado",
+                governanceService.upsertManager(id, request, idempotencyKey, httpRequest)));
+    }
+
+    @PostMapping("/{id}/activate")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BusinessAccountResponse>> activate(
+            @PathVariable Long id,
+            @Valid @RequestBody AccountActivationRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("X-Correlation-Id") String correlationId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponse.success("Conta Empresarial activada",
+                governanceService.activate(id, request, idempotencyKey, httpRequest)));
     }
 
     @PostMapping("/{id}/tenants/{tenantId}")

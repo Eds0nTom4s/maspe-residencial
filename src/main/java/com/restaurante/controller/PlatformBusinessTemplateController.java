@@ -6,6 +6,8 @@ import com.restaurante.businesstemplate.dto.BusinessTemplateProvisionRequest;
 import com.restaurante.businesstemplate.dto.BusinessTemplateProvisionResponse;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.security.tenant.TenantGuard;
+import com.restaurante.service.business.LegacyProvisioningUsageService;
+import jakarta.servlet.http.HttpServletRequest;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,27 +28,39 @@ public class PlatformBusinessTemplateController {
 
     private final TenantGuard tenantGuard;
     private final BusinessTemplateService businessTemplateService;
+    private final LegacyProvisioningUsageService legacyUsage;
 
     @PostMapping("/{templateCode}/preview")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<BusinessTemplatePreviewResponse>> preview(
             @PathVariable String templateCode,
-            @Valid @RequestBody BusinessTemplateProvisionRequest request
+            @Valid @RequestBody BusinessTemplateProvisionRequest request,
+            HttpServletRequest http
     ) {
         tenantGuard.assertPlatformAdmin();
+        legacyUsage.record(http.getRequestURI(), http);
         BusinessTemplatePreviewResponse resp = businessTemplateService.preview(templateCode, request);
-        return ResponseEntity.ok(ApiResponse.success("Preview de BusinessTemplate", resp));
+        return ResponseEntity.ok()
+                .header("Deprecation", "true")
+                .header("Sunset", "Thu, 31 Dec 2026 23:59:59 GMT")
+                .header("Link", "</platform/business-accounts/{accountId}/businesses/preview>; rel=successor-version")
+                .body(ApiResponse.success("Preview de BusinessTemplate legado", resp));
     }
 
     @PostMapping("/{templateCode}/provision")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<BusinessTemplateProvisionResponse>> provision(
             @PathVariable String templateCode,
-            @Valid @RequestBody BusinessTemplateProvisionRequest request
+            @Valid @RequestBody BusinessTemplateProvisionRequest request,
+            HttpServletRequest http
     ) {
         tenantGuard.assertPlatformAdmin();
+        legacyUsage.record(http.getRequestURI(), http);
         BusinessTemplateProvisionResponse resp = businessTemplateService.provision(templateCode, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("BusinessTemplate provisionado", resp));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .header("Deprecation", "true")
+                .header("Sunset", "Thu, 31 Dec 2026 23:59:59 GMT")
+                .header("Link", "</platform/business-accounts/{accountId}/businesses/provision>; rel=successor-version")
+                .body(ApiResponse.success("BusinessTemplate legado provisionado", resp));
     }
 }
-

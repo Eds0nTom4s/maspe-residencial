@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 @Builder
 public class BusinessAccountResponse {
     private Long id;
+    private Long version;
     private String nome;
     private String slug;
     private String nif;

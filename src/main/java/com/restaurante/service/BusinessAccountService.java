@@ -116,6 +116,12 @@ public class BusinessAccountService {
     @Transactional
     public BusinessAccountResponse criar(BusinessAccountCreateRequest request) {
         tenantGuard.assertPlatformAdmin();
+        if (request.getResponsavelUserId() == null) {
+            throw new BusinessException("Responsável principal é obrigatório; use o contrato canónico.");
+        }
+        if (request.getTenantIds() != null && !request.getTenantIds().isEmpty()) {
+            throw new BusinessException("Negócios devem ser adicionados pelo provisionamento canónico após o preview.");
+        }
         String slug = normalizeSlug(request.getSlug());
         if (slug == null || slug.isBlank()) {
             throw new BusinessException("Slug invalido para BusinessAccount.");
@@ -133,7 +139,7 @@ public class BusinessAccountService {
         account.setNif(request.getNif());
         account.setEmail(request.getEmail());
         account.setTelefone(request.getTelefone());
-        account.setEstado(request.getEstado() != null ? request.getEstado() : BusinessAccountEstado.RASCUNHO);
+        account.setEstado(BusinessAccountEstado.RASCUNHO);
         account.setObservacao(request.getObservacao());
         account.setMaxTenants(effectiveMaxTenants);
         account.setProvisionedAt(LocalDateTime.now());
@@ -151,6 +157,9 @@ public class BusinessAccountService {
     @Transactional
     public BusinessAccountResponse atualizarEstado(Long id, BusinessAccountEstadoUpdateRequest request) {
         tenantGuard.assertPlatformAdmin();
+        if (request.getEstado() == BusinessAccountEstado.ATIVA) {
+            throw new BusinessException("Use o comando canónico /activate para validar owner e auditoria.");
+        }
         BusinessAccount account = getBusinessAccount(id);
         account.setEstado(request.getEstado());
         if (request.getMotivo() != null && !request.getMotivo().isBlank()) {
@@ -187,6 +196,9 @@ public class BusinessAccountService {
     @Transactional
     public BusinessAccountMemberResponse adicionarMembro(Long businessAccountId, BusinessAccountMemberCreateRequest request) {
         tenantGuard.assertPlatformAdmin();
+        if (request.getRole() == BusinessAccountRole.OWNER) {
+            throw new BusinessException("Use owner replacement para alterar o responsável principal.");
+        }
         BusinessAccount account = getBusinessAccount(businessAccountId);
         User user = resolveUserRequired(request.getUserId());
         BusinessAccountMember member = upsertMember(
@@ -230,6 +242,9 @@ public class BusinessAccountService {
                                                             Long memberId,
                                                             BusinessAccountMemberRoleUpdateRequest request) {
         tenantGuard.assertPlatformAdmin();
+        if (request.getRole() == BusinessAccountRole.OWNER) {
+            throw new BusinessException("Use owner replacement para alterar o responsável principal.");
+        }
         getBusinessAccount(businessAccountId);
         BusinessAccountMember member = businessAccountMemberRepository.findByBusinessAccountIdAndId(businessAccountId, memberId)
                 .orElseThrow(() -> new BusinessException("Membro da BusinessAccount nao encontrado."));
@@ -313,6 +328,7 @@ public class BusinessAccountService {
         long tenantCount = tenantRepository.countByBusinessAccountId(account.getId());
         return BusinessAccountResponse.builder()
                 .id(account.getId())
+                .version(account.getVersion())
                 .nome(account.getNome())
                 .slug(account.getSlug())
                 .nif(account.getNif())

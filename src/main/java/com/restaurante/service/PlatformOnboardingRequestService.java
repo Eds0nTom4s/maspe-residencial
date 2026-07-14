@@ -7,12 +7,18 @@ import com.restaurante.dto.response.OnboardingRequestResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.OnboardingRequest;
+import com.restaurante.model.entity.BusinessAccountMember;
+import com.restaurante.model.entity.User;
 import com.restaurante.model.entity.Plano;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.BusinessAccountEstado;
+import com.restaurante.model.enums.BusinessAccountMemberEstado;
+import com.restaurante.model.enums.BusinessAccountRole;
 import com.restaurante.model.enums.OnboardingPaymentStatus;
 import com.restaurante.model.enums.OnboardingRequestStatus;
 import com.restaurante.repository.BusinessAccountRepository;
+import com.restaurante.repository.BusinessAccountMemberRepository;
+import com.restaurante.repository.UserRepository;
 import com.restaurante.repository.OnboardingRequestRepository;
 import com.restaurante.repository.PlanoRepository;
 import com.restaurante.repository.TenantRepository;
@@ -37,6 +43,8 @@ public class PlatformOnboardingRequestService {
     private final PlanoRepository planoRepository;
     private final BusinessAccountRepository businessAccountRepository;
     private final TenantRepository tenantRepository;
+    private final BusinessAccountMemberRepository businessAccountMemberRepository;
+    private final UserRepository userRepository;
 
     @Transactional(readOnly = true)
     public List<OnboardingRequestResponse> listar(Pageable pageable,
@@ -172,18 +180,32 @@ public class PlatformOnboardingRequestService {
         if (existing != null) {
             return existing;
         }
+        if (request.getResponsavelUserId() == null) {
+            throw new BusinessException("Onboarding não pode criar Conta Empresarial sem responsável principal explícito.");
+        }
+        User owner = userRepository.findById(request.getResponsavelUserId())
+                .filter(u -> Boolean.TRUE.equals(u.getAtivo()))
+                .orElseThrow(() -> new BusinessException("Responsável principal activo não encontrado para onboarding."));
         BusinessAccount businessAccount = new BusinessAccount();
         businessAccount.setNome(onboardingRequest.getNomeNegocio());
         businessAccount.setSlug(nextBusinessAccountSlug(request.getBusinessAccountSlug(), onboardingRequest.getNomeNegocio()));
-        businessAccount.setEstado(BusinessAccountEstado.ATIVA);
+        businessAccount.setEstado(BusinessAccountEstado.RASCUNHO);
         businessAccount.setNif(onboardingRequest.getNif());
         businessAccount.setEmail(onboardingRequest.getEmail());
         businessAccount.setTelefone(onboardingRequest.getTelefone());
         businessAccount.setMaxTenants(1);
+        businessAccount.setResponsavel(owner);
         businessAccount.setObservacao("Criada a partir do onboarding request #" + onboardingRequest.getId());
         businessAccount.setProvisionedAt(LocalDateTime.now());
         businessAccount.setProvisionedBy(resolveProvisionedBy());
-        return businessAccountRepository.saveAndFlush(businessAccount);
+        businessAccount = businessAccountRepository.saveAndFlush(businessAccount);
+        BusinessAccountMember ownerMember = new BusinessAccountMember();
+        ownerMember.setBusinessAccount(businessAccount);
+        ownerMember.setUser(owner);
+        ownerMember.setRole(BusinessAccountRole.OWNER);
+        ownerMember.setEstado(BusinessAccountMemberEstado.ATIVO);
+        businessAccountMemberRepository.saveAndFlush(ownerMember);
+        return businessAccount;
     }
 
     private void ensureTenantCanAttach(BusinessAccount businessAccount, Tenant tenant) {

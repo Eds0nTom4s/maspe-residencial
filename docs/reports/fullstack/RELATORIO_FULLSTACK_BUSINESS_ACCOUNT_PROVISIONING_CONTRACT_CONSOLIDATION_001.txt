@@ -1,0 +1,176 @@
+RELATÓRIO FULLSTACK BUSINESS ACCOUNT PROVISIONING CONTRACT CONSOLIDATION 001
+===========================================================================
+
+1. REFERÊNCIAS
+
+Backend: Eds0nTom4s/maspe-residencial
+Branch: backend/consuma-business-account-provisioning-contract-consolidation-001
+Base: bb0f9ddbda5649caee215f490b0abd96c5a442e6
+Frontend auditado: Eds0nTom4s/CONSUMA-UI@ee9eb70d0855cc592e08139cdab192c46c1fdb74
+Referência: RELATORIO_AUDITORIA_SUPERFICIE_ADMINISTRATIVA_CONSUMA_001.txt
+
+2. DECISÃO DE ARQUITECTURA
+
+A futura superfície administrativa deve implementar um único wizard:
+
+Conta Empresarial
+-> responsável principal
+-> gestores
+-> adicionar negócio
+-> plano
+-> vertical
+-> preview verificável
+-> provisionamento idempotente
+-> resultado persistente
+-> readiness
+-> activação
+
+A UI não deve recompor este fluxo a partir dos endpoints antigos nem aplicar
+PILOTO, BusinessAccount, owner, vertical ou template implicitamente.
+
+3. CONTRATOS PARA A UI
+
+Conta em RASCUNHO:
+POST /platform/business-accounts
+Headers: Idempotency-Key, X-Correlation-Id
+Campos: nome, slug, contacto, maxTenants e responsavelPrincipal.
+
+O responsável aceita:
+- ASSOCIATE_EXISTING: userId e confirmExistingUser=true;
+- CREATE_NEW: username, temporaryPassword, nome, telefone e email opcional.
+
+Replacement do owner:
+POST /platform/business-accounts/{accountId}/owner/replace
+Exige accountVersion, novoResponsavel, reason e headers governados.
+
+Gestores:
+POST /platform/business-accounts/{accountId}/managers
+Exige accountVersion, userId, role, estado, reason e headers governados.
+Este comando nunca altera o responsável principal.
+
+Preview:
+POST /platform/business-accounts/{accountId}/businesses/preview
+Exige accountVersion, planoCodigo, vertical, negocio, configuração da vertical e
+acessos.strategy=ACCOUNT_OWNER_AS_TENANT_OWNER.
+
+A UI deve guardar previewId, requestFingerprint e expiresAt da resposta. Deve
+mostrar entidades planeadas, plano/limites, template/version, recursos, políticas,
+warnings e blockers. O botão de provisionamento depende de allowedToProvision.
+
+Provisionamento:
+POST /platform/business-accounts/{accountId}/businesses/provision
+Exige Idempotency-Key estável por intenção, X-Correlation-Id, previewId,
+requestFingerprint, accountVersion e confirmed=true.
+
+Em timeout a UI não deve gerar outra key. Deve consultar:
+- GET /platform/provisioning-operations/{operationId}, quando conhecido;
+- GET /platform/provisioning-operations?businessAccountId={id}&idempotencyKey={key}.
+
+Estados apresentados: PENDING, RUNNING, SUCCEEDED, FAILED_RETRYABLE e
+FAILED_FINAL. Um replay com mesma key/payload devolve a mesma operação; payload
+diferente devolve 409 IDEMPOTENCY_CONFLICT.
+
+Readiness:
+GET /platform/business-accounts/{accountId}/businesses/{tenantId}/readiness
+
+A UI deve renderizar checks e blockers. Tenant nasce RASCUNHO. Activação:
+POST /platform/business-accounts/{accountId}/businesses/{tenantId}/activate
+somente quando readiness.ready=true, usando accountVersion, tenantVersion,
+reason, Idempotency-Key e X-Correlation-Id.
+
+A conta empresarial possui activação separada em
+POST /platform/business-accounts/{accountId}/activate. Criar tenant não activa a
+conta automaticamente.
+
+4. INVARIANTES FULLSTACK
+
+- owner é obrigatório e existe exactamente um OWNER activo efectivo;
+- owner da conta, gestor da conta, owner/admin do tenant e role global são
+  conceitos distintos e não devem ser mapeados implicitamente na UI;
+- todo novo negócio canónico pertence a uma BusinessAccount;
+- maxTenants é validado no preview e novamente no provisionamento;
+- plano e vertical são selecções explícitas;
+- preview e provisionamento usam o mesmo payload lógico persistido;
+- uma key representa uma única intenção e nunca deve ser reciclada;
+- tenant, plano, instituição, unidade, acessos e recursos são atómicos;
+- nenhuma activação ocorre antes do readiness.
+
+5. PLANOS E VERTICAIS
+
+Verticais públicas: CONSUMA_PONTO e CONSUMA_REST.
+Resolução interna: CONSUMA_PONTO_V1 e CONSUMA_REST_V1.
+
+Fonte normativa desta fase: Plano/Subscricao. BillingPlan/TenantSubscription é
+projecção secundária validada por código. A UI não deve combinar os dois
+catálogos nem assumir PILOTO. Divergência bloqueia readiness e deve ser tratada
+por backfill/mapping versionado posterior.
+
+6. COMPATIBILIDADE E MIGRAÇÃO DA UI
+
+Continuam temporariamente disponíveis:
+- /platform/tenants/provisionar;
+- /platform/templates/{code}/provision;
+- /platform/business-templates/{code}/provision.
+
+Esses endpoints devolvem Deprecation=true, Sunset=31-12-2026, Link para o
+successor e registam telemetria. Não são permitidos a novos consumidores.
+
+Plano de migração frontend:
+1. substituir criação improvisada pelo wizard canónico;
+2. remover default PILOTO e exigir escolha do plano;
+3. remover chamadas directas a templates e usar vertical;
+4. persistir key/correlationId no estado do wizard;
+5. implementar recuperação por operationId ou account+key;
+6. apresentar readiness e separar activação;
+7. remover adapters apenas após telemetria sem consumidores.
+
+7. SEGURANÇA E ERROS
+
+Todos os contratos são exclusivos de Platform Admin. BusinessAccount e versions
+são explícitas. Os comandos exigem actor, correlationId e Idempotency-Key. A UI
+deve tratar 400 como contrato inválido, 409 como versão/idempotência/invariante
+concorrente e nunca efectuar retry cego. Mensagens técnicas não expõem SQL ou
+stack trace; correlationId é a referência de suporte.
+
+8. MIGRATION, DADOS LEGADOS E RISCOS
+
+V82 cria previews, operações, auditoria de governance e telemetria de aliases,
+com FKs, índices e constraints de idempotência. Não existe DML destrutivo nem
+ON DELETE CASCADE em auditoria.
+
+A auditoria read-only encontrou uma conta sem owner, uma conta com múltiplos
+OWNER activos, dois tenants sem BusinessAccount e 31 divergências/ausências na
+projecção billing. Por isso constraints globais definitivas aguardam backfill
+idempotente, auditado e assistido; nenhum dado foi corrigido manualmente.
+
+Riscos restantes:
+- aliases permanecem até ao sunset;
+- projecção billing requer convergência posterior;
+- operação PENDING fica recuperável após crash, mas retoma automática por worker
+  não pertence a esta fase;
+- convite não foi oferecido porque não existe mecanismo real aprovado.
+
+9. PROVAS
+
+mvn -DskipTests compile: BUILD SUCCESS.
+mvn test: 477 testes; 0 failures; 0 errors; 3 skipped.
+mvn -Pit verify:
+- Surefire 477; 0 failures; 0 errors; 3 skipped;
+- Failsafe/PostgreSQL 304; 0 failures; 0 errors; 0 skipped;
+- BUILD SUCCESS.
+
+Seis ITs canónicos PostgreSQL provaram preview sem efeitos, fingerprint estável,
+expiração, plano/capacidade, owner, replacement, gestores, concorrência,
+idempotência, conflito de payload, rollback, recuperação de falha, ligação à
+conta, plano explícito, readiness e activação. Fixtures foram isoladas em
+Testcontainers; nenhuma conta comercial foi alterada.
+
+Sandbox: V81 foi reconhecida e apenas V82 foi aplicada. Imagem:
+sha256:392134f2194ae9cb5e20f684344750bed59efa57d38e856857cfc3ebc3ee613e.
+/api/actuator/health respondeu HTTP 200 com status UP.
+
+10. DECISÃO
+
+O backend passa a fornecer uma superfície canónica única e suficiente para a
+futura UI. A integração fullstack pode avançar usando exclusivamente os contratos
+deste relatório, mantendo os aliases apenas como compatibilidade monitorizada.

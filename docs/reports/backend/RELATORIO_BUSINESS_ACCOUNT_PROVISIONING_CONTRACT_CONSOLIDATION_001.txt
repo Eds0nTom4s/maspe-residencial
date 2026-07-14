@@ -1,0 +1,224 @@
+RELATÓRIO BUSINESS ACCOUNT PROVISIONING CONTRACT CONSOLIDATION 001
+=================================================================
+
+1. IDENTIFICAÇÃO
+
+Repositório: Eds0nTom4s/maspe-residencial
+Branch: backend/consuma-business-account-provisioning-contract-consolidation-001
+Base real: bb0f9ddbda5649caee215f490b0abd96c5a442e6
+Referência frontend: Eds0nTom4s/CONSUMA-UI@ee9eb70d0855cc592e08139cdab192c46c1fdb74
+Relatório de referência: RELATORIO_AUDITORIA_SUPERFICIE_ADMINISTRATIVA_CONSUMA_001.txt
+Contrato: BUSINESS_PROVISIONING_V1
+
+2. ARQUITECTURA ANTERIOR E INVENTÁRIO
+
+Foram auditados BusinessAccountController/Service/Member, responsavel_user_id,
+aprovação de onboarding, TenantProvisioningService, BusinessTemplate, aliases,
+ConsumaPontoV1, ConsumaRestV1, Plano/Subscricao, BillingPlan/TenantSubscription,
+Institution/Instituicao, Unidade, TenantUser, migrations V2, V3, V11, V12, V58,
+V59, V67, V68, V71, V72 e V73 e os testes existentes.
+
+Antes desta fase existiam criação de conta com owner opcional, provisionamento
+directo com BusinessAccount e plano opcionais, preview não verificável,
+provisionamento sem operação recuperável e tenant criado ATIVO. O pointer do
+responsável e a membership OWNER podiam divergir. Plano/Subscricao e
+BillingPlan/TenantSubscription coexistiam sem uma decisão normativa para o fluxo.
+
+Consumidores inventariados antes de manter os adapters:
+- controllers e serviços internos de provisioning/template;
+- SandboxDemoSeedRunner;
+- scripts/sandbox-smoke.sh;
+- testes de TenantProvisioningService e BusinessTemplate;
+- frontend auditado, que usa /platform/templates/{code}/provision;
+- documentação histórica dos três aliases.
+
+Nenhum endpoint foi removido.
+
+3. CONTRATO CANÓNICO
+
+Fluxo aprovado:
+Conta Empresarial -> responsável principal -> gestores -> adicionar negócio ->
+plano -> vertical -> preview verificável -> provisionamento idempotente ->
+resultado persistente -> readiness -> activação.
+
+Conta Empresarial:
+- POST /platform/business-accounts cria exclusivamente em RASCUNHO;
+- exige Idempotency-Key, X-Correlation-Id e responsavelPrincipal;
+- aceita ASSOCIATE_EXISTING, com userId e confirmação inequívoca, ou CREATE_NEW;
+- CREATE_NEW rejeita conflitos de username, email e telefone e não converte
+  membership empresarial em role global;
+- conta, pointer e membership OWNER são persistidos na mesma transacção.
+
+Owner e gestores:
+- POST /platform/business-accounts/{id}/owner/replace faz replacement atómico,
+  usa optimistic version, lock pessimista, idempotência e auditoria before/after;
+- existe exactamente um OWNER activo correspondente a responsavel_user_id;
+- owners anteriores activos são reclassificados como ADMIN no replacement;
+- POST /platform/business-accounts/{id}/managers gere apenas gestores e nunca
+  substitui o responsável principal;
+- responsável empresarial, gestor empresarial, owner/admin de tenant e role
+  global permanecem conceitos distintos;
+- adapters antigos de membership não podem criar OWNER nem remover o último
+  OWNER activo.
+
+4. PREVIEW VERIFICÁVEL
+
+Endpoint:
+POST /platform/business-accounts/{accountId}/businesses/preview
+
+Exige accountVersion, planoCodigo, vertical, dados do negócio e estratégia de
+acessos. As verticais aceites são CONSUMA_PONTO e CONSUMA_REST. A vertical resolve
+internamente CONSUMA_PONTO_V1 ou CONSUMA_REST_V1.
+
+O preview valida conta, estado, owner, maxTenants, plano activo, slug, tenantCode,
+NIF, contacto, tipo/configuração da vertical e acessos. Não cria tenant,
+subscrição, instituição, unidade ou acesso operacional.
+
+Decisão: preview persistido, e não token assinado. A persistência permite
+auditar actor/correlation/IP/User-Agent, expirar/consumir uma proposta, recuperar
+o payload lógico exacto e provar que preview e provision usam o mesmo comando.
+O TTL default é 15 minutos. O requestFingerprint SHA-256 usa JSON canónico com
+propriedades e maps ordenados. Mesma conta+key+fingerprint devolve o mesmo
+preview; fingerprint diferente devolve 409 IDEMPOTENCY_CONFLICT.
+
+5. PROVISIONAMENTO E RECUPERAÇÃO
+
+Endpoint:
+POST /platform/business-accounts/{accountId}/businesses/provision
+
+Exige Idempotency-Key, X-Correlation-Id, previewId, requestFingerprint,
+accountVersion e confirmed=true. A conta é bloqueada e as invariantes críticas,
+incluindo maxTenants, são revalidadas.
+
+BusinessProvisioningOperation é persistida antes dos efeitos com status PENDING,
+ficando consultável durante timeout. A execução passa por RUNNING e termina em
+SUCCEEDED, FAILED_RETRYABLE ou FAILED_FINAL. A constraint
+(business_account_id, idempotency_key), combinada com lock da conta, garante:
+- mesma key/fingerprint: uma execução e replay da mesma operação;
+- mesma key/fingerprint diferente: 409 IDEMPOTENCY_CONFLICT;
+- corrida previsível sem HTTP 500 e sem segundo tenant.
+
+As entidades operacionais são criadas numa transacção única. Uma falha faz
+rollback de tenant, plano, instituição, unidade, acessos e recursos; depois o
+estado falhado e a mensagem sanitizada são gravados numa transacção separada.
+
+Consultas:
+- GET /platform/provisioning-operations/{operationId};
+- GET /platform/provisioning-operations?businessAccountId={id}&idempotencyKey={key}.
+
+6. ENTIDADES, PLANO, VERTICAL E READINESS
+
+O tenant resultante é sempre ligado à BusinessAccount, recebe plano explícito,
+instituição, unidade, owner operacional, recursos e template/version. O estado
+inicial canónico é RASCUNHO, nunca ATIVO.
+
+Modelo normativo desta fase: Plano/Subscricao. BillingPlan/TenantSubscription é
+projecção secundária; quando presente, o readiness exige compatibilidade por
+código e bloqueia divergência. PILOTO nunca é aplicado implicitamente pelo
+contrato canónico.
+
+GET /platform/business-accounts/{accountId}/businesses/{tenantId}/readiness
+verifica conta activa e owner consistente, tenant ligado, subscrição normativa,
+projecção billing compatível, instituição, unidade, owner/admin operacional,
+template/version e estado não prematuramente activo.
+
+POST /platform/business-accounts/{accountId}/businesses/{tenantId}/activate é
+um comando separado, versionado, idempotente e auditado. A criação do tenant não
+activa automaticamente a conta empresarial.
+
+7. COMPATIBILIDADE
+
+Mantidos temporariamente:
+- /platform/tenants/provisionar;
+- /platform/templates/{code}/provision;
+- /platform/business-templates/{code}/provision;
+- respectivos previews.
+
+Os adapters exigem Platform Admin, registam uso em
+legacy_provisioning_usage_events e devolvem Deprecation=true, Sunset em
+31-12-2026 e Link para o successor. A UI canónica não deve consumir esses aliases.
+A remoção deve ocorrer depois de telemetria sem uso e migração dos scripts/seeds.
+
+8. MIGRATION E INTEGRIDADE
+
+Foi confirmada como última versão Flyway real a V81. A V82
+(V82__business_account_canonical_provisioning.sql) cria:
+- business_account_governance_events;
+- business_provisioning_previews;
+- business_provisioning_operations;
+- legacy_provisioning_usage_events;
+- constraints de idempotência, FKs e índices.
+
+Não há ON DELETE CASCADE nas auditorias. Não há UPDATE/DELETE nem DML
+destrutivo. Constraints definitivas sobre dados legados não foram aplicadas
+porque a auditoria encontrou anomalias reais.
+
+9. AUDITORIA READ-ONLY DE DADOS LEGADOS
+
+Sandbox antes da V82:
+- BusinessAccounts: 29;
+- contas sem pointer de owner: 1;
+- contas com múltiplos OWNER activos: 1;
+- pointer divergente do OWNER activo: 0;
+- tenants: 31;
+- tenants sem BusinessAccount: 2;
+- contas sem tenant: 1;
+- tenants sem Plano/Subscricao activa: 0;
+- divergências/ausências entre modelo normativo e billing: 31;
+- unidades ligadas a instituição de tenant incoerente: 0.
+
+Nenhum dado foi corrigido manualmente. Foram usados apenas SELECTs read-only na
+auditoria; nenhum SQL manual de escrita foi executado.
+
+Estratégia de backfill posterior:
+1. gerar dry-run determinístico com as anomalias e chave de lote idempotente;
+2. exigir decisão humana para owner ambíguo e tenant sem conta;
+3. sincronizar pointer/membership numa transacção por conta e auditar before/after;
+4. mapear Plano/Subscricao para billing por mapping versionado, sem defaults;
+5. reexecutar dry-run até convergir;
+6. só depois considerar unique parcial de OWNER e NOT NULL da ligação.
+
+10. SEGURANÇA
+
+Os contratos canónicos exigem Platform Admin real, BusinessAccount explícita,
+estado válido, actor, roles, IP, User-Agent, correlationId, Idempotency-Key nos
+comandos e optimistic version. Respostas de falha não persistem SQL/stack traces
+e os endpoints globais antigos de unidade não participam no fluxo canónico.
+
+11. TESTES E RUNTIME
+
+mvn -DskipTests compile: BUILD SUCCESS.
+mvn test: 477 testes, 0 failures, 0 errors, 3 skipped.
+mvn -Pit verify:
+- Surefire: 477 testes, 0 failures, 0 errors, 3 skipped;
+- Failsafe/PostgreSQL: 304 testes, 0 failures, 0 errors, 0 skipped;
+- BUILD SUCCESS.
+
+O IT canónico PostgreSQL possui 6 cenários reais e cobre owner obrigatório,
+replacement, manager, preview, plano inválido, expiração, maxTenants,
+fingerprint, provision idempotente/concorrente, conflito de payload, lookup,
+ligação à conta, plano explícito, rollback, FAILED_FINAL, readiness e activação.
+
+Runtime funcional foi provado em PostgreSQL Testcontainers com fixtures
+controladas: preview não criou entidades operacionais; provision criou uma
+operação/tenant; replay devolveu o mesmo resultado; payload divergente deu 409;
+falha controlada fez rollback e ficou recuperável. Nenhum dado comercial real
+foi criado por esta prova.
+
+Sandbox: imagem sistema-restauracao-api:sandbox sha256:392134f2194ae9cb5e20f684344750bed59efa57d38e856857cfc3ebc3ee613e.
+Flyway validou 82 migrations, reconheceu schema 81 e aplicou apenas V82.
+O contentor 65b22bfbe744336859b6c14fc0e3f331f78ef1c05cce0e9ef426982821b55e86
+ficou running e /api/actuator/health respondeu HTTP 200, status UP.
+
+12. LIMITAÇÕES E RISCOS RESTANTES
+
+- as anomalias legadas impedem constraints globais definitivas nesta fase;
+- a projecção BillingPlan/TenantSubscription necessita backfill/mapping posterior;
+- os aliases continuam disponíveis até ao sunset e devem ser monitorizados;
+- uma operação PENDING após crash de processo fica detectável, mas a retoma
+  automática por lease/worker fica para fase posterior;
+- convite não foi exposto porque não existe mecanismo real de convite aprovado.
+
+Decisão: contrato canónico consolidado e apto para integração, condicionado à
+manutenção dos adapters apenas durante a janela de compatibilidade e ao backfill
+governado antes de constraints globais definitivas.

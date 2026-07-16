@@ -13,6 +13,11 @@ import com.restaurante.model.enums.BillingPlanStatus;
 import com.restaurante.model.enums.TenantSubscriptionStatus;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.UserRepository;
+import com.restaurante.repository.BusinessAccountRepository;
+import com.restaurante.repository.BusinessAccountMemberRepository;
+import com.restaurante.repository.OnboardingRequestRepository;
+import com.restaurante.model.enums.BusinessAccountRole;
+import com.restaurante.model.enums.BusinessAccountMemberEstado;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantContextHolder;
@@ -30,6 +35,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -57,6 +65,9 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
     @Autowired BillingPlanRepository billingPlanRepository;
     @Autowired TenantSubscriptionService tenantSubscriptionService;
     @Autowired JwtTokenProvider jwtTokenProvider;
+    @Autowired BusinessAccountRepository businessAccounts;
+    @Autowired BusinessAccountMemberRepository businessMembers;
+    @Autowired OnboardingRequestRepository onboardingRequests;
 
     @AfterEach
     void clear() {
@@ -117,6 +128,7 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
 
         JsonNode created = objectMapper.readTree(createResp).path("data");
         long businessAccountId = created.path("id").asLong();
+        long accountVersion = created.path("version").asLong();
         mockMvc.perform(post("/platform/business-accounts/{id}/tenants/{tenantId}", businessAccountId, tenantOne.getTenantId())
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isCreated());
@@ -125,6 +137,8 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
         assertThat(created.path("maxTenants").asInt()).isEqualTo(2);
         assertThat(created.path("tenantCount").asLong()).isEqualTo(1L);
+        assertThat(created.path("version").asLong()).isGreaterThan(accountVersion);
+        accountVersion = created.path("version").asLong();
 
         String listResp = mockMvc.perform(get("/platform/business-accounts")
                         .param("hasTenants", "true")
@@ -209,6 +223,12 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         long memberId = objectMapper.readTree(memberResp).at("/data/id").asLong();
+        JsonNode afterLegacyMemberCreate = objectMapper.readTree(mockMvc.perform(
+                        get("/platform/business-accounts/{id}", businessAccountId)
+                                .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(afterLegacyMemberCreate.path("version").asLong()).isGreaterThan(accountVersion);
+        accountVersion = afterLegacyMemberCreate.path("version").asLong();
 
         mockMvc.perform(patch("/platform/business-accounts/{id}/members/{memberId}/role", businessAccountId, memberId)
                         .header("Authorization", "Bearer " + adminToken)
@@ -219,6 +239,11 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
                                 }
                                 """))
                 .andExpect(status().isOk());
+        JsonNode afterLegacyRoleChange = objectMapper.readTree(mockMvc.perform(
+                        get("/platform/business-accounts/{id}", businessAccountId)
+                                .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(afterLegacyRoleChange.path("version").asLong()).isGreaterThan(accountVersion);
 
         String membersResp = mockMvc.perform(get("/platform/business-accounts/{id}/members", businessAccountId)
                         .header("Authorization", "Bearer " + adminToken))
@@ -270,6 +295,8 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
 
         String onboardingApproveResp = mockMvc.perform(patch("/platform/onboarding-requests/{id}/approve", onboardingId)
                         .header("Authorization", "Bearer " + adminToken)
+                        .header("Idempotency-Key", "onboarding-approve-" + suffix)
+                        .header("X-Correlation-Id", "corr-onboarding-approve-" + suffix)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -284,6 +311,23 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
         JsonNode onboardingApproved = objectMapper.readTree(onboardingApproveResp).path("data");
         assertThat(onboardingApproved.path("status").asText()).isEqualTo("APROVADO");
         assertThat(onboardingApproved.path("businessAccountId").asLong()).isPositive();
+
+        String onboardingReplay = mockMvc.perform(patch("/platform/onboarding-requests/{id}/approve", onboardingId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .header("Idempotency-Key", "onboarding-approve-" + suffix)
+                        .header("X-Correlation-Id", "corr-onboarding-replay-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "criarBusinessAccountSeAusente": true,
+                                  "responsavelUserId": %d,
+                                  "statusPagamento": "PAGO",
+                                  "observacao": "aprovado pelo comercial"
+                                }
+                                """.formatted(ownerOne.getId())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(onboardingReplay).at("/data/businessAccountId").asLong())
+                .isEqualTo(onboardingApproved.path("businessAccountId").asLong());
 
         String onboardingRejectResp = mockMvc.perform(post("/platform/onboarding-requests")
                         .header("Authorization", "Bearer " + adminToken)
@@ -325,6 +369,47 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
         mockMvc.perform(delete("/platform/business-accounts/{id}/tenants/{tenantId}", businessAccountId, tenantTwo.getTenantId())
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void twoConcurrentOnboardingApprovalsCreateOneCanonicalAccountAndOwner() throws Exception {
+        String suffix = suffix();
+        User admin = createUser("platform-onboarding-race-" + suffix + "@test.com", "ROLE_ADMIN");
+        User owner = createUser("owner-onboarding-race-" + suffix + "@test.com", "ROLE_GERENTE");
+        String token = globalToken(admin, "ROLE_ADMIN");
+        String businessName = "Onboarding Race " + suffix;
+        String created = mockMvc.perform(post("/platform/onboarding-requests")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nomeSolicitante\":\"Race\",\"telefone\":\"+244955123456\","
+                                + "\"email\":\"race-" + suffix + "@test.com\",\"nomeNegocio\":\"" + businessName
+                                + "\",\"tipoNegocio\":\"RESTAURANTE\",\"planoCodigo\":\"PILOTO\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long onboardingId = objectMapper.readTree(created).at("/data/id").asLong();
+        String approval = "{\"criarBusinessAccountSeAusente\":true,\"responsavelUserId\":" + owner.getId()
+                + ",\"statusPagamento\":\"NAO_APLICAVEL\"}";
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Integer> approve = () -> mockMvc.perform(patch("/platform/onboarding-requests/{id}/approve", onboardingId)
+                            .header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", "approve-race-" + suffix)
+                            .header("X-Correlation-Id", "corr-approve-race-" + Thread.currentThread().getId())
+                            .contentType(MediaType.APPLICATION_JSON).content(approval))
+                    .andReturn().getResponse().getStatus();
+            Future<Integer> one = executor.submit(approve);
+            Future<Integer> two = executor.submit(approve);
+            assertThat(one.get()).isEqualTo(200);
+            assertThat(two.get()).isEqualTo(200);
+        } finally {
+            executor.shutdownNow();
+        }
+        var onboarding = onboardingRequests.findById(onboardingId).orElseThrow();
+        assertThat(onboarding.getBusinessAccount()).isNotNull();
+        long accountId = onboarding.getBusinessAccount().getId();
+        assertThat(businessAccounts.findById(accountId)).isPresent();
+        assertThat(businessMembers.countByBusinessAccountIdAndRoleAndEstado(accountId,
+                BusinessAccountRole.OWNER, BusinessAccountMemberEstado.ATIVO)).isEqualTo(1);
+        assertThat(businessMembers.countByBusinessAccountId(accountId)).isEqualTo(1);
     }
 
     private ProvisionarTenantResponse provisionTenant(User platformAdmin, String slug, String tenantCode, String ownerEmail) {

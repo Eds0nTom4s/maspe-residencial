@@ -26,6 +26,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.http.MediaType;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -44,6 +45,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -124,6 +126,10 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
         assertThat(unidades.countByTenantId(tenantId)).isPositive();
         assertThat(tenantUsers.countByTenantIdAndRoleAndEstado(tenantId, TenantUserRole.TENANT_OWNER,
                 TenantUserEstado.ATIVO)).isEqualTo(1);
+
+        mockMvc.perform(delete("/platform/business-accounts/{id}/tenants/{tenantId}", accountId, tenantId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest());
 
         String replayBody = mockMvc.perform(post("/platform/business-accounts/{id}/businesses/provision", accountId)
                         .header("Authorization", "Bearer " + token)
@@ -449,6 +455,160 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
                 argThat(request -> businessSlug.equals(request.getTenant().getSlug())));
     }
 
+    @Test
+    void abandonedPendingIsRecoveredWithSameOperationAndIncrementedAttempt() throws Exception {
+        String suffix = suffix();
+        User admin = user("platform-pending-" + suffix, Role.ROLE_ADMIN);
+        User owner = user("owner-pending-" + suffix, Role.ROLE_GERENTE);
+        String token = token(admin);
+        JsonNode account = createAccount(token, owner, "pending-" + suffix, 1);
+        long accountId = account.path("id").asLong();
+        long version = account.path("version").asLong();
+        JsonNode preview = preview(token, accountId, version, "pending-" + suffix, "pending-preview-" + suffix);
+        String payload = provisionPayload(preview, version, true);
+        String slug = "business-pending-" + suffix;
+        doThrow(new BusinessException("SIMULATED_CRASH_AFTER_PENDING")).doCallRealMethod()
+                .when(templateService).provision(eq("CONSUMA_PONTO_V1"),
+                        argThat(request -> slug.equals(request.getTenant().getSlug())));
+        mockMvc.perform(post("/platform/business-accounts/{id}/businesses/provision", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "pending-provision-" + suffix)
+                        .header("X-Correlation-Id", "corr-pending-first-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(payload))
+                .andExpect(status().isBadRequest());
+        var pending = operations.findByBusinessAccountIdAndIdempotencyKey(accountId, "pending-provision-" + suffix).orElseThrow();
+        String operationId = pending.getOperationId();
+        pending.setStatus("PENDING");
+        pending.setAttemptCount(0);
+        pending.setLeaseOwner("dead-worker");
+        pending.setLeaseUntil(LocalDateTime.now().minusSeconds(1));
+        pending.setNextRetryAt(null);
+        pending.setCompletedAt(null);
+        operations.saveAndFlush(pending);
+
+        String recovered = mockMvc.perform(post("/platform/business-accounts/{id}/businesses/provision", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "pending-provision-" + suffix)
+                        .header("X-Correlation-Id", "corr-pending-recovery-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(payload))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        JsonNode result = objectMapper.readTree(recovered).path("data");
+        assertThat(result.path("operationId").asText()).isEqualTo(operationId);
+        assertThat(result.path("attemptCount").asInt()).isEqualTo(1);
+        assertThat(result.path("status").asText()).isEqualTo("SUCCEEDED");
+        assertThat(result.path("terminal").asBoolean()).isTrue();
+        assertThat(tenants.countByBusinessAccountId(accountId)).isEqualTo(1);
+    }
+
+    @Test
+    void failedRetryableAllowsExactlyOneOfTwoConcurrentResumes() throws Exception {
+        String suffix = suffix();
+        User admin = user("platform-retry-" + suffix, Role.ROLE_ADMIN);
+        User owner = user("owner-retry-" + suffix, Role.ROLE_GERENTE);
+        String token = token(admin);
+        JsonNode account = createAccount(token, owner, "retry-" + suffix, 1);
+        long accountId = account.path("id").asLong();
+        long version = account.path("version").asLong();
+        JsonNode preview = preview(token, accountId, version, "retry-" + suffix, "retry-preview-" + suffix);
+        String payload = provisionPayload(preview, version, true);
+        String slug = "business-retry-" + suffix;
+        doThrow(new TransientDataAccessResourceException("temporary database failure")).doCallRealMethod()
+                .when(templateService).provision(eq("CONSUMA_PONTO_V1"),
+                        argThat(request -> slug.equals(request.getTenant().getSlug())));
+        mockMvc.perform(post("/platform/business-accounts/{id}/businesses/provision", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "retry-provision-" + suffix)
+                        .header("X-Correlation-Id", "corr-retry-first-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(payload))
+                .andExpect(status().is5xxServerError());
+        var failed = operations.findByBusinessAccountIdAndIdempotencyKey(accountId, "retry-provision-" + suffix).orElseThrow();
+        String operationId = failed.getOperationId();
+        assertThat(failed.getStatus()).isEqualTo("FAILED_RETRYABLE");
+        assertThat(failed.getAttemptCount()).isEqualTo(1);
+
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<String> resume = () -> mockMvc.perform(post("/platform/provisioning-operations/{id}/resume", operationId)
+                            .header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", "retry-provision-" + suffix)
+                            .header("X-Correlation-Id", "corr-resume-" + Thread.currentThread().getId()))
+                    .andReturn().getResponse().getContentAsString();
+            Future<String> one = executor.submit(resume);
+            Future<String> two = executor.submit(resume);
+            assertThat(objectMapper.readTree(one.get()).at("/data/operationId").asText()).isEqualTo(operationId);
+            assertThat(objectMapper.readTree(two.get()).at("/data/operationId").asText()).isEqualTo(operationId);
+        } finally {
+            executor.shutdownNow();
+        }
+        var succeeded = operations.findByOperationId(operationId).orElseThrow();
+        assertThat(succeeded.getStatus()).isEqualTo("SUCCEEDED");
+        assertThat(succeeded.getAttemptCount()).isEqualTo(2);
+        assertThat(tenants.countByBusinessAccountId(accountId)).isEqualTo(1);
+    }
+
+    @Test
+    void operationalAccessAndHeadersFollowCanonicalPolicy() throws Exception {
+        String suffix = suffix();
+        User admin = user("platform-access-" + suffix, Role.ROLE_ADMIN);
+        User owner = user("owner-access-" + suffix, Role.ROLE_GERENTE);
+        User viewer = user("viewer-access-" + suffix, Role.ROLE_GERENTE);
+        User billing = user("billing-access-" + suffix, Role.ROLE_GERENTE);
+        String token = token(admin);
+        JsonNode account = createAccount(token, owner, "access-" + suffix, 1);
+        long id = account.path("id").asLong();
+        BusinessAccount entity = accounts.findById(id).orElseThrow();
+        member(entity, viewer, BusinessAccountRole.VIEWER);
+        member(entity, billing, BusinessAccountRole.BILLING_MANAGER);
+
+        mockMvc.perform(post("/platform/business-accounts/{id}/businesses/preview", id)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "viewer-preview-" + suffix)
+                        .header("X-Correlation-Id", "corr-viewer-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(previewPayloadWithAccess(account.path("version").asLong(), "viewer-" + suffix,
+                                viewer.getId(), "TENANT_ADMIN")))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/platform/business-accounts/{id}/businesses/preview", id)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "billing-preview-" + suffix)
+                        .header("X-Correlation-Id", "corr-billing-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(previewPayloadWithAccess(account.path("version").asLong(), "billing-" + suffix,
+                                billing.getId(), "TENANT_FINANCE")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/platform/business-accounts")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "long-correlation-" + suffix)
+                        .header("X-Correlation-Id", "x".repeat(121))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nome\":\"Long corr\",\"slug\":\"long-corr-" + suffix
+                                + "\",\"responsavelPrincipal\":{\"strategy\":\"ASSOCIATE_EXISTING\",\"userId\":"
+                                + owner.getId() + ",\"confirmExistingUser\":true}}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void normalizedNifIsUniqueUnderConcurrencyAndNeverReturns500() throws Exception {
+        String suffix = suffix();
+        User admin = user("platform-nif-" + suffix, Role.ROLE_ADMIN);
+        User owner = user("owner-nif-" + suffix, Role.ROLE_GERENTE);
+        String token = token(admin);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> first = executor.submit(() -> createAccountWithNif(token, owner, "nif-a-" + suffix,
+                    "AO-123/" + suffix, "nif-key-a-" + suffix));
+            Future<Integer> second = executor.submit(() -> createAccountWithNif(token, owner, "nif-b-" + suffix,
+                    "ao 123 " + suffix, "nif-key-b-" + suffix));
+            List<Integer> statuses = new ArrayList<>(List.of(first.get(), second.get()));
+            Collections.sort(statuses);
+            assertThat(statuses).containsExactly(201, 409);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private JsonNode createAccount(String token, User owner, String suffix, int maxTenants) throws Exception {
         String payload = "{\"nome\":\"Conta " + suffix + "\",\"slug\":\"account-" + suffix
                 + "\",\"maxTenants\":" + maxTenants + ",\"responsavelPrincipal\":{"
@@ -487,6 +647,42 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
         return "{\"previewId\":\"" + preview.path("previewId").asText()
                 + "\",\"requestFingerprint\":\"" + preview.path("requestFingerprint").asText()
                 + "\",\"accountVersion\":" + accountVersion + ",\"confirmed\":" + confirmed + "}";
+    }
+
+    private JsonNode preview(String token, long accountId, long version, String suffix, String key) throws Exception {
+        String body = mockMvc.perform(post("/platform/business-accounts/{id}/businesses/preview", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", key)
+                        .header("X-Correlation-Id", "corr-" + key)
+                        .contentType(MediaType.APPLICATION_JSON).content(previewPayload(version, suffix, "PILOTO")))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).path("data");
+    }
+
+    private void member(BusinessAccount account, User user, BusinessAccountRole role) {
+        var member = new com.restaurante.model.entity.BusinessAccountMember();
+        member.setBusinessAccount(account);
+        member.setUser(user);
+        member.setRole(role);
+        member.setEstado(BusinessAccountMemberEstado.ATIVO);
+        members.saveAndFlush(member);
+    }
+
+    private String previewPayloadWithAccess(long version, String suffix, long userId, String tenantRole) {
+        return previewPayload(version, suffix, "PILOTO").replace("\"additionalAccesses\": []",
+                "\"additionalAccesses\": [{\"userId\":" + userId + ",\"tenantRole\":\"" + tenantRole + "\"}]");
+    }
+
+    private int createAccountWithNif(String token, User owner, String suffix, String nif, String key) throws Exception {
+        return mockMvc.perform(post("/platform/business-accounts")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", key)
+                        .header("X-Correlation-Id", "corr-" + key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nome\":\"Conta " + suffix + "\",\"slug\":\"account-" + suffix
+                                + "\",\"nif\":\"" + nif + "\",\"responsavelPrincipal\":{\"strategy\":\"ASSOCIATE_EXISTING\","
+                                + "\"userId\":" + owner.getId() + ",\"confirmExistingUser\":true}}"))
+                .andReturn().getResponse().getStatus();
     }
 
     private User user(String name, Role role) {

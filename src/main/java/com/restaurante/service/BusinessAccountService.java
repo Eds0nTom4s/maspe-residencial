@@ -116,6 +116,12 @@ public class BusinessAccountService {
     @Transactional
     public BusinessAccountResponse criar(BusinessAccountCreateRequest request) {
         tenantGuard.assertPlatformAdmin();
+        if (request.getResponsavelUserId() == null) {
+            throw new BusinessException("Responsável principal é obrigatório; use o contrato canónico.");
+        }
+        if (request.getTenantIds() != null && !request.getTenantIds().isEmpty()) {
+            throw new BusinessException("Negócios devem ser adicionados pelo provisionamento canónico após o preview.");
+        }
         String slug = normalizeSlug(request.getSlug());
         if (slug == null || slug.isBlank()) {
             throw new BusinessException("Slug invalido para BusinessAccount.");
@@ -133,7 +139,7 @@ public class BusinessAccountService {
         account.setNif(request.getNif());
         account.setEmail(request.getEmail());
         account.setTelefone(request.getTelefone());
-        account.setEstado(request.getEstado() != null ? request.getEstado() : BusinessAccountEstado.RASCUNHO);
+        account.setEstado(BusinessAccountEstado.RASCUNHO);
         account.setObservacao(request.getObservacao());
         account.setMaxTenants(effectiveMaxTenants);
         account.setProvisionedAt(LocalDateTime.now());
@@ -151,6 +157,9 @@ public class BusinessAccountService {
     @Transactional
     public BusinessAccountResponse atualizarEstado(Long id, BusinessAccountEstadoUpdateRequest request) {
         tenantGuard.assertPlatformAdmin();
+        if (request.getEstado() == BusinessAccountEstado.ATIVA) {
+            throw new BusinessException("Use o comando canónico /activate para validar owner e auditoria.");
+        }
         BusinessAccount account = getBusinessAccount(id);
         account.setEstado(request.getEstado());
         if (request.getMotivo() != null && !request.getMotivo().isBlank()) {
@@ -162,33 +171,44 @@ public class BusinessAccountService {
     @Transactional
     public PlatformTenantResponse associarTenant(Long businessAccountId, Long tenantId) {
         tenantGuard.assertPlatformAdmin();
-        BusinessAccount account = getBusinessAccount(businessAccountId);
+        BusinessAccount account = lockBusinessAccount(businessAccountId);
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException("Tenant nao encontrado."));
         ensureTenantCanAttach(account, tenant);
         tenant.setBusinessAccount(account);
         tenantRepository.saveAndFlush(tenant);
+        touchAccount(account);
         return platformTenantAccessService.toResponse(tenant);
     }
 
     @Transactional
     public void desassociarTenant(Long businessAccountId, Long tenantId) {
         tenantGuard.assertPlatformAdmin();
-        getBusinessAccount(businessAccountId);
+        BusinessAccount account = lockBusinessAccount(businessAccountId);
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException("Tenant nao encontrado."));
         if (tenant.getBusinessAccount() == null || !businessAccountId.equals(tenant.getBusinessAccount().getId())) {
             throw new BusinessException("Tenant nao esta vinculado a esta BusinessAccount.");
         }
+        if ("CANONICAL_BUSINESS_ACCOUNT_API".equals(tenant.getProvisioningSource())) {
+            throw new BusinessException("TENANT_CANONICAL_DETACH_FORBIDDEN: use transferência ou migração governada.");
+        }
         tenant.setBusinessAccount(null);
         tenantRepository.saveAndFlush(tenant);
+        touchAccount(account);
     }
 
     @Transactional
     public BusinessAccountMemberResponse adicionarMembro(Long businessAccountId, BusinessAccountMemberCreateRequest request) {
         tenantGuard.assertPlatformAdmin();
-        BusinessAccount account = getBusinessAccount(businessAccountId);
+        if (request.getRole() == BusinessAccountRole.OWNER) {
+            throw new BusinessException("Use owner replacement para alterar o responsável principal.");
+        }
+        BusinessAccount account = lockBusinessAccount(businessAccountId);
         User user = resolveUserRequired(request.getUserId());
+        if (account.getResponsavel() != null && account.getResponsavel().getId().equals(user.getId())) {
+            throw new BusinessException("Responsável principal não pode ser alterado por endpoint legacy.");
+        }
         BusinessAccountMember member = upsertMember(
                 account,
                 user,
@@ -199,6 +219,8 @@ public class BusinessAccountService {
             account.setResponsavel(user);
             businessAccountRepository.save(account);
         }
+        assertOwnerPointer(account);
+        touchAccount(account);
         return toMemberResponse(member);
     }
 
@@ -217,12 +239,16 @@ public class BusinessAccountService {
                                                               Long memberId,
                                                               BusinessAccountMemberEstadoUpdateRequest request) {
         tenantGuard.assertPlatformAdmin();
-        getBusinessAccount(businessAccountId);
+        BusinessAccount account = lockBusinessAccount(businessAccountId);
         BusinessAccountMember member = businessAccountMemberRepository.findByBusinessAccountIdAndId(businessAccountId, memberId)
                 .orElseThrow(() -> new BusinessException("Membro da BusinessAccount nao encontrado."));
+        rejectLegacyOwnerPointer(account, member);
         ensureOwnerWillRemainActive(member, request.getEstado(), member.getRole());
         member.setEstado(request.getEstado());
-        return toMemberResponse(businessAccountMemberRepository.saveAndFlush(member));
+        BusinessAccountMember saved = businessAccountMemberRepository.saveAndFlush(member);
+        assertOwnerPointer(account);
+        touchAccount(account);
+        return toMemberResponse(saved);
     }
 
     @Transactional
@@ -230,19 +256,26 @@ public class BusinessAccountService {
                                                             Long memberId,
                                                             BusinessAccountMemberRoleUpdateRequest request) {
         tenantGuard.assertPlatformAdmin();
-        getBusinessAccount(businessAccountId);
+        if (request.getRole() == BusinessAccountRole.OWNER) {
+            throw new BusinessException("Use owner replacement para alterar o responsável principal.");
+        }
+        BusinessAccount account = lockBusinessAccount(businessAccountId);
         BusinessAccountMember member = businessAccountMemberRepository.findByBusinessAccountIdAndId(businessAccountId, memberId)
                 .orElseThrow(() -> new BusinessException("Membro da BusinessAccount nao encontrado."));
+        rejectLegacyOwnerPointer(account, member);
         ensureOwnerWillRemainActive(member, member.getEstado(), request.getRole());
         member.setRole(request.getRole());
-        return toMemberResponse(businessAccountMemberRepository.saveAndFlush(member));
+        BusinessAccountMember saved = businessAccountMemberRepository.saveAndFlush(member);
+        assertOwnerPointer(account);
+        touchAccount(account);
+        return toMemberResponse(saved);
     }
 
     @Transactional
     public BusinessAccountLimitsResponse atualizarLimites(Long businessAccountId,
                                                           BusinessAccountLimitsUpdateRequest request) {
         tenantGuard.assertPlatformAdmin();
-        BusinessAccount account = getBusinessAccount(businessAccountId);
+        BusinessAccount account = lockBusinessAccount(businessAccountId);
         BusinessAccountLimitsResponse current = resolveEffectiveLimits(account);
 
         if (Boolean.FALSE.equals(request.getAtivo())) {
@@ -258,6 +291,7 @@ public class BusinessAccountService {
                 account.setMaxTenants(request.getMaxTenants());
                 businessAccountRepository.saveAndFlush(account);
             }
+            touchAccount(account);
             return resolveEffectiveLimits(account);
         }
 
@@ -282,7 +316,7 @@ public class BusinessAccountService {
             account.setMaxTenants(request.getMaxTenants());
             businessAccountRepository.saveAndFlush(account);
         }
-
+        touchAccount(account);
         return resolveEffectiveLimits(account);
     }
 
@@ -313,6 +347,7 @@ public class BusinessAccountService {
         long tenantCount = tenantRepository.countByBusinessAccountId(account.getId());
         return BusinessAccountResponse.builder()
                 .id(account.getId())
+                .version(account.getVersion())
                 .nome(account.getNome())
                 .slug(account.getSlug())
                 .nif(account.getNif())
@@ -396,6 +431,31 @@ public class BusinessAccountService {
                 throw new BusinessException("A BusinessAccount precisa manter pelo menos um OWNER ativo.");
             }
         }
+    }
+
+    private BusinessAccount lockBusinessAccount(Long id) {
+        return businessAccountRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException("BusinessAccount nao encontrada."));
+    }
+
+    private void rejectLegacyOwnerPointer(BusinessAccount account, BusinessAccountMember member) {
+        if (account.getResponsavel() != null && member.getUser() != null
+                && account.getResponsavel().getId().equals(member.getUser().getId())) {
+            throw new BusinessException("Responsável principal não pode ser alterado por endpoint legacy; use owner replacement.");
+        }
+    }
+
+    private void assertOwnerPointer(BusinessAccount account) {
+        if (account.getResponsavel() == null || !businessAccountMemberRepository
+                .existsByBusinessAccountIdAndUserIdAndRoleInAndEstado(account.getId(), account.getResponsavel().getId(),
+                        List.of(BusinessAccountRole.OWNER), BusinessAccountMemberEstado.ATIVO)) {
+            throw new BusinessException("BUSINESS_ACCOUNT_OWNER_INCONSISTENT");
+        }
+    }
+
+    private void touchAccount(BusinessAccount account) {
+        account.setUpdatedAt(LocalDateTime.now());
+        businessAccountRepository.saveAndFlush(account);
     }
 
     private BusinessAccountLimitsResponse resolveEffectiveLimits(BusinessAccount account) {

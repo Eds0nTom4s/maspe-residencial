@@ -1,0 +1,140 @@
+RELATÓRIO — BUSINESS ACCOUNT PROVISIONING FINAL HARDENING 001
+=============================================================
+
+Data: 2026-07-16
+Branch: backend/consuma-business-account-provisioning-contract-consolidation-001
+Base: c2cd0d097d9d81ba253003917b45095947fd03ff
+
+1. RECUPERAÇÃO GOVERNADA
+------------------------
+
+BusinessProvisioningOperation passou a persistir attempt_count,
+last_attempt_at, lease_owner, lease_until, next_retry_at,
+effects_committed e command_payload_json.
+
+A mesma intenção (BusinessAccount + Idempotency-Key) mantém uma única
+operação. SUCCEEDED e FAILED_FINAL são replays terminais; PENDING/RUNNING
+com lease válido apenas devolvem o estado; PENDING/RUNNING expirados e
+FAILED_RETRYABLE elegível adquirem lock pessimista e novo lease antes da
+retoma. Fingerprint divergente devolve 409 IDEMPOTENCY_CONFLICT.
+
+Foi disponibilizado POST /platform/provisioning-operations/{operationId}/resume.
+A resposta expõe retryAllowed, nextRetryAt, attemptCount, leaseUntil,
+effectsCommitted, terminal e replay.
+
+2. ONBOARDING
+-------------
+
+A aprovação deixou de persistir BusinessAccount e OWNER directamente.
+Quando a conta não é fornecida, a criação é integralmente delegada a
+BusinessAccountGovernanceService. A aprovação exige Idempotency-Key,
+X-Correlation-Id, actor, fingerprint, auditoria e lock pessimista do
+OnboardingRequest. Replay preserva a conta vinculada; fingerprint ou chave
+divergente devolve conflito. A transação mantém um vínculo de onboarding,
+uma conta e um OWNER activo.
+
+3. INVARIANTES LEGACY
+---------------------
+
+Tenant com provisioningSource CANONICAL_BUSINESS_ACCOUNT_API não pode ser
+desassociado pelo DELETE legacy. Transferência/migração fica reservada a um
+contrato governado futuro.
+
+Endpoints legacy de members não criam OWNER, não alteram o membro apontado
+por responsavel_user_id, verificam o pointer do OWNER, incrementam a versão
+da conta, registam telemetry e estão marcados deprecated no Java/OpenAPI.
+
+4. NIF CANÓNICO
+---------------
+
+NIF ausente é aceite explicitamente. NIF presente é trimado, convertido
+para maiúsculas e normalizado removendo espaço, ponto, barra e hífen. O
+resultado deve possuir 5 a 30 caracteres alfanuméricos.
+
+A tabela canonical_business_account_nifs aplica unicidade apenas às contas
+criadas pelo contrato canónico. Nenhum NIF legado é alterado ou submetido a
+constraint global. Locks advisory por NIF e a PK normalizada fazem uma
+corrida devolver 201 + 409, nunca 500. Não existe bypass silencioso.
+
+5. ACESSOS E HEADERS
+--------------------
+
+TENANT_ADMIN: OWNER ou ADMIN activo.
+TENANT_FINANCE: OWNER, ADMIN ou BILLING_MANAGER activo.
+MEMBER e VIEWER: recusados para privilégios administrativos deste fluxo.
+
+Idempotency-Key: máximo 100.
+X-Correlation-Id: máximo 120, inclusive em replay.
+X-Forwarded-For/IP persistido: máximo 64.
+Valor excedente devolve HTTP 400 antes de persistência.
+
+6. MIGRAÇÃO
+-----------
+
+V83__business_account_provisioning_final_hardening.sql adiciona somente os
+campos operacionais, índice de recuperação, metadados idempotentes do
+onboarding e a tabela de NIF canónico. Não altera dados comerciais, não
+executa backfill legado e não modifica/reaplica V82.
+
+7. PROVAS AUTOMATIZADAS
+-----------------------
+
+mvn -DskipTests compile
+Resultado: BUILD SUCCESS.
+
+mvn test
+Resultado: BUILD SUCCESS; Surefire 477 testes, 0 falhas, 0 erros, 3 skipped.
+
+mvn -Pit verify
+Resultado: BUILD SUCCESS; Surefire 477/0/0 e Failsafe 309 testes,
+0 falhas, 0 erros, 0 skipped.
+
+ITs focados PostgreSQL/Testcontainers:
+- CanonicalBusinessProvisioningPostgresIT: 10 testes, 0 falhas;
+- PlatformBusinessAccountContractIT: 2 testes, 0 falhas;
+- PENDING expirada recuperada com a mesma operationId;
+- attemptCount incrementado e apenas um tenant criado;
+- FAILED_RETRYABLE retomada por duas chamadas concorrentes;
+- FAILED_FINAL terminal e sem efeitos operacionais;
+- onboarding replay e duas aprovações concorrentes;
+- OWNER legacy protegido e accountVersion incrementada;
+- detach canónico recusado;
+- NIF normalizado concorrente retorna 201 + 409;
+- VIEWER/TENANT_ADMIN recusado;
+- BILLING_MANAGER/TENANT_FINANCE permitido;
+- correlationId com 121 caracteres retorna 400.
+
+8. RUNTIME SANDBOX
+------------------
+
+Ambiente: sandbox-local,sandbox; CONSUMA_SEED_DEMO=true; PostgreSQL 16.
+Nenhum SQL manual foi executado.
+
+Health após build/restart: UP (liveness e readiness).
+Flyway: 83 migrações validadas. O sandbox estava em v81, aplicou V82 uma
+única vez e depois V83. No segundo startup: schema v83, up to date, no
+migration necessary; portanto V82 não foi reaplicada.
+
+Fluxo HTTP com fixtures de nomes únicos:
+- conta canónica criada;
+- NIF normalizado duplicado retornou 409;
+- provisionamento criou operationId 57fdb22b-0109-49ed-9d2e-6135979cfaa5;
+- replay preservou operationId, tenantId 9 e attemptCount 1;
+- replay SUCCEEDED retornou effectsCommitted=true e terminal=true;
+- DELETE do vínculo canónico retornou 400;
+- onboarding e replay apontaram para a mesma BusinessAccount 7;
+- X-Correlation-Id com 121 caracteres retornou 400.
+
+A recuperação de PENDING, incremento de attemptCount e retoma concorrente
+foram exercitados em PostgreSQL real por fixtures transacionais isoladas do
+IT, sem acesso a dados comerciais.
+
+9. RESTRIÇÕES OBSERVADAS
+------------------------
+
+- nenhuma branch nova;
+- nenhum merge;
+- nenhum force push;
+- nenhuma alteração manual de dados legados;
+- nenhum SQL manual de escrita;
+- V82 não foi editada nem reaplicada fora do controlo normal do Flyway.

@@ -409,6 +409,20 @@ public class BusinessTemplateProvisioningSupport {
     }
 
     public com.restaurante.model.entity.User criarOuReusarOwnerUser(BusinessTemplateProvisionRequest.OwnerInfo owner, UnidadeAtendimento unidadeDefault) {
+        if (owner.getExistingUserId() != null) {
+            com.restaurante.model.entity.User explicit = userRepository.findById(owner.getExistingUserId())
+                    .orElseThrow(() -> new ProvisioningException(HttpStatus.BAD_REQUEST,
+                            "OWNER_USER_INEXISTENTE", "owner.existingUserId",
+                            "Utilizador operacional explícito não encontrado.", null,
+                            "Seleccione um utilizador activo da Conta Empresarial.", null));
+            if (!Boolean.TRUE.equals(explicit.getAtivo())) {
+                throw new ProvisioningException(HttpStatus.BAD_REQUEST,
+                        "OWNER_USER_INACTIVO", "owner.existingUserId",
+                        "Utilizador operacional explícito está inactivo.", null,
+                        "Active ou seleccione outro utilizador.", null);
+            }
+            return explicit;
+        }
         if (owner.getEmail() != null && !owner.getEmail().isBlank()) {
             com.restaurante.model.entity.User existing = userRepository.findByEmail(owner.getEmail()).orElse(null);
             if (existing != null) {

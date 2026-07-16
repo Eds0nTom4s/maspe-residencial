@@ -11,6 +11,7 @@ import com.restaurante.repository.ProvisioningTemplateRepository;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.TenantProvisioningService;
 import com.restaurante.service.TenantProvisioningPreviewService;
+import com.restaurante.service.business.LegacyProvisioningUsageService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -38,14 +39,20 @@ public class PlatformTenantProvisioningController {
     private final TenantProvisioningService provisioningService;
     private final TenantProvisioningPreviewService provisioningPreviewService;
     private final ProvisioningTemplateRepository templateRepository;
+    private final LegacyProvisioningUsageService legacyUsage;
 
     @PostMapping("/provisionar")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> provisionar(@Valid @RequestBody ProvisionarTenantRequest request, HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
+        legacyUsage.record(http.getRequestURI(), http);
         try {
             ProvisionarTenantResponse resp = provisioningService.provisionar(request);
-            return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Tenant provisionado", resp));
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .header("Deprecation", "true")
+                    .header("Sunset", "Thu, 31 Dec 2026 23:59:59 GMT")
+                    .header("Link", "</platform/business-accounts/{accountId}/businesses/provision>; rel=successor-version")
+                    .body(ApiResponse.success("Tenant provisionado por adapter legado", resp));
         } catch (ProvisioningException ex) {
             return provisioningError(ex, http);
         }
@@ -55,9 +62,14 @@ public class PlatformTenantProvisioningController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> preview(@Valid @RequestBody ProvisionarTenantRequest request, HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
+        legacyUsage.record(http.getRequestURI(), http);
         try {
             ProvisionarTenantPreviewResponse resp = provisioningPreviewService.preview(request);
-            return ResponseEntity.ok(ApiResponse.success("Preview de provisionamento", resp));
+            return ResponseEntity.ok()
+                    .header("Deprecation", "true")
+                    .header("Sunset", "Thu, 31 Dec 2026 23:59:59 GMT")
+                    .header("Link", "</platform/business-accounts/{accountId}/businesses/preview>; rel=successor-version")
+                    .body(ApiResponse.success("Preview de provisionamento legado", resp));
         } catch (ProvisioningException ex) {
             return provisioningError(ex, http);
         }

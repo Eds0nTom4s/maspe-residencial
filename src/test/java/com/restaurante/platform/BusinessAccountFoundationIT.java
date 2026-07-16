@@ -105,14 +105,19 @@ class BusinessAccountFoundationIT extends PostgresTestcontainersConfig {
                 {
                   "nome": "Conta Empresarial %s",
                   "slug": "conta-empresarial-%s",
-                  "estado": "ATIVA",
-                  "responsavelUserId": %d,
-                  "tenantIds": [%d]
+                  "maxTenants": 2,
+                  "responsavelPrincipal": {
+                    "strategy": "ASSOCIATE_EXISTING",
+                    "userId": %d,
+                    "confirmExistingUser": true
+                  }
                 }
-                """.formatted(suffix, suffix, owner.getId(), provisioned.getTenantId());
+                """.formatted(suffix, suffix, owner.getId());
 
         String createResp = mockMvc.perform(post("/platform/business-accounts")
                         .header("Authorization", "Bearer " + adminToken)
+                        .header("Idempotency-Key", "foundation-create-" + suffix)
+                        .header("X-Correlation-Id", "foundation-create-" + suffix)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createPayload))
                 .andExpect(status().isCreated())
@@ -120,6 +125,12 @@ class BusinessAccountFoundationIT extends PostgresTestcontainersConfig {
 
         JsonNode created = objectMapper.readTree(createResp).at("/data");
         long businessAccountId = created.at("/id").asLong();
+        mockMvc.perform(post("/platform/business-accounts/{id}/tenants/{tenantId}", businessAccountId, provisioned.getTenantId())
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isCreated());
+        created = objectMapper.readTree(mockMvc.perform(get("/platform/business-accounts/{id}", businessAccountId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).at("/data");
         assertThat(created.at("/tenantCount").asLong()).isEqualTo(1L);
         assertThat(tenantRepository.findById(provisioned.getTenantId()).orElseThrow().getBusinessAccount().getId())
                 .isEqualTo(businessAccountId);

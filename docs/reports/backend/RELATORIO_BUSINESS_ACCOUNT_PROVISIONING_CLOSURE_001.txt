@@ -1,0 +1,129 @@
+RELATÓRIO — BUSINESS ACCOUNT PROVISIONING CLOSURE 001
+=====================================================
+
+Data: 2026-07-16
+Branch: backend/consuma-business-account-provisioning-contract-consolidation-001
+Base: cd945f3a7c331d735f6109203fb005930034625c
+
+1. ONBOARDING COM CONTA EXISTENTE
+---------------------------------
+
+A aprovação mantém o lock pessimista do OnboardingRequest e delega toda a
+validação/associação da BusinessAccount a BusinessAccountGovernanceService.
+O serviço adquire PESSIMISTIC_WRITE na conta e no tenant, na mesma
+transacção da aprovação.
+
+Sob o lock são exigidos:
+- estado RASCUNHO ou ATIVA;
+- exactamente um OWNER activo;
+- responsavel_user_id activo e igual ao OWNER;
+- tenant sem vínculo divergente;
+- capacidade disponível em maxTenants.
+
+SUSPENSA, BLOQUEADA, CANCELADA, conta sem OWNER e conta com múltiplos OWNER
+retornam HTTP 409. Uma associação válida grava o vínculo, incrementa
+accountVersion e gera auditoria ONBOARDING_TENANT_ATTACHED com before/after.
+
+A corrida de duas OnboardingRequests, dois tenants e uma conta com
+maxTenants=1 é serializada pelo lock da conta: resultados 200 + 409,
+tenantCount=1, um único onboarding vinculado, um OWNER e nenhum HTTP 500.
+
+2. NIF LEGADO
+-------------
+
+O contrato canónico continua a normalizar NIF e adquirir advisory lock pela
+chave normalizada. Dentro do lock consulta:
+- canonical_business_account_nifs; e
+- todos os NIFs persistidos em business_accounts através de comparação
+  normalizada no PostgreSQL.
+
+Uma conta legada com NIF formatado bloqueia a criação canónica equivalente
+com HTTP 409 NIF_ALREADY_EXISTS. Nenhum valor legado é alterado, nenhuma
+constraint global foi adicionada e a transacção não deixa BusinessAccount
+ou registo canónico órfão. A corrida canónica permanece 201 + 409.
+
+3. COMPATIBILIDADE DE OPERAÇÕES
+-------------------------------
+
+Nova migration:
+V84__business_provisioning_operation_metadata_reconciliation.sql
+
+V84 altera somente attempt_count e effects_committed:
+- SUCCEEDED: effects_committed=true e attempt_count >= 1;
+- FAILED_FINAL/FAILED_RETRYABLE: effects_committed=false e attempt_count >= 1;
+- RUNNING: effects_committed=false e attempt_count >= 1;
+- PENDING: effects_committed=false e attempt_count preservado.
+
+Lease ausente permanece ausente; assim PENDING e RUNNING legados continuam
+recuperáveis pelo contrato vigente. V84 não altera operation_id,
+idempotency_key, request_fingerprint, preview_id, tenant_id, result_json,
+estados financeiros ou dados comerciais.
+
+V82 e V83 não foram editadas. Não foi executado SQL manual de escrita.
+
+4. TESTE DE MIGRATION POSTGRESQL
+--------------------------------
+
+BusinessProvisioningMetadataMigrationPostgresIT cria uma base PostgreSQL
+temporária e isolada, aplica migrations até V82 e insere operações técnicas
+representativas. Depois aplica exactamente V83 e V84 e valida:
+- verdade de attempt_count/effects_committed por estado;
+- PENDING/RUNNING sem lease e recuperáveis;
+- preservação de operationId, fingerprint, tenant e result_json;
+- duas migrations executadas na passagem V82 -> actual;
+- zero migrations executadas no segundo arranque do Flyway.
+
+5. PROVAS AUTOMATIZADAS
+-----------------------
+
+mvn -DskipTests compile
+Resultado: BUILD SUCCESS.
+
+mvn test
+Resultado: BUILD SUCCESS; Surefire 477 testes, 0 falhas, 0 erros, 3 skipped.
+
+mvn -Pit verify
+Resultado: BUILD SUCCESS em 12m52s.
+Surefire: 477 testes, 0 falhas, 0 erros, 3 skipped.
+Failsafe: 313 testes, 0 falhas, 0 erros, 0 skipped.
+
+ITs directamente relevantes:
+- CanonicalBusinessProvisioningPostgresIT: 11/11;
+- BusinessProvisioningMetadataMigrationPostgresIT: 1/1;
+- PlatformBusinessAccountContractIT: 4/4.
+
+6. RUNTIME
+----------
+
+Ambiente: sandbox-local,sandbox; CONSUMA_SEED_DEMO=true; PostgreSQL 16.
+Imagem reconstruída a partir do artefacto validado, sem SQL manual.
+
+Primeiro arranque:
+- 84 migrations validadas;
+- schema anterior v83;
+- somente V84 aplicada;
+- schema final v84;
+- health HTTP 200, status UP, liveness/readiness disponíveis.
+
+Segundo arranque:
+- schema v84;
+- "No migration necessary";
+- health HTTP 200, status UP.
+
+As provas funcionais de onboarding concorrente, conta sem owner, NIF legado,
+SUCCEEDED originada em V82, PENDING recuperável, mesma operationId e nenhum
+segundo tenant foram executadas com fixtures transaccionais controladas em
+PostgreSQL/Testcontainers. O sandbox recebeu apenas a migration técnica
+governada e o seed demo idempotente; nenhum dado comercial real foi usado.
+
+7. RESTRIÇÕES OBSERVADAS
+------------------------
+
+- branch existente preservada;
+- nenhuma branch criada;
+- nenhum merge;
+- nenhum force push;
+- V82 e V83 intactas;
+- nenhuma correcção manual de dados legados;
+- nenhum SQL manual de escrita;
+- no máximo três commits deste prompt.

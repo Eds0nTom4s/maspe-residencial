@@ -15,6 +15,7 @@ public class OnboardingRequestApproveRequest {
     private Long businessAccountId;
     private Boolean criarBusinessAccountSeAusente;
     private String businessAccountSlug;
+    private Long responsavelUserId;
     private Long tenantId;
     private OnboardingPaymentStatus statusPagamento;
     private String observacao;

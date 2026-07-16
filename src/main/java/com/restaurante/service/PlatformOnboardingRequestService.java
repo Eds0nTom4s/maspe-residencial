@@ -5,20 +5,25 @@ import com.restaurante.dto.request.OnboardingRequestCreateRequest;
 import com.restaurante.dto.request.OnboardingRequestRejectRequest;
 import com.restaurante.dto.response.OnboardingRequestResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ConflictException;
+import com.restaurante.dto.business.BusinessProvisioningContracts.CanonicalAccountCreateRequest;
+import com.restaurante.dto.business.BusinessProvisioningContracts.PrincipalOwner;
+import com.restaurante.dto.business.BusinessProvisioningContracts.PrincipalOwnerStrategy;
 import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.OnboardingRequest;
+import com.restaurante.model.entity.BusinessAccountGovernanceEvent;
 import com.restaurante.model.entity.Plano;
 import com.restaurante.model.entity.Tenant;
-import com.restaurante.model.enums.BusinessAccountEstado;
 import com.restaurante.model.enums.OnboardingPaymentStatus;
 import com.restaurante.model.enums.OnboardingRequestStatus;
-import com.restaurante.repository.BusinessAccountRepository;
+import com.restaurante.repository.BusinessAccountGovernanceEventRepository;
 import com.restaurante.repository.OnboardingRequestRepository;
 import com.restaurante.repository.PlanoRepository;
-import com.restaurante.repository.TenantRepository;
-import com.restaurante.security.tenant.TenantContextHolder;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.provisioning.ProvisioningPlanCalculator;
+import com.restaurante.service.business.BusinessAccountGovernanceService;
+import com.restaurante.service.business.CanonicalCommandSupport;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -27,6 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -35,8 +42,9 @@ public class PlatformOnboardingRequestService {
     private final TenantGuard tenantGuard;
     private final OnboardingRequestRepository onboardingRequestRepository;
     private final PlanoRepository planoRepository;
-    private final BusinessAccountRepository businessAccountRepository;
-    private final TenantRepository tenantRepository;
+    private final BusinessAccountGovernanceService governanceService;
+    private final BusinessAccountGovernanceEventRepository governanceEvents;
+    private final CanonicalCommandSupport commands;
 
     @Transactional(readOnly = true)
     public List<OnboardingRequestResponse> listar(Pageable pageable,
@@ -78,9 +86,22 @@ public class PlatformOnboardingRequestService {
     }
 
     @Transactional
-    public OnboardingRequestResponse aprovar(Long id, OnboardingRequestApproveRequest request) {
+    public OnboardingRequestResponse aprovar(Long id, OnboardingRequestApproveRequest request,
+                                             String idempotencyKey, HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
-        OnboardingRequest onboardingRequest = getRequest(id);
+        commands.requireKey(idempotencyKey);
+        CanonicalCommandSupport.Actor actor = commands.actor(http);
+        String fingerprint = commands.fingerprint(Map.of("contract", "ONBOARDING_APPROVAL_V1",
+                "onboardingId", id, "payload", request));
+        OnboardingRequest onboardingRequest = onboardingRequestRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException("Pedido de onboarding nao encontrado."));
+        if (onboardingRequest.getApprovalIdempotencyKey() != null) {
+            if (!Objects.equals(onboardingRequest.getApprovalIdempotencyKey(), idempotencyKey)
+                    || !Objects.equals(onboardingRequest.getApprovalFingerprint(), fingerprint)) {
+                throw new ConflictException("IDEMPOTENCY_CONFLICT");
+            }
+            return toResponse(onboardingRequest);
+        }
         if (onboardingRequest.getStatus() == OnboardingRequestStatus.REJEITADO
                 || onboardingRequest.getStatus() == OnboardingRequestStatus.CANCELADO) {
             throw new BusinessException("Pedido de onboarding nao pode ser aprovado a partir do estado atual.");
@@ -93,18 +114,18 @@ public class PlatformOnboardingRequestService {
             onboardingRequest.setObservacao(mergeObservacao(onboardingRequest.getObservacao(), request.getObservacao()));
         }
 
-        BusinessAccount businessAccount = resolveOrCreateBusinessAccount(onboardingRequest, request);
-        if (businessAccount != null) {
-            onboardingRequest.setBusinessAccount(businessAccount);
+        Long businessAccountId = resolveOrCreateBusinessAccountId(onboardingRequest, request, http);
+        if (businessAccountId == null) {
+            throw new BusinessException("Aprovação exige BusinessAccount existente ou criação pelo contrato canónico.");
         }
+        BusinessAccountGovernanceService.OnboardingAssignment assignment = governanceService
+                .governOnboardingAssignment(businessAccountId, request.getTenantId(), onboardingRequest.getId(),
+                        idempotencyKey, fingerprint, http);
+        BusinessAccount businessAccount = assignment.account();
+        onboardingRequest.setBusinessAccount(businessAccount);
 
-        Tenant tenant = resolveTenant(request.getTenantId());
+        Tenant tenant = assignment.tenant();
         if (tenant != null) {
-            if (businessAccount != null) {
-                ensureTenantCanAttach(businessAccount, tenant);
-                tenant.setBusinessAccount(businessAccount);
-                tenantRepository.saveAndFlush(tenant);
-            }
             onboardingRequest.setTenant(tenant);
         }
 
@@ -125,8 +146,11 @@ public class PlatformOnboardingRequestService {
             onboardingRequest.setStatus(OnboardingRequestStatus.AGUARDANDO_PAGAMENTO);
             onboardingRequest.setNotificationMessage("Onboarding aprovado internamente, aguardando confirmacao de pagamento.");
         }
-
-        return toResponse(onboardingRequestRepository.saveAndFlush(onboardingRequest));
+        onboardingRequest.setApprovalIdempotencyKey(idempotencyKey);
+        onboardingRequest.setApprovalFingerprint(fingerprint);
+        onboardingRequest = onboardingRequestRepository.saveAndFlush(onboardingRequest);
+        saveApprovalAudit(onboardingRequest, businessAccount, idempotencyKey, fingerprint, actor);
+        return toResponse(onboardingRequest);
     }
 
     @Transactional
@@ -151,50 +175,30 @@ public class PlatformOnboardingRequestService {
                 .orElseThrow(() -> new BusinessException("Plano nao encontrado para onboarding."));
     }
 
-    private Tenant resolveTenant(Long tenantId) {
-        if (tenantId == null) {
-            return null;
-        }
-        return tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new BusinessException("Tenant nao encontrado para onboarding."));
-    }
-
-    private BusinessAccount resolveOrCreateBusinessAccount(OnboardingRequest onboardingRequest,
-                                                           OnboardingRequestApproveRequest request) {
+    private Long resolveOrCreateBusinessAccountId(OnboardingRequest onboardingRequest,
+                                                  OnboardingRequestApproveRequest request,
+                                                  HttpServletRequest http) {
         if (request.getBusinessAccountId() != null) {
-            return businessAccountRepository.findById(request.getBusinessAccountId())
-                    .orElseThrow(() -> new BusinessException("BusinessAccount nao encontrada para onboarding."));
+            return request.getBusinessAccountId();
         }
         if (!Boolean.TRUE.equals(request.getCriarBusinessAccountSeAusente())) {
-            return onboardingRequest.getBusinessAccount();
+            return onboardingRequest.getBusinessAccount() == null ? null : onboardingRequest.getBusinessAccount().getId();
         }
         BusinessAccount existing = onboardingRequest.getBusinessAccount();
         if (existing != null) {
-            return existing;
+            return existing.getId();
         }
-        BusinessAccount businessAccount = new BusinessAccount();
-        businessAccount.setNome(onboardingRequest.getNomeNegocio());
-        businessAccount.setSlug(nextBusinessAccountSlug(request.getBusinessAccountSlug(), onboardingRequest.getNomeNegocio()));
-        businessAccount.setEstado(BusinessAccountEstado.ATIVA);
-        businessAccount.setNif(onboardingRequest.getNif());
-        businessAccount.setEmail(onboardingRequest.getEmail());
-        businessAccount.setTelefone(onboardingRequest.getTelefone());
-        businessAccount.setMaxTenants(1);
-        businessAccount.setObservacao("Criada a partir do onboarding request #" + onboardingRequest.getId());
-        businessAccount.setProvisionedAt(LocalDateTime.now());
-        businessAccount.setProvisionedBy(resolveProvisionedBy());
-        return businessAccountRepository.saveAndFlush(businessAccount);
-    }
-
-    private void ensureTenantCanAttach(BusinessAccount businessAccount, Tenant tenant) {
-        if (tenant.getBusinessAccount() != null && !tenant.getBusinessAccount().getId().equals(businessAccount.getId())) {
-            throw new BusinessException("Tenant ja pertence a outra BusinessAccount.");
+        if (request.getResponsavelUserId() == null) {
+            throw new BusinessException("Onboarding não pode criar Conta Empresarial sem responsável principal explícito.");
         }
-        long currentCount = tenantRepository.countByBusinessAccountId(businessAccount.getId());
-        boolean alreadyLinked = tenant.getBusinessAccount() != null && businessAccount.getId().equals(tenant.getBusinessAccount().getId());
-        if (!alreadyLinked && businessAccount.getMaxTenants() != null && currentCount >= businessAccount.getMaxTenants()) {
-            throw new BusinessException("BusinessAccount atingiu o limite maximo de tenants vinculados.");
-        }
+        String slug = canonicalOnboardingSlug(request.getBusinessAccountSlug(), onboardingRequest.getNomeNegocio());
+        CanonicalAccountCreateRequest create = new CanonicalAccountCreateRequest(
+                onboardingRequest.getNomeNegocio(), slug, onboardingRequest.getNif(), onboardingRequest.getEmail(),
+                onboardingRequest.getTelefone(), 1,
+                new PrincipalOwner(PrincipalOwnerStrategy.ASSOCIATE_EXISTING, request.getResponsavelUserId(),
+                        true, null, null, null, null, null));
+        String internalKey = "onboarding-account-" + onboardingRequest.getId();
+        return governanceService.create(create, internalKey, http).getId();
     }
 
     private OnboardingPaymentStatus resolveInitialPaymentStatus(BigDecimal valor) {
@@ -204,25 +208,32 @@ public class PlatformOnboardingRequestService {
         return OnboardingPaymentStatus.PENDENTE;
     }
 
-    private String nextBusinessAccountSlug(String requestedSlug, String businessName) {
-        String baseSlug = ProvisioningPlanCalculator.normalizeSlug(
+    private String canonicalOnboardingSlug(String requestedSlug, String businessName) {
+        String slug = ProvisioningPlanCalculator.normalizeSlug(
                 requestedSlug != null && !requestedSlug.isBlank() ? requestedSlug : businessName
         );
-        if (baseSlug == null || baseSlug.isBlank()) {
-            baseSlug = "business-account";
-        }
-        String candidate = baseSlug;
-        int suffix = 1;
-        while (businessAccountRepository.existsBySlug(candidate)) {
-            candidate = baseSlug + "-" + suffix++;
-        }
-        return candidate;
+        if (slug == null || slug.isBlank()) throw new BusinessException("Slug inválido para onboarding canónico.");
+        return slug;
     }
 
-    private String resolveProvisionedBy() {
-        return TenantContextHolder.get()
-                .map(ctx -> ctx.userId() != null ? String.valueOf(ctx.userId()) : null)
-                .orElse(null);
+    private void saveApprovalAudit(OnboardingRequest onboarding, BusinessAccount account, String key,
+                                   String fingerprint, CanonicalCommandSupport.Actor actor) {
+        BusinessAccountGovernanceEvent event = new BusinessAccountGovernanceEvent();
+        event.setBusinessAccount(account);
+        event.setScopeKey("ONBOARDING:" + onboarding.getId());
+        event.setAction("ONBOARDING_APPROVED");
+        event.setIdempotencyKey(key);
+        event.setRequestFingerprint(fingerprint);
+        event.setActorUserId(actor.userId());
+        event.setActorRoles(actor.roles());
+        event.setCorrelationId(actor.correlationId());
+        event.setIpAddress(actor.ip());
+        event.setUserAgent(actor.userAgent());
+        event.setBeforeState(commands.json(Map.of("onboardingId", onboarding.getId(), "status", "PENDENTE")));
+        event.setAfterState(commands.json(Map.of("onboardingId", onboarding.getId(), "status",
+                onboarding.getStatus().name(), "businessAccountId", account == null ? -1L : account.getId())));
+        event.setResultAccountId(account == null ? null : account.getId());
+        governanceEvents.saveAndFlush(event);
     }
 
     private String mergeObservacao(String atual, String adicional) {

@@ -66,6 +66,7 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
     @Autowired BusinessAccountMemberRepository members;
     @Autowired BusinessProvisioningPreviewRepository previews;
     @Autowired BusinessProvisioningOperationRepository operations;
+    @Autowired CanonicalBusinessAccountNifRepository canonicalNifs;
     @Autowired SubscricaoRepository subscricoes;
     @Autowired PlanoRepository planos;
     @Autowired InstituicaoRepository instituicoes;
@@ -595,6 +596,8 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
         User admin = user("platform-nif-" + suffix, Role.ROLE_ADMIN);
         User owner = user("owner-nif-" + suffix, Role.ROLE_GERENTE);
         String token = token(admin);
+        long accountsBefore = accounts.count();
+        long canonicalNifsBefore = canonicalNifs.count();
         var executor = Executors.newFixedThreadPool(2);
         try {
             Future<Integer> first = executor.submit(() -> createAccountWithNif(token, owner, "nif-a-" + suffix,
@@ -607,6 +610,41 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
         } finally {
             executor.shutdownNow();
         }
+        assertThat(accounts.count()).isEqualTo(accountsBefore + 1);
+        assertThat(canonicalNifs.count()).isEqualTo(canonicalNifsBefore + 1);
+    }
+
+    @Test
+    void canonicalCreationRejectsEquivalentFormattedLegacyNifWithoutOrphans() throws Exception {
+        String suffix = suffix();
+        User admin = user("platform-legacy-nif-" + suffix, Role.ROLE_ADMIN);
+        User owner = user("owner-legacy-nif-" + suffix, Role.ROLE_GERENTE);
+        String token = token(admin);
+        BusinessAccount legacy = new BusinessAccount();
+        legacy.setNome("Legacy NIF " + suffix);
+        legacy.setSlug("legacy-nif-" + suffix);
+        legacy.setNif("AO 987.654/" + suffix);
+        legacy.setMaxTenants(1);
+        legacy.setEstado(BusinessAccountEstado.RASCUNHO);
+        legacy.setResponsavel(owner);
+        accounts.saveAndFlush(legacy);
+        long accountsBefore = accounts.count();
+        long canonicalNifsBefore = canonicalNifs.count();
+
+        mockMvc.perform(post("/platform/business-accounts")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "legacy-nif-conflict-" + suffix)
+                        .header("X-Correlation-Id", "corr-legacy-nif-conflict-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nome\":\"Canonical conflict " + suffix
+                                + "\",\"slug\":\"canonical-conflict-" + suffix
+                                + "\",\"nif\":\"ao-987654-" + suffix
+                                + "\",\"responsavelPrincipal\":{\"strategy\":\"ASSOCIATE_EXISTING\",\"userId\":"
+                                + owner.getId() + ",\"confirmExistingUser\":true}}"))
+                .andExpect(status().isConflict());
+
+        assertThat(accounts.count()).isEqualTo(accountsBefore);
+        assertThat(canonicalNifs.count()).isEqualTo(canonicalNifsBefore);
     }
 
     private JsonNode createAccount(String token, User owner, String suffix, int maxTenants) throws Exception {

@@ -7,7 +7,10 @@ import com.restaurante.billing.service.TenantSubscriptionService;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.BillingPlan;
+import com.restaurante.model.entity.BusinessAccount;
+import com.restaurante.model.entity.BusinessAccountMember;
 import com.restaurante.model.entity.User;
+import com.restaurante.model.enums.BusinessAccountEstado;
 import com.restaurante.model.enums.BillingInterval;
 import com.restaurante.model.enums.BillingPlanStatus;
 import com.restaurante.model.enums.TenantSubscriptionStatus;
@@ -15,7 +18,9 @@ import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.BusinessAccountMemberRepository;
+import com.restaurante.repository.BusinessAccountGovernanceEventRepository;
 import com.restaurante.repository.OnboardingRequestRepository;
+import com.restaurante.repository.TenantRepository;
 import com.restaurante.model.enums.BusinessAccountRole;
 import com.restaurante.model.enums.BusinessAccountMemberEstado;
 import com.restaurante.security.JwtTokenProvider;
@@ -34,6 +39,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
@@ -67,7 +75,9 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
     @Autowired JwtTokenProvider jwtTokenProvider;
     @Autowired BusinessAccountRepository businessAccounts;
     @Autowired BusinessAccountMemberRepository businessMembers;
+    @Autowired BusinessAccountGovernanceEventRepository governanceEvents;
     @Autowired OnboardingRequestRepository onboardingRequests;
+    @Autowired TenantRepository tenants;
 
     @AfterEach
     void clear() {
@@ -410,6 +420,147 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
         assertThat(businessMembers.countByBusinessAccountIdAndRoleAndEstado(accountId,
                 BusinessAccountRole.OWNER, BusinessAccountMemberEstado.ATIVO)).isEqualTo(1);
         assertThat(businessMembers.countByBusinessAccountId(accountId)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentOnboardingForExistingAccountHonoursMaxTenantsUnderLock() throws Exception {
+        String suffix = suffix();
+        User admin = createUser("platform-existing-onboarding-" + suffix + "@test.com", "ROLE_ADMIN");
+        User owner = createUser("owner-existing-onboarding-" + suffix + "@test.com", "ROLE_GERENTE");
+        String token = globalToken(admin, "ROLE_ADMIN");
+        ProvisionarTenantResponse firstTenant = provisionTenant(admin, "onboarding-existing-a-" + suffix,
+                "OEA" + suffix, "owner-existing-a-" + suffix + "@test.com");
+        ProvisionarTenantResponse secondTenant = provisionTenant(admin, "onboarding-existing-b-" + suffix,
+                "OEB" + suffix, "owner-existing-b-" + suffix + "@test.com");
+
+        String accountBody = mockMvc.perform(post("/platform/business-accounts")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "existing-onboarding-account-" + suffix)
+                        .header("X-Correlation-Id", "corr-existing-onboarding-account-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nome\":\"Existing onboarding " + suffix
+                                + "\",\"slug\":\"existing-onboarding-" + suffix + "\",\"maxTenants\":1,"
+                                + "\"responsavelPrincipal\":{\"strategy\":\"ASSOCIATE_EXISTING\",\"userId\":"
+                                + owner.getId() + ",\"confirmExistingUser\":true}}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        JsonNode account = objectMapper.readTree(accountBody).path("data");
+        long accountId = account.path("id").asLong();
+        long initialVersion = account.path("version").asLong();
+        long firstOnboarding = createOnboarding(token, "Existing A " + suffix, "existing-a-" + suffix);
+        long secondOnboarding = createOnboarding(token, "Existing B " + suffix, "existing-b-" + suffix);
+
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> first = executor.submit(() -> approveExistingOnboarding(token, firstOnboarding,
+                    accountId, firstTenant.getTenantId(), "existing-approve-a-" + suffix));
+            Future<Integer> second = executor.submit(() -> approveExistingOnboarding(token, secondOnboarding,
+                    accountId, secondTenant.getTenantId(), "existing-approve-b-" + suffix));
+            List<Integer> statuses = new ArrayList<>(List.of(first.get(), second.get()));
+            Collections.sort(statuses);
+            assertThat(statuses).containsExactly(200, 409);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(tenants.countByBusinessAccountId(accountId)).isEqualTo(1);
+        assertThat(List.of(firstTenant.getTenantId(), secondTenant.getTenantId()).stream()
+                .filter(id -> tenants.existsByIdAndBusinessAccountId(id, accountId)).count()).isEqualTo(1);
+        var firstRequest = onboardingRequests.findById(firstOnboarding).orElseThrow();
+        var secondRequest = onboardingRequests.findById(secondOnboarding).orElseThrow();
+        assertThat(List.of(firstRequest, secondRequest).stream()
+                .filter(request -> request.getBusinessAccount() != null && request.getTenant() != null).count())
+                .isEqualTo(1);
+        assertThat(businessAccounts.findById(accountId).orElseThrow().getVersion()).isGreaterThan(initialVersion);
+        assertThat(businessMembers.countByBusinessAccountIdAndRoleAndEstado(accountId,
+                BusinessAccountRole.OWNER, BusinessAccountMemberEstado.ATIVO)).isEqualTo(1);
+        assertThat(governanceEvents.findAll().stream()
+                .filter(event -> "ONBOARDING_TENANT_ATTACHED".equals(event.getAction()))
+                .filter(event -> event.getResultAccountId() != null && accountId == event.getResultAccountId())
+                .filter(event -> event.getBeforeState() != null && event.getAfterState() != null).count())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void onboardingRejectsMissingOrMultipleOwnerAndBlockedAccountStates() throws Exception {
+        String suffix = suffix();
+        User admin = createUser("platform-invalid-onboarding-" + suffix + "@test.com", "ROLE_ADMIN");
+        User owner = createUser("owner-invalid-onboarding-" + suffix + "@test.com", "ROLE_GERENTE");
+        User secondOwner = createUser("owner-invalid-onboarding-2-" + suffix + "@test.com", "ROLE_GERENTE");
+        String token = globalToken(admin, "ROLE_ADMIN");
+
+        BusinessAccount withoutOwner = accountFixture("without-owner-" + suffix, null,
+                BusinessAccountEstado.RASCUNHO);
+        BusinessAccount multipleOwners = accountFixture("multiple-owners-" + suffix, owner,
+                BusinessAccountEstado.RASCUNHO);
+        ownerFixture(multipleOwners, owner);
+        ownerFixture(multipleOwners, secondOwner);
+        BusinessAccount suspended = governedAccountFixture("suspended-" + suffix, owner,
+                BusinessAccountEstado.SUSPENSA);
+        BusinessAccount blocked = governedAccountFixture("blocked-" + suffix, owner,
+                BusinessAccountEstado.BLOQUEADA);
+        BusinessAccount cancelled = governedAccountFixture("cancelled-" + suffix, owner,
+                BusinessAccountEstado.CANCELADA);
+
+        for (BusinessAccount invalid : List.of(withoutOwner, multipleOwners, suspended, blocked, cancelled)) {
+            long onboardingId = createOnboarding(token, "Invalid " + invalid.getSlug(),
+                    "invalid-" + invalid.getId() + "-" + suffix);
+            mockMvc.perform(patch("/platform/onboarding-requests/{id}/approve", onboardingId)
+                            .header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", "invalid-onboarding-" + invalid.getId() + "-" + suffix)
+                            .header("X-Correlation-Id", "corr-invalid-onboarding-" + invalid.getId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"businessAccountId\":" + invalid.getId()
+                                    + ",\"statusPagamento\":\"NAO_APLICAVEL\"}"))
+                    .andExpect(status().isConflict());
+        }
+    }
+
+    private long createOnboarding(String token, String businessName, String suffix) throws Exception {
+        String body = mockMvc.perform(post("/platform/onboarding-requests")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nomeSolicitante\":\"Onboarding\",\"telefone\":\"+244955123456\","
+                                + "\"email\":\"" + suffix + "@test.com\",\"nomeNegocio\":\"" + businessName
+                                + "\",\"tipoNegocio\":\"RESTAURANTE\",\"planoCodigo\":\"PILOTO\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).at("/data/id").asLong();
+    }
+
+    private int approveExistingOnboarding(String token, long onboardingId, long accountId, long tenantId,
+                                          String key) throws Exception {
+        return mockMvc.perform(patch("/platform/onboarding-requests/{id}/approve", onboardingId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", key)
+                        .header("X-Correlation-Id", "corr-" + key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"businessAccountId\":" + accountId + ",\"tenantId\":" + tenantId
+                                + ",\"statusPagamento\":\"NAO_APLICAVEL\"}"))
+                .andReturn().getResponse().getStatus();
+    }
+
+    private BusinessAccount governedAccountFixture(String slug, User owner, BusinessAccountEstado state) {
+        BusinessAccount account = accountFixture(slug, owner, state);
+        ownerFixture(account, owner);
+        return account;
+    }
+
+    private BusinessAccount accountFixture(String slug, User owner, BusinessAccountEstado state) {
+        BusinessAccount account = new BusinessAccount();
+        account.setNome("Account " + slug);
+        account.setSlug(slug);
+        account.setMaxTenants(1);
+        account.setEstado(state);
+        account.setResponsavel(owner);
+        return businessAccounts.saveAndFlush(account);
+    }
+
+    private void ownerFixture(BusinessAccount account, User owner) {
+        BusinessAccountMember member = new BusinessAccountMember();
+        member.setBusinessAccount(account);
+        member.setUser(owner);
+        member.setRole(BusinessAccountRole.OWNER);
+        member.setEstado(BusinessAccountMemberEstado.ATIVO);
+        businessMembers.saveAndFlush(member);
     }
 
     private ProvisionarTenantResponse provisionTenant(User platformAdmin, String slug, String tenantCode, String ownerEmail) {

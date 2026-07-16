@@ -50,11 +50,18 @@ public class BusinessProvisioningService {
     @Value("${consuma.business-provisioning.preview-ttl-minutes:15}")
     private long previewTtlMinutes;
 
+    @Value("${consuma.business-provisioning.lease-seconds:60}")
+    private long leaseSeconds;
+
+    @Value("${consuma.business-provisioning.retry-delay-seconds:0}")
+    private long retryDelaySeconds;
+
     @Transactional
     public BusinessPreviewResponse preview(Long accountId, BusinessPreviewRequest raw, String key,
                                            HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
         commands.requireKey(key);
+        commands.actor(http); // valida headers inclusive em replay
         BusinessAccount account = lockAccount(accountId);
         BusinessPreviewRequest request = normalize(raw);
         String fp = commands.fingerprint(Map.of("contract", BusinessProvisioningContracts.CONTRACT_VERSION,
@@ -111,20 +118,54 @@ public class BusinessProvisioningService {
                                                    HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
         commands.requireKey(key);
+        commands.actor(http); // valida headers inclusive em replay terminal ou lease activo
         String commandFingerprint = commands.fingerprint(Map.of("contract", "BUSINESS_PROVISION_COMMAND_V1",
                 "accountId", accountId, "payload", request));
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         ProvisionRegistration registration = tx.execute(status ->
                 registerProvision(accountId, request, key, commandFingerprint, http));
         if (registration == null) throw new IllegalStateException("Falha ao registar operação de provisionamento.");
-        if (registration.replay()) return registration.response();
+        if (!registration.execute()) return registration.response();
         try {
             ProvisioningOperationResponse response = tx.execute(status ->
-                    executeProvision(registration.operationId(), accountId, request, commandFingerprint));
+                    executeProvision(registration.operationId(), accountId, request, commandFingerprint,
+                            registration.leaseOwner(), registration.replay()));
             if (response == null) throw new IllegalStateException("Operação de provisionamento sem resultado.");
             return response;
         } catch (RuntimeException error) {
-            tx.executeWithoutResult(status -> markProvisionFailure(registration.operationId(), error));
+            tx.executeWithoutResult(status -> markProvisionFailure(registration.operationId(), registration.leaseOwner(), error));
+            throw error;
+        }
+    }
+
+    public ProvisioningOperationResponse resume(String operationId, String key, HttpServletRequest http) {
+        tenantGuard.assertPlatformAdmin();
+        commands.requireKey(key);
+        commands.actor(http); // valida e normaliza headers antes de tocar na persistência
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        ResumeIntent intent = tx.execute(status -> {
+            BusinessProvisioningOperation operation = operations.findByOperationId(operationId)
+                    .orElseThrow(() -> new BusinessException("PROVISIONING_OPERATION_NOT_FOUND"));
+            if (!Objects.equals(operation.getIdempotencyKey(), key)) throw new ConflictException("IDEMPOTENCY_CONFLICT");
+            if (operation.getCommandPayloadJson() == null) {
+                throw new BusinessException("Operação antiga sem payload persistido; retome pelo replay do comando original.");
+            }
+            return new ResumeIntent(operation.getBusinessAccount().getId(),
+                    commands.read(operation.getCommandPayloadJson(), BusinessProvisionRequest.class),
+                    operation.getRequestFingerprint());
+        });
+        if (intent == null) throw new IllegalStateException("Falha ao carregar operação de provisionamento.");
+        ProvisionRegistration registration = tx.execute(status -> registerProvision(intent.accountId(), intent.request(),
+                key, intent.fingerprint(), http));
+        if (registration == null) throw new IllegalStateException("Falha ao adquirir lease da operação.");
+        if (!registration.execute()) return registration.response();
+        try {
+            ProvisioningOperationResponse response = tx.execute(status -> executeProvision(registration.operationId(),
+                    intent.accountId(), intent.request(), intent.fingerprint(), registration.leaseOwner(), true));
+            if (response == null) throw new IllegalStateException("Operação retomada sem resultado.");
+            return response;
+        } catch (RuntimeException error) {
+            tx.executeWithoutResult(status -> markProvisionFailure(registration.operationId(), registration.leaseOwner(), error));
             throw error;
         }
     }
@@ -138,7 +179,12 @@ public class BusinessProvisioningService {
             if (!Objects.equals(existing.getRequestFingerprint(), commandFingerprint)) {
                 throw new ConflictException("IDEMPOTENCY_CONFLICT");
             }
-            return new ProvisionRegistration(existing.getId(), true, operationResponse(existing, true));
+            if (existing.getCommandPayloadJson() == null) existing.setCommandPayloadJson(commands.json(request));
+            LeaseClaim claim = claimIfRecoverable(existing);
+            if (claim != null) {
+                return new ProvisionRegistration(existing.getId(), true, true, claim.owner(), null);
+            }
+            return new ProvisionRegistration(existing.getId(), true, false, null, operationResponse(existing, true));
         }
         if (!Boolean.TRUE.equals(request.confirmed())) throw new BusinessException("Confirmação explícita é obrigatória.");
         validateAccountVersion(account, request.accountVersion());
@@ -174,24 +220,33 @@ public class BusinessProvisioningService {
         operation.setPreviewId(preview.getPreviewId());
         operation.setStatus("PENDING");
         operation.setStartedAt(LocalDateTime.now());
+        operation.setAttemptCount(0);
+        operation.setEffectsCommitted(false);
+        operation.setCommandPayloadJson(commands.json(request));
         operation.setCorrelationId(actor.correlationId());
         operation.setActorRoles(actor.roles());
         operation.setIpAddress(actor.ip());
         operation.setUserAgent(actor.userAgent());
         operation = operations.saveAndFlush(operation);
-        return new ProvisionRegistration(operation.getId(), false, null);
+        LeaseClaim claim = claimIfRecoverable(operation);
+        if (claim == null) throw new IllegalStateException("Nova operação não pôde adquirir lease.");
+        return new ProvisionRegistration(operation.getId(), false, true, claim.owner(), null);
     }
 
     private ProvisioningOperationResponse executeProvision(Long operationId, Long accountId,
                                                             BusinessProvisionRequest request,
-                                                            String commandFingerprint) {
+                                                            String commandFingerprint,
+                                                            String leaseOwner,
+                                                            boolean replay) {
         BusinessAccount account = lockAccount(accountId);
-        BusinessProvisioningOperation operation = operations.findById(operationId)
+        BusinessProvisioningOperation operation = operations.findByIdForUpdate(operationId)
                 .orElseThrow(() -> new IllegalStateException("Operação de provisionamento não encontrada."));
         if (!Objects.equals(operation.getRequestFingerprint(), commandFingerprint)) {
             throw new ConflictException("IDEMPOTENCY_CONFLICT");
         }
-        if (!"PENDING".equals(operation.getStatus())) return operationResponse(operation, true);
+        if (!"RUNNING".equals(operation.getStatus()) || !Objects.equals(operation.getLeaseOwner(), leaseOwner)) {
+            return operationResponse(operation, true);
+        }
         validateAccountVersion(account, request.accountVersion());
         validateAccountForBusiness(account);
         validateCapacity(account);
@@ -207,9 +262,6 @@ public class BusinessProvisioningService {
         resolveExplicitPlan(logicalPayload.planoCodigo());
         validateBusinessData(logicalPayload);
         validateAccesses(account, logicalPayload.acessos());
-        operation.setStatus("RUNNING");
-        operations.saveAndFlush(operation);
-
         BusinessTemplateProvisionRequest templateRequest = toTemplateRequest(account, logicalPayload);
         BusinessTemplatePreviewResponse revalidated = templates.preview(preview.getTemplateCode() + "_V" + preview.getTemplateVersion(), templateRequest);
         if (!Boolean.TRUE.equals(revalidated.getPermitido())) throw new ConflictException("CRITICAL_INVARIANT_CHANGED_AFTER_PREVIEW");
@@ -231,16 +283,26 @@ public class BusinessProvisioningService {
         operation.setTenant(tenant);
         operation.setStatus("SUCCEEDED");
         operation.setCompletedAt(LocalDateTime.now());
+        operation.setEffectsCommitted(true);
+        operation.setLeaseOwner(null);
+        operation.setLeaseUntil(null);
+        operation.setNextRetryAt(null);
         operation.setResultJson(commands.json(result));
         operation = operations.saveAndFlush(operation);
-        return operationResponse(operation, false);
+        return operationResponse(operation, replay);
     }
 
-    private void markProvisionFailure(Long operationId, RuntimeException error) {
-        BusinessProvisioningOperation operation = operations.findById(operationId).orElse(null);
-        if (operation == null || "SUCCEEDED".equals(operation.getStatus())) return;
-        operation.setStatus(error instanceof TransientDataAccessException ? "FAILED_RETRYABLE" : "FAILED_FINAL");
+    private void markProvisionFailure(Long operationId, String leaseOwner, RuntimeException error) {
+        BusinessProvisioningOperation operation = operations.findByIdForUpdate(operationId).orElse(null);
+        if (operation == null || "SUCCEEDED".equals(operation.getStatus())
+                || !Objects.equals(operation.getLeaseOwner(), leaseOwner)) return;
+        boolean retryable = isTransient(error);
+        operation.setStatus(retryable ? "FAILED_RETRYABLE" : "FAILED_FINAL");
         operation.setCompletedAt(LocalDateTime.now());
+        operation.setEffectsCommitted(false);
+        operation.setLeaseOwner(null);
+        operation.setLeaseUntil(null);
+        operation.setNextRetryAt(retryable ? LocalDateTime.now().plusSeconds(Math.max(0, retryDelaySeconds)) : null);
         operation.setErrorCode(errorCode(error));
         operation.setErrorMessage(sanitizedProvisioningError(error));
         operations.saveAndFlush(operation);
@@ -303,6 +365,7 @@ public class BusinessProvisioningService {
                                                       HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
         commands.requireKey(key);
+        commands.actor(http); // valida headers inclusive em replay
         BusinessAccount account = lockAccount(accountId);
         String scope = "BUSINESS_ACCOUNT:" + accountId;
         String fp = commands.fingerprint(Map.of("contract", "BUSINESS_ACTIVATION_V1", "accountId", accountId,
@@ -387,8 +450,18 @@ public class BusinessProvisioningService {
             if (access.tenantRole() != TenantUserRole.TENANT_ADMIN && access.tenantRole() != TenantUserRole.TENANT_FINANCE) {
                 throw new BusinessException("Acessos adicionais aceitam apenas TENANT_ADMIN ou TENANT_FINANCE.");
             }
-            if (!accountMembers.existsByBusinessAccountIdAndUserIdAndEstado(account.getId(), access.userId(), BusinessAccountMemberEstado.ATIVO)) {
+            BusinessAccountMember membership = accountMembers.findByBusinessAccountIdAndUserId(account.getId(), access.userId())
+                    .filter(m -> m.getEstado() == BusinessAccountMemberEstado.ATIVO)
+                    .orElse(null);
+            if (membership == null) {
                 throw new BusinessException("Acesso operacional exige gestor activo da mesma BusinessAccount.");
+            }
+            boolean allowed = access.tenantRole() == TenantUserRole.TENANT_ADMIN
+                    ? membership.getRole() == BusinessAccountRole.OWNER || membership.getRole() == BusinessAccountRole.ADMIN
+                    : membership.getRole() == BusinessAccountRole.OWNER || membership.getRole() == BusinessAccountRole.ADMIN
+                    || membership.getRole() == BusinessAccountRole.BILLING_MANAGER;
+            if (!allowed) {
+                throw new BusinessException("Role empresarial não autorizada para " + access.tenantRole().name() + ".");
             }
             users.findById(access.userId()).filter(u -> Boolean.TRUE.equals(u.getAtivo()))
                     .orElseThrow(() -> new BusinessException("Gestor operacional inactivo ou inexistente."));
@@ -457,7 +530,48 @@ public class BusinessProvisioningService {
                 operation.getIdempotencyKey(), operation.getRequestFingerprint(), operation.getPreviewId(),
                 operation.getStatus(), operation.getTenant() == null ? null : operation.getTenant().getId(),
                 operation.getStartedAt(), operation.getCompletedAt(), operation.getErrorCode(), operation.getErrorMessage(),
-                operation.getCorrelationId(), "SUCCEEDED".equals(operation.getStatus()), replay, result);
+                operation.getCorrelationId(), retryAllowed(operation, LocalDateTime.now()), operation.getNextRetryAt(),
+                operation.getAttemptCount(), operation.getLeaseUntil(), Boolean.TRUE.equals(operation.getEffectsCommitted()),
+                terminal(operation.getStatus()), replay, result);
+    }
+
+    private LeaseClaim claimIfRecoverable(BusinessProvisioningOperation operation) {
+        LocalDateTime now = LocalDateTime.now();
+        String status = operation.getStatus();
+        if (terminal(status) || !retryAllowed(operation, now)) return null;
+        String owner = UUID.randomUUID().toString();
+        operation.setStatus("RUNNING");
+        operation.setAttemptCount((operation.getAttemptCount() == null ? 0 : operation.getAttemptCount()) + 1);
+        operation.setLastAttemptAt(now);
+        operation.setLeaseOwner(owner);
+        operation.setLeaseUntil(now.plusSeconds(Math.max(1, leaseSeconds)));
+        operation.setNextRetryAt(null);
+        operation.setCompletedAt(null);
+        operation.setErrorCode(null);
+        operation.setErrorMessage(null);
+        operations.saveAndFlush(operation);
+        return new LeaseClaim(owner);
+    }
+
+    private static boolean retryAllowed(BusinessProvisioningOperation operation, LocalDateTime now) {
+        if ("FAILED_RETRYABLE".equals(operation.getStatus())) {
+            return operation.getNextRetryAt() == null || !operation.getNextRetryAt().isAfter(now);
+        }
+        if ("PENDING".equals(operation.getStatus()) || "RUNNING".equals(operation.getStatus())) {
+            return operation.getLeaseUntil() == null || !operation.getLeaseUntil().isAfter(now);
+        }
+        return false;
+    }
+
+    private static boolean terminal(String status) {
+        return "SUCCEEDED".equals(status) || "FAILED_FINAL".equals(status);
+    }
+
+    private static boolean isTransient(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current instanceof TransientDataAccessException) return true;
+        }
+        return false;
     }
 
     private void saveActivationEvent(BusinessAccount account, Tenant tenant, String scope, String key, String fp,
@@ -506,8 +620,10 @@ public class BusinessProvisioningService {
         return "Falha interna de provisionamento; consulte o errorCode e a correlationId.";
     }
 
-    private record ProvisionRegistration(Long operationId, boolean replay,
-                                         ProvisioningOperationResponse response) {}
+    private record ProvisionRegistration(Long operationId, boolean replay, boolean execute,
+                                         String leaseOwner, ProvisioningOperationResponse response) {}
+    private record LeaseClaim(String owner) {}
+    private record ResumeIntent(Long accountId, BusinessProvisionRequest request, String fingerprint) {}
 
     private static ReadinessCheck check(String code, boolean ready, String detail) {
         return new ReadinessCheck(code, ready, detail);

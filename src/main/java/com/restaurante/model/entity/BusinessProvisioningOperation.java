@@ -24,6 +24,13 @@ public class BusinessProvisioningOperation extends BaseEntity {
     @Column(name = "error_code", length = 120) private String errorCode;
     @Column(name = "error_message", length = 500) private String errorMessage;
     @Column(name = "result_json", columnDefinition = "TEXT") private String resultJson;
+    @Column(name = "attempt_count", nullable = false) private Integer attemptCount = 0;
+    @Column(name = "last_attempt_at") private LocalDateTime lastAttemptAt;
+    @Column(name = "lease_owner", length = 100) private String leaseOwner;
+    @Column(name = "lease_until") private LocalDateTime leaseUntil;
+    @Column(name = "next_retry_at") private LocalDateTime nextRetryAt;
+    @Column(name = "effects_committed", nullable = false) private Boolean effectsCommitted = false;
+    @Column(name = "command_payload_json", columnDefinition = "TEXT") private String commandPayloadJson;
     @Column(name = "correlation_id", nullable = false, length = 120) private String correlationId;
     @Column(name = "actor_roles", nullable = false, length = 500) private String actorRoles;
     @Column(name = "ip_address", length = 64) private String ipAddress;
@@ -55,6 +62,20 @@ public class BusinessProvisioningOperation extends BaseEntity {
     public void setErrorMessage(String v) { errorMessage = v; }
     public String getResultJson() { return resultJson; }
     public void setResultJson(String v) { resultJson = v; }
+    public Integer getAttemptCount() { return attemptCount; }
+    public void setAttemptCount(Integer v) { attemptCount = v; }
+    public LocalDateTime getLastAttemptAt() { return lastAttemptAt; }
+    public void setLastAttemptAt(LocalDateTime v) { lastAttemptAt = v; }
+    public String getLeaseOwner() { return leaseOwner; }
+    public void setLeaseOwner(String v) { leaseOwner = v; }
+    public LocalDateTime getLeaseUntil() { return leaseUntil; }
+    public void setLeaseUntil(LocalDateTime v) { leaseUntil = v; }
+    public LocalDateTime getNextRetryAt() { return nextRetryAt; }
+    public void setNextRetryAt(LocalDateTime v) { nextRetryAt = v; }
+    public Boolean getEffectsCommitted() { return effectsCommitted; }
+    public void setEffectsCommitted(Boolean v) { effectsCommitted = v; }
+    public String getCommandPayloadJson() { return commandPayloadJson; }
+    public void setCommandPayloadJson(String v) { commandPayloadJson = v; }
     public String getCorrelationId() { return correlationId; }
     public void setCorrelationId(String v) { correlationId = v; }
     public String getActorRoles() { return actorRoles; }

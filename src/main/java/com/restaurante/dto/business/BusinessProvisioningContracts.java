@@ -137,7 +137,12 @@ public final class BusinessProvisioningContracts {
             String errorCode,
             String errorMessage,
             String correlationId,
+            Boolean retryAllowed,
+            LocalDateTime nextRetryAt,
+            Integer attemptCount,
+            LocalDateTime leaseUntil,
             Boolean effectsCommitted,
+            Boolean terminal,
             Boolean replay,
             BusinessTemplateProvisionResponse result
     ) {}

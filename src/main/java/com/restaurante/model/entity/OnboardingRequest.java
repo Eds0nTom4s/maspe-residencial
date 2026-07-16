@@ -90,6 +90,12 @@ public class OnboardingRequest extends BaseEntity {
     @Column(name = "notification_message", length = 500)
     private String notificationMessage;
 
+    @Column(name = "approval_idempotency_key", length = 100)
+    private String approvalIdempotencyKey;
+
+    @Column(name = "approval_fingerprint", length = 64)
+    private String approvalFingerprint;
+
     public String getNomeSolicitante() {
         return nomeSolicitante;
     }
@@ -249,4 +255,9 @@ public class OnboardingRequest extends BaseEntity {
     public void setNotificationMessage(String notificationMessage) {
         this.notificationMessage = notificationMessage;
     }
+
+    public String getApprovalIdempotencyKey() { return approvalIdempotencyKey; }
+    public void setApprovalIdempotencyKey(String value) { approvalIdempotencyKey = value; }
+    public String getApprovalFingerprint() { return approvalFingerprint; }
+    public void setApprovalFingerprint(String value) { approvalFingerprint = value; }
 }

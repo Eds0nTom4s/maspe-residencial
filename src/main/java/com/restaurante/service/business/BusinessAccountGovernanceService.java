@@ -13,6 +13,7 @@ import com.restaurante.exception.ConflictException;
 import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.BusinessAccountGovernanceEvent;
 import com.restaurante.model.entity.BusinessAccountMember;
+import com.restaurante.model.entity.CanonicalBusinessAccountNif;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.BusinessAccountEstado;
 import com.restaurante.model.enums.BusinessAccountMemberEstado;
@@ -21,6 +22,7 @@ import com.restaurante.repository.BusinessAccountGovernanceEventRepository;
 import com.restaurante.repository.BusinessAccountMemberRepository;
 import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.UserRepository;
+import com.restaurante.repository.CanonicalBusinessAccountNifRepository;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.BusinessAccountService;
 import com.restaurante.service.provisioning.ProvisioningPlanCalculator;
@@ -43,6 +45,7 @@ public class BusinessAccountGovernanceService {
     private final BusinessAccountMemberRepository members;
     private final BusinessAccountGovernanceEventRepository events;
     private final UserRepository users;
+    private final CanonicalBusinessAccountNifRepository canonicalNifs;
     private final PasswordEncoder passwordEncoder;
     private final CanonicalCommandSupport commands;
     private final BusinessAccountService accountViews;
@@ -52,8 +55,13 @@ public class BusinessAccountGovernanceService {
                                           HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
         commands.requireKey(key);
+        commands.actor(http); // valida headers inclusive em replay
+        String normalizedNif = commands.normalizeNif(request.nif());
+        CanonicalAccountCreateRequest normalizedRequest = new CanonicalAccountCreateRequest(
+                request.nome().trim(), request.slug(), normalizedNif, trim(request.email()),
+                trim(request.telefone()), request.maxTenants(), request.responsavelPrincipal());
         String scope = "PLATFORM:BUSINESS_ACCOUNT_CREATE";
-        String fp = commands.fingerprint(Map.of("contract", "ACCOUNT_V1", "payload", request));
+        String fp = commands.fingerprint(Map.of("contract", "ACCOUNT_V1", "payload", normalizedRequest));
         commands.lock(scope + ":" + key);
         BusinessAccountGovernanceEvent replay = events
                 .findByScopeKeyAndActionAndIdempotencyKey(scope, "ACCOUNT_CREATED", key).orElse(null);
@@ -62,23 +70,34 @@ public class BusinessAccountGovernanceService {
             return accountViews.buscarPorId(replay.getResultAccountId());
         }
 
-        String slug = ProvisioningPlanCalculator.normalizeSlug(request.slug());
+        String slug = ProvisioningPlanCalculator.normalizeSlug(normalizedRequest.slug());
         if (slug == null || slug.isBlank()) throw new BusinessException("Slug inválido para BusinessAccount.");
+        commands.lock("CANONICAL_BUSINESS_ACCOUNT_SLUG:" + slug);
         if (accounts.existsBySlug(slug)) throw new ConflictException("Já existe BusinessAccount com este slug.");
-        User owner = resolvePrincipal(request.responsavelPrincipal());
+        if (normalizedNif != null) {
+            commands.lock("CANONICAL_BUSINESS_ACCOUNT_NIF:" + normalizedNif);
+            if (canonicalNifs.existsById(normalizedNif)) throw new ConflictException("NIF_ALREADY_EXISTS");
+        }
+        User owner = resolvePrincipal(normalizedRequest.responsavelPrincipal());
 
         BusinessAccount account = new BusinessAccount();
-        account.setNome(request.nome().trim());
+        account.setNome(normalizedRequest.nome());
         account.setSlug(slug);
-        account.setNif(trim(request.nif()));
-        account.setEmail(trim(request.email()));
-        account.setTelefone(trim(request.telefone()));
+        account.setNif(normalizedNif);
+        account.setEmail(normalizedRequest.email());
+        account.setTelefone(normalizedRequest.telefone());
         account.setEstado(BusinessAccountEstado.RASCUNHO);
-        account.setMaxTenants(request.maxTenants() == null ? 1 : request.maxTenants());
+        account.setMaxTenants(normalizedRequest.maxTenants() == null ? 1 : normalizedRequest.maxTenants());
         account.setResponsavel(owner);
         account.setProvisionedAt(LocalDateTime.now());
         account.setProvisionedBy(String.valueOf(commands.actor(http).userId()));
         account = accounts.saveAndFlush(account);
+        if (normalizedNif != null) {
+            CanonicalBusinessAccountNif nif = new CanonicalBusinessAccountNif();
+            nif.setNormalizedNif(normalizedNif);
+            nif.setBusinessAccount(account);
+            canonicalNifs.saveAndFlush(nif);
+        }
         BusinessAccountMember ownerMember = upsert(account, owner, BusinessAccountRole.OWNER,
                 BusinessAccountMemberEstado.ATIVO);
         saveEvent(account, scope, "ACCOUNT_CREATED", key, fp, null,
@@ -92,6 +111,7 @@ public class BusinessAccountGovernanceService {
                                                 HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
         commands.requireKey(key);
+        commands.actor(http); // valida headers inclusive em replay
         BusinessAccount account = lockAccount(accountId);
         String scope = "BUSINESS_ACCOUNT:" + accountId;
         String fp = commands.fingerprint(Map.of("contract", "OWNER_REPLACEMENT_V1", "accountId", accountId,
@@ -128,6 +148,7 @@ public class BusinessAccountGovernanceService {
                                                        String key, HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
         commands.requireKey(key);
+        commands.actor(http); // valida headers inclusive em replay
         if (request.role() == BusinessAccountRole.OWNER) {
             throw new BusinessException("Gestor não pode substituir o responsável principal; use owner replacement.");
         }
@@ -164,6 +185,7 @@ public class BusinessAccountGovernanceService {
                                             HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
         commands.requireKey(key);
+        commands.actor(http); // valida headers inclusive em replay
         BusinessAccount account = lockAccount(accountId);
         String scope = "BUSINESS_ACCOUNT:" + accountId;
         String fp = commands.fingerprint(Map.of("contract", "ACCOUNT_ACTIVATION_V1", "accountId", accountId,

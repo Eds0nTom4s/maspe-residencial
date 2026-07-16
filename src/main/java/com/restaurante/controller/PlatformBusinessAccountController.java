@@ -19,6 +19,8 @@ import com.restaurante.dto.response.PlatformTenantResponse;
 import com.restaurante.model.enums.BusinessAccountEstado;
 import com.restaurante.service.BusinessAccountService;
 import com.restaurante.service.business.BusinessAccountGovernanceService;
+import com.restaurante.service.business.LegacyProvisioningUsageService;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
@@ -49,6 +51,7 @@ public class PlatformBusinessAccountController {
 
     private final BusinessAccountService businessAccountService;
     private final BusinessAccountGovernanceService governanceService;
+    private final LegacyProvisioningUsageService legacyUsage;
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -143,18 +146,24 @@ public class PlatformBusinessAccountController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<PlatformTenantResponse>> associarTenant(
             @PathVariable Long id,
-            @PathVariable Long tenantId
+            @PathVariable Long tenantId,
+            HttpServletRequest httpRequest
     ) {
+        legacyUsage.record("POST /platform/business-accounts/{id}/tenants/{tenantId}", httpRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Tenant associado a BusinessAccount", businessAccountService.associarTenant(id, tenantId)));
     }
 
     @PostMapping("/{id}/members")
     @PreAuthorize("hasRole('ADMIN')")
+    @Deprecated
+    @Operation(summary = "Adicionar membro pelo contrato legacy", deprecated = true)
     public ResponseEntity<ApiResponse<BusinessAccountMemberResponse>> adicionarMembro(
             @PathVariable Long id,
-            @Valid @RequestBody BusinessAccountMemberCreateRequest request
+            @Valid @RequestBody BusinessAccountMemberCreateRequest request,
+            HttpServletRequest httpRequest
     ) {
+        legacyUsage.record("POST /platform/business-accounts/{id}/members", httpRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Membro da BusinessAccount atualizado", businessAccountService.adicionarMembro(id, request)));
     }
@@ -185,11 +194,15 @@ public class PlatformBusinessAccountController {
 
     @PatchMapping("/{id}/members/{memberId}/estado")
     @PreAuthorize("hasRole('ADMIN')")
+    @Deprecated
+    @Operation(summary = "Alterar estado de membro pelo contrato legacy", deprecated = true)
     public ResponseEntity<ApiResponse<BusinessAccountMemberResponse>> atualizarEstadoMembro(
             @PathVariable Long id,
             @PathVariable Long memberId,
-            @Valid @RequestBody BusinessAccountMemberEstadoUpdateRequest request
+            @Valid @RequestBody BusinessAccountMemberEstadoUpdateRequest request,
+            HttpServletRequest httpRequest
     ) {
+        legacyUsage.record("PATCH /platform/business-accounts/{id}/members/{memberId}/estado", httpRequest);
         return ResponseEntity.ok(ApiResponse.success(
                 "Estado do membro da BusinessAccount atualizado",
                 businessAccountService.atualizarEstadoMembro(id, memberId, request)
@@ -198,11 +211,15 @@ public class PlatformBusinessAccountController {
 
     @PatchMapping("/{id}/members/{memberId}/role")
     @PreAuthorize("hasRole('ADMIN')")
+    @Deprecated
+    @Operation(summary = "Alterar role de membro pelo contrato legacy", deprecated = true)
     public ResponseEntity<ApiResponse<BusinessAccountMemberResponse>> atualizarRoleMembro(
             @PathVariable Long id,
             @PathVariable Long memberId,
-            @Valid @RequestBody BusinessAccountMemberRoleUpdateRequest request
+            @Valid @RequestBody BusinessAccountMemberRoleUpdateRequest request,
+            HttpServletRequest httpRequest
     ) {
+        legacyUsage.record("PATCH /platform/business-accounts/{id}/members/{memberId}/role", httpRequest);
         return ResponseEntity.ok(ApiResponse.success(
                 "Role do membro da BusinessAccount atualizado",
                 businessAccountService.atualizarRoleMembro(id, memberId, request)
@@ -213,8 +230,10 @@ public class PlatformBusinessAccountController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> desassociarTenant(
             @PathVariable Long id,
-            @PathVariable Long tenantId
+            @PathVariable Long tenantId,
+            HttpServletRequest httpRequest
     ) {
+        legacyUsage.record("DELETE /platform/business-accounts/{id}/tenants/{tenantId}", httpRequest);
         businessAccountService.desassociarTenant(id, tenantId);
         return ResponseEntity.ok(ApiResponse.success("Tenant desassociado da BusinessAccount", null));
     }

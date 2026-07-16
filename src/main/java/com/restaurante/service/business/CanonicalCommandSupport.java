@@ -23,6 +23,7 @@ import java.util.HexFormat;
 import java.util.Optional;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.Locale;
 
 @Component
 @RequiredArgsConstructor
@@ -80,11 +81,27 @@ public class CanonicalCommandSupport {
             auth.getAuthorities().stream().map(GrantedAuthority::getAuthority).forEach(roles::add);
         }
         String correlationId = Optional.ofNullable(request.getHeader("X-Correlation-Id"))
-                .filter(v -> !v.isBlank()).orElse(UUID.randomUUID().toString());
+                .map(String::trim).filter(v -> !v.isBlank()).orElse(UUID.randomUUID().toString());
+        if (correlationId.length() > 120) {
+            throw new BusinessException("X-Correlation-Id não pode exceder 120 caracteres.");
+        }
         String ip = Optional.ofNullable(request.getHeader("X-Forwarded-For"))
                 .map(v -> v.split(",")[0].trim()).orElse(request.getRemoteAddr());
+        if (ip != null && ip.length() > 64) {
+            throw new BusinessException("X-Forwarded-For/IP inválido: máximo de 64 caracteres.");
+        }
         return new Actor(userId, String.join(",", roles), correlationId, ip,
                 truncate(request.getHeader("User-Agent"), 500));
+    }
+
+    /** NIF ausente é aceite; quando presente, pontuação comum é removida e o valor fica em maiúsculas. */
+    public String normalizeNif(String value) {
+        if (value == null || value.isBlank()) return null;
+        String normalized = value.trim().toUpperCase(Locale.ROOT).replaceAll("[\\s./-]", "");
+        if (!normalized.matches("[A-Z0-9]{5,30}")) {
+            throw new BusinessException("NIF inválido; use entre 5 e 30 caracteres alfanuméricos.");
+        }
+        return normalized;
     }
 
     public String sanitize(Throwable error) {

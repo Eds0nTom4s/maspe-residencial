@@ -4,6 +4,7 @@ import com.restaurante.dto.business.BusinessProvisioningContracts.ProvisioningOp
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.service.business.BusinessProvisioningService;
 import lombok.RequiredArgsConstructor;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -27,5 +28,16 @@ public class PlatformProvisioningOperationController {
             @RequestParam String idempotencyKey) {
         return ResponseEntity.ok(ApiResponse.success("Operação de provisionamento",
                 service.operation(businessAccountId, idempotencyKey)));
+    }
+
+    @PostMapping("/{operationId}/resume")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<ProvisioningOperationResponse>> resume(
+            @PathVariable String operationId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("X-Correlation-Id") String correlationId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponse.success("Operação de provisionamento retomada",
+                service.resume(operationId, idempotencyKey, httpRequest)));
     }
 }

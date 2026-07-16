@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestHeader;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.List;
 
@@ -68,9 +70,13 @@ public class PlatformOnboardingRequestController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<OnboardingRequestResponse>> aprovar(
             @PathVariable Long id,
-            @Valid @RequestBody OnboardingRequestApproveRequest request
+            @Valid @RequestBody OnboardingRequestApproveRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("X-Correlation-Id") String correlationId,
+            HttpServletRequest httpRequest
     ) {
-        return ResponseEntity.ok(ApiResponse.success("Onboarding request aprovada", onboardingRequestService.aprovar(id, request)));
+        return ResponseEntity.ok(ApiResponse.success("Onboarding request aprovada",
+                onboardingRequestService.aprovar(id, request, idempotencyKey, httpRequest)));
     }
 
     @PatchMapping("/{id}/reject")

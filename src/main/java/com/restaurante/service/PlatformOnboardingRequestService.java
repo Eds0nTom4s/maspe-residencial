@@ -16,11 +16,9 @@ import com.restaurante.model.entity.Plano;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.enums.OnboardingPaymentStatus;
 import com.restaurante.model.enums.OnboardingRequestStatus;
-import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.BusinessAccountGovernanceEventRepository;
 import com.restaurante.repository.OnboardingRequestRepository;
 import com.restaurante.repository.PlanoRepository;
-import com.restaurante.repository.TenantRepository;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.provisioning.ProvisioningPlanCalculator;
 import com.restaurante.service.business.BusinessAccountGovernanceService;
@@ -44,8 +42,6 @@ public class PlatformOnboardingRequestService {
     private final TenantGuard tenantGuard;
     private final OnboardingRequestRepository onboardingRequestRepository;
     private final PlanoRepository planoRepository;
-    private final BusinessAccountRepository businessAccountRepository;
-    private final TenantRepository tenantRepository;
     private final BusinessAccountGovernanceService governanceService;
     private final BusinessAccountGovernanceEventRepository governanceEvents;
     private final CanonicalCommandSupport commands;
@@ -118,19 +114,18 @@ public class PlatformOnboardingRequestService {
             onboardingRequest.setObservacao(mergeObservacao(onboardingRequest.getObservacao(), request.getObservacao()));
         }
 
-        BusinessAccount businessAccount = resolveOrCreateBusinessAccount(onboardingRequest, request, http);
-        if (businessAccount == null) {
+        Long businessAccountId = resolveOrCreateBusinessAccountId(onboardingRequest, request, http);
+        if (businessAccountId == null) {
             throw new BusinessException("Aprovação exige BusinessAccount existente ou criação pelo contrato canónico.");
         }
+        BusinessAccountGovernanceService.OnboardingAssignment assignment = governanceService
+                .governOnboardingAssignment(businessAccountId, request.getTenantId(), onboardingRequest.getId(),
+                        idempotencyKey, fingerprint, http);
+        BusinessAccount businessAccount = assignment.account();
         onboardingRequest.setBusinessAccount(businessAccount);
 
-        Tenant tenant = resolveTenant(request.getTenantId());
+        Tenant tenant = assignment.tenant();
         if (tenant != null) {
-            if (businessAccount != null) {
-                ensureTenantCanAttach(businessAccount, tenant);
-                tenant.setBusinessAccount(businessAccount);
-                tenantRepository.saveAndFlush(tenant);
-            }
             onboardingRequest.setTenant(tenant);
         }
 
@@ -180,27 +175,18 @@ public class PlatformOnboardingRequestService {
                 .orElseThrow(() -> new BusinessException("Plano nao encontrado para onboarding."));
     }
 
-    private Tenant resolveTenant(Long tenantId) {
-        if (tenantId == null) {
-            return null;
-        }
-        return tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new BusinessException("Tenant nao encontrado para onboarding."));
-    }
-
-    private BusinessAccount resolveOrCreateBusinessAccount(OnboardingRequest onboardingRequest,
-                                                           OnboardingRequestApproveRequest request,
-                                                           HttpServletRequest http) {
+    private Long resolveOrCreateBusinessAccountId(OnboardingRequest onboardingRequest,
+                                                  OnboardingRequestApproveRequest request,
+                                                  HttpServletRequest http) {
         if (request.getBusinessAccountId() != null) {
-            return businessAccountRepository.findById(request.getBusinessAccountId())
-                    .orElseThrow(() -> new BusinessException("BusinessAccount nao encontrada para onboarding."));
+            return request.getBusinessAccountId();
         }
         if (!Boolean.TRUE.equals(request.getCriarBusinessAccountSeAusente())) {
-            return onboardingRequest.getBusinessAccount();
+            return onboardingRequest.getBusinessAccount() == null ? null : onboardingRequest.getBusinessAccount().getId();
         }
         BusinessAccount existing = onboardingRequest.getBusinessAccount();
         if (existing != null) {
-            return existing;
+            return existing.getId();
         }
         if (request.getResponsavelUserId() == null) {
             throw new BusinessException("Onboarding não pode criar Conta Empresarial sem responsável principal explícito.");
@@ -212,20 +198,7 @@ public class PlatformOnboardingRequestService {
                 new PrincipalOwner(PrincipalOwnerStrategy.ASSOCIATE_EXISTING, request.getResponsavelUserId(),
                         true, null, null, null, null, null));
         String internalKey = "onboarding-account-" + onboardingRequest.getId();
-        Long accountId = governanceService.create(create, internalKey, http).getId();
-        return businessAccountRepository.findById(accountId)
-                .orElseThrow(() -> new IllegalStateException("Conta criada pelo contrato canónico não encontrada."));
-    }
-
-    private void ensureTenantCanAttach(BusinessAccount businessAccount, Tenant tenant) {
-        if (tenant.getBusinessAccount() != null && !tenant.getBusinessAccount().getId().equals(businessAccount.getId())) {
-            throw new BusinessException("Tenant ja pertence a outra BusinessAccount.");
-        }
-        long currentCount = tenantRepository.countByBusinessAccountId(businessAccount.getId());
-        boolean alreadyLinked = tenant.getBusinessAccount() != null && businessAccount.getId().equals(tenant.getBusinessAccount().getId());
-        if (!alreadyLinked && businessAccount.getMaxTenants() != null && currentCount >= businessAccount.getMaxTenants()) {
-            throw new BusinessException("BusinessAccount atingiu o limite maximo de tenants vinculados.");
-        }
+        return governanceService.create(create, internalKey, http).getId();
     }
 
     private OnboardingPaymentStatus resolveInitialPaymentStatus(BigDecimal valor) {

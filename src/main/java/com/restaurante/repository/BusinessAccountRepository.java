@@ -23,6 +23,16 @@ public interface BusinessAccountRepository extends JpaRepository<BusinessAccount
 
     boolean existsBySlug(String slug);
 
+    @Query(value = """
+            select exists (
+                select 1
+                from business_accounts ba
+                where ba.nif is not null
+                  and regexp_replace(upper(ba.nif), '[\\s./-]+', '', 'g') = :normalizedNif
+            )
+            """, nativeQuery = true)
+    boolean existsByNormalizedPersistedNif(@Param("normalizedNif") String normalizedNif);
+
     List<BusinessAccount> findByEstadoOrderByIdAsc(BusinessAccountEstado estado);
 
     List<BusinessAccount> findByResponsavelId(Long responsavelId);

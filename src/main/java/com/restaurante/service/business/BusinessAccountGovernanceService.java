@@ -14,6 +14,7 @@ import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.BusinessAccountGovernanceEvent;
 import com.restaurante.model.entity.BusinessAccountMember;
 import com.restaurante.model.entity.CanonicalBusinessAccountNif;
+import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.BusinessAccountEstado;
 import com.restaurante.model.enums.BusinessAccountMemberEstado;
@@ -23,6 +24,7 @@ import com.restaurante.repository.BusinessAccountMemberRepository;
 import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.repository.CanonicalBusinessAccountNifRepository;
+import com.restaurante.repository.TenantRepository;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.BusinessAccountService;
 import com.restaurante.service.provisioning.ProvisioningPlanCalculator;
@@ -46,6 +48,7 @@ public class BusinessAccountGovernanceService {
     private final BusinessAccountGovernanceEventRepository events;
     private final UserRepository users;
     private final CanonicalBusinessAccountNifRepository canonicalNifs;
+    private final TenantRepository tenants;
     private final PasswordEncoder passwordEncoder;
     private final CanonicalCommandSupport commands;
     private final BusinessAccountService accountViews;
@@ -76,7 +79,10 @@ public class BusinessAccountGovernanceService {
         if (accounts.existsBySlug(slug)) throw new ConflictException("Já existe BusinessAccount com este slug.");
         if (normalizedNif != null) {
             commands.lock("CANONICAL_BUSINESS_ACCOUNT_NIF:" + normalizedNif);
-            if (canonicalNifs.existsById(normalizedNif)) throw new ConflictException("NIF_ALREADY_EXISTS");
+            if (canonicalNifs.existsById(normalizedNif)
+                    || accounts.existsByNormalizedPersistedNif(normalizedNif)) {
+                throw new ConflictException("NIF_ALREADY_EXISTS");
+            }
         }
         User owner = resolvePrincipal(normalizedRequest.responsavelPrincipal());
 
@@ -211,6 +217,59 @@ public class BusinessAccountGovernanceService {
         return accountViews.buscarPorId(accountId);
     }
 
+    @Transactional
+    public OnboardingAssignment governOnboardingAssignment(Long accountId, Long tenantId, Long onboardingId,
+                                                            String key, String fingerprint,
+                                                            HttpServletRequest http) {
+        tenantGuard.assertPlatformAdmin();
+        commands.requireKey(key);
+        commands.actor(http);
+        BusinessAccount account = lockAccount(accountId);
+        if (account.getEstado() != BusinessAccountEstado.RASCUNHO
+                && account.getEstado() != BusinessAccountEstado.ATIVA) {
+            throw new ConflictException("BUSINESS_ACCOUNT_STATE_BLOCKS_ONBOARDING");
+        }
+        assertOwnerInvariant(account);
+        if (tenantId == null) {
+            return new OnboardingAssignment(account, null);
+        }
+
+        Tenant tenant = tenants.findByIdForUpdate(tenantId)
+                .orElseThrow(() -> new BusinessException("Tenant não encontrado para onboarding."));
+        if (tenant.getBusinessAccount() != null
+                && !Objects.equals(tenant.getBusinessAccount().getId(), accountId)) {
+            throw new ConflictException("TENANT_ALREADY_LINKED_TO_ANOTHER_BUSINESS_ACCOUNT");
+        }
+        boolean alreadyLinked = tenant.getBusinessAccount() != null;
+        long tenantCount = tenants.countByBusinessAccountId(accountId);
+        if (!alreadyLinked && account.getMaxTenants() != null && tenantCount >= account.getMaxTenants()) {
+            throw new ConflictException("BUSINESS_ACCOUNT_MAX_TENANTS_REACHED");
+        }
+        if (alreadyLinked) {
+            return new OnboardingAssignment(account, tenant);
+        }
+
+        String before = commands.json(Map.of(
+                "accountId", accountId,
+                "accountVersion", account.getVersion(),
+                "tenantId", tenantId,
+                "tenantCount", tenantCount,
+                "tenantBusinessAccountId", -1L));
+        tenant.setBusinessAccount(account);
+        tenants.saveAndFlush(tenant);
+        account.setUpdatedAt(LocalDateTime.now());
+        accounts.saveAndFlush(account);
+        String after = commands.json(Map.of(
+                "accountId", accountId,
+                "accountVersion", account.getVersion(),
+                "tenantId", tenantId,
+                "tenantCount", tenantCount + 1,
+                "tenantBusinessAccountId", accountId));
+        saveEvent(account, "ONBOARDING:" + onboardingId, "ONBOARDING_TENANT_ATTACHED", key, fingerprint,
+                before, after, accountId, null, http);
+        return new OnboardingAssignment(account, tenant);
+    }
+
     public void assertOwnerInvariant(BusinessAccount account) {
         if (account.getResponsavel() == null || !Boolean.TRUE.equals(account.getResponsavel().getAtivo())) {
             throw new ConflictException("BUSINESS_ACCOUNT_OWNER_REQUIRED");
@@ -306,4 +365,6 @@ public class BusinessAccountGovernanceService {
 
     private static boolean blank(String value) { return value == null || value.isBlank(); }
     private static String trim(String value) { return value == null ? null : value.trim(); }
+
+    public record OnboardingAssignment(BusinessAccount account, Tenant tenant) {}
 }

@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 class CanonicalCommandSupportTest {
@@ -30,5 +31,14 @@ class CanonicalCommandSupportTest {
         CanonicalCommandSupport support = new CanonicalCommandSupport(new ObjectMapper(), mock(EntityManager.class));
         assertThat(support.fingerprint(Map.of("planoCodigo", "PRO")))
                 .isNotEqualTo(support.fingerprint(Map.of("planoCodigo", "PILOTO")));
+    }
+
+    @Test
+    void requireReasonTrimsAndRejectsBlankOrOversizedValues() {
+        CanonicalCommandSupport support = new CanonicalCommandSupport(new ObjectMapper(), mock(EntityManager.class));
+
+        assertThat(support.requireReason("  activação explícita  ")).isEqualTo("activação explícita");
+        assertThatThrownBy(() -> support.requireReason("   ")).hasMessage("REASON_REQUIRED");
+        assertThatThrownBy(() -> support.requireReason("x".repeat(501))).hasMessage("REASON_TOO_LONG");
     }
 }

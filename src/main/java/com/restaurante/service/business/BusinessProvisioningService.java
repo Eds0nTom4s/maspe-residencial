@@ -9,6 +9,7 @@ import com.restaurante.dto.business.BusinessProvisioningContracts.*;
 import com.restaurante.dto.business.BusinessProvisioningContracts;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ConflictException;
+import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.*;
 import com.restaurante.model.enums.*;
 import com.restaurante.repository.*;
@@ -326,12 +327,16 @@ public class BusinessProvisioningService {
     public BusinessReadinessResponse readiness(Long accountId, Long tenantId) {
         tenantGuard.assertPlatformAdmin();
         BusinessAccount account = accounts.findById(accountId)
-                .orElseThrow(() -> new BusinessException("BusinessAccount não encontrada."));
+                .orElseThrow(() -> new ResourceNotFoundException("BusinessAccount", "id", accountId));
         Tenant tenant = tenants.findById(tenantId)
-                .orElseThrow(() -> new BusinessException("Tenant não encontrado."));
-        if (tenant.getBusinessAccount() == null || !Objects.equals(tenant.getBusinessAccount().getId(), accountId)) {
-            throw new BusinessException("Tenant não pertence à BusinessAccount indicada.");
-        }
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", tenantId));
+        assertTenantBelongsToAccount(accountId, tenant);
+        return evaluateReadiness(account, tenant);
+    }
+
+    private BusinessReadinessResponse evaluateReadiness(BusinessAccount account, Tenant tenant) {
+        Long accountId = account.getId();
+        Long tenantId = tenant.getId();
         List<ReadinessCheck> checks = new ArrayList<>();
         checks.add(check("ACCOUNT_ACTIVE", account.getEstado() == BusinessAccountEstado.ATIVA, account.getEstado().name()));
         checks.add(check("ACCOUNT_OWNER", ownerInvariant(account), "pointer e OWNER activo único"));
@@ -356,7 +361,8 @@ public class BusinessProvisioningService {
         checks.add(check("TENANT_NOT_ACTIVE_PREMATURELY", tenant.getEstado() == TenantEstado.RASCUNHO || tenant.getEstado() == TenantEstado.ATIVO,
                 tenant.getEstado().name()));
         List<String> blockers = checks.stream().filter(c -> !c.ready()).map(ReadinessCheck::code).toList();
-        return new BusinessReadinessResponse(accountId, tenantId, blockers.isEmpty(), checks, blockers);
+        return new BusinessReadinessResponse(accountId, tenantId, tenant.getEstado().name(),
+                account.getVersion(), tenant.getVersion(), blockers.isEmpty(), checks, blockers);
     }
 
     @Transactional
@@ -366,29 +372,42 @@ public class BusinessProvisioningService {
         tenantGuard.assertPlatformAdmin();
         commands.requireKey(key);
         commands.actor(http); // valida headers inclusive em replay
+
+        // Ordem global de locks deste ciclo: 1) BusinessAccount, 2) Tenant.
         BusinessAccount account = lockAccount(accountId);
+        String reason = commands.requireReason(request.reason());
         String scope = "BUSINESS_ACCOUNT:" + accountId;
-        String fp = commands.fingerprint(Map.of("contract", "BUSINESS_ACTIVATION_V1", "accountId", accountId,
-                "tenantId", tenantId, "payload", request));
+        String fp = commands.fingerprint(Map.of(
+                "contract", "BUSINESS_ACTIVATION_V1",
+                "accountId", accountId,
+                "tenantId", tenantId,
+                "accountVersion", request.accountVersion(),
+                "tenantVersion", request.tenantVersion(),
+                "reason", reason));
         BusinessAccountGovernanceEvent replay = governanceEvents
                 .findByScopeKeyAndActionAndIdempotencyKey(scope, "BUSINESS_ACTIVATED", key).orElse(null);
         if (replay != null) {
             if (!Objects.equals(replay.getRequestFingerprint(), fp)) throw new ConflictException("IDEMPOTENCY_CONFLICT");
-            return readiness(accountId, tenantId);
+            Tenant replayTenant = tenants.findById(tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", tenantId));
+            assertTenantBelongsToAccount(accountId, replayTenant);
+            return evaluateReadiness(account, replayTenant);
         }
         validateAccountVersion(account, request.accountVersion());
         Tenant tenant = tenants.findByIdForUpdate(tenantId)
-                .orElseThrow(() -> new BusinessException("Tenant não encontrado."));
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", tenantId));
+        assertTenantBelongsToAccount(accountId, tenant);
         if (!Objects.equals(tenant.getVersion(), request.tenantVersion())) throw new ConflictException("OPTIMISTIC_VERSION_CONFLICT");
-        BusinessReadinessResponse readiness = readiness(accountId, tenantId);
-        if (!readiness.ready()) throw new ConflictException("BUSINESS_READINESS_INCOMPLETE: " + String.join(",", readiness.blockers()));
-        if (tenant.getEstado() != TenantEstado.RASCUNHO && tenant.getEstado() != TenantEstado.ATIVO) {
+        if (tenant.getEstado() != TenantEstado.RASCUNHO) {
             throw new ConflictException("TENANT_STATE_INVALID_FOR_ACTIVATION");
         }
+        BusinessReadinessResponse readiness = evaluateReadiness(account, tenant);
+        if (!readiness.ready()) throw new ConflictException("BUSINESS_READINESS_INCOMPLETE: " + String.join(",", readiness.blockers()));
+        String beforeState = tenant.getEstado().name();
         tenant.setEstado(TenantEstado.ATIVO);
         tenants.saveAndFlush(tenant);
-        saveActivationEvent(account, tenant, scope, key, fp, request.reason(), http);
-        return readiness(accountId, tenantId);
+        saveActivationEvent(account, tenant, scope, key, fp, beforeState, request.tenantVersion(), reason, http);
+        return evaluateReadiness(account, tenant);
     }
 
     private BusinessPreviewRequest normalize(BusinessPreviewRequest request) {
@@ -506,7 +525,14 @@ public class BusinessProvisioningService {
 
     private BusinessAccount lockAccount(Long id) {
         return accounts.findByIdForUpdate(id)
-                .orElseThrow(() -> new BusinessException("BusinessAccount não encontrada."));
+                .orElseThrow(() -> new ResourceNotFoundException("BusinessAccount", "id", id));
+    }
+
+    private void assertTenantBelongsToAccount(Long accountId, Tenant tenant) {
+        if (tenant.getBusinessAccount() == null
+                || !Objects.equals(tenant.getBusinessAccount().getId(), accountId)) {
+            throw new ConflictException("TENANT_BUSINESS_ACCOUNT_MISMATCH");
+        }
     }
 
     private void validateAccountVersion(BusinessAccount account, Long expected) {
@@ -575,7 +601,7 @@ public class BusinessProvisioningService {
     }
 
     private void saveActivationEvent(BusinessAccount account, Tenant tenant, String scope, String key, String fp,
-                                     String reason, HttpServletRequest http) {
+                                     String beforeState, Long beforeVersion, String reason, HttpServletRequest http) {
         CanonicalCommandSupport.Actor actor = commands.actor(http);
         BusinessAccountGovernanceEvent event = new BusinessAccountGovernanceEvent();
         event.setBusinessAccount(account);
@@ -588,8 +614,19 @@ public class BusinessProvisioningService {
         event.setCorrelationId(actor.correlationId());
         event.setIpAddress(actor.ip());
         event.setUserAgent(actor.userAgent());
-        event.setBeforeState(commands.json(Map.of("tenantId", tenant.getId(), "estado", "RASCUNHO")));
-        event.setAfterState(commands.json(Map.of("tenantId", tenant.getId(), "estado", "ATIVO", "reason", reason)));
+        event.setBeforeState(commands.json(Map.of(
+                "accountId", account.getId(),
+                "accountVersion", account.getVersion(),
+                "tenantId", tenant.getId(),
+                "tenantVersion", beforeVersion,
+                "estado", beforeState)));
+        event.setAfterState(commands.json(Map.of(
+                "accountId", account.getId(),
+                "accountVersion", account.getVersion(),
+                "tenantId", tenant.getId(),
+                "tenantVersion", tenant.getVersion(),
+                "estado", "ATIVO",
+                "reason", reason)));
         event.setResultAccountId(account.getId());
         governanceEvents.saveAndFlush(event);
     }

@@ -152,6 +152,9 @@ public final class BusinessProvisioningContracts {
     public record BusinessReadinessResponse(
             Long businessAccountId,
             Long tenantId,
+            String estado,
+            Long accountVersion,
+            Long tenantVersion,
             boolean ready,
             List<ReadinessCheck> checks,
             List<String> blockers

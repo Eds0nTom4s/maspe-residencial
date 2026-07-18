@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 @Builder
 public class PlatformTenantResponse {
     private Long tenantId;
+    private Long version;
     private String nome;
     private String tenantCode;
     private String slug;

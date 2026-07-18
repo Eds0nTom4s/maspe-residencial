@@ -10,6 +10,7 @@ import com.restaurante.dto.response.BusinessAccountMemberResponse;
 import com.restaurante.dto.response.BusinessAccountResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ConflictException;
+import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.BusinessAccountGovernanceEvent;
 import com.restaurante.model.entity.BusinessAccountMember;
@@ -193,9 +194,13 @@ public class BusinessAccountGovernanceService {
         commands.requireKey(key);
         commands.actor(http); // valida headers inclusive em replay
         BusinessAccount account = lockAccount(accountId);
+        String reason = commands.requireReason(request.reason());
         String scope = "BUSINESS_ACCOUNT:" + accountId;
-        String fp = commands.fingerprint(Map.of("contract", "ACCOUNT_ACTIVATION_V1", "accountId", accountId,
-                "payload", request));
+        String fp = commands.fingerprint(Map.of(
+                "contract", "ACCOUNT_ACTIVATION_V1",
+                "accountId", accountId,
+                "accountVersion", request.accountVersion(),
+                "reason", reason));
         BusinessAccountGovernanceEvent replay = events
                 .findByScopeKeyAndActionAndIdempotencyKey(scope, "ACCOUNT_ACTIVATED", key).orElse(null);
         if (replay != null) {
@@ -204,15 +209,23 @@ public class BusinessAccountGovernanceService {
         }
         checkVersion(account, request.accountVersion());
         assertOwnerInvariant(account);
-        if (account.getEstado() != BusinessAccountEstado.RASCUNHO && account.getEstado() != BusinessAccountEstado.ATIVA) {
+        if (account.getEstado() != BusinessAccountEstado.RASCUNHO) {
             throw new ConflictException("ACCOUNT_STATE_INVALID_FOR_ACTIVATION");
         }
         String before = account.getEstado().name();
+        Long beforeVersion = account.getVersion();
         account.setEstado(BusinessAccountEstado.ATIVA);
         accounts.saveAndFlush(account);
         saveEvent(account, scope, "ACCOUNT_ACTIVATED", key, fp,
-                commands.json(Map.of("estado", before)),
-                commands.json(Map.of("estado", "ATIVA", "reason", request.reason())),
+                commands.json(Map.of(
+                        "accountId", accountId,
+                        "accountVersion", beforeVersion,
+                        "estado", before)),
+                commands.json(Map.of(
+                        "accountId", accountId,
+                        "accountVersion", account.getVersion(),
+                        "estado", "ATIVA",
+                        "reason", reason)),
                 accountId, null, http);
         return accountViews.buscarPorId(accountId);
     }
@@ -284,7 +297,7 @@ public class BusinessAccountGovernanceService {
 
     private BusinessAccount lockAccount(Long id) {
         return accounts.findByIdForUpdate(id)
-                .orElseThrow(() -> new BusinessException("BusinessAccount não encontrada."));
+                .orElseThrow(() -> new ResourceNotFoundException("BusinessAccount", "id", id));
     }
 
     private User resolvePrincipal(PrincipalOwner owner) {

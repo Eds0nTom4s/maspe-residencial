@@ -1,0 +1,838 @@
+RELATÓRIO — AUDIT BACKEND PLATFORM ONBOARDING CANONICAL FLOW 001
+================================================================
+
+1. IDENTIFICAÇÃO
+----------------
+
+Audit ID: AUDIT-BACKEND-PLATFORM-ONBOARDING-CANONICAL-FLOW-001
+Repositório: Eds0nTom4s/maspe-residencial
+Branch: audit/backend-platform-onboarding-canonical-flow-001
+Base backend: 73dc2b4d1b3f9b4ccbd5a2bb5772592651e559b2
+Frontend de referência: Eds0nTom4s/CONSUMA-UI main @
+2cfca331fc386371571e6bdd1ee9129f40271c37
+Schema: V84
+Data: 2026-07-19
+
+Natureza: auditoria contratual e forense. Nenhuma funcionalidade, DTO,
+controller, service, entity, configuração ou migration foi alterada. Nenhum SQL
+manual foi executado. A única alteração versionável é este relatório.
+
+2. BASELINES
+------------
+
+Após git fetch origin --prune, HEAD, main e origin/main foram confirmados em
+73dc2b4d1b3f9b4ccbd5a2bb5772592651e559b2, com worktree limpo. A branch
+documental nasceu directamente desse SHA. O frontend de referência foi lido em
+2cfca331fc386371571e6bdd1ee9129f40271c37.
+
+V73 cria onboarding_requests. V83 acrescenta approval_idempotency_key e
+approval_fingerprint e cria o registo de NIF canónico. V84 reconcilia somente
+metadados de BusinessProvisioningOperation; não altera onboarding_requests.
+
+3. ESCOPO E RESPOSTA EXECUTIVA
+------------------------------
+
+O onboarding actual é uma fila administrativa interna criada, consultada,
+aprovada e rejeitada exclusivamente por ROLE_ADMIN. Não existe intake público
+ligado a OnboardingRequest. O frontend actual apenas lista a fila.
+
+A aprovação actual pode resolver uma BusinessAccount existente ou criar uma
+BusinessAccount canónica RASCUNHO com OWNER existente explicitamente indicado.
+Pode também anexar um Tenant já existente. Não cria Tenant, não executa preview,
+não provisiona, não cria BusinessProvisioningOperation, não executa readiness e
+não activa Conta nem Negócio.
+
+O estado OnboardingRequest.ATIVADO não significa BusinessAccount ATIVA nem
+Tenant ATIVO: significa apenas "Tenant anexado e statusPagamento PAGO ou
+NAO_APLICAVEL". É possível e esperado pelo código que ATIVADO coexista com
+BusinessAccount RASCUNHO e Tenant RASCUNHO. Há colisão semântica com o lifecycle
+canónico.
+
+O modelo recomendado é MODELO B — ORQUESTRADOR DE PREPARAÇÃO, sem duplicar
+preview, provisionamento ou activação: o onboarding governa intenção, decisão,
+identidade, owner, Conta e handoff; os contratos canónicos existentes executam
+preview/provision; a conclusão valida uma operação SUCCEEDED e associa o
+Negócio RASCUNHO. Activação da Conta e do Negócio permanece explícita e fora do
+estado do onboarding.
+
+4. INVENTÁRIO DE ARTEFACTOS
+---------------------------
+
+ARTEFACTO | TIPO | RESPONSABILIDADE | R/W | CLASSIFICAÇÃO | ESTADO | OBSERVAÇÃO
+PlatformOnboardingRequestController | controller | cinco endpoints da fila | R/W | actual, não canónico end-to-end | activo | ROLE_ADMIN em todos
+PlatformOnboardingRequestService | service | CRUD parcial, approval e audit de approval | R/W | híbrido | activo | não orquestra provisioning
+OnboardingRequest | entity | solicitação, decisão, payment flag e vínculos | R/W | actual | activo | herda @Version, não exposta
+OnboardingRequestRepository | repository | CRUD/search e lock approval | R/W | actual | activo | PESSIMISTIC_WRITE apenas no approve
+OnboardingRequestCreateRequest | DTO | intake administrativo | W | actual | activo | sem idempotência/version
+OnboardingRequestApproveRequest | DTO | decisão/Conta/Tenant/payment | W | híbrido | activo | só owner existente
+OnboardingRequestRejectRequest | DTO | motivo de rejeição | W | actual | activo | sem version/key
+OnboardingRequestResponse | DTO | leitura da fila | R | actual | activo | omite version
+OnboardingRequestStatus | enum | sete estados | R/W | parcialmente legacy | activo | dois estados órfãos
+OnboardingPaymentStatus | enum | cinco flags de pagamento | R/W | flag administrativa | activo | sem domínio financeiro
+V73__platform_business_accounts_contract.sql | migration | tabela/FKs/índices | schema | actual | aplicada | sem unique NIF
+V83__business_account_provisioning_final_hardening.sql | migration | idempotência approval | schema | actual | aplicada | sem FK para operation
+PlatformBusinessAccountContractIT | teste PostgreSQL | onboarding/governance/concurrency | teste | actual | activo | 4 testes na classe
+BusinessAccountGovernanceService | service indirecto | create Account/owner e attach Tenant | W | canónico para Conta; attach administrativo | activo | mesma transacção
+CanonicalCommandSupport | suporte | key/fingerprint/actor/locks/NIF | R/W | canónico | activo | usado no approve
+BusinessAccountGovernanceEvent | entity audit | approval/attach/create/activation | W | canónico | activo | evento rico
+PlatformCanonicalBusinessProvisioningController | controller indirecto | preview/provision/readiness/activate | R/W | canónico alvo | activo | não chamado pelo onboarding
+PlatformProvisioningOperationController | controller indirecto | recovery/resume | R/W | canónico alvo | activo | sem onboardingId
+BusinessProvisioningPreview/Operation | entities | preview e operação persistente | R/W | canónico alvo | activo | sem vínculo onboarding
+V82__business_account_canonical_provisioning.sql | migration | audit/preview/operation | schema | canónico | aplicada | constraints de idempotência
+
+Frontend: sete consumidores directos foram encontrados (types, API service,
+store, lista, overview, rota e sidebar). platformOnboardingRequests.service.ts
+implementa apenas GET /platform/onboarding-requests. Não existe UI de detalhe,
+create, approve, reject, preview, provision ou continuação por onboarding.
+
+Não foram encontrados jobs, schedulers, listeners, outbox, providers de
+notificação ou integrações financeiras que referenciem OnboardingRequest.
+
+5. ENDPOINTS ACTUAIS
+--------------------
+
+Todos os paths abaixo são relativos ao context path /api. Todos os cinco
+endpoints directos exigem autenticação e hasRole('ADMIN'); o service repete
+TenantGuard.assertPlatformAdmin(). Token ausente/inválido: 401. Utilizador sem
+ROLE_ADMIN: 403.
+
+METHOD/PATH | DTO/HEADERS | HTTP | TX/LOCK | IDEMPOTÊNCIA | MUTAÇÃO/RISCO
+GET /platform/onboarding-requests | page,size,status,search | 200 | read-only, sem lock | N/A | nenhuma; lista PII administrativa
+GET /platform/onboarding-requests/{id} | path id | 200 | read-only, sem lock | N/A | inexistente é BusinessException/400, não ResourceNotFound/404
+POST /platform/onboarding-requests | CreateRequest | 201 | REQUIRED, sem lock | nenhuma | cria PENDENTE; duplicados possíveis
+PATCH /platform/onboarding-requests/{id}/approve | ApproveRequest + Idempotency-Key + X-Correlation-Id | 200 | REQUIRED; lock request, Account e opcional Tenant | key+fingerprint no row | cria/associa Account, opcionalmente anexa Tenant; pode marcar ATIVADO semanticamente
+PATCH /platform/onboarding-requests/{id}/reject | RejectRequest | 200 | REQUIRED, sem lock explícito | nenhuma | força REJEITADO a partir de qualquer estado
+
+Erros observáveis por contrato: 400 para validação, header ausente, plano/owner/
+tenant inválido e regras lançadas como BusinessException; 404 pode ocorrer em
+BusinessAccount inexistente via ResourceNotFoundException; 409 para conflito de
+idempotência, Account bloqueada, owner inconsistente, Tenant cross-account,
+maxTenants ou optimistic locking; 401/403 conforme segurança. Não há endpoint de
+cancelamento.
+
+Contratos canónicos indirectos que o onboarding deve reutilizar:
+- POST /platform/business-accounts (Conta RASCUNHO, owner ASSOCIATE/CREATE_NEW);
+- POST /platform/business-accounts/{id}/owner/replace;
+- POST /platform/business-accounts/{id}/managers;
+- POST /platform/business-accounts/{id}/activate;
+- POST /platform/business-accounts/{id}/businesses/preview;
+- POST /platform/business-accounts/{id}/businesses/provision;
+- GET /platform/provisioning-operations/{operationId};
+- GET /platform/provisioning-operations?businessAccountId=&idempotencyKey=;
+- POST /platform/provisioning-operations/{operationId}/resume;
+- GET /platform/business-accounts/{id}/businesses/{tenantId}/readiness;
+- POST /platform/business-accounts/{id}/businesses/{tenantId}/activate;
+- GET /platform/plans e GET de Account/Tenant para fontes read-only/version.
+
+6. MODELO PERSISTENTE
+---------------------
+
+onboarding_requests possui PK id, BaseEntity.version, created/updated/by,
+contactos do solicitante, dados parciais do Negócio, FKs opcionais para plano,
+BusinessAccount e Tenant, estados, valor/moeda, observações, timestamps,
+notification strings e metadados de approval idempotente.
+
+Integridade estrutural existente:
+- FK plano_id -> planos.id;
+- FK business_account_id -> business_accounts.id;
+- FK tenant_id -> tenants.id;
+- índices status, business_account_id e created_at;
+- @Version optimista herdada.
+
+Integridade ausente/relevante:
+- nenhum unique/índice por nif normalizado;
+- nenhuma FK/referência a User solicitante/owner;
+- nenhuma FK/referência a BusinessProvisioningOperation/preview;
+- nenhuma constraint garantindo Tenant pertencente à Account gravada;
+- nenhuma constraint/check de enums;
+- approval key/fingerprint não têm constraint conjunta; o lock do row governa
+  a intenção por onboarding;
+- response não expõe version.
+
+7. MÁQUINA DE ESTADOS REAL
+--------------------------
+
+ORIGEM | DESTINO | AUTOR | CONDIÇÃO/GUARD | REVERSÍVEL | AUDITADO
+novo | PENDENTE | POST create/ROLE_ADMIN | DTO válido e plano existente | sim por reject | só BaseEntity
+qualquer excepto REJEITADO/CANCELADO, sem approval gravado | APROVADO | approve | Account resolvida, tenant null, payment OK | reject permite | ONBOARDING_APPROVED
+qualquer excepto REJEITADO/CANCELADO, sem approval gravado | ATIVADO | approve | tenant não null, payment OK | reject permite | ONBOARDING_APPROVED; attach se novo vínculo
+qualquer excepto REJEITADO/CANCELADO, sem approval gravado | AGUARDANDO_PAGAMENTO | approve | payment não OK | reject permite | ONBOARDING_APPROVED
+qualquer estado | REJEITADO | reject | apenas motivo não vazio | repetível | não há governance event
+estado já aprovado | mesmo estado | replay approve | mesma key+fingerprint | N/A | sem novo evento
+
+Classificação:
+- PENDENTE: alcançável, entrada real;
+- AGUARDANDO_PAGAMENTO: alcançável pelo approve;
+- AGUARDANDO_APROVACAO: inalcançável pelo código pesquisado, legacy/órfão;
+- APROVADO: alcançável, sem orquestração de saída;
+- REJEITADO: alcançável a partir de qualquer estado;
+- ATIVADO: alcançável, ambíguo e semanticamente colidente;
+- CANCELADO: sem endpoint, service, job ou autor canónico identificado.
+
+AGUARDANDO_APROVACAO e CANCELADO só existem no enum/UI de filtro. Não há
+comando que os escreva. APROVADO não possui comando de continuação.
+
+8. MÁQUINA DE PAGAMENTO
+-----------------------
+
+Create define NAO_APLICAVEL se valor é null, zero ou negativo; define PENDENTE
+se valor > 0. Approve pode substituir directamente por qualquer valor do enum:
+NAO_APLICAVEL, PENDENTE, PAGO, FALHOU ou CANCELADO. PAGO/NAO_APLICAVEL são
+"pagamentoOk"; os restantes levam o onboarding a AGUARDANDO_PAGAMENTO.
+
+Não existe paymentId, transaction reference, FK para Pagamento/PaymentAttempt,
+webhook, AppyPay, reconciliação, invoice, billing/subscription, evento financeiro
+ou evidência externa ligado ao onboarding. Classificação:
+MANUAL ADMINISTRATIVE FLAG.
+
+Um Platform Admin pode enviar statusPagamento=PAGO sem prova financeira. Valor
+é fornecido arbitrariamente; não é calculado do Plano, não tem snapshot/version
+de preço, proposta, desconto, campanha ou trial. Valor negativo é tratado como
+NAO_APLICAVEL. A flag influencia ATIVADO, agravando a colisão semântica.
+
+9. SOLICITANTE, IDENTIDADE E OWNER
+---------------------------------
+
+nomeSolicitante e telefone são obrigatórios; email é opcional e apenas validado
+por @Email. São strings persistidas. Não existe userId no OnboardingRequest,
+resolução por email/telefone, criação de User no create ou vínculo persistente
+solicitante->User.
+
+O solicitante não se torna OWNER automaticamente. Approval que cria Conta exige
+responsavelUserId existente e constrói PrincipalOwner(ASSOCIATE_EXISTING,
+confirmExistingUser=true). Se o User não existe/não está activo, falha. O DTO de
+approval não suporta CREATE_NEW nem campos username/temporaryPassword/nome do
+owner. O contrato canónico directo suporta ASSOCIATE_EXISTING e CREATE_NEW, mas
+o onboarding expõe só o primeiro.
+
+Cenários:
+A. solicitante já é User: nada o detecta; Admin deve escolher o ID explicitamente;
+B. solicitante não é User: approval não consegue criar owner/Conta;
+C/D. telefone/email coincide: nenhuma resolução automática ocorre;
+E. múltiplas identidades: nenhuma heurística decide; escolha humana por ID.
+
+Isto evita associação silenciosa insegura, mas a UI futura precisa pesquisa e
+confirmação explícita de User existente ou criação explícita com credenciais
+temporárias, nunca inferência automática por contacto.
+
+10. NIF
+-------
+
+Create persiste nif literalmente, sem trim/normalização/reserva. Não há unique
+constraint em onboarding_requests.nif. Duas solicitações pendentes com o mesmo
+NIF são permitidas, e uma solicitação pode coexistir com BusinessAccount já
+existente com NIF equivalente.
+
+canonical_business_account_nifs entra apenas quando approval cria uma Account
+canónica. Nesse momento CanonicalCommandSupport normaliza trim/uppercase e
+remove espaço, ponto, barra e hífen, exige 5..30 alfanuméricos, adquire advisory
+lock e consulta tanto o registo canónico como NIFs legados normalizados.
+
+Approval não procura automaticamente Account pelo NIF. Sem businessAccountId,
+criarBusinessAccountSeAusente=true tenta criar e recebe 409 NIF_ALREADY_EXISTS
+se já existir; o operador precisa seleccionar a Account. Com businessAccountId,
+o NIF da solicitação não é comparado ao NIF da Account.
+
+Protecção por cenário:
+- duplicidade de solicitações: NÃO PROTEGIDO;
+- reserva de NIF no intake: NÃO PROTEGIDO;
+- duas approvals criando Accounts canónicas com mesmo NIF: PROTEGIDO por lock,
+  consulta normalizada e PK canónica (uma converge, outra 409);
+- NIF contra Account legada/canónica no create Account: PROTEGIDO;
+- selecção manual de Account com NIF divergente: NÃO PROTEGIDO;
+- decisão concorrente sobre pedidos duplicados: PARCIALMENTE PROTEGIDO apenas no
+  ponto tardio da criação canónica.
+
+11. PLANO E PREÇO
+-----------------
+
+Create exige planoCodigo e resolve imediatamente uma FK Plano existente. O
+OnboardingRequest guarda a entidade Plano e valor/moeda independentes. Approval
+não revalida plano, preço, disponibilidade ou versão. O preview canónico recebe
+planoCodigo novamente num BusinessPreviewRequest independente e persiste seu
+próprio plano_codigo.
+
+Logo ONBOARDING.plano pode divergir de PROVISIONING.plano. O plano do onboarding
+é hoje intenção administrativa; a fonte operacional é o plano revalidado no
+preview canónico. O futuro contrato deve tratar a escolha inicial como
+preferência, exigir confirmação humana no approval e revalidar obrigatoriamente
+no preview. Preço comercial precisa snapshot/proposta própria se tiver efeito;
+não deve ser deduzido do campo valor actual.
+
+12. TIPO DE NEGÓCIO E VERTICAL
+------------------------------
+
+tipoNegocio é TenantTipo: VENDEDOR_RUA, RESTAURANTE, BAR, FOOD_COURT, EVENTO,
+LOJA, CLUBE ou INSTITUCIONAL. A vertical canónica é enum diferente:
+CONSUMA_PONTO ou CONSUMA_REST.
+
+TenantTipo representa subtipo operacional, não vertical. O onboarding não
+captura BusinessVertical. Não existe mapping contratual explícito; inferir
+PONTO/REST de TenantTipo seria ambíguo e inseguro. Há lacuna contratual.
+
+13. APROVAÇÃO E MATRIZ DE COMBINAÇÕES
+------------------------------------
+
+businessAccountId | criar se ausente | responsavelUserId | tenantId | resultado
+existente válido | qualquer | ignorado | null | valida Account/owner; APROVADO ou AGUARDANDO_PAGAMENTO
+existente válido | qualquer | ignorado | já vinculado à mesma Account | retorna vínculo; ATIVADO se payment OK
+existente válido | qualquer | ignorado | vinculado a outra Account | 409 TENANT_ALREADY_LINKED_TO_ANOTHER_BUSINESS_ACCOUNT
+null | false/null | qualquer | qualquer | usa Account já gravada no request; se ausente, 400
+null | true | User activo | null | cria Account canónica RASCUNHO/OWNER; status APROVADO ou AGUARDANDO_PAGAMENTO
+null | true | null | null | 400 se request ainda não tem Account
+request já com Account | false/true | qualquer | opcional | reutiliza Account se businessAccountId não foi enviado
+replay exacto | igual | igual | igual | 200, mesma resposta, sem nova mutação
+mesma key com payload diferente ou key diferente após approval | - | - | - | 409 IDEMPOTENCY_CONFLICT
+duas approvals concorrentes iguais | - | - | - | serializadas pelo lock; 200/200, uma Account/OWNER
+
+Se um request legado já tiver BusinessAccount mas o operador envia explicitamente
+outro businessAccountId antes de existirem metadados de approval, o método usa o
+ID explícito e não compara NIF/identidade com o vínculo anterior.
+
+14. CRIAÇÃO/ASSOCIAÇÃO DE BUSINESSACCOUNT
+----------------------------------------
+
+resolveOrCreateBusinessAccountId delega a criação integralmente a
+BusinessAccountGovernanceService.create. O contrato é canónico, normaliza NIF,
+controla slug/NIF, exige owner, cria exactamente um OWNER activo coerente com
+responsavel_user_id, grava evento ACCOUNT_CREATED e deixa a Account RASCUNHO com
+maxTenants=1.
+
+A key interna é "onboarding-account-" + onboardingId; não é a key externa do
+approval. A criação usa fingerprint ACCOUNT_V1 do payload canónico; approval usa
+ONBOARDING_APPROVAL_V1 incluindo onboardingId e payload. Os dois scopes são
+separados deliberadamente. A key interna estável torna retry da criação
+convergente; a key/fingerprint externa governa a decisão completa.
+
+Ambos os services usam @Transactional padrão REQUIRED. A chamada aninhada entra
+na mesma transacção. Não há REQUIRES_NEW. Erro após create/attach/audit provoca
+rollback de Account, OWNER, NIF, Tenant link e eventos. Não foi encontrado caminho
+normal que deixe Account/owner órfãos por falha posterior.
+
+15. TENANTID E VÍNCULO
+---------------------
+
+tenantId no approval representa um Tenant preexistente, originado fora do
+onboarding (pode ser legacy ou provisionado canonicamente). O approval não exige
+provisioningSource e não valida Tenant.estado. RASCUNHO, ATIVO, SUSPENSO,
+BLOQUEADO ou CANCELADO não são filtrados por estado.
+
+governOnboardingAssignment executa associação administrativa, não
+provisionamento nem activação. Locks: Account PESSIMISTIC_WRITE e, se fornecido,
+Tenant PESSIMISTIC_WRITE. Aceita Account RASCUNHO/ATIVA; exige owner invariant;
+recusa cross-account; respeita maxTenants; vínculo novo incrementa Account.version
+e gera ONBOARDING_TENANT_ATTACHED before/after. Não recebe accountVersion nem
+tenantVersion. Vínculo já existente na mesma Account é replay estrutural sem
+novo attach event.
+
+Não executa preview, provision, readiness ou activate. O approval não cria
+Tenant. O facto de aceitar qualquer Tenant preexistente permite contornar a
+proveniência canónica e produzir ATIVADO sem prontidão/estado operacional.
+
+16. ATOMICIDADE
+---------------
+
+Fluxo real do approve:
+ROLE_ADMIN -> require key/actor/fingerprint -> lock OnboardingRequest -> replay/
+state guard -> alteração manual payment/observação -> resolve/cria Account ->
+lock/validate Account -> opcional lock/attach Tenant -> decide estado onboarding
+-> saveAndFlush onboarding -> ONBOARDING_APPROVED -> commit.
+
+Create Account, owner member, canonical NIF, attach Tenant, Account version,
+ONBOARDING_TENANT_ATTACHED, onboarding row e ONBOARDING_APPROVED participam da
+mesma transacção. Não há chamada externa, notification ou payment durante a
+transacção. Events não sobrevivem ao rollback.
+
+17. IDEMPOTÊNCIA
+----------------
+
+COMANDO | KEY/FINGERPRINT/SCOPE | PERSISTÊNCIA/REPLAY | LACUNA
+CREATE ONBOARDING | não | apenas row novo | duplicável; UNKNOWN_RESULT não recuperável
+APPROVE | obrigatória; ONBOARDING_APPROVAL_V1 no próprio row | replay exacto 200; divergência 409 | sem onboardingVersion no request
+REJECT | não | cada chamada muta timestamp/status | não idempotente semanticamente; sem fingerprint
+CANCEL | inexistente | inexistente | sem contrato
+CREATE ACCOUNT | obrigatória; ACCOUNT_V1; governance event unique | replay canónico | approval só ASSOCIATE_EXISTING
+ATTACH ACCOUNT | coberto pela aprovação | row onboarding | NIF/Account não reconciliados
+ATTACH TENANT | key/fingerprint do approve; governance event | vínculo já igual converge | sem versions/provenance/state
+PREVIEW | key+fingerprint; unique(account,key) | persistente/replay | sem onboardingId
+PROVISION | key+fingerprint; unique(account,key) | operation/recovery/resume | sem onboardingId
+ACTIVATE ACCOUNT | key+fingerprint+versions | event/replay/UNKNOWN_RESULT recuperável | não chamado
+ACTIVATE BUSINESS | key+fingerprint+versions | event/replay/UNKNOWN_RESULT recuperável | não chamado
+
+18. CONCORRÊNCIA E VERSIONAMENTO
+--------------------------------
+
+OnboardingRequest herda @Version, mas create/approve/reject DTOs e response não
+expõem version. Approval usa lock pessimista por id, depois locks Account/Tenant;
+duas approvals iguais convergem e intenção diferente conflita após a primeira.
+BusinessAccount canonical create usa advisory locks e constraints.
+
+Reject não usa findByIdForUpdate nem key/guard. Duas rejeições ou approval vs
+reject podem ler estado stale; @Version pode transformar a segunda escrita em
+409, mas o vencedor depende da corrida. Não existe decisão explícita de
+precedência. Pior: reject sequencial pode mudar APROVADO ou ATIVADO para
+REJEITADO sem desfazer Account/Tenant, criando estado contraditório.
+
+Approval não recebe accountVersion/tenantVersion. Os locks evitam races de
+capacidade e vínculo, mas não provam que a decisão do operador foi baseada na
+versão apresentada pela UI.
+
+19. AUDITORIA
+-------------
+
+CREATE: apenas created_by/created_at de BaseEntity; nenhum governance event.
+APPROVE: ONBOARDING_APPROVED com actorUserId, roles, correlationId,
+Idempotency-Key, fingerprint, IP, User-Agent, timestamp e before/after; Account
+create e Tenant attach têm eventos próprios. before_state fixa "PENDENTE" mesmo
+para eventual row legado noutro estado.
+REJECT: apenas modified_by, motivo, rejectedAt e notification strings; nenhum
+evento rico, correlation ou key.
+CANCEL: inexistente.
+PAYMENT status: não possui evento financeiro; mudança fica embutida no approval.
+
+20. NOTIFICAÇÕES
+----------------
+
+notificationStatus/notificationMessage são marcações persistidas:
+NAO_ENVIADO, APROVADO_INTERNO e REJEITADO_INTERNO. Não há envio SMS/email,
+provider, outbox, retry, event ou scheduler ligado. Classificação: campos
+administrativos informativos, não prova de notificação.
+
+21. SEGURANÇA
+-------------
+
+O endpoint actual deve permanecer Platform Admin: intake administrativo e
+decisão têm PII e efeitos de governance. Não se deve remover ROLE_ADMIN para
+criar auto-onboarding. Um futuro canal público deve ser endpoint/modelo de
+PUBLIC REQUEST INTAKE separado, com rate limiting, anti-abuse, consentimento e
+payload mínimo; a decisão continua autenticada em Platform Admin.
+
+TenantGuard não usa X-Tenant-Id para estes comandos; o scope é plataforma. Os
+headers canónicos de approve são Authorization, Content-Type, Idempotency-Key e
+X-Correlation-Id. Create/reject não têm key/correlation obrigatórios. List/detail
+expõem contactos, NIF, valor e observações apenas a ROLE_ADMIN.
+
+22. PREVIEW, PROVISIONAMENTO E DADOS EM FALTA
+---------------------------------------------
+
+Approval executa preview? NÃO.
+Approval executa provision? NÃO.
+Approval cria BusinessProvisioningOperation/operationId? NÃO.
+Existe recovery/resume ligado ao onboarding? NÃO.
+Existe onboardingId em preview/operation? NÃO.
+Existe vínculo persistente onboarding->operation? NÃO.
+
+CAMPO CANÓNICO | ONBOARDING | FONTE/DECISÃO
+accountVersion | não | detalhe da Account, obrigatório no handoff
+planoCodigo | sim como FK/intenção | confirmar no approval e revalidar no preview
+vertical | não | decisão humana obrigatória
+nomeNegocio | sim | revalidar/editar
+slug | só businessAccountSlug no approval; não slug do Negócio | decisão humana
+tenantCode | não | input/geração governada
+tipo | sim TenantTipo | revalidar; não derivar vertical
+nif | sim opcional | normalizar/reconciliar com Account e Negócio
+telefone/email | sim contactos do solicitante | confirmar se pertencem ao Negócio
+endereco/provincia/municipio | não | completar
+config PONTO | não | completar conforme vertical
+config REST | não | completar conforme vertical
+additional accesses | não | decisão humana
+owner/access strategy | parcial | owner Account por ID; acessos Tenant ausentes
+
+Um onboarding aprovado não contém dados suficientes para preview canónico.
+
+23. ACTIVATION LIFECYCLE E SEMÂNTICA DE ATIVADO
+----------------------------------------------
+
+O onboarding não chama POST Account activate, readiness nem POST Business
+activate. Não altera BusinessAccount.estado ou Tenant.estado. Provisionamento
+canónico cria Tenant RASCUNHO; Conta e Negócio exigem activações explícitas e
+separadas.
+
+OnboardingRequest.ATIVADO é, portanto, duplicação nominal falsa de estado
+operacional. Com tenant RASCUNHO + Account RASCUNHO + payment OK, approve define
+ATIVADO. O código não chama readiness. Classificação: COLISÃO SEMÂNTICA DE
+ESTADO. Recomenda-se substituir no futuro por CONCLUIDO (handoff/provisionamento
+concluído) ou derivar estado operacional das entidades canónicas, nunca chamar
+ATIVADO ao onboarding.
+
+24. FLUXO ACTUAL REAL
+---------------------
+
+ROLE_ADMIN
+   |
+   +-- POST onboarding-requests
+   |      -> resolve Plano
+   |      -> PENDENTE
+   |      -> payment NAO_APLICAVEL (valor null/<=0) ou PENDENTE (>0)
+   |
+   +-- PATCH reject (de qualquer estado)
+   |      -> REJEITADO
+   |
+   `-- PATCH approve + key/correlation
+          -> lock OnboardingRequest
+          -> Account ID explícita?
+             |-- sim: lock/validar Account + OWNER
+             `-- não:
+                 |-- Account já ligada: reutilizar
+                 |-- criar=false: erro
+                 `-- criar=true + responsavelUserId:
+                     criar Account canónica RASCUNHO + OWNER existente
+          -> tenantId?
+             |-- null: nenhum Negócio criado
+             `-- existente: lock/validar cross-account/capacidade e anexar
+          -> payment PAGO/NAO_APLICAVEL?
+             |-- não: AGUARDANDO_PAGAMENTO
+             |-- sim + tenant null: APROVADO (sem continuador identificado)
+             `-- sim + tenant: ATIVADO (sem activar Account/Tenant)
+
+Não existe fluxo automático depois de APROVADO, nem actor que actualize
+tenant_id depois de um provisionamento posterior. O frontend só lista; operador
+teria de copiar/reintroduzir dados noutros ecrãs, e o onboarding não seria
+reconciliado.
+
+25. FINDINGS
+------------
+
+B-01 | BLOCKER | ESTADO
+Evidência: tenant != null + payment OK => OnboardingRequest.ATIVADO sem ler ou
+alterar BusinessAccount.estado/Tenant.estado/readiness.
+Causa: nome administrativo reutiliza conceito operacional.
+Impacto/risco: UI e operações podem tratar cliente como activo quando Conta e
+Negócio estão RASCUNHO/SUSPENSO.
+Decisão: remover/redefinir ATIVADO; conclusão não representa activação.
+Fase: backend/platform-onboarding-canonical-contract-001.
+
+B-02 | BLOCKER | PROVISIONAMENTO
+Evidência: APROVADO sem tenant não tem endpoint/job/listener/UI de continuação;
+operation não possui onboardingId e ninguém actualiza tenant_id depois.
+Causa: handoff não modelado.
+Impacto: fluxo termina numa fila sem recoverability/reconciliação.
+Decisão: vínculo persistente com operação canónica e comando de conclusão.
+Fase: backend canonical contract + runtime E2E.
+
+B-03 | BLOCKER | GOVERNANÇA/PROVISIONAMENTO
+Evidência: approval aceita qualquer tenantId existente, sem provisioningSource,
+Tenant.estado, preview, operation ou readiness; pode marcar ATIVADO.
+Causa: attach administrativo confundido com conclusão.
+Impacto: bypass da proveniência e lifecycle canónicos.
+Decisão: não aceitar tenant arbitrário como conclusão; validar operação
+SUCCEEDED/account/tenant RASCUNHO ou tratar migração legacy separadamente.
+Fase: backend canonical contract.
+
+B-04 | BLOCKER | CONTRATO/DADOS
+Evidência: vertical, slug/tenantCode, endereço, opções PONTO/REST e acessos não
+existem no onboarding.
+Causa: intake antigo não foi desenhado para BusinessPreviewRequest.
+Impacto: impossível handoff determinístico sem decisão adicional.
+Decisão: contrato de preparação explícito e completion de dados antes do preview.
+Fase: backend + frontend canonical flow.
+
+H-01 | HIGH | IDEMPOTÊNCIA
+Create onboarding não recebe key/fingerprint; retry/UNKNOWN_RESULT duplica rows.
+Decisão: comando idempotente persistente por canal/scope.
+
+H-02 | HIGH | ESTADO/IDEMPOTÊNCIA/CONCORRÊNCIA
+Reject não possui state guard, lock, key ou version; permite ATIVADO/APROVADO ->
+REJEITADO e race não determinística com approve.
+Decisão: máquina explícita, version, key/fingerprint e governance event.
+
+H-03 | HIGH | DADOS/NIF
+NIF não é normalizado/reservado no intake; pedidos duplicados são permitidos e
+Account existente não é resolvida automaticamente.
+Decisão: índice/reserva normalizada com política de expiração/estado ou detecção
+governada; decisão humana quando Account existe.
+
+H-04 | HIGH | IDENTIDADE
+Solicitante não liga a User; approval só suporta ASSOCIATE_EXISTING por ID e não
+CREATE_NEW.
+Decisão: ownerChoice explícita com confirmação de identidade e ambos strategies.
+
+H-05 | HIGH | PAGAMENTO
+PAGO é flag manual sem evidência e influencia ATIVADO; valor negativo vira
+NAO_APLICAVEL.
+Decisão: separar decisão administrativa de prova financeira; validar monetary
+contract e integrar referência apenas quando domínio for definido.
+
+H-06 | HIGH | CONTRATO/PLANO
+Plano e valor do intake não são snapshot/revalidados; preview pode usar outro
+plano.
+Decisão: preferência no intake, confirmação no approval, fonte operacional no
+preview e linkage auditável.
+
+H-07 | HIGH | GOVERNANÇA/DADOS
+businessAccountId explícito não é reconciliado com NIF/solicitante/Account já
+ligada.
+Decisão: retornar candidatos por NIF e exigir decisão humana/fingerprint.
+
+H-08 | HIGH | CONCORRÊNCIA
+Approval/attach não recebem onboardingVersion/accountVersion/tenantVersion;
+locks protegem persistência mas não intenção stale da UI.
+Decisão: versões explícitas nos comandos.
+
+H-09 | HIGH | AUDITORIA
+Create, reject, cancel e payment change não possuem evento rico; before_state do
+approve assume PENDENTE.
+Decisão: eventos completos before/after, actor, reason, key e correlation.
+
+M-01 | MEDIUM | ESTADO/LEGACY
+AGUARDANDO_APROVACAO e CANCELADO não têm autor; APROVADO não tem saída.
+Decisão: máquina nova/migration de reconciliação governada.
+
+M-02 | MEDIUM | NOTIFICAÇÃO
+Campos notification sugerem entrega, mas são apenas strings sem outbox/provider.
+Decisão: renomear para marker administrativo ou implementar domínio futuro.
+
+M-03 | MEDIUM | DADOS
+Contactos/NIF/nome não têm normalização consistente; telefone não tem formato e
+email opcional não liga identidade.
+Decisão: normalização/validação por finalidade, sem matching silencioso.
+
+M-04 | MEDIUM | DADOS
+moeda não tem validação ISO/size no DTO; valor não tem @Positive/scale.
+Decisão: money value object/constraints na fase contratual.
+
+M-05 | MEDIUM | DADOS
+observação de approval concatena texto sem limitar resultado aos 500 da coluna.
+Decisão: validação de tamanho/fonte e audit separado.
+
+M-06 | MEDIUM | SEGURANÇA/CONTRATO
+Não há intake público, embora o nome onboarding possa induzir essa expectativa.
+Decisão: separar futuro public request intake do decision endpoint ROLE_ADMIN.
+
+M-07 | MEDIUM | TESTES
+Não há testes de duplicate NIF requests, Tenant states, reject após approval,
+approval-vs-reject, payment evidence, plan divergence ou handoff.
+Decisão: matriz PostgreSQL/E2E futura.
+
+M-08 | MEDIUM | DADOS
+OnboardingResponse omite @Version, impedindo UI de enviar decisão optimista.
+Decisão: expor version e exigir expectedVersion.
+
+L-01 | LOW | PERFORMANCE
+Sem índices onboarding por tenant_id, nif normalizado ou payment status.
+Decisão: medir consultas e adicionar apenas com contrato final.
+
+L-02 | LOW | SCHEMA
+Enums/status não têm CHECK no schema.
+Decisão: considerar constraints na migration de máquina final.
+
+L-03 | LOW | API
+Lista retorna array sem total/pagination metadata; UI infere next por size.
+Decisão: envelope paginado futuro.
+
+L-04 | LOW | DOCUMENTAÇÃO
+Swagger descreve fila administrativa, mas não explicita que ATIVADO não é
+activação operacional.
+Decisão: corrigir semântica no contrato futuro.
+
+Totais: BLOCKER 4; HIGH 9; MEDIUM 8; LOW 4.
+
+26. MATRIZ DE CONVERGÊNCIA
+-------------------------
+
+ETAPA | ACTUAL | ENTIDADE | ALVO CANÓNICO | DECISÃO/LACUNA | FASE
+Solicitação | POST admin | OnboardingRequest | intake idempotente | separar canal público/admin | backend
+Identidade | strings | OnboardingRequest | applicant ref/verification | sem vínculo actual | backend/UI
+Owner | userId no approval | User/AccountMember | PrincipalOwner strategy | adicionar CREATE_NEW explícito | backend/UI
+BusinessAccount | ID ou create | BusinessAccount | create canónico RASCUNHO | preservar serviço | backend
+NIF | texto tardio | onboarding/canonical NIF | normalizado/reservado | resolver duplicados | backend migration
+Gestores | ausentes | AccountMember | manager commands | passo posterior explícito | UI/backend existente
+Plano | FK/intenção | Plano | plano revalidado no preview | risco de divergência | backend/UI
+Vertical | ausente | BusinessVertical | PONTO/REST explícita | blocker de dados | backend/UI
+Dados Negócio | parciais | onboarding | BusinessData completo | completion necessário | UI
+Preview | não | Preview | endpoint canónico | reutilizar sem duplicar | UI/backend link
+Provisionamento | não | Operation | endpoint canónico | reutilizar | UI/backend link
+Provisioning operation | sem vínculo | Operation | onboarding->operation | FK/link necessário | backend migration
+Pagamento | flag manual | onboarding | decisão financeira separada | contrato por definir | backend futura
+Readiness | não | Account/Tenant | readiness canónico | após provision e Account activa | UI existente
+Activação Conta | não | BusinessAccount | activate explícito | fora de approve | UI existente
+Activação Negócio | não | Tenant | activate explícito | fora de conclude | UI existente
+Rejeição | qualquer->REJEITADO | onboarding | state/version/key | hardening | backend
+Cancelamento | inexistente | enum | comando governado | definir estados permitidos | backend
+Notificação | strings | onboarding | outbox ou marker honesto | não prometer envio | backend futura
+Auditoria | só approval rico | GovernanceEvent | todos comandos | lacuna | backend
+Recovery | só approval replay | onboarding/operation | keys + operation resume | link ausente | backend/runtime
+
+27. MODELO CANÓNICO RECOMENDADO
+--------------------------------
+
+Escolha: MODELO B — ORQUESTRADOR DE PREPARAÇÃO.
+
+Papel exacto: OnboardingRequest representa intenção comercial e decisão
+administrativa até ao handoff/conclusão de um provisionamento canónico. Não é
+fonte de verdade de estado operacional, pagamento ou activação.
+
+Fluxo futuro recomendado:
+
+SOLICITAÇÃO idempotente
+        -> VALIDAÇÃO ADMINISTRATIVA
+        -> RESOLUÇÃO explícita SOLICITANTE/OWNER
+           (ASSOCIATE_EXISTING ou CREATE_NEW confirmado)
+        -> RESOLVER ou CRIAR BUSINESSACCOUNT RASCUNHO
+        -> CONFIRMAR plano e vertical
+        -> APROVADO / READY_FOR_PREPARATION
+        -> COMPLETAR BusinessData, opções e acessos
+        -> POST PREVIEW CANÓNICO existente
+        -> CONFIRMAÇÃO HUMANA do preview
+        -> POST PROVISION CANÓNICO existente
+        -> recovery/resume pela operação existente
+        -> validar SUCCEEDED + Tenant RASCUNHO + mesma Account
+        -> ONBOARDING CONCLUIDO
+        -> POST ACTIVATE ACCOUNT explícito, quando autorizado
+        -> READINESS
+        -> POST ACTIVATE BUSINESS explícito, quando autorizado
+
+MODELO A reduz risco, mas deixa novamente handoff manual e não resolve B-02.
+MODELO C viola separação/activação explícita e é rejeitado. Modelo B reutiliza
+contratos existentes e mantém recoverability sem segundo provisionador.
+
+Decisões:
+1. Account nasce no approval se não existir, sempre RASCUNHO.
+2. Owner é definido no mesmo approval por strategy explícita.
+3. Plano/vertical são confirmados no approval e revalidados no preview.
+4. Preview e provision usam endpoints/services canónicos, nunca clones.
+5. Conta/Negócio são activados por comandos canónicos separados e humanos.
+6. Onboarding conclui após operação SUCCEEDED e vínculo do Tenant RASCUNHO.
+7. Payment é gate administrativo/financeiro separado e só usa PAGO quando houver
+   referência/evidência contratual; não activa nada.
+8. Reject/cancel são comandos versionados, idempotentes e auditados.
+
+28. DEFINIÇÕES E CONTRATOS FUTUROS PROPOSTOS
+--------------------------------------------
+
+Frase contratual:
+"APROVAR UM ONBOARDING SIGNIFICA aceitar a intenção administrativa, resolver
+explicitamente a identidade do OWNER, resolver ou criar a BusinessAccount
+RASCUNHO e congelar as decisões de plano/vertical necessárias ao handoff; não
+significa provisionar ou activar um Negócio."
+
+"CONCLUIR UM ONBOARDING SIGNIFICA verificar uma BusinessProvisioningOperation
+canónica SUCCEEDED, pertencente à BusinessAccount decidida, vincular o Tenant
+RASCUNHO resultante e fechar o processo administrativo; não significa Conta
+ATIVA nem Negócio ATIVO."
+
+Contrato mínimo proposto, sem implementação nesta fase:
+
+POST /platform/onboarding-requests
+- request: intake validado + clientRequestId/channel; response inclui version;
+- headers: Idempotency-Key, X-Correlation-Id; replay persistente;
+- efeito: PENDENTE, sem Account/Tenant.
+
+POST /platform/onboarding-requests/{id}/approve
+- request: onboardingVersion, accountChoice(existingId/create), ownerChoice
+  ASSOCIATE_EXISTING/CREATE_NEW, confirmedPlanCode, vertical, paymentDecisionRef
+  opcional e reason;
+- headers canónicos; efeito: Account/OWNER resolvidos, estado APROVADO;
+- não recebe tenantId arbitrário; não activa.
+
+POST /platform/onboarding-requests/{id}/reject
+- request: onboardingVersion, reason; key/fingerprint;
+- permitido apenas em estados pré-decisão definidos; evento before/after.
+
+POST /platform/onboarding-requests/{id}/cancel
+- request: onboardingVersion, reason; key/fingerprint;
+- permitido antes de provisionamento concluído; não desfaz Account/operation;
+  compensação, se alguma, é comando separado.
+
+GET /platform/onboarding-requests/{id}/handoff
+- read-only; fornece Account.version, decisões confirmadas e campos ainda em
+  falta para construir BusinessPreviewRequest; não duplica preview.
+
+POST /platform/onboarding-requests/{id}/complete
+- request: onboardingVersion, operationId, reason; key/fingerprint;
+- verifica operation SUCCEEDED/effectsCommitted, Account, Tenant RASCUNHO e
+  ausência de vínculo divergente; grava operation/tenant e CONCLUIDO;
+- não chama activate.
+
+Os endpoints existentes de preview/provision/recovery/readiness/activation
+permanecem as únicas fontes operacionais. Uma alternativa ao GET handoff é
+incluir o mesmo bloco na response de detail; evitar endpoint se não necessário.
+
+29. PLANO DE IMPLEMENTAÇÃO FUTURA
+---------------------------------
+
+FASE A — backend/platform-onboarding-canonical-contract-001
+Objectivo: máquina canónica, versions/keys/audit, owner strategies, vertical,
+NIF, handoff e vínculo operation.
+Escopo: backend apenas; sem activation automática.
+Dependências: decisão formal sobre payment e estados.
+Migration: SIM, provavelmente para estado CONCLUIDO, campos owner/vertical,
+normalized NIF/reservation, operation FK e idempotência de create/reject/cancel.
+Risco: HIGH; exige migração/reconciliação de rows legacy sem reescrever dados.
+Gate: testes PostgreSQL de matriz completa, concurrency e migration.
+
+FASE B — ui/platform-onboarding-canonical-approval-flow-001
+Objectivo: detalhe/decisão, pesquisa/criação explícita de owner, confirmação de
+Account/plano/vertical, completion de BusinessData e handoff aos ecrãs canónicos.
+Dependência: Fase A publicada.
+Migration: NÃO.
+Risco: MEDIUM/HIGH; UX de identity e UNKNOWN_RESULT.
+Gate: E2E real sem endpoints legacy e sem activação automática.
+
+FASE C — runtime/e2e-onboarding-business-lifecycle-001
+Objectivo: provar intake -> approve -> preview -> provision/recovery -> conclude
+-> activation explícita Account -> readiness -> activation Business.
+Dependências: A+B.
+Migration: NÃO adicional esperada.
+Risco: HIGH pelo fluxo distribuído.
+Gate: same key/payload, conflitos, races, payment decision, NIF duplicado,
+operation link, zero double mutation e estados canónicos.
+
+Fase financeira separada somente após decisão: definir taxa/subscrição/factura,
+fonte externa, webhook/reconciliation e relação temporal. Não misturar com A.
+
+30. TESTES, RUNTIME E LIMITAÇÕES
+--------------------------------
+
+Comandos executados:
+- mvn -DskipTests compile: BUILD SUCCESS.
+- tentativa mvn -Dtest=PlatformBusinessAccountContractIT test: recusada pelo
+  guard RequireFailsafeRunnerCondition, que exige o runner PostgreSQL; não foi
+  falha funcional.
+- mvn -Pit -Dit.test=PlatformBusinessAccountContractIT verify: BUILD SUCCESS.
+  Surefire: 478 testes, 0 failures, 0 errors, 3 skipped.
+  Failsafe PlatformBusinessAccountContractIT: 4 testes, 0 failures, 0 errors,
+  0 skipped, PostgreSQL/Testcontainers.
+
+Cobertura existente:
+- happy path create/approve Account canónica, replay exacto, reject e list;
+- duas approvals concorrentes criam uma Account e um OWNER;
+- duas solicitações/tenants contra maxTenants=1 convergem 200+409;
+- conta sem owner, múltiplos owners, SUSPENSA/BLOQUEADA/CANCELADA recusadas.
+
+Não coberto: create idempotente, duplicate NIF requests, NIF vs Account existente,
+Tenant state/provenance, payment evidence, plan divergence, vertical/handoff,
+reject após decision, approve-vs-reject, cancel, operation link/conclusion e
+activation separation por onboarding.
+
+Runtime sandbox não foi usado: código, schema e ITs PostgreSQL foram suficientes.
+Nenhum SQL manual foi executado e nenhum dado existente foi alterado.
+
+31. DECISÃO FINAL
+-----------------
+
+ONBOARDING É: fila administrativa de intenção comercial e decisão ROLE_ADMIN,
+actualmente capaz de criar/associar Account e anexar Tenant preexistente.
+APROVAR: hoje resolve Account/owner, opcionalmente anexa Tenant e escolhe um
+estado administrativo; futuramente deve parar no boundary inequívoco definido na
+secção 28.
+OWNER: User explicitamente confirmado; actual approval só ASSOCIATE_EXISTING.
+CONTA: pode nascer no approval, canónica e RASCUNHO.
+NEGÓCIO: não nasce no approval; deve nascer no provisionamento canónico.
+PLANO: intenção no intake, confirmação no approval, verdade operacional no preview.
+VERTICAL: ausente hoje; deve ser decisão explícita.
+PAGAMENTO: hoje flag manual; contrato financeiro ainda não existe.
+PREVIEW/PROVISION: não ocorrem hoje; devem reutilizar contratos existentes.
+ACTIVAÇÕES: sempre comandos canónicos explícitos, fora do onboarding.
+TÉRMINO: deve ser CONCLUIDO após operation SUCCEEDED e Tenant RASCUNHO ligado.
+REJECT/CANCEL: devem ser versionados, idempotentes, state-guarded e auditados.
+REEXECUÇÃO: keys/fingerprints persistentes e recovery por operationId.
+NIF: normalização/reserva/detecção precoce e decisão humana para Account existente.
+FRONTEND: detalhe/approval/handoff, depois ecrãs canónicos de preview/provision/
+activation; nunca uma segunda máquina paralela.
+
+Decisão permitida:
+AUDITORIA CONCLUÍDA — CONTRATO CANÓNICO DEFINIDO PARA IMPLEMENTAÇÃO
+
+Isto não constitui aprovação para merge funcional nem autorização para iniciar
+as fases propostas.

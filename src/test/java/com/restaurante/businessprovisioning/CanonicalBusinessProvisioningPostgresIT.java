@@ -66,6 +66,7 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
     @Autowired BusinessAccountMemberRepository members;
     @Autowired BusinessProvisioningPreviewRepository previews;
     @Autowired BusinessProvisioningOperationRepository operations;
+    @Autowired BusinessAccountGovernanceEventRepository governanceEvents;
     @Autowired CanonicalBusinessAccountNifRepository canonicalNifs;
     @Autowired SubscricaoRepository subscricoes;
     @Autowired PlanoRepository planos;
@@ -159,31 +160,297 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(objectMapper.readTree(lookupByKey).at("/data/operationId").asText()).isEqualTo(operationId);
 
+        String tenantDetailBefore = mockMvc.perform(get("/platform/tenants/{tenantId}", tenantId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        JsonNode tenantDataBefore = objectMapper.readTree(tenantDetailBefore).path("data");
+        assertThat(tenantDataBefore.path("version").isIntegralNumber()).isTrue();
+        assertThat(tenantDataBefore.path("version").asLong()).isEqualTo(tenant.getVersion());
+        assertThat(tenantDataBefore.path("estado").asText()).isEqualTo("RASCUNHO");
+
         String readinessBefore = mockMvc.perform(get("/platform/business-accounts/{accountId}/businesses/{tenantId}/readiness", accountId, tenantId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(objectMapper.readTree(readinessBefore).at("/data/ready").asBoolean()).isFalse();
         assertThat(readinessBefore).contains("ACCOUNT_ACTIVE");
 
+        String accountActivation = "{\"accountVersion\":" + accountVersion
+                + ",\"reason\":\"  readiness validado  \"}";
+        String accountActivationKey = "activate-account-" + suffix;
         String activatedAccount = mockMvc.perform(post("/platform/business-accounts/{id}/activate", accountId)
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", "activate-account-" + suffix)
+                        .header("Idempotency-Key", accountActivationKey)
                         .header("X-Correlation-Id", "corr-activate-account-" + suffix)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"accountVersion\":" + accountVersion + ",\"reason\":\"readiness validado\"}"))
+                        .content(accountActivation))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         long activeAccountVersion = objectMapper.readTree(activatedAccount).at("/data/version").asLong();
+        assertThat(activeAccountVersion).isGreaterThan(accountVersion);
+        assertThat(objectMapper.readTree(activatedAccount).at("/data/estado").asText()).isEqualTo("ATIVA");
         tenant = tenants.findById(tenantId).orElseThrow();
+        assertThat(tenant.getEstado()).isEqualTo(TenantEstado.RASCUNHO);
+        assertThat(tenant.getVersion()).isEqualTo(tenantDataBefore.path("version").asLong());
+        assertThat(governanceEvents.findAll().stream()
+                .filter(e -> accountActivationKey.equals(e.getIdempotencyKey())
+                        && "ACCOUNT_ACTIVATED".equals(e.getAction())).count()).isEqualTo(1);
+
+        String accountReplay = mockMvc.perform(post("/platform/business-accounts/{id}/activate", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", accountActivationKey)
+                        .header("X-Correlation-Id", "corr-activate-account-replay-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(accountActivation))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(accountReplay).at("/data/version").asLong()).isEqualTo(activeAccountVersion);
+        assertThat(accounts.findById(accountId).orElseThrow().getVersion()).isEqualTo(activeAccountVersion);
+        mockMvc.perform(post("/platform/business-accounts/{id}/activate", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", accountActivationKey)
+                        .header("X-Correlation-Id", "corr-activate-account-conflict-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accountVersion\":" + accountVersion + ",\"reason\":\"intenção diferente\"}"))
+                .andExpect(status().isConflict());
+
+        String readinessAfterAccount = mockMvc.perform(get("/platform/business-accounts/{accountId}/businesses/{tenantId}/readiness", accountId, tenantId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(readinessAfterAccount).at("/data/ready").asBoolean()).isTrue();
+        assertThat(objectMapper.readTree(readinessAfterAccount).at("/data/blockers").toString())
+                .doesNotContain("ACCOUNT_ACTIVE");
+
+        Long tenantVersionBeforeActivation = tenant.getVersion();
+        Long ownerIdBeforeActivation = accounts.findById(accountId).orElseThrow().getResponsavel().getId();
         String activation = "{\"accountVersion\":" + activeAccountVersion
-                + ",\"tenantVersion\":" + tenant.getVersion() + ",\"reason\":\"activar após readiness\"}";
+                + ",\"tenantVersion\":" + tenantVersionBeforeActivation
+                + ",\"reason\":\"  activar após readiness  \"}";
+        String businessActivationKey = "activate-business-" + suffix;
         String activatedBusiness = mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate", accountId, tenantId)
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", "activate-business-" + suffix)
+                        .header("Idempotency-Key", businessActivationKey)
                         .header("X-Correlation-Id", "corr-activate-business-" + suffix)
                         .contentType(MediaType.APPLICATION_JSON).content(activation))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(objectMapper.readTree(activatedBusiness).at("/data/ready").asBoolean()).isTrue();
+        JsonNode activatedBusinessData = objectMapper.readTree(activatedBusiness).path("data");
+        assertThat(activatedBusinessData.path("ready").asBoolean()).isTrue();
+        assertThat(activatedBusinessData.path("estado").asText()).isEqualTo("ATIVO");
+        assertThat(activatedBusinessData.path("accountVersion").asLong()).isEqualTo(activeAccountVersion);
+        assertThat(activatedBusinessData.path("tenantVersion").asLong()).isGreaterThan(tenantVersionBeforeActivation);
+        Long activeTenantVersion = activatedBusinessData.path("tenantVersion").asLong();
         assertThat(tenants.findById(tenantId).orElseThrow().getEstado()).isEqualTo(TenantEstado.ATIVO);
+        assertThat(accounts.findById(accountId).orElseThrow().getResponsavel().getId()).isEqualTo(ownerIdBeforeActivation);
+        assertThat(subscricoes.findByTenantIdAndEstado(tenantId, SubscricaoEstado.ATIVA).orElseThrow()
+                .getPlano().getId()).isEqualTo(planoId);
+        assertThat(governanceEvents.findAll().stream()
+                .filter(e -> businessActivationKey.equals(e.getIdempotencyKey())
+                        && "BUSINESS_ACTIVATED".equals(e.getAction())).count()).isEqualTo(1);
+
+        String businessReplay = mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate", accountId, tenantId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", businessActivationKey)
+                        .header("X-Correlation-Id", "corr-activate-business-replay-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(activation))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(businessReplay).at("/data/tenantVersion").asLong()).isEqualTo(activeTenantVersion);
+        assertThat(tenants.findById(tenantId).orElseThrow().getVersion()).isEqualTo(activeTenantVersion);
+        mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate", accountId, tenantId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", businessActivationKey)
+                        .header("X-Correlation-Id", "corr-activate-business-conflict-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(activation.replace("activar após readiness", "intenção diferente")))
+                .andExpect(status().isConflict());
+
+        String tenantDetailAfter = mockMvc.perform(get("/platform/tenants/{tenantId}", tenantId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(tenantDetailAfter).at("/data/estado").asText()).isEqualTo("ATIVO");
+        assertThat(objectMapper.readTree(tenantDetailAfter).at("/data/version").asLong()).isEqualTo(activeTenantVersion);
+    }
+
+    @Test
+    void activationRejectsStaleVersionsCrossAccountAndChangedReadiness() throws Exception {
+        String suffix = "activation-" + suffix();
+        User admin = user("platform-" + suffix, Role.ROLE_ADMIN);
+        User owner = user("owner-" + suffix, Role.ROLE_GERENTE);
+        String token = token(admin);
+        PreparedLifecycle prepared = prepareDraftBusiness(token, owner, suffix);
+
+        mockMvc.perform(post("/platform/business-accounts/{id}/activate", prepared.accountId())
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "stale-account-" + suffix)
+                        .header("X-Correlation-Id", "corr-stale-account-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accountVersion\":" + (prepared.accountVersion() + 1)
+                                + ",\"reason\":\"versão stale\"}"))
+                .andExpect(status().isConflict());
+        assertThat(accounts.findById(prepared.accountId()).orElseThrow().getEstado())
+                .isEqualTo(BusinessAccountEstado.RASCUNHO);
+
+        mockMvc.perform(post("/platform/business-accounts/{id}/activate", prepared.accountId())
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "blank-account-reason-" + suffix)
+                        .header("X-Correlation-Id", "corr-blank-account-reason-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accountVersion\":" + prepared.accountVersion() + ",\"reason\":\"   \"}"))
+                .andExpect(status().isBadRequest());
+
+        JsonNode activated = activateAccount(token, prepared.accountId(), prepared.accountVersion(),
+                "valid-account-" + suffix, "activação explícita");
+        long activeAccountVersion = activated.path("version").asLong();
+        long tenantVersion = tenants.findById(prepared.tenantId()).orElseThrow().getVersion();
+
+        mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                        prepared.accountId(), prepared.tenantId())
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "stale-business-account-" + suffix)
+                        .header("X-Correlation-Id", "corr-stale-business-account-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(businessActivation(activeAccountVersion + 1, tenantVersion, "stale account")))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                        prepared.accountId(), prepared.tenantId())
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "stale-tenant-" + suffix)
+                        .header("X-Correlation-Id", "corr-stale-tenant-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(businessActivation(activeAccountVersion, tenantVersion + 1, "stale tenant")))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                        prepared.accountId(), prepared.tenantId())
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "both-stale-" + suffix)
+                        .header("X-Correlation-Id", "corr-both-stale-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(businessActivation(activeAccountVersion + 1, tenantVersion + 1, "ambas stale")))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                        prepared.accountId(), prepared.tenantId())
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "blank-business-reason-" + suffix)
+                        .header("X-Correlation-Id", "corr-blank-business-reason-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(businessActivation(activeAccountVersion, tenantVersion, "   ")))
+                .andExpect(status().isBadRequest());
+        assertThat(tenants.findById(prepared.tenantId()).orElseThrow().getEstado()).isEqualTo(TenantEstado.RASCUNHO);
+
+        User otherOwner = user("other-owner-" + suffix, Role.ROLE_GERENTE);
+        JsonNode otherAccount = createAccount(token, otherOwner, "other-" + suffix, 1);
+        JsonNode otherActive = activateAccount(token, otherAccount.path("id").asLong(),
+                otherAccount.path("version").asLong(), "activate-other-" + suffix, "activar outra conta");
+        mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                        otherAccount.path("id").asLong(), prepared.tenantId())
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "cross-account-activation-" + suffix)
+                        .header("X-Correlation-Id", "corr-cross-account-activation-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(businessActivation(otherActive.path("version").asLong(), tenantVersion,
+                                "tenant de outra conta")))
+                .andExpect(status().isConflict());
+
+        String readyBeforeChange = mockMvc.perform(get("/platform/business-accounts/{accountId}/businesses/{tenantId}/readiness",
+                        prepared.accountId(), prepared.tenantId()).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(readyBeforeChange).at("/data/ready").asBoolean()).isTrue();
+        owner.setAtivo(false);
+        users.saveAndFlush(owner);
+        String changedReadiness = mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                        prepared.accountId(), prepared.tenantId())
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "changed-readiness-" + suffix)
+                        .header("X-Correlation-Id", "corr-changed-readiness-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(businessActivation(activeAccountVersion, tenantVersion, "readiness deve ser reavaliado")))
+                .andExpect(status().isConflict()).andReturn().getResponse().getContentAsString();
+        assertThat(changedReadiness).contains("BUSINESS_READINESS_INCOMPLETE", "ACCOUNT_OWNER");
+        assertThat(tenants.findById(prepared.tenantId()).orElseThrow().getEstado()).isEqualTo(TenantEstado.RASCUNHO);
+    }
+
+    @Test
+    void concurrentActivationsConvergeWithoutDuplicateMutationOrEvent() throws Exception {
+        String suffix = "activation-race-" + suffix();
+        User admin = user("platform-" + suffix, Role.ROLE_ADMIN);
+        User owner = user("owner-" + suffix, Role.ROLE_GERENTE);
+        String token = token(admin);
+        JsonNode account = createAccount(token, owner, "account-" + suffix, 1);
+        long accountId = account.path("id").asLong();
+        long accountVersion = account.path("version").asLong();
+        String accountKey = "account-race-" + suffix;
+        String accountPayload = "{\"accountVersion\":" + accountVersion + ",\"reason\":\"corrida idempotente\"}";
+
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Integer> accountCall = () -> mockMvc.perform(post("/platform/business-accounts/{id}/activate", accountId)
+                            .header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", accountKey)
+                            .header("X-Correlation-Id", "corr-account-race-" + Thread.currentThread().getId())
+                            .contentType(MediaType.APPLICATION_JSON).content(accountPayload))
+                    .andReturn().getResponse().getStatus();
+            Future<Integer> one = executor.submit(accountCall);
+            Future<Integer> two = executor.submit(accountCall);
+            assertThat(List.of(one.get(), two.get())).containsOnly(200);
+        } finally {
+            executor.shutdownNow();
+        }
+        BusinessAccount activeAccount = accounts.findById(accountId).orElseThrow();
+        assertThat(activeAccount.getEstado()).isEqualTo(BusinessAccountEstado.ATIVA);
+        assertThat(activeAccount.getVersion()).isEqualTo(accountVersion + 1);
+        assertThat(governanceEvents.findAll().stream()
+                .filter(e -> accountKey.equals(e.getIdempotencyKey()) && "ACCOUNT_ACTIVATED".equals(e.getAction())).count())
+                .isEqualTo(1);
+
+        User conflictingOwner = user("conflicting-owner-" + suffix, Role.ROLE_GERENTE);
+        JsonNode conflictingAccount = createAccount(token, conflictingOwner, "conflicting-" + suffix, 1);
+        long conflictingId = conflictingAccount.path("id").asLong();
+        long conflictingVersion = conflictingAccount.path("version").asLong();
+        String conflictingKey = "account-conflicting-race-" + suffix;
+        var conflictExecutor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Integer> firstIntent = () -> accountActivationStatus(token, conflictingId, conflictingVersion,
+                    conflictingKey, "primeira intenção");
+            Callable<Integer> secondIntent = () -> accountActivationStatus(token, conflictingId, conflictingVersion,
+                    conflictingKey, "segunda intenção");
+            Future<Integer> one = conflictExecutor.submit(firstIntent);
+            Future<Integer> two = conflictExecutor.submit(secondIntent);
+            List<Integer> statuses = new ArrayList<>(List.of(one.get(), two.get()));
+            Collections.sort(statuses);
+            assertThat(statuses).containsExactly(200, 409);
+        } finally {
+            conflictExecutor.shutdownNow();
+        }
+        assertThat(governanceEvents.findAll().stream()
+                .filter(e -> conflictingKey.equals(e.getIdempotencyKey()) && "ACCOUNT_ACTIVATED".equals(e.getAction())).count())
+                .isEqualTo(1);
+
+        User businessOwner = user("business-owner-" + suffix, Role.ROLE_GERENTE);
+        String businessFixtureSuffix = "br-" + this.suffix();
+        PreparedLifecycle prepared = prepareDraftBusiness(token, businessOwner, businessFixtureSuffix);
+        JsonNode businessAccount = activateAccount(token, prepared.accountId(), prepared.accountVersion(),
+                "business-account-active-" + suffix, "activar conta para corrida");
+        long activeAccountVersion = businessAccount.path("version").asLong();
+        long tenantVersion = tenants.findById(prepared.tenantId()).orElseThrow().getVersion();
+        String businessKey = "business-race-" + suffix;
+        String businessPayload = businessActivation(activeAccountVersion, tenantVersion, "corrida idempotente do negócio");
+        var businessExecutor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Integer> businessCall = () -> mockMvc.perform(post(
+                            "/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                            prepared.accountId(), prepared.tenantId())
+                            .header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", businessKey)
+                            .header("X-Correlation-Id", "corr-business-race-" + Thread.currentThread().getId())
+                            .contentType(MediaType.APPLICATION_JSON).content(businessPayload))
+                    .andReturn().getResponse().getStatus();
+            Future<Integer> one = businessExecutor.submit(businessCall);
+            Future<Integer> two = businessExecutor.submit(businessCall);
+            assertThat(List.of(one.get(), two.get())).containsOnly(200);
+        } finally {
+            businessExecutor.shutdownNow();
+        }
+        Tenant activeTenant = tenants.findById(prepared.tenantId()).orElseThrow();
+        assertThat(activeTenant.getEstado()).isEqualTo(TenantEstado.ATIVO);
+        assertThat(activeTenant.getVersion()).isEqualTo(tenantVersion + 1);
+        assertThat(governanceEvents.findAll().stream()
+                .filter(e -> businessKey.equals(e.getIdempotencyKey()) && "BUSINESS_ACTIVATED".equals(e.getAction())).count())
+                .isEqualTo(1);
     }
 
     @Test
@@ -348,7 +615,7 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
                         .header("X-Correlation-Id", "corr-missing-account-" + suffix)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(previewPayload(0, "missing-account-" + suffix, "PILOTO")))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isNotFound());
 
         JsonNode account = createAccount(token, owner, "governance-" + suffix, 1);
         long accountId = account.path("id").asLong();
@@ -660,6 +927,51 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body).path("data");
     }
+
+    private PreparedLifecycle prepareDraftBusiness(String token, User owner, String suffix) throws Exception {
+        JsonNode account = createAccount(token, owner, suffix, 1);
+        long accountId = account.path("id").asLong();
+        long accountVersion = account.path("version").asLong();
+        JsonNode preview = preview(token, accountId, accountVersion, suffix, "preview-" + suffix);
+        String operation = mockMvc.perform(post("/platform/business-accounts/{id}/businesses/provision", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "provision-" + suffix)
+                        .header("X-Correlation-Id", "corr-provision-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(provisionPayload(preview, accountVersion, true)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long tenantId = objectMapper.readTree(operation).at("/data/tenantId").asLong();
+        assertThat(tenants.findById(tenantId).orElseThrow().getEstado()).isEqualTo(TenantEstado.RASCUNHO);
+        return new PreparedLifecycle(accountId, accountVersion, tenantId);
+    }
+
+    private JsonNode activateAccount(String token, long accountId, long version, String key, String reason) throws Exception {
+        String response = mockMvc.perform(post("/platform/business-accounts/{id}/activate", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", key)
+                        .header("X-Correlation-Id", "corr-" + key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accountVersion\":" + version + ",\"reason\":\"" + reason + "\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).path("data");
+    }
+
+    private int accountActivationStatus(String token, long accountId, long version, String key, String reason) throws Exception {
+        return mockMvc.perform(post("/platform/business-accounts/{id}/activate", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", key)
+                        .header("X-Correlation-Id", "corr-" + key + "-" + Thread.currentThread().getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accountVersion\":" + version + ",\"reason\":\"" + reason + "\"}"))
+                .andReturn().getResponse().getStatus();
+    }
+
+    private String businessActivation(long accountVersion, long tenantVersion, String reason) {
+        return "{\"accountVersion\":" + accountVersion + ",\"tenantVersion\":" + tenantVersion
+                + ",\"reason\":\"" + reason + "\"}";
+    }
+
+    private record PreparedLifecycle(long accountId, long accountVersion, long tenantId) {}
 
     private String previewPayload(long accountVersion, String suffix, String plan) {
         return """

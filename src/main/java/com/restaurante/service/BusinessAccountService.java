@@ -14,6 +14,7 @@ import com.restaurante.dto.response.BusinessAccountResponse;
 import com.restaurante.dto.response.BusinessAccountSummaryResponse;
 import com.restaurante.dto.response.PlatformTenantResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.BusinessAccountLimitOverride;
 import com.restaurante.model.entity.BusinessAccountMember;
@@ -323,7 +324,7 @@ public class BusinessAccountService {
     @Transactional(readOnly = true)
     public BusinessAccount getBusinessAccount(Long id) {
         return businessAccountRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("BusinessAccount nao encontrada."));
+                .orElseThrow(() -> new ResourceNotFoundException("BusinessAccount", "id", id));
     }
 
     private BusinessAccountSummaryResponse toSummaryResponse(BusinessAccount account) {

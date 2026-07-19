@@ -2,7 +2,7 @@ package com.restaurante.service;
 
 import com.restaurante.billing.repository.TenantSubscriptionRepository;
 import com.restaurante.dto.response.PlatformTenantResponse;
-import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.Plano;
 import com.restaurante.model.entity.QrCodeOperacional;
@@ -70,7 +70,7 @@ public class PlatformTenantAccessService {
     public PlatformTenantResponse detalhe(Long tenantId, String ip, String userAgent) {
         tenantGuard.assertPlatformAdmin();
         Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new BusinessException("Tenant nao encontrado."));
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", tenantId));
         audit(
                 tenant.getId(),
                 OperationalEventType.PLATFORM_TENANT_DETAIL_VIEWED,
@@ -109,6 +109,7 @@ public class PlatformTenantAccessService {
 
         return PlatformTenantResponse.builder()
                 .tenantId(tenant.getId())
+                .version(tenant.getVersion())
                 .nome(tenant.getNome())
                 .tenantCode(tenant.getTenantCode())
                 .slug(tenant.getSlug())

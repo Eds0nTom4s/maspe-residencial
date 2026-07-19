@@ -215,6 +215,9 @@ class PlatformBusinessAccountContractIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode tenantData = objectMapper.readTree(tenantPlatformResp).path("data");
+        assertThat(tenantData.path("version").isIntegralNumber()).isTrue();
+        assertThat(tenantData.path("version").asLong())
+                .isEqualTo(this.tenants.findById(tenantOne.getTenantId()).orElseThrow().getVersion());
         assertThat(tenantData.path("businessAccountId").asLong()).isEqualTo(businessAccountId);
         assertThat(tenantData.path("businessAccountNome").asText()).contains("Conta Contract");
         assertThat(tenantData.path("billingPlanCode").asText()).isEqualTo("BA-CONTRACT-" + suffix.toUpperCase());

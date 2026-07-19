@@ -1,0 +1,275 @@
+RELATÓRIO — BUSINESS ACCOUNT ACTIVATION LIFECYCLE CONTRACT 001
+==============================================================
+
+Data: 2026-07-18
+Branch: backend/business-account-activation-lifecycle-contract-001
+
+1. IDENTIFICAÇÃO
+----------------
+
+Fase: consolidação canónica do ciclo explícito de activação da Conta
+Empresarial e do Negócio.
+
+2. BASE BACKEND
+---------------
+
+main @ 784f567c6a32a82fdf33060b8b3b8696061cd035. No início da fase,
+main...origin/main = 0 0 e o worktree estava limpo.
+
+3. FRONTEND DE REFERÊNCIA
+-------------------------
+
+Eds0nTom4s/CONSUMA-UI main integrada em
+fcb22c3da9d6892d4e074f1951b06d5ad8f0e247.
+
+4. ESTADO ANTERIOR
+------------------
+
+Schema V84. Os comandos canónicos de activação da Conta e do Negócio já
+existiam, com ROLE_ADMIN, DTOs versionados, locks pessimistas, validação de
+owner/readiness, idempotência por evento e auditoria. O detalhe read-only do
+Tenant não expunha Tenant.version. X-Correlation-Id não constava dos
+allowedHeaders CORS. A resposta do Negócio não expunha estado e versões.
+
+5. MATRIZ DE CONTRATOS
+----------------------
+
+Matriz produzida antes de qualquer alteração:
+
+ENDPOINT | AUTH | REQUEST | VERSION | LOCK | IDEMPOTÊNCIA | AUDITORIA | ESTADO INICIAL | ESTADO FINAL | RESPOSTA | LACUNA
+GET /platform/business-accounts/{id} | ROLE_ADMIN + TenantGuard | path accountId | BusinessAccount.version | read-only | N/A | sem mutação | qualquer | inalterado | BusinessAccountResponse | inexistente era 400; provar 401/403
+GET /platform/tenants/{tenantId} | ROLE_ADMIN + TenantGuard | path tenantId | Tenant.version ausente do DTO | read-only | N/A | PLATFORM_TENANT_DETAIL_VIEWED | qualquer | inalterado | PlatformTenantResponse | version ausente; inexistente era 400
+GET /platform/business-accounts/{accountId}/businesses/{tenantId}/readiness | ROLE_ADMIN + TenantGuard | paths | versões não expostas | read-only | N/A | sem mutação | RASCUNHO/ATIVO | inalterado | BusinessReadinessResponse | comando devia revalidar sob locks
+POST /platform/business-accounts/{id}/activate | ROLE_ADMIN + TenantGuard | AccountActivationRequest + headers | BusinessAccount.version | PESSIMISTIC_WRITE Conta | BUSINESS_ACCOUNT:{id}/ACCOUNT_ACTIVATED | GovernanceEvent completo | RASCUNHO | ATIVA | BusinessAccountResponse | normalizar reason e reforçar replay/concorrência
+POST /platform/business-accounts/{accountId}/businesses/{tenantId}/activate | ROLE_ADMIN + TenantGuard | BusinessActivationRequest + headers | BusinessAccount.version + Tenant.version | Conta, depois Tenant | BUSINESS_ACCOUNT:{id}/BUSINESS_ACTIVATED | GovernanceEvent completo | Conta ATIVA/Tenant RASCUNHO | Tenant ATIVO | BusinessReadinessResponse | estado/versões ausentes e revalidação transaccional implícita
+GET /platform/provisioning-operations/{operationId} | ROLE_ADMIN + TenantGuard | operationId | interna | read-only | lookup | metadata da operação | qualquer | inalterado | ProvisioningOperationResponse | provar 401/403
+OPTIONS comandos de activação | preflight | origin/method/headers | N/A | N/A | N/A | N/A | N/A | N/A | CORS | X-Correlation-Id ausente
+
+6. FONTE READ-ONLY TENANTVERSION
+--------------------------------
+
+PlatformTenantResponse passou a expor o campo aditivo version. O mapper copia
+directamente Tenant.getVersion(), herdada de BaseEntity.@Version. Não existe
+cálculo, constante, timestamp, ID, templateVersion ou accountVersion substituto.
+
+7. DETALHE DO NEGÓCIO
+----------------------
+
+GET /platform/tenants/{tenantId} preserva estado, businessAccountId, plano,
+template e recursos e acrescenta version. Requer ROLE_ADMIN; existente retorna
+200 e inexistente 404. ITs provam version não nula e exactamente igual à
+persistência. Runtime: RASCUNHO/version=1 e depois ATIVO/version=2.
+
+8. ACTIVAÇÃO DA CONTA EMPRESARIAL
+---------------------------------
+
+Preservado POST /platform/business-accounts/{id}/activate. Exige ROLE_ADMIN,
+Authorization, Idempotency-Key, X-Correlation-Id e AccountActivationRequest com
+accountVersion e reason. Bloqueia a Conta e executa apenas RASCUNHO -> ATIVA.
+BusinessAccountResponse confirma id, estado e versão posterior.
+
+9. INVARIANTES DA CONTA
+-----------------------
+
+Sob PESSIMISTIC_WRITE validam-se existência, versão, estado RASCUNHO,
+responsável presente/activo, exactamente um OWNER activo e correspondência
+OWNER/responsavel_user_id. Reason é obrigatória, trimada e limitada a 500.
+SUSPENSA, BLOQUEADA, CANCELADA ou ATIVA com nova intenção não transitam.
+
+10. IDEMPOTÊNCIA DA CONTA
+--------------------------
+
+Scope BUSINESS_ACCOUNT:{id}, action ACCOUNT_ACTIVATED e fingerprint
+ACCOUNT_ACTIVATION_V1 com accountId, accountVersion e reason normalizada. Replay
+igual é seguro; key igual/fingerprint diferente retorna
+409/IDEMPOTENCY_CONFLICT. PostgreSQL e runtime provaram uma transição, um evento
+lógico e version=1 no sucesso e replay. Nenhum Tenant foi activado.
+
+11. READINESS
+-------------
+
+Preservados ACCOUNT_ACTIVE, ACCOUNT_OWNER, TENANT_PERSISTED,
+BUSINESS_ACCOUNT_LINKED, CANONICAL_PLAN_SUBSCRIPTION,
+BILLING_PROJECTION_COMPATIBLE, INSTITUTION, UNIT, OPERATIONAL_ADMIN_ACCESS,
+TEMPLATE_VERSION e TENANT_NOT_ACTIVE_PREMATURELY. O backend calcula
+ready/checks/blockers. A resposta aditiva expõe estado e versões. O comando
+reavalia sobre entidades bloqueadas dentro da transacção, eliminando confiança
+num readiness anterior do cliente.
+
+12. ACTIVAÇÃO DO NEGÓCIO
+-------------------------
+
+Preservado POST /platform/business-accounts/{accountId}/businesses/{tenantId}/activate.
+Exige ROLE_ADMIN, headers, accountVersion, tenantVersion e reason. Valida
+pertença, versões, Conta ATIVA, owner, readiness e Tenant RASCUNHO. Executa
+somente RASCUNHO -> ATIVO e responde accountId, tenantId, estado, readiness e
+versões posteriores.
+
+13. LOCKS
+---------
+
+PESSIMISTIC_WRITE na ordem única documentada: 1) BusinessAccount; 2) Tenant.
+Sem lock global nem chamada externa na transacção. Concorrência PostgreSQL
+convergiu sem HTTP 500, dupla transição ou evento duplicado.
+
+14. ACCOUNTVERSION
+------------------
+
+Fonte BusinessAccount.version/@Version. Ausente é 400; stale é
+409/OPTIMISTIC_VERSION_CONFLICT. Sem default zero, incremento manual, retry
+silencioso ou versão ignorada.
+
+15. TENANTVERSION
+-----------------
+
+Fonte Tenant.version/@Version. Ausente é 400; stale é
+409/OPTIMISTIC_VERSION_CONFLICT. Detalhe e comando usam a mesma persistência.
+
+16. IDEMPOTÊNCIA DO NEGÓCIO
+----------------------------
+
+Scope BUSINESS_ACCOUNT:{id}, action BUSINESS_ACTIVATED e fingerprint
+BUSINESS_ACTIVATION_V1 com accountId, tenantId, accountVersion, tenantVersion e
+reason normalizada. Replay não muta; fingerprint divergente retorna
+409/IDEMPOTENCY_CONFLICT. PostgreSQL e runtime provaram version=2 no sucesso e
+replay.
+
+17. AUDITORIA
+-------------
+
+BusinessAccountGovernanceEvent foi reutilizado, sem tabela nova. Acções:
+ACCOUNT_ACTIVATED e BUSINESS_ACTIVATED. Permanecem actorUserId, actorRoles,
+correlationId, idempotencyKey, fingerprint, scope, action, IP, User-Agent e
+timestamp. before/after incluem IDs, versões, estado e reason normalizada.
+Authorization, token, password e secrets não são guardados.
+
+18. ESTADOS
+-----------
+
+Conta: apenas RASCUNHO -> ATIVA. Negócio: apenas RASCUNHO -> ATIVO. Activar a
+Conta não activa Negócios; activar o Negócio não promove Conta RASCUNHO.
+
+19. CONCORRÊNCIA
+----------------
+
+CanonicalBusinessProvisioningPostgresIT cobre mesma key concorrente, intenções
+divergentes com a mesma key e activações concorrentes do Negócio; também stale
+versions, Conta RASCUNHO, cross-account, owner quebrado, readiness alterado e
+replay. Resultado: estado/evento únicos e nenhum HTTP 500.
+
+20. 401
+-------
+
+Sem token e token inválido retornaram 401 em detalhe da Conta, detalhe do
+Tenant, readiness, ambas activações e consulta da operação, em IT e HTTP real.
+
+21. 403
+-------
+
+Autenticado sem ROLE_ADMIN retornou 403 nos mesmos seis contratos. ROLE_ADMIN
+atravessa a autorização; inexistentes retornam 404, nunca 500.
+
+22. CORS
+--------
+
+X-Correlation-Id foi acrescentado preservando Authorization, Content-Type,
+Accept, Origin, X-Requested-With e Idempotency-Key nas duas configurações CORS.
+O wildcard documental foi substituído por lista explícita. IT com
+https://frontend.example.test e OPTIONS reais para ambos os comandos retornaram
+2xx e autorizaram os quatro headers canónicos.
+
+23. SEGURANÇA
+-------------
+
+IT e runtime verificaram que 401/403 não expõem stack, packages, SQL, tabelas,
+Authorization, Bearer ou token. Pesquisa de logs não encontrou valores de
+Authorization, Bearer, temporaryPassword, Idempotency-Key, X-Correlation-Id ou
+reason nos serviços alterados. Header ausente retorna 400/MISSING_HEADER;
+AccessDenied permanece 403; nenhum catch genérico foi adicionado.
+
+24. MIGRATION
+-------------
+
+Nenhuma migration criada/editada. V82, V83 e V84 intactas. Sem SQL manual ou
+escrita comercial. Flyway validou 84 migrations e V84 nos dois arranques.
+
+25. TESTES UNITÁRIOS
+--------------------
+
+Reason trim/blank/limite coberta. Surefire: 478 testes, 0 failures, 0 errors e
+3 skipped.
+
+26. TESTES POSTGRESQL
+---------------------
+
+Testcontainers/PostgreSQL real: Failsafe 318 testes, 0 failures, 0 errors e 0
+skipped. Incluídos PlatformBusinessAccountContractIT,
+CanonicalBusinessProvisioningPostgresIT,
+BusinessProvisioningMetadataMigrationPostgresIT, governance, onboarding,
+segurança e CORS.
+
+27. RUNTIME
+-----------
+
+Imagem sistema-restauracao-api:sandbox-local reconstruída da branch. Primeiro
+e segundo arranques: health/liveness/readiness UP. Flyway: schema public V84 e
+No migration necessary.
+
+28. REPLAY
+----------
+
+Conta e Negócio aceitaram replay exacto com 200; versões ficaram 1 e 2.
+Reutilizar cada key com reason diferente deu 409/IDEMPOTENCY_CONFLICT. ITs
+confirmaram exactamente um evento e nenhuma segunda mutação.
+
+29. CICLO COMPLETO
+------------------
+
+Smoke por API: Conta RASCUNHO com owner; preview PILOTO/CONSUMA_PONTO;
+provisionamento SUCCEEDED/effectsCommitted=true; Tenant RASCUNHO; blocker
+ACCOUNT_ACTIVE; tenantVersion=1; Conta ATIVA/accountVersion=1; readiness true;
+Negócio ATIVO/tenantVersion=2; detalhe ATIVO/version=2; readiness final true.
+Nenhuma activação automática.
+
+30. REGRESSÕES
+--------------
+
+mvn -DskipTests compile: BUILD SUCCESS.
+mvn test: BUILD SUCCESS; Surefire 478/0/0/3.
+mvn -Pit verify: BUILD SUCCESS; Surefire 478/0/0/3; Failsafe 318/0/0/0.
+Provisioning, metadata V84, governance, onboarding, payment/reconciliation e a
+suite global passaram sem teste desactivado.
+
+31. LIMITAÇÕES
+---------------
+
+Não há endpoint read-only para contar eventos no runtime; a unicidade exacta
+foi provada nos ITs PostgreSQL e constraint existente, enquanto HTTP provou
+versões imutáveis. Fixture runtime exclusivamente técnica, criada via APIs.
+Passar CORS aprova os headers canónicos, não readiness global de produção.
+
+32. COMPATIBILIDADE
+-------------------
+
+Preservados /platform/tenants/provisionar, /platform/templates/* e
+/platform/business-templates/*. Preview, provision, recovery, resume, owner,
+managers e onboarding mantêm contrato. Nenhum adapter legacy participa na
+activação. Campos DTO novos são aditivos.
+
+33. PRÓXIMA FASE
+----------------
+
+Não iniciada. ui/business-account-activation-lifecycle-001 só depois de
+auditoria, aprovação, merge controlado e publicação da backend main.
+
+34. DECISÃO FINAL
+-----------------
+
+APROVADO. Versões persistidas, decisões explícitas, owner/readiness,
+idempotência, concorrência, 401/403, CORS, regressões, V84 e dois arranques
+foram comprovados.
+
+Commits:
+- funcional: 39eec83bdce7aa310d7b882978cd19f888b472cf;
+- testes: 0f81757942dbb5e23928632164a4e280c0df5108;
+- documental: este terceiro e último commit da branch.

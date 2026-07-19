@@ -62,6 +62,17 @@ public class CanonicalCommandSupport {
         }
     }
 
+    public String requireReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException("REASON_REQUIRED");
+        }
+        String normalized = reason.trim();
+        if (normalized.length() > 500) {
+            throw new BusinessException("REASON_TOO_LONG");
+        }
+        return normalized;
+    }
+
     public void lock(String scope) {
         entityManager.createNativeQuery("select pg_advisory_xact_lock(hashtextextended(cast(:scope as text), 0))")
                 .setParameter("scope", scope)

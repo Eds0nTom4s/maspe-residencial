@@ -1,0 +1,331 @@
+RELATORIO_PLATFORM_ONBOARDING_CANONICAL_CONTRACT_001
+====================================================
+
+1. IDENTIFICACAO
+----------------
+
+Fase: backend/platform-onboarding-canonical-contract-001.
+Repositorio: Eds0nTom4s/maspe-residencial.
+Branch: backend/platform-onboarding-canonical-contract-001.
+Frontend de referencia: Eds0nTom4s/CONSUMA-UI main em
+2cfca331fc386371571e6bdd1ee9129f40271c37.
+Data de validacao: 2026-07-20, Africa/Luanda.
+
+2. BASE
+-------
+
+Base obrigatoria e HEAD inicial:
+9dcdea14f8884f5ad161caab45eaf37b4df82ce8.
+origin/main foi confirmado exactamente nessa revisao antes da criacao da branch.
+O worktree inicial estava limpo e nao foi feito rebase, squash, amend, force push
+ou merge.
+
+3. AUDITORIA FONTE
+------------------
+
+Auditoria incorporada: AUDIT-BACKEND-PLATFORM-ONBOARDING-CANONICAL-FLOW-001.
+Fonte lida e aplicada:
+docs/reports/backend/RELATORIO_AUDIT_BACKEND_PLATFORM_ONBOARDING_CANONICAL_FLOW_001.txt.
+Foram tratados os quatro blockers, os nove findings HIGH e os MEDIUM necessarios
+para tornar executavel o boundary canonico.
+
+4. DECISOES IMPLEMENTADAS
+-------------------------
+
+Foi implementado o MODELO B, orquestrador de preparacao. OnboardingRequest guarda
+intencao e decisao administrativa, Account/owner/plano/vertical confirmados,
+handoff, vinculo operacional e conclusao administrativa. BusinessAccount, Tenant,
+readiness, provisioning e activation continuam nas maquinas canonicas existentes.
+Approval nao recebe tenantId, nao executa preview/provision e nao activa. Complete
+apenas valida efeitos persistidos de uma BusinessProvisioningOperation canonica.
+Os PATCH writes legacy de onboarding foram retirados da superficie para que nao
+exista bypass alternativo.
+
+5. MAQUINA DE ESTADOS
+---------------------
+
+CREATE -> PENDENTE.
+PENDENTE -> APROVADO por approve.
+PENDENTE/AGUARDANDO_APROVACAO legacy -> REJEITADO por reject governado.
+PENDENTE/APROVADO -> CANCELADO somente quando o predicado de seguranca permite.
+APROVADO -> CONCLUIDO somente por complete com operacao canonica validada.
+CONCLUIDO, REJEITADO e CANCELADO sao terminais para comandos V2.
+PENDENTE, AGUARDANDO_PAGAMENTO, AGUARDANDO_APROVACAO, APROVADO, REJEITADO,
+ATIVADO e CANCELADO permanecem legiveis. Nenhum comando V2 escreve ATIVADO.
+
+6. CONTRACT VERSION
+-------------------
+
+Marcador persistente: ONBOARDING_CANONICAL_V2.
+Novos creates recebem esse marcador. Rows legacy conservam contract_version nulo;
+nenhuma migration finge que dados antigos obedecem ao V2.
+
+7. MIGRATION
+------------
+
+Schema inicial V84; schema final V85.
+Migration: V85__platform_onboarding_canonical_contract.sql.
+Foram adicionados apenas campos usados pelo contrato, FKs para plano, owner result
+user e BusinessProvisioningOperation, indexes, unique parcial de operation link,
+reserva de NIF e command records. A migration cria onboarding_nif_reservations e
+onboarding_command_records. Nao altera estados nem converte ATIVADO para CONCLUIDO.
+O IT isolado migrou uma base ate V84, inseriu rows legacy PENDENTE, APROVADO,
+ATIVADO, REJEITADO e AGUARDANDO_PAGAMENTO com NIF legacy duplicado, aplicou V85,
+confirmou os estados intactos e reiniciou Flyway sem reaplicacao.
+
+8. NIF
+------
+
+A normalizacao reutiliza CanonicalCommandSupport.normalizeNif: trim, uppercase e os
+mesmos limites do contrato de BusinessAccount. A decisao usa advisory lock por NIF,
+canonical_business_account_nifs e reserva persistente. ACTIVE e unica apenas para
+a intencao concorrente de criar uma nova Account; approval consome para CONSUMED e
+reject/cancel libertam para RELEASED. Uma Account canonica existente produz
+EXISTING_ACCOUNT_CANDIDATE, exige escolha EXISTING explicita e impede CREATE_NEW.
+Nao ha fuzzy match, silent association ou regra eterna de um onboarding por NIF.
+O create directo de Account tambem respeita reservas ACTIVE de onboarding.
+
+9. SOLICITANTE/OWNER
+--------------------
+
+Solicitante permanece dado de intake e nao e inferido como OWNER. applicantUserId
+nao foi adicionado porque nao havia utilidade contratual que justificasse uma nova
+identidade persistida. Approval CREATE_NEW suporta exactamente
+ASSOCIATE_EXISTING, com confirmacao explicita e user activo, e CREATE_NEW, com as
+validacoes canonicas. A criacao usa BusinessAccountGovernanceService; password
+temporaria nunca entra em onboarding, audit, log ou response. O invariant de um
+unico OWNER activo e responsavel_user_id coerente e validado.
+
+10. ACCOUNT CHOICE
+------------------
+
+EXISTING exige businessAccountId, accountVersion e confirmExistingAccount=true,
+lock, estado permitido, OWNER activo e convergencia de NIF/candidate. CREATE_NEW
+exige slug/maxTenants/ownerChoice e usa createForOnboarding sobre o servico canonico.
+A Account nova nasce RASCUNHO. A chave interna e deterministica:
+ONBOARDING:{id}:ACCOUNT_CREATE:V2. O fingerprint continua sendo o do request real.
+A chave externa governa replay da approval; a interna impede uma segunda Account
+mesmo apos perda de resposta, dentro da mesma transaccao atomica.
+
+11. PLANO
+---------
+
+planoCodigo do create e preferencia comercial. confirmed_plan_id e confirmado no
+approval apos resolucao/validacao do Plano. Handoff usa o plano confirmado. Link e
+complete leem o payload do preview canonico da operation e rejeitam plano divergente
+com ONBOARDING_PROVISIONING_PLAN_MISMATCH.
+
+12. VERTICAL
+------------
+
+BusinessVertical e decisao independente: CONSUMA_PONTO ou CONSUMA_REST. Nao e
+derivada de TenantTipo ou tipoNegocio. Approval exige vertical, handoff a expoe e
+link/complete validam a vertical persistida contra o preview da operation.
+Divergencia retorna ONBOARDING_PROVISIONING_VERTICAL_MISMATCH.
+
+13. PAYMENT BOUNDARY
+--------------------
+
+Nao houve integracao AppyPay, cobranca, invoice ou webhook. valor negativo e 400;
+zero/nulo produz NAO_APLICAVEL como metadata e valor positivo produz PENDENTE como
+metadata. moeda default AOA e normalizada uppercase com tres letras. PAGO legacy
+nao produz ATIVADO, Account ATIVA, Tenant ATIVO ou CONCLUIDO.
+
+14. CREATE
+----------
+
+POST /platform/onboarding-requests exige ROLE_ADMIN, plataforma, Authorization,
+Idempotency-Key e X-Correlation-Id. O create nasce PENDENTE, V2, sem Account,
+Tenant ou operation. A idempotencia e persistente, fingerprinted e race-safe; replay
+exacto retorna o mesmo id/response e intencao divergente retorna
+IDEMPOTENCY_CONFLICT.
+
+15. APPROVE
+-----------
+
+POST /platform/onboarding-requests/{id}/approve exige onboardingVersion, Account
+choice, owner quando aplicavel, confirmedPlanCode, vertical e reason. A ordem e:
+lock onboarding, replay, version/state, NIF, plano/vertical, Account/owner,
+persistencia APROVADO e audit. Replay e consultado antes de rejeitar a versao antiga
+causada pela primeira execucao. A transaccao nao deixa Account/owner/reserva parcial.
+Approval termina APROVADO e nao aceita tenantId.
+
+16. REJECT
+----------
+
+POST /platform/onboarding-requests/{id}/reject exige version, key, correlation e
+reason. Aceita PENDENTE e AGUARDANDO_APROVACAO apenas para reconciliacao legacy.
+Nao desfaz APROVADO/CONCLUIDO/ATIVADO/CANCELADO. E idempotente, versionado, auditado
+e liberta uma reserva ACTIVE sem criar compensacao operacional.
+
+17. CANCEL
+----------
+
+POST /platform/onboarding-requests/{id}/cancel exige version, key, correlation e
+reason. Aceita PENDENTE/APROVADO quando seguro. Operation vinculada bloqueia cancel
+em PENDING, RUNNING, FAILED_RETRYABLE, SUCCEEDED ou com effectsCommitted; apenas
+FAILED_FINAL sem efeitos e seguro. Nao desfaz Account, owner, operation ou Tenant.
+
+18. HANDOFF
+-----------
+
+GET /platform/onboarding-requests/{id}/handoff e read-only e protegido por
+ROLE_ADMIN/TenantGuard. Expoe onboarding/Account versions, owner result, plano,
+vertical, NIF, negocio, operation/tenant e uma matriz AVAILABLE, MISSING ou
+REQUIRES_HUMAN_DECISION para os campos de BusinessPreviewRequest. Nao inventa
+endereco, provincia, municipio, slug, tenantCode, configuracao ou acessos e nao
+cria preview/operation nem incrementa version.
+
+19. OPERATION LINK
+------------------
+
+POST /platform/onboarding-requests/{id}/provisioning-operation persiste a FK para
+BusinessProvisioningOperation. Exige APROVADO, version/key/correlation/reason e
+valida Account, preview canonico, plano e vertical. Aceita os estados operacionais
+governados, nao troca uma operation ja ligada e usa unique parcial para impedir que
+uma operation pertença a dois onboardings. Replay exacto nao cria segundo evento.
+
+20. COMPLETE
+------------
+
+POST /platform/onboarding-requests/{id}/complete exige operation vinculada,
+SUCCEEDED, effectsCommitted=true, mesma Account, preview canonico, mesmo plano,
+mesma vertical, Tenant resultante da mesma Account e Tenant RASCUNHO. A Account pode
+estar RASCUNHO ou ATIVA, mas nao em estado terminal/incompativel. Complete persiste
+tenantId/operationId, completedAt e CONCLUIDO. Nao chama preview, provision,
+readiness mutavel, Account activation ou Business activation e nao muda Account ou
+Tenant.
+
+21. IDEMPOTENCIA
+----------------
+
+O desenho generico onboarding_command_records cobre CREATE, APPROVE, REJECT,
+CANCEL, OPERATION_LINK e COMPLETE. Unique(scope, action, idempotency_key),
+fingerprint, correlation/actor, before/after, reason, response JSON exacto e ids de
+resultado tornam replay, conflito de intencao e UNKNOWN_RESULT recuperaveis apos
+commit. Nao existe dependencia de cache/memoria. Concorrencia usa constraint
+PostgreSQL e advisory lock do scope antes da mutacao.
+
+22. VERSIONAMENTO
+-----------------
+
+version de BaseEntity/@Version e exposta em list/detail e responses. Todos os writes
+pos-create recebem Long onboardingVersion obrigatorio, inclusive zero legitimo da
+primeira mutacao; nao existe primitive/default silencioso. Stale version devolve
+409 OPTIMISTIC_VERSION_CONFLICT e nao ha retry automatico com versao nova.
+
+23. LOCKS/CONCORRENCIA
+----------------------
+
+Writes usam advisory lock de command scope e PESSIMISTIC_WRITE no onboarding, com
+@Version explicita. A ordem documentada e OnboardingRequest, BusinessAccount e,
+quando necessario, operation/Tenant, preservando a ordem dos servicos canonicos.
+IT PostgreSQL provou duplicate create, reserva NIF concorrente, approve-vs-reject e
+approve-vs-cancel: uma decisao vence e a outra recebe conflito, sem 200+200
+contraditorio nem Account orfa.
+
+24. AUDITORIA
+-------------
+
+Eventos persistidos: ONBOARDING_CREATED, ONBOARDING_APPROVED,
+ONBOARDING_REJECTED, ONBOARDING_CANCELLED, ONBOARDING_OPERATION_LINKED e
+ONBOARDING_COMPLETED. O command record especifico de onboarding permite CREATE sem
+Account fake/sentinel. Regista actorUserId, roles, correlation, key, fingerprint,
+scope/action, IP, User-Agent, timestamp, before real sob lock, after, reason e ids de
+Account/operation/Tenant. Authorization, bearer e passwords nao sao persistidos.
+
+25. SEGURANCA
+-------------
+
+Todos os endpoints usam ROLE_ADMIN e TenantGuard.assertPlatformAdmin. Testes cobrem
+401 sem/invalido, 403 autenticado sem papel, 404 de recurso e 409 deterministico.
+Erros nao expõem stack, SQL, tabelas ou secrets. Preflight runtime retornou 200 para
+origem permitida e Authorization, Content-Type, Idempotency-Key e X-Correlation-Id,
+sem wildcard.
+
+26. LEGACY COMPATIBILITY
+------------------------
+
+List/detail preservam os campos consumidos pelo frontend e acrescentam campos V2.
+Estados legacy e payment metadata continuam legiveis e claramente separados dos
+estados Account/Tenant. Nenhum UPDATE destrutivo foi executado. O contrato V2 nao
+escreve AGUARDANDO_APROVACAO, AGUARDANDO_PAGAMENTO ou ATIVADO e nao oferece o antigo
+tenantId arbitrario. Preview, provision, lookup/recovery/resume, readiness e
+activations canonicos existentes foram preservados.
+
+27. TESTES UNITARIOS
+--------------------
+
+mvn test: BUILD SUCCESS; Surefire 483 testes, 0 failures, 0 errors, 3 skipped.
+Cobertura nova: state guards, contract DTOs, fingerprints, version, reason,
+money/currency, NIF normalizado, owner choices, plano, vertical, payment/legacy e
+predicados de complete. Nenhum teste foi desactivado para obter o resultado.
+
+28. POSTGRESQL
+--------------
+
+mvn -Pit verify: BUILD SUCCESS; Surefire 483/0/0/3 e Failsafe 325/0/0/0.
+PlatformOnboardingCanonicalContractIT executou 6 cenarios compostos; migration IT
+executou 1; toda a suite PostgreSQL/Testcontainers e regressao passou. Cobertos:
+create/replay/conflito/UNKNOWN_RESULT, NIF concorrente/candidate, owners, stale
+version, corridas de decisao, reject/cancel, handoff, link/replay/mismatch, operation
+nao concluida/sem efeitos/Account/plano/vertical divergentes, Tenant nao RASCUNHO,
+complete/replay e zero activacao automatica.
+
+29. RUNTIME
+-----------
+
+Runtime SHA funcional: 6b7a4c64c0cc5b0a383c09f809349ac31b0c3341.
+Artefacto SHA-256: 435defee6ad98dc3aa567344215d2a54169c1bd710969cd7a72dde73bd635f1d.
+O mesmo SHA foi medido em target e /app/app.jar.
+Imagem reconstruida sem cache: sistema-restauracao-api:sandbox-local,
+sha256:b4a84120e65ed830a3fd99f4075da100a30af5df5dc4d6b4934e913e08cf0b6b.
+Primeiro arranque aplicou uma migration e chegou a V85. Health, liveness e readiness
+UP. Segundo arranque: Current version 85, schema up to date, No migration necessary,
+health/liveness/readiness UP. Nenhum SQL manual foi executado.
+
+30. CICLO COMPLETO
+------------------
+
+Fixture tecnica AUDIT/ONBOARDING-CANONICAL-17845088110705:
+- create 201 PENDENTE/V2, id 2/version 0, Account/Tenant/operation null;
+- replay 201 mesmo id; payload divergente 409 IDEMPOTENCY_CONFLICT;
+- approve 200 APROVADO/version 1, Account 90 RASCUNHO/version 0, OWNER existente,
+  plano PILOTO, vertical CONSUMA_PONTO, Tenant/operation null; replay mesma versao;
+- handoff 200, missing negocio.slug, versao inalterada e nenhuma mutacao;
+- preview canonico 200 e provision canonico 201 produziram operation
+  42f5c2d0-2201-4a77-aa6b-ac23f2d1073d SUCCEEDED/effectsCommitted=true e Tenant
+  40 RASCUNHO;
+- link 200/version 2 e replay; lookup e resume com a key original preservaram a
+  mesma operation e resume devolveu replay=true, sem nova operation;
+- complete 200/version 3 CONCLUIDO, Account/Tenant ainda RASCUNHO; replay manteve a
+  versao;
+- activacao explicita posterior mudou Account para ATIVA, readiness foi consultado
+  e activacao explicita mudou Tenant para ATIVO; onboarding permaneceu CONCLUIDO.
+
+NIF existente: replay do create id 3 mostrou EXISTING_ACCOUNT_CANDIDATE para Account
+90; CREATE_NEW retornou ONBOARDING_ACCOUNT_ALREADY_EXISTS_FOR_NIF, Account 89
+retornou ONBOARDING_ACCOUNT_NIF_MISMATCH e EXISTING 90 foi APROVADO. Fixture owner
+CREATE_NEW: onboarding 4, Account 91 RASCUNHO, user 88, exactamente um OWNER activo,
+password ausente da response e Tenant null.
+
+31. LIMITACOES
+--------------
+
+Nao foi criada UI, intake publico, integracao financeira ou notificacao real. O
+runtime nao possui endpoint publico para contar audit records; unicidade de evento e
+zero segunda mutacao foram provadas directamente pelos ITs PostgreSQL e por versoes
+imutaveis/replays HTTP. As fixtures sao exclusivamente tecnicas example.test. Um
+resume terminal com key diferente e correctamente conflitante; com a key original
+reproduz a operation SUCCEEDED. Nenhum dado comercial real foi alterado.
+
+32. DECISAO FINAL
+-----------------
+
+Todos os gates BLOCKER e HIGH descritos na fase passaram. Approval e complete nao
+produzem efeitos automaticos proibidos; arbitrary Tenant attach e writes V2 de
+ATIVADO sao zero. Migration, compile, Surefire, Failsafe/PostgreSQL, runtime,
+segundo arranque, idempotencia, concorrencia, seguranca e separacao de activation
+foram validados.
+
+APROVADO PARA MERGE CONTROLADO

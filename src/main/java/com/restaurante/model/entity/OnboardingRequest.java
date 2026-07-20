@@ -1,8 +1,12 @@
 package com.restaurante.model.entity;
 
 import com.restaurante.model.enums.OnboardingPaymentStatus;
+import com.restaurante.model.enums.OnboardingAccountChoice;
+import com.restaurante.model.enums.OnboardingNifResolution;
 import com.restaurante.model.enums.OnboardingRequestStatus;
 import com.restaurante.model.enums.TenantTipo;
+import com.restaurante.dto.business.BusinessProvisioningContracts.BusinessVertical;
+import com.restaurante.dto.business.BusinessProvisioningContracts.PrincipalOwnerStrategy;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -39,6 +43,17 @@ public class OnboardingRequest extends BaseEntity {
     @Column(name = "nif", length = 30)
     private String nif;
 
+    @Column(name = "normalized_nif", length = 30)
+    private String normalizedNif;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "nif_resolution", length = 40)
+    private OnboardingNifResolution nifResolution;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "nif_candidate_business_account_id")
+    private BusinessAccount nifCandidateBusinessAccount;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "tipo_negocio", length = 40)
     private TenantTipo tipoNegocio;
@@ -48,12 +63,42 @@ public class OnboardingRequest extends BaseEntity {
     private Plano plano;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "confirmed_plan_id")
+    private Plano confirmedPlan;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "vertical", length = 30)
+    private BusinessVertical vertical;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "business_account_id")
     private BusinessAccount businessAccount;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tenant_id")
     private Tenant tenant;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "provisioning_operation_id")
+    private BusinessProvisioningOperation provisioningOperation;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "account_choice", length = 30)
+    private OnboardingAccountChoice accountChoice;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "owner_strategy", length = 40)
+    private PrincipalOwnerStrategy ownerStrategy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_result_user_id")
+    private User ownerResultUser;
+
+    @Column(name = "contract_version", length = 50)
+    private String contractVersion;
+
+    @Column(name = "channel", length = 40)
+    private String channel;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 40)
@@ -80,6 +125,18 @@ public class OnboardingRequest extends BaseEntity {
 
     @Column(name = "rejected_at")
     private LocalDateTime rejectedAt;
+
+    @Column(name = "cancelled_at")
+    private LocalDateTime cancelledAt;
+
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
+
+    @Column(name = "cancellation_reason", length = 500)
+    private String cancellationReason;
+
+    @Column(name = "approval_reason", length = 500)
+    private String approvalReason;
 
     @Column(name = "activated_at")
     private LocalDateTime activatedAt;
@@ -136,6 +193,13 @@ public class OnboardingRequest extends BaseEntity {
         this.nif = nif;
     }
 
+    public String getNormalizedNif() { return normalizedNif; }
+    public void setNormalizedNif(String value) { normalizedNif = value; }
+    public OnboardingNifResolution getNifResolution() { return nifResolution; }
+    public void setNifResolution(OnboardingNifResolution value) { nifResolution = value; }
+    public BusinessAccount getNifCandidateBusinessAccount() { return nifCandidateBusinessAccount; }
+    public void setNifCandidateBusinessAccount(BusinessAccount value) { nifCandidateBusinessAccount = value; }
+
     public TenantTipo getTipoNegocio() {
         return tipoNegocio;
     }
@@ -152,6 +216,11 @@ public class OnboardingRequest extends BaseEntity {
         this.plano = plano;
     }
 
+    public Plano getConfirmedPlan() { return confirmedPlan; }
+    public void setConfirmedPlan(Plano value) { confirmedPlan = value; }
+    public BusinessVertical getVertical() { return vertical; }
+    public void setVertical(BusinessVertical value) { vertical = value; }
+
     public BusinessAccount getBusinessAccount() {
         return businessAccount;
     }
@@ -167,6 +236,19 @@ public class OnboardingRequest extends BaseEntity {
     public void setTenant(Tenant tenant) {
         this.tenant = tenant;
     }
+
+    public BusinessProvisioningOperation getProvisioningOperation() { return provisioningOperation; }
+    public void setProvisioningOperation(BusinessProvisioningOperation value) { provisioningOperation = value; }
+    public OnboardingAccountChoice getAccountChoice() { return accountChoice; }
+    public void setAccountChoice(OnboardingAccountChoice value) { accountChoice = value; }
+    public PrincipalOwnerStrategy getOwnerStrategy() { return ownerStrategy; }
+    public void setOwnerStrategy(PrincipalOwnerStrategy value) { ownerStrategy = value; }
+    public User getOwnerResultUser() { return ownerResultUser; }
+    public void setOwnerResultUser(User value) { ownerResultUser = value; }
+    public String getContractVersion() { return contractVersion; }
+    public void setContractVersion(String value) { contractVersion = value; }
+    public String getChannel() { return channel; }
+    public void setChannel(String value) { channel = value; }
 
     public OnboardingRequestStatus getStatus() {
         return status;
@@ -231,6 +313,15 @@ public class OnboardingRequest extends BaseEntity {
     public void setRejectedAt(LocalDateTime rejectedAt) {
         this.rejectedAt = rejectedAt;
     }
+
+    public LocalDateTime getCancelledAt() { return cancelledAt; }
+    public void setCancelledAt(LocalDateTime value) { cancelledAt = value; }
+    public LocalDateTime getCompletedAt() { return completedAt; }
+    public void setCompletedAt(LocalDateTime value) { completedAt = value; }
+    public String getCancellationReason() { return cancellationReason; }
+    public void setCancellationReason(String value) { cancellationReason = value; }
+    public String getApprovalReason() { return approvalReason; }
+    public void setApprovalReason(String value) { approvalReason = value; }
 
     public LocalDateTime getActivatedAt() {
         return activatedAt;

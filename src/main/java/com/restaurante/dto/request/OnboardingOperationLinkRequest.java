@@ -9,13 +9,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class OnboardingRequestRejectRequest {
-    @NotNull @PositiveOrZero
-    private Long onboardingVersion;
-    @NotBlank @Size(max = 500)
-    private String reason;
+@Data @Builder @NoArgsConstructor @AllArgsConstructor
+public class OnboardingOperationLinkRequest {
+    @NotNull @PositiveOrZero private Long onboardingVersion;
+    @NotBlank @Size(max = 36) private String operationId;
+    @NotBlank @Size(max = 500) private String reason;
 }

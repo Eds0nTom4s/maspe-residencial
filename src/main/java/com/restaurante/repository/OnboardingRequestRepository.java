@@ -12,6 +12,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface OnboardingRequestRepository extends JpaRepository<OnboardingRequest, Long> {
 
+    java.util.Optional<OnboardingRequest> findByProvisioningOperationId(Long operationId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from OnboardingRequest o where o.id = :id")
     java.util.Optional<OnboardingRequest> findByIdForUpdate(@Param("id") Long id);

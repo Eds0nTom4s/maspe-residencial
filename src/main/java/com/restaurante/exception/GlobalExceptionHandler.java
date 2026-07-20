@@ -429,6 +429,7 @@ public class GlobalExceptionHandler {
                 .timestamp(LocalDateTime.now())
                 .status(HttpStatus.CONFLICT.value())
                 .error("Conflito de concorrência")
+                .code("OPTIMISTIC_VERSION_CONFLICT")
                 .message("Os dados foram modificados por outro usuário. Por favor, recarregue e tente novamente.")
                 .path(request.getDescription(false).replace("uri=", ""))
                 .build();

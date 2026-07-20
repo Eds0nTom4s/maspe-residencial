@@ -5,6 +5,7 @@ public enum OnboardingRequestStatus {
     AGUARDANDO_PAGAMENTO,
     AGUARDANDO_APROVACAO,
     APROVADO,
+    CONCLUIDO,
     REJEITADO,
     ATIVADO,
     CANCELADO

@@ -62,6 +62,13 @@ public class CanonicalCommandSupport {
         }
     }
 
+    public void requireCorrelationId(HttpServletRequest request) {
+        String value = request == null ? null : request.getHeader("X-Correlation-Id");
+        if (value == null || value.isBlank() || value.trim().length() > 120) {
+            throw new BusinessException("X-Correlation-Id obrigatória e limitada a 120 caracteres.");
+        }
+    }
+
     public String requireReason(String reason) {
         if (reason == null || reason.isBlank()) {
             throw new BusinessException("REASON_REQUIRED");

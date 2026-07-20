@@ -33,6 +33,15 @@ public interface BusinessAccountRepository extends JpaRepository<BusinessAccount
             """, nativeQuery = true)
     boolean existsByNormalizedPersistedNif(@Param("normalizedNif") String normalizedNif);
 
+    @Query(value = """
+            select ba.*
+            from business_accounts ba
+            where ba.nif is not null
+              and regexp_replace(upper(ba.nif), '[\\s./-]+', '', 'g') = :normalizedNif
+            order by ba.id
+            """, nativeQuery = true)
+    List<BusinessAccount> findAllByNormalizedPersistedNif(@Param("normalizedNif") String normalizedNif);
+
     List<BusinessAccount> findByEstadoOrderByIdAsc(BusinessAccountEstado estado);
 
     List<BusinessAccount> findByResponsavelId(Long responsavelId);

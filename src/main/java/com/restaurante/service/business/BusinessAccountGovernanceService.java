@@ -26,6 +26,8 @@ import com.restaurante.repository.BusinessAccountRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.repository.CanonicalBusinessAccountNifRepository;
 import com.restaurante.repository.TenantRepository;
+import com.restaurante.repository.OnboardingNifReservationRepository;
+import com.restaurante.model.enums.OnboardingNifReservationState;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.BusinessAccountService;
 import com.restaurante.service.provisioning.ProvisioningPlanCalculator;
@@ -49,6 +51,7 @@ public class BusinessAccountGovernanceService {
     private final BusinessAccountGovernanceEventRepository events;
     private final UserRepository users;
     private final CanonicalBusinessAccountNifRepository canonicalNifs;
+    private final OnboardingNifReservationRepository onboardingNifReservations;
     private final TenantRepository tenants;
     private final PasswordEncoder passwordEncoder;
     private final CanonicalCommandSupport commands;
@@ -57,6 +60,18 @@ public class BusinessAccountGovernanceService {
     @Transactional
     public BusinessAccountResponse create(CanonicalAccountCreateRequest request, String key,
                                           HttpServletRequest http) {
+        return createCanonical(request, key, null, http);
+    }
+
+    @Transactional
+    public BusinessAccountResponse createForOnboarding(CanonicalAccountCreateRequest request, String key,
+                                                       Long onboardingId, HttpServletRequest http) {
+        if (onboardingId == null) throw new BusinessException("ONBOARDING_ID_REQUIRED");
+        return createCanonical(request, key, onboardingId, http);
+    }
+
+    private BusinessAccountResponse createCanonical(CanonicalAccountCreateRequest request, String key,
+                                                     Long authorizedOnboardingId, HttpServletRequest http) {
         tenantGuard.assertPlatformAdmin();
         commands.requireKey(key);
         commands.actor(http); // valida headers inclusive em replay
@@ -80,6 +95,12 @@ public class BusinessAccountGovernanceService {
         if (accounts.existsBySlug(slug)) throw new ConflictException("Já existe BusinessAccount com este slug.");
         if (normalizedNif != null) {
             commands.lock("CANONICAL_BUSINESS_ACCOUNT_NIF:" + normalizedNif);
+            onboardingNifReservations.findByNormalizedNifAndState(
+                    normalizedNif, OnboardingNifReservationState.ACTIVE).ifPresent(reservation -> {
+                if (!Objects.equals(authorizedOnboardingId, reservation.getOnboardingRequest().getId())) {
+                    throw new ConflictException("ONBOARDING_NIF_RESERVED");
+                }
+            });
             if (canonicalNifs.existsById(normalizedNif)
                     || accounts.existsByNormalizedPersistedNif(normalizedNif)) {
                 throw new ConflictException("NIF_ALREADY_EXISTS");

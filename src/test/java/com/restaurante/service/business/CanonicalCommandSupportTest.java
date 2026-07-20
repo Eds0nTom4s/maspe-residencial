@@ -41,4 +41,13 @@ class CanonicalCommandSupportTest {
         assertThatThrownBy(() -> support.requireReason("   ")).hasMessage("REASON_REQUIRED");
         assertThatThrownBy(() -> support.requireReason("x".repeat(501))).hasMessage("REASON_TOO_LONG");
     }
+
+    @Test
+    void nifNormalizationIsSharedAndStrict() {
+        CanonicalCommandSupport support = new CanonicalCommandSupport(new ObjectMapper(), mock(EntityManager.class));
+        assertThat(support.normalizeNif("  nif.12/34-5 ")).isEqualTo("NIF12345");
+        assertThat(support.normalizeNif("   ")).isNull();
+        assertThatThrownBy(() -> support.normalizeNif("12?"))
+                .hasMessageContaining("NIF inválido");
+    }
 }

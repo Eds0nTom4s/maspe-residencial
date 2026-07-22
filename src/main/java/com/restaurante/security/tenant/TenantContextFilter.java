@@ -1,5 +1,6 @@
 package com.restaurante.security.tenant;
 
+import com.restaurante.platform.discovery.controller.DiscoveryPublicEndpoints;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,11 +21,11 @@ import java.io.IOException;
  *
  * Endpoints pré-tenant (SANDBOX-LOCAL-004-B):
  * - /auth/tenants e /api/auth/tenants são endpoints de descoberta de tenant.
- * - Exigem JWT global válido, mas NÃO devem ter TenantContext resolvido.
- * - São usados justamente antes da seleção de tenant — o TenantContext ainda
- *   não existe para o utilizador autenticado neste ponto do fluxo.
- * - O skip aqui é cirúrgico: apenas estes dois paths. Nenhum outro endpoint
- *   de /auth/** é excluído da resolução de TenantContext.
+ * - Os três GETs de /v1/discovery são a fronteira pública de comerciantes.
+ * - Não exigem JWT e NÃO devem ter TenantContext resolvido.
+ * - Os endpoints /auth/tenants são usados antes da seleção; Discovery é
+ *   global e não aceita seleção tenant por JWT ou header.
+ * - O bypass é cirúrgico. Nenhum outro endpoint de /auth/** é excluído.
  */
 @Component
 @RequiredArgsConstructor
@@ -34,43 +35,36 @@ public class TenantContextFilter extends OncePerRequestFilter {
 
     private final TenantResolver tenantResolver;
 
-    /**
-     * Endpoints pré-tenant: exigem JWT mas NÃO devem ter TenantContext resolvido.
-     *
-     * /auth/tenants e /api/auth/tenants são usados para listar tenants disponíveis
-     * ANTES da seleção de tenant — não há tenantId no contexto ainda.
-     *
-     * O skip é exacto e deliberado. Não é um skip genérico de /auth/**.
-     * JWT continua a ser processado pelo JwtAuthenticationFilter.
-     * SecurityConfig continua a exigir autenticação nestes paths.
-     */
-    private boolean isPreTenantDiscoveryEndpoint(HttpServletRequest request) {
+    /** Endpoints pré-tenant autenticados e os três GETs públicos de Discovery. */
+    private boolean isPreTenantAuthEndpoint(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return "/auth/tenants".equals(path) || "/api/auth/tenants".equals(path);
+        return "/auth/tenants".equals(path)
+                || "/api/auth/tenants".equals(path);
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return isPreTenantDiscoveryEndpoint(request);
+        return isPreTenantAuthEndpoint(request);
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        TenantContext previous = TenantContextHolder.get().orElse(null);
-        boolean setByFilter = false;
+        if (DiscoveryPublicEndpoints.matches(request)) {
+            TenantContextHolder.clear();
+            try {
+                filterChain.doFilter(request, response);
+            } finally {
+                TenantContextHolder.clear();
+            }
+            return;
+        }
         try {
             var resolved = tenantResolver.resolve(request);
             resolved.ifPresent(ctx -> {
                 TenantContextHolder.set(ctx);
                 log.debug("TenantContext resolvido: tenantId={}, source={}", ctx.tenantId(), ctx.source());
-                // Sempre que resolvermos, devemos restaurar o contexto anterior ao final do request
-                // (evita "pisar" em contexto pré-existente e mantém isolamento entre requests).
-                // Em produção normalmente não há contexto prévio; em testes, pode haver.
-                // A restauração acontece no finally.
-                // Marcamos aqui para saber se houve set durante este filtro.
             });
-            setByFilter = resolved.isPresent();
             filterChain.doFilter(request, response);
         } catch (com.restaurante.exception.TenantTokenStaleException e) {
             log.warn("Tenant token stale no filtro: {}", e.getMessage());
@@ -97,13 +91,7 @@ public class TenantContextFilter extends OncePerRequestFilter {
             );
             response.getWriter().write(json);
         } finally {
-            if (setByFilter) {
-                if (previous != null) {
-                    TenantContextHolder.set(previous);
-                } else {
-                    TenantContextHolder.clear();
-                }
-            }
+            TenantContextHolder.clear();
         }
     }
 }

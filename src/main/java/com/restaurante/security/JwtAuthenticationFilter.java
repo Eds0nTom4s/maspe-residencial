@@ -1,5 +1,6 @@
 package com.restaurante.security;
 
+import com.restaurante.platform.discovery.controller.DiscoveryPublicEndpoints;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -47,6 +48,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                path.startsWith("/api/h2-console") ||
                (path.startsWith("/api/auth/") && !path.startsWith("/api/auth/tenant/select") && !path.startsWith("/api/auth/tenants")) ||
                (path.startsWith("/auth/") && !path.startsWith("/auth/tenant/select") && !path.startsWith("/auth/tenants")) ||
+               DiscoveryPublicEndpoints.matches(request) ||
                path.startsWith("/swagger-ui") ||
                path.startsWith("/v3/api-docs") ||
                path.startsWith("/actuator");
@@ -102,6 +104,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
             }
         } catch (Exception ex) {
+            SecurityContextHolder.clearContext();
             log.error("Não foi possível configurar autenticação de usuário no security context", ex);
         }
 

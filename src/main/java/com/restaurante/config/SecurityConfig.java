@@ -1,5 +1,6 @@
 package com.restaurante.config;
 
+import com.restaurante.platform.discovery.controller.DiscoveryPublicEndpoints;
 import com.restaurante.security.JwtAuthenticationFilter;
 import com.restaurante.security.JwtSecurityExceptionHandlers;
 import com.restaurante.security.device.DeviceAuthenticationFilter;
@@ -67,6 +68,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/auth/tenants", "/auth/tenants").authenticated()
                         .requestMatchers("/api/auth/**", "/auth/**").permitAll()
                         .requestMatchers("/api/public/**", "/public/**").permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                DiscoveryPublicEndpoints.SECURITY_PATTERNS).permitAll()
                         .requestMatchers("/api/device/**", "/device/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/store/catalogo", "/store/catalogo/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/store/ordens").permitAll()

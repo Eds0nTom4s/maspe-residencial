@@ -1,0 +1,630 @@
+RELATORIO TECNICO FINAL — BACKEND DISCOVERY-API-001
+Data de encerramento: 2026-07-22
+Estado: pronto para auditoria no GitHub
+
+1. RESUMO EXECUTIVO
+
+Foi criada a primeira fronteira publica read-only do Discovery CONSUMA. A API publica
+somente tres operacoes GET sob /api/v1/discovery, le o modelo persistente canonico,
+aplica uma unica politica de publicacao e devolve DTOs sem entidades JPA, identificadores
+internos ou dados administrativos. A entrega inclui validacao, contrato de erros,
+OpenAPI, seguranca, isolamento de TenantContext, testes de persistencia, contrato,
+performance e compatibilidade futura com Android.
+
+Nao foram criados endpoints de escrita, migrations ou dependencias. Android, Catalog,
+Cart, Checkout, Order e Payment nao foram alterados ou implementados nesta fase.
+
+2. BRANCH
+
+backend/discovery-api-001
+
+3. COMMIT BASE
+
+4568d1ddeb712a80ca3939f9a332e94db52cff3e
+
+Commit funcional da fase: 13a61ef890094f1d2b62b23b3a616179db0f2641
+O commit documental e o SHA remoto sao registados pela validacao Git posterior.
+
+4. ESTADO INICIAL
+
+A branch partiu exactamente do commit base, sem commits proprios. As Partes 1/5 a
+4/5 existiam apenas no worktree: 73 testes Discovery, 556 testes globais, zero
+failures, zero errors, tres skipped globais, zero skipped Discovery, clean test e
+verify aprovados.
+
+5. ESCOPO
+
+Incluido: fronteira HTTP, dominio Discovery, DTOs, mappers, service, repositorio
+persistente, projections, fake InMemory explicito de testes, politica de publicacao,
+validacao, erros, seguranca, OpenAPI, observabilidade local e testes.
+
+Excluido: Android/Retrofit/RemoteDiscoveryRepository, escrita, migrations, PostGIS,
+rating persistente, popularity, featured, horarios, ETag, cache partilhado, Redis,
+rate limiting, correlation ID, Cart, Checkout, Order e Payment.
+
+6. ENDPOINTS
+
+Fronteira oficial, considerando server.servlet.context-path=/api:
+
+- GET /api/v1/discovery/home
+- GET /api/v1/discovery/search
+- GET /api/v1/discovery/merchant/{merchantId}
+
+Sao os unicos endpoints Discovery. Produzem application/json;charset=UTF-8 e usam
+Cache-Control: no-store. Nao existem POST, PUT, PATCH ou DELETE publicos.
+
+7. ARQUITECTURA
+
+Fluxo persistente:
+
+JPA query -> projection -> PersistentDiscoveryMapper -> dominio Discovery
+-> DiscoveryDtoMapper -> DTO HTTP -> controller
+
+O controller nao recebe entidades. O service e o repositorio sao read-only. O
+contrato HTTP pertence ao backend; transporte Android futuro deve adaptar DTOs ao
+dominio Android sem ligar JSON a UiModel.
+
+8. PACOTES
+
+- controller: endpoints, allowlist publica e customizacao/exemplos OpenAPI.
+- service: orquestracao read-only e validacao.
+- domain: records, enums e resultados independentes de HTTP/JPA.
+- repository: porta, adaptador persistente, fake e politica de publicacao.
+- repository.projection: projections especificas de leitura.
+- dto: requests/responses HTTP.
+- mapper: projection/entity-source -> dominio e dominio -> DTO.
+- validation: parametros semanticos e allowlist HTTP.
+- exception: excecoes e handler publico padronizado.
+
+MerchantPublicationPolicy permanece junto do adaptador de repository porque governa
+a seleccao persistente. Nao foi criado um package artificial apenas para uma classe.
+Nao ha ficheiros vazios, ciclos ou acoplamento com controllers antigos, Cart ou
+Checkout.
+
+9. DOMINIO
+
+MerchantSummary, MerchantOverview, MerchantCategory, MerchantAvailability,
+MerchantAddress, MerchantLocation, MerchantPromotion, MerchantContact,
+MerchantRating, MoneyAmount, WeeklySchedule, MerchantSection e conteudos sao records
+imutaveis. Coleccoes defensivas usam List.copyOf/Set.copyOf. DiscoveryResult e sealed.
+
+O dominio nao importa JPA, Spring Web, entidades, tenant interno ou dados
+administrativos. Enums publicos usam nomes, nunca ordinais.
+
+10. DTOS
+
+Home, Search e Merchant usam responses proprios. O identificador do merchant no JSON
+e id; a sua semantica e merchantId. Campos obrigatorios do card: id, name, category,
+availability, fulfillmentOptions e catalogAvailable. Opcionais ficam ausentes quando
+null. Lists/Sets obrigatorios sao serializados como arrays, inclusive vazios.
+
+11. MAPPERS
+
+PersistentDiscoveryMapper conhece as projections e produz dominio. DiscoveryDtoMapper
+conhece somente dominio/DTO. DiscoveryEntityMapper e DiscoveryEntitySource suportam o
+fake explicito. Nenhum mapper envia entidade JPA ao controller.
+
+12. SERVICE
+
+DefaultDiscoveryService esta marcado @Transactional(readOnly=true), aplica
+DiscoveryRequestValidator e converte dominio em DTO. Falhas de validacao tornam-se
+DiscoveryResult.Error; tipos HTTP nao entram no repository.
+
+13. REPOSITORY
+
+DiscoveryRepository define somente home, search e merchant. Nao possui save, update,
+delete ou comando. Paginacao, filtros e ordenacao persistentes acontecem no banco.
+
+14. PERSISTENT REPOSITORY
+
+PersistentDiscoveryRepository e o unico bean DiscoveryRepository no runtime normal.
+Usa PageRequest no banco, NAME ascendente e slug ascendente como desempate. Search e
+Home executam count+select; Detail executa projection principal+localizacao primaria.
+Nao carrega todos os merchants para paginar em memoria.
+
+A query e JPQL parametrizada. Query textual nao e concatenada. O valor LIKE e
+escapado antes do bind: ! -> !!, % -> !%, _ -> !_. O agregado de produtos faz parte
+da projection SQL e nao dispara query por merchant.
+
+15. INMEMORY FAKE
+
+InMemoryDiscoveryRepository nao possui @Repository, @Component, @Service ou @Bean.
+E instanciado explicitamente somente por testes para cenarios CONTENT, EMPTY, ERROR e
+OFFLINE. OFFLINE e nome interno do fake e converte para SERVICE_UNAVAILABLE; nao e
+codigo HTTP publico.
+
+16. ENTIDADES REAIS
+
+A leitura deriva das entidades canonicas Tenant, BusinessAccount,
+TenantCardapioConfig, TenantFiscalProfile, TenantDeliveryPolicy,
+TenantOperacaoPolicy, Instituicao, UnidadeAtendimento, Produto e CategoriaProduto.
+Somente Tenant aparece como tipo-base do Spring Data repository; respostas usam
+projections.
+
+17. PROJECTIONS
+
+MerchantDiscoveryProjection selecciona apenas os factos publicos necessarios ao card
+e detalhe. MerchantLocationProjection selecciona logo, descricao publica e tipo da
+unidade operacional. IDs internos, NIF, accountId, ownerId e tenantId nao sao
+projectados para os DTOs.
+
+18. TABELAS
+
+- tenants
+- business_accounts
+- tenant_cardapio_configs
+- tenant_fiscal_profiles
+- tenant_delivery_policies
+- tenant_operacao_policies
+- instituicoes
+- unidades_atendimento
+- produtos
+- categoria_produtos
+
+Nenhuma tabela ou migration foi criada pela fase.
+
+19. POLITICA DE PUBLICACAO
+
+MerchantPublicationPolicy centraliza a regra aplicada por Home, Search e Detail:
+
+- BusinessAccount ATIVA;
+- Tenant ATIVO;
+- nome nao vazio;
+- slug nao vazio;
+- instituicao activa;
+- unidade activa;
+- cardapio publicado.
+
+Cardapio publicado mas vazio permite aparecer com catalogAvailable=false. Cardapio
+inexistente ou nao publicado torna o merchant invisivel. Privado/inactivo/inexistente
+recebe o mesmo 404. A politica ideal futura usa discoveryPublished; nao foi inferida
+uma flag insegura nem criada migration.
+
+20. IDENTIFICADORES
+
+Merchant: slug publico lowercase, ASCII alfanumerico/hifen, maximo 100, case-sensitive,
+nao sequencial e sem ID interno. Category: string lowercase/hifen, maximo 120 e
+case-sensitive. Municipality: texto Unicode trimado, maximo 120 e comparacao exacta
+case-insensitive.
+
+Riscos: slug nao tem imutabilidade formal; municipalityId ainda e rotulo textual e
+nao ID geografico canonico.
+
+21. HOME
+
+Ordem de campos: categories, nearby, recommended, featured. Todas as secoes existem e
+possuem items array e hasMore. nearby e featured ficam vazias em v1; recommended vem
+da persistencia. pageSize limita recommended. Nao ha duplicacao dentro de uma secao;
+duplicacao entre secoes e permitida pelo contrato. Coordenadas sao validadas para
+compatibilidade futura, mas nao aplicadas; distancia nunca e inventada.
+
+22. SEARCH
+
+Query vazia lista publicaveis. query, categoryId e municipalityId combinam com AND.
+Query e trimada; zero, um ou ate 100 caracteres sao permitidos. Parametros
+desconhecidos ou repetidos retornam 400. Empty retorna 200 com merchants=[],
+totalCount e hasMore coerentes.
+
+23. MERCHANT DETAIL
+
+id tem semantica merchantId. Resposta inclui somente dados publicos: name, category,
+availability, fulfillmentOptions, catalogAvailable e opcionais publicos. Localizacao
+e address sao minimos; address nao e morada fiscal integral. Nao expoe tenantId,
+accountId, NIF, contacto administrativo ou dados de subscricao. Inexistente,
+inactivo, privado ou nao publicavel e 404 indistinguivel.
+
+24. PAGINACAO
+
+Backend zero-based: page=0 e a primeira pagina; defaults page=0/pageSize=20;
+pageSize=1..100. Page negativa e 400. Page alem do fim e 200 Empty. totalCount e
+preservado, hasMore usa Page.hasNext e NAME+slug fornece desempate deterministico sem
+duplicacoes/omissoes entre paginas.
+
+Conversao Android futura: pagina de dominio 1 -> request 0; pagina N -> N-1;
+response 0 -> dominio 1.
+
+25. SORT
+
+NAME e default e unico sort suportado. FEATURED, NEAREST, TOP_RATED e MOST_POPULAR sao
+conhecidos mas retornam 400 SORT_NOT_SUPPORTED. Valor desconhecido retorna
+400 INVALID_REQUEST. Nao existe fallback silencioso. OpenAPI e testes fixam a matriz.
+
+26. FILTROS NAO SUPORTADOS
+
+onlyOpen, fulfillment filter, proximity, popularity, featured filter e rating sort
+real nao pertencem ao contrato v1. Parametro desconhecido e rejeitado em vez de
+ignorado. Android remoto deve omitir e ocultar/desactivar capacidades sem suporte.
+
+27. CAPABILITIES
+
+Capabilities sao fixas e documentadas por versao; nao existe metadata em cada payload
+nem endpoint adicional. O RemoteRepository futuro conhece a configuracao v1. Endpoint
+de capabilities so se justifica quando a capacidade for dinamica.
+
+28. AVAILABILITY
+
+Valores publicos: OPEN, CLOSING_SOON, OPENS_AT, CLOSED e UNKNOWN. Persistencia retorna
+UNKNOWN enquanto nao houver horario canonico; ausencia de horario nunca vira OPEN.
+JSON usa String. Android deve usar DTO String+allowlist e fallback UNKNOWN para valor
+futuro.
+
+29. FULFILLMENT
+
+Valores conhecidos: PICKUP, DELIVERY, DINE_IN e SERVICE. Modalidades derivam de
+politicas operacionais/delivery reais; nao sao simuladas. Lista vazia e []. Transporte
+usa strings, nao ordinal. Android pode ignorar valores futuros desconhecidos sem
+falhar a resposta.
+
+30. CATALOGAVAILABLE
+
+true exige simultaneamente cardapio publicado, categoria activa, produto activo e
+produto disponivel. Cardapio inexistente/nao publicado oculta o merchant pela politica;
+cardapio publicado vazio, categoria inactiva, produto inactivo ou indisponivel produz
+false. Produto valido produz true. O count e agregado na query, nao uma query por
+merchant.
+
+31. NULL POLICY
+
+Obrigatorios sempre presentes; opcionais null omitidos; arrays vazios presentes.
+rating, distance, promotion, image e description ausentes permanecem null/omitidos.
+Nao existem N/A, Sem dados, 0 km, rating 0.0 ou distancia 0 ficticios. Placeholder de
+imagem e responsabilidade exclusiva da UI.
+
+32. ERRORS
+
+Payload: timestamp, status, error, code, message, path.
+
+- 400 INVALID_REQUEST
+- 400 SORT_NOT_SUPPORTED
+- 404 NOT_FOUND
+- 503 SERVICE_UNAVAILABLE
+- 500 UNKNOWN
+
+Erros tambem usam no-store. Nao expoem exception class, stack trace, SQL, IDs internos
+ou tenant. 503 significa indisponibilidade do servico backend; nao significa que o
+dispositivo Android esta offline.
+
+33. SECURITYCONFIG
+
+Somente os tres paths exactos sao permitAll e somente para HttpMethod.GET. Patterns
+cobrem URI com e sem context path conforme a camada que faz o match. Outras rotas e
+metodos seguem authenticated(). Nao foi criada wildcard publica para /v1/discovery/**.
+
+34. JWT FILTER
+
+DiscoveryPublicEndpoints.matches faz bypass apenas dos tres GETs exactos. Bearer
+ausente, valido, invalido, expirado ou vazio nao bloqueia GET publico e nao autentica
+o request. Erro de autenticacao limpa SecurityContext. Rotas privadas com token
+ausente/invalido continuam 401.
+
+35. TENANT FILTER
+
+Discovery nao resolve tenant. TenantContext e limpo antes do GET publico e no finally
+depois do chain. Headers arbitrarios e JWT nao seleccionam tenant na fronteira publica.
+Falha do controller tambem limpa o contexto. Requests privados limpam o ThreadLocal no
+finally. Testes cobrem sequencia tenant A -> publico -> privado e concorrencia.
+
+36. ISOLAMENTO TENANT
+
+O resultado publico e global e determinado exclusivamente pela politica persistente;
+nao aceita tenantId em path, query, DTO ou header. TenantResolver nao e chamado nos
+GETs publicos. Nao ha ThreadLocal residual entre requests.
+
+37. CORS
+
+Discovery reutiliza CorsConfig global e nao amplia origens/headers. Preflight GET foi
+testado com origem configurada. CORS nao altera a autenticacao dos metodos privados.
+
+38. CACHE
+
+Cache-Control: no-store e aplicado a 200, 400, 404, 500 e 503. E uma decisao
+temporaria devido a publicacao transitoria, catalogo mutavel, falta de invalidacao e
+ausencia de ETag. Nao foram criados ETag ou Last-Modified. Cache futuro exige politica
+de freshness e invalidacao.
+
+39. OPENAPI
+
+SpringDoc gerado contem os tres GETs, parametros, defaults, limites, page zero-based,
+sorts conhecidos/sem suporte, schemas, enums, errors, null policy, catalogAvailable,
+UNKNOWN e header no-store. As operacoes Discovery removem o bearerAuth global com
+security=[]; nenhuma capacidade inexistente e declarada como suportada.
+
+40. EXEMPLOS JSON
+
+Foram incorporados exemplos privacy-safe para Home com dados/vazio, Search com
+dados/vazio, Merchant, 400 invalid, 400 unsupported, 404, 503 e 500. Formas resumidas:
+
+Home vazio:
+{"categories":[],"nearby":{"items":[],"hasMore":false},"recommended":{"items":[],"hasMore":false},"featured":{"items":[],"hasMore":false}}
+
+Search vazio:
+{"categories":[],"merchants":[],"page":0,"pageSize":20,"totalCount":0,"hasMore":false}
+
+Erro 503:
+{"timestamp":"2026-07-21T08:00:00Z","status":503,"error":"Service Unavailable","code":"SERVICE_UNAVAILABLE","message":"O serviço Discovery está temporariamente indisponível.","path":"/api/v1/discovery/home"}
+
+Nenhum exemplo usa IDs internos, tenant, NIF ou dados privados.
+
+41. OBSERVABILIDADE
+
+Logs DEBUG podem conter endpoint, result type, page, pageSize, sort, quantidade e
+duracao. Falhas 5xx registam method, path, status e error code. Nao registam query
+textual, JWT, tenant header, payload, contacto, dado fiscal ou entidade completa.
+Stack trace interno de falha inesperada nunca e serializado na resposta. Nao foi
+criada infraestrutura de correlation ID.
+
+42. PERFORMANCE
+
+Baseline de referencia anterior: Home ~19 ms, Search10 ~16 ms, Detail ~6 ms.
+Observacao na execucao final sob carga de validacao: Home 53 ms, Search10 44 ms,
+Detail 17 ms. Sao medicoes locais variaveis, nao SLA. Limites de payload continuam
+largamente abaixo dos bounds de teste. PostgreSQL real pode divergir.
+
+43. QUERY COUNT
+
+Home=2, Search com 10=2, Detail=2. A contagem permanece constante com dez merchants;
+nenhum N+1 foi detectado. Alteracoes futuras devem preservar a propriedade.
+
+44. PAYLOADS
+
+Home com 10: 5.727 bytes.
+Search com 10: 5.676 bytes.
+Detail: 521 bytes.
+
+45. TEMPOS LOCAIS
+
+Referencia estabilizada: 19/16/6 ms (Home/Search/Detail).
+Ultima observacao do verify: 53/44/17 ms sob carga local.
+Nenhum valor e SLA ou previsao de producao.
+
+46. H2/POSTGRESQL
+
+Os 15 testes persistentes Discovery usam H2 em modo PostgreSQL. Foram auditados
+lower, LIKE com ESCAPE, concat, subqueries, PageRequest, Unicode e case folding.
+O Failsafe opt-in executou DockerAvailabilityIT e FlywayBaselinePostgresIT contra
+PostgreSQL/Testcontainers: 2 testes, zero failures/errors/skips, BUILD SUCCESS em
+59,361 s. Isso prova infraestrutura e baseline real, mas nao prova paridade completa
+das collations da query Discovery; um IT Discovery PostgreSQL dedicado permanece
+pendente.
+
+47. PESQUISA
+
+Pesquisa e case-insensitive com lower. Acentos sao preservados e nao existe unaccent:
+CAFÉ JOÃO encontra Café João; CAFE JOAO nao encontra Café João. Query vazia e uma
+letra sao permitidas; maximo 100 apos trim. Android nao deve compensar acentos de modo
+inconsistente.
+
+48. ESCAPING
+
+%, _ e ! sao escapados para semantica literal. Apostrofo, aspas, barra invertida,
+emoji, Unicode e fragmentos SQL sao valores bindados. Sort usa allowlist/enums e
+nunca entra como fragmento SQL. Nao existe concatenacao de input em JPQL.
+
+49. TESTES DISCOVERY
+
+73 testes, zero failures/errors/skips, distribuidos por 11 classes:
+
+- repository fake: 7;
+- repository persistente JPA: 15;
+- repository error mapping: 3;
+- validation: 16;
+- mapper: 2;
+- service: 3;
+- controller HTTP/errors/empty: 13;
+- security chain/CORS: 3;
+- public filters/TenantContext/concurrency: 5;
+- serialization/contract/compatibility: 5;
+- OpenAPI: 1.
+
+As classes cobrem dominio indirectamente, validation, repository, service, mapper,
+controller, security, contract, serialization, performance, concurrency, OpenAPI e
+compatibilidade. Nenhum teste previamente aprovado foi removido. A assercao final de
+bearer valido e rota privada com bearer invalido foi adicionada ao teste existente;
+a contagem permaneceu 73.
+
+50. TESTES GLOBAIS
+
+mvn clean test: 556 run, 0 failures, 0 errors, 3 skipped, BUILD SUCCESS, 5m28s.
+Discovery: 73 run, 0 failures, 0 errors, 0 skipped.
+
+51. VERIFY
+
+mvn verify: 556 run, 0 failures, 0 errors, 3 skipped, BUILD SUCCESS, 4m20s.
+Failsafe padrao: skip conforme skipITs=true.
+Failsafe opt-in PostgreSQL: 2 run, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS,
+59,361 s.
+git diff --check: aprovado sem output.
+
+52. PLUGINS DE ESTILO
+
+O pom.xml nao configura Spotless, Checkstyle, PMD ou formatter. Nenhum comando de
+estilo inexistente foi inventado. Surefire e Failsafe configurados foram executados
+nos modos aplicaveis.
+
+53. FICHEIROS CRIADOS
+
+52 ficheiros em src/main/java/com/restaurante/platform/discovery, agrupados em:
+controller (4), domain (18), dto (8), exception (3), mapper (4), repository/projection
+(11), service (2), validation (2).
+
+11 ficheiros de teste em src/test/java/com/restaurante/platform/discovery:
+DiscoveryContractTest, DiscoveryControllerTest, DiscoveryOpenApiTest,
+DiscoveryPublicFilterTest, DiscoverySecurityConfigTest, DiscoveryMapperTest,
+InMemoryDiscoveryRepositoryTest, PersistentDiscoveryRepositoryJpaTest,
+PersistentDiscoveryRepositoryTest, DefaultDiscoveryServiceTest e
+DiscoveryRequestValidatorTest.
+
+Este relatorio e o unico ficheiro documental proprio da fase.
+
+54. FICHEIROS ALTERADOS
+
+- src/main/java/com/restaurante/config/SecurityConfig.java
+- src/main/java/com/restaurante/security/JwtAuthenticationFilter.java
+- src/main/java/com/restaurante/security/tenant/TenantContextFilter.java
+
+As alteracoes sao limitadas a allowlist GET Discovery, bypass JWT publico, limpeza de
+SecurityContext e isolamento/limpeza de TenantContext.
+
+55. MIGRATIONS
+
+Nenhuma migration criada ou alterada.
+
+56. DEPENDENCIAS
+
+pom.xml e lockfiles nao foram alterados. Nenhuma dependencia nova.
+
+57. ENDPOINTS ADICIONAIS
+
+Nenhum. Existem exactamente Home, Search e Merchant Detail.
+
+58. MATRIZ BACKEND -> ANDROID
+
+BACKEND | DTO ANDROID FUTURO | DOMINIO ANDROID | FALLBACK | RISCO
+id | id:String | merchantId | nenhum; obrigatorio | slug ainda mutavel
+name | name:String | name | nenhum | rename nao deve mudar slug
+shortDescription/fullDescription | String? | description | null | formatos card/detail diferem
+category.id/name | CategoryDto | MerchantCategory | unknown segura | taxonomia fixa v1
+availability.status | String | Availability | UNKNOWN | enum futuro
+fulfillmentOptions | List<String> | Set<Fulfillment> | ignorar desconhecido | capability futura
+catalogAvailable | Boolean | novo campo homonimo | usar backend | dominio Android actual nao possui
+location | LocationDto? | location | null | geografia nao aplicada v1
+province | ausente estruturado | province | null | nao parsear address.displayName
+location.municipalityId | String? | municipality | null | ainda rotulo textual
+rating | RatingDto? | rating | null | sem fonte v1
+popularity | Int? | popularity | null | sem fonte v1
+location.distanceMeters | Int? | distance | null | sem PostGIS
+promotion | PromotionDto? | promotion | null | sem fonte persistente v1
+imageUrl/bannerUrl/logoUrl | String? | image | placeholder UI | disponibilidade remota
+page/pageSize/totalCount/hasMore | PagingDto | page 1-based | converter page | off-by-one
+sort request | String | DiscoverySort | enviar NAME | sorts locais sem suporte
+error payload | ErrorDto | Discovery error/result | por HTTP+code | nao colapsar em Unknown
+
+59. PLANO ANDROID REMOTE
+
+Fluxo futuro:
+
+DiscoveryController -> JSON -> DiscoveryApi Android -> DTO
+-> DiscoveryRemoteMapper -> dominio Discovery -> ViewModels existentes
+
+Manter: ViewModels, Screens, UiStates, UiModels, navegacao, repository contract,
+dominio e testes de apresentacao.
+
+Substituir no runtime Android: InMemoryDiscoveryRepository.
+
+Adicionar apenas na fase Android: cliente Retrofit/HTTP, DTOs,
+RemoteDiscoveryRepository(api, mapper, errorMapper), conectividade, timeouts e contract
+tests. Responsabilidades: converter pagina, enviar NAME, omitir filtros sem suporte,
+mapear DTO/enums/HTTP e nao expor Retrofit a UI.
+
+Decisoes obrigatorias: adicionar catalogAvailable; DTO enums como String; fallback
+UNKNOWN; ignorar fulfillment desconhecido; mapear 400/503 especificamente; placeholder
+de imagem apenas na UI; nenhum fallback silencioso de sort/filtro.
+
+60. HTTP -> ANDROID ERRORS
+
+200 com conteudo -> Success, nao retryable.
+200 vazio -> Empty, nao retryable.
+400 INVALID_REQUEST -> InvalidRequest, nao retryable.
+400 SORT_NOT_SUPPORTED -> UnsupportedSort, nao retryable.
+404 NOT_FOUND -> NotFound, nao retryable.
+503 SERVICE_UNAVAILABLE -> ServiceUnavailable, retryable.
+500 UNKNOWN -> Server, retry conforme politica.
+IOException -> NetworkUnavailable, retryable.
+Timeout -> NetworkUnavailable ou Timeout futuro, retryable.
+JSON invalido -> ContractError ou Unknown, sem retry automatico.
+
+61. RISCOS
+
+- slug sem imutabilidade formal;
+- municipalityId textual;
+- politica de publicacao depende de cardapio publicado;
+- H2 nao reproduz todas as collations PostgreSQL;
+- capabilities fixas podem divergir se backend/Android evoluirem sem versionamento;
+- no-store impede cache offline e aumenta leituras;
+- logs de stack internos exigem proteccao operacional normal;
+- tempos locais variam e nao representam producao.
+
+62. PENDENCIAS
+
+IT Discovery PostgreSQL dedicado; discoveryPublished; slug imutavel; municipality
+canonico; horarios; PostGIS/distancia; rating; popularity; featured; promocoes;
+imagens remotas; unaccent; ETag/cache; rate limiting; correlation ID; integracao
+Android Remote.
+
+63. EVOLUCOES
+
+As pendencias anteriores pertencem a fases futuras e exigem fontes persistentes,
+contratos/versionamento, migrations quando aplicavel e testes proprios. Nenhuma foi
+antecipada nesta entrega.
+
+64. ESTADO GIT
+
+Antes dos commits: branch backend/discovery-api-001 no commit base, worktree contendo
+somente Discovery, tres alteracoes de seguranca e este relatorio. target e outputs
+Maven permanecem ignorados. O encerramento exige exactamente dois commits: funcional
+e documental, seguido de push e igualdade entre HEAD local/remoto.
+
+65. CONFIRMACAO DE ESCOPO
+
+A fase entrega somente a API publica Discovery read-only. Nao altera Android, nao
+implementa RemoteDiscoveryRepository, nao escreve em Catalog, nao implementa Cart,
+Checkout, Order ou Payment, nao cria migration/dependencia/endpoint extra e nao inicia
+a fase Android Remote Discovery.
+
+ANALISE ARQUITECTURAL
+
+Discovery e read-only porque a descoberta publica consulta visibilidade e capacidade;
+comandos pertencem aos bounded contexts administrativos/operacionais. Reutilizar
+entidades JPA no HTTP vazaria schema, lazy loading e dados internos. Projections
+reduzem superficie e tornam query count previsivel. Uma politica publica centralizada
+evita divergencia entre Home, Search e Detail.
+
+GET publico nao recebe tenant porque o utilizador ainda esta antes da seleccao de
+operador. Token invalido nao deve bloquear recurso anonimo nem deve autenticar. O
+TenantContext e removido para impedir influencia acidental do header/JWT. Merchant
+privado retorna 404 generico para nao confirmar existencia.
+
+Sort sem fonte retorna erro para impedir resultados semanticamente falsos. Rating,
+distance, popularity, featured e horarios nao sao simulados. Paginacao zero-based
+segue PageRequest/Spring Data; Android adapta a sua pagina conceptual 1-based. NAME e
+default porque e o unico sort persistente real e deterministico.
+
+no-store e conservador enquanto publicacao/catalogo nao possuem invalidacao ou ETag.
+503 usa SERVICE_UNAVAILABLE para separar indisponibilidade backend de dispositivo
+Android offline. O Android adapta transporte por DTO+mapper e preserva o seu dominio;
+JSON nunca deve alimentar UiModel directamente.
+
+InMemory permanece fake explicito para testes de cenarios, sem bean runtime. A divida
+tecnica consciente inclui publication flag, geografia, sinais de ranking, horarios,
+cache e IT Discovery PostgreSQL. O impacto futuro deve ser tratado por fonte de dados,
+versionamento e contract tests, nunca por fallback silencioso.
+
+Riscos operacionais principais: collation PostgreSQL, mutabilidade de slug, drift de
+capabilities e custo de no-store. Criterios para Android integrar: consumir apenas os
+tres endpoints, converter pagina, enviar NAME, omitir capacidades sem suporte,
+tolerar campos/enums futuros, respeitar catalogAvailable e mapear erros sem colapsar
+semanticas.
+
+FRONTEIRAS QUE NAO DEVEM SER QUEBRADAS
+
+- Discovery nao escreve nem recebe tenant do cliente.
+- Discovery nao expoe entidades ou dados administrativos.
+- Home, Search e Detail usam a mesma politica.
+- Android nao recebe JPA nem Retrofit na UI.
+- Sort sem suporte nao tem fallback.
+- Dados sem fonte nao sao simulados.
+- Empty nao e erro.
+- Merchant privado nao e distinguivel.
+- Backend usa page zero-based; Android adapta.
+- catalogAvailable vem do backend.
+- Availability desconhecida e UNKNOWN.
+- HTTP 503 nao significa dispositivo offline.
+- Cache futuro exige invalidacao/freshness explicitas.
+
+CONFORMIDADE FINAL DOS 47 PONTOS
+
+Todos os 47 pontos da auditoria foram confirmados. O unico desvio encontrado foi uma
+lacuna de prova: o teste da cadeia real nao exercitava explicitamente bearer com
+aparencia valida em GET publico nem bearer invalido em rota privada. Foram adicionadas
+duas assercoes ao teste existente, que passou; nenhuma implementacao foi alterada e a
+contagem Discovery permaneceu 73.

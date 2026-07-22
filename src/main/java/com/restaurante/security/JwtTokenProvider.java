@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Date;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -122,7 +123,7 @@ public class JwtTokenProvider {
         return generateTenantScopedToken(
                 user,
                 tenant,
-                tenantRole,
+                tenantRole != null ? Set.of(tenantRole) : Set.of(),
                 tenantUserEstado,
                 tenantAccessVersion,
                 tenantPermissionsUpdatedAt,
@@ -139,11 +140,54 @@ public class JwtTokenProvider {
             String tenantPermissionsUpdatedAt,
             boolean platformAdmin
     ) {
+        return generateTenantScopedToken(
+                user,
+                tenant,
+                tenantRole != null ? Set.of(tenantRole) : Set.of(),
+                tenantUserEstado,
+                tenantAccessVersion,
+                tenantPermissionsUpdatedAt,
+                platformAdmin
+        );
+    }
+
+    public String generateTenantScopedToken(
+            com.restaurante.model.entity.User user,
+            com.restaurante.model.entity.Tenant tenant,
+            Set<com.restaurante.model.enums.TenantUserRole> tenantRoles,
+            com.restaurante.model.enums.TenantUserEstado tenantUserEstado,
+            Integer tenantAccessVersion,
+            String tenantPermissionsUpdatedAt
+    ) {
+        return generateTenantScopedToken(
+                user,
+                tenant,
+                tenantRoles,
+                tenantUserEstado,
+                tenantAccessVersion,
+                tenantPermissionsUpdatedAt,
+                false
+        );
+    }
+
+    public String generateTenantScopedToken(
+            com.restaurante.model.entity.User user,
+            com.restaurante.model.entity.Tenant tenant,
+            Set<com.restaurante.model.enums.TenantUserRole> tenantRoles,
+            com.restaurante.model.enums.TenantUserEstado tenantUserEstado,
+            Integer tenantAccessVersion,
+            String tenantPermissionsUpdatedAt,
+            boolean platformAdmin
+    ) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpiration);
         String roles = user.getAuthorities().stream().map(GrantedAuthority::getAuthority).collect(Collectors.joining(","));
 
-        List<String> tenantRoles = tenantRole != null ? List.of(tenantRole.name()) : List.of();
+        List<String> serializedTenantRoles = tenantRoles == null ? List.of() : tenantRoles.stream()
+                .map(Enum::name)
+                .distinct()
+                .sorted()
+                .toList();
 
         var builder = Jwts.builder()
                 .setSubject(user.getUsername())
@@ -154,7 +198,7 @@ public class JwtTokenProvider {
                 .claim("tokenType", "TENANT")
                 .claim("tenantId", tenant.getId())
                 .claim("tenantCode", tenant.getTenantCode())
-                .claim("tenantRoles", tenantRoles)
+                .claim("tenantRoles", serializedTenantRoles)
                 .claim("tenantUserStatus", tenantUserEstado != null ? tenantUserEstado.name() : null)
                 .claim("platformAdmin", platformAdmin)
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256);

@@ -83,6 +83,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                     log.debug("Autenticação JWT otimizada (claims) configurada para sub={}", authentication.getName());
                 } else if (allowLegacyFallback) {
+                    if (requiresGlobalScope(request)) {
+                        log.debug("Token legacy sem tokenType rejeitado em endpoint pré-tenant.");
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
                     String username = jwtTokenProvider.getUsernameFromToken(jwt);
 
                     UserDetails userDetails = customUserDetailsService.loadUserByUsername(username);
@@ -119,5 +124,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         return null;
+    }
+
+    private boolean requiresGlobalScope(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/auth/tenants".equals(path)
+                || "/api/auth/tenants".equals(path)
+                || "/auth/tenant/select".equals(path)
+                || "/api/auth/tenant/select".equals(path);
     }
 }

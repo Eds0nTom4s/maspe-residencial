@@ -14,6 +14,7 @@ import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantAuditAction;
 import com.restaurante.model.enums.TenantAuditStatus;
 import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.model.enums.TenantUserAccessOrigin;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
@@ -189,8 +190,12 @@ public class TenantUsuarioService {
                 .collect(Collectors.toSet());
         TenantUsuarioPolicy.assertAdminCannotModifyOwnerOrAdmin(actorRoles, targetCurrentRoles);
 
-        // proteção: não remover último OWNER ativo
-        if (targetCurrentRoles.contains(TenantUserRole.TENANT_OWNER) && !request.getRoles().contains(TenantUserRole.TENANT_OWNER)) {
+        boolean explicitActiveOwner = currentRows.stream().anyMatch(row ->
+                row.getAccessOrigin() == TenantUserAccessOrigin.EXPLICIT
+                        && row.getRole() == TenantUserRole.TENANT_OWNER
+                        && row.getEstado() == TenantUserEstado.ATIVO);
+        // A role derivada da BusinessAccount não é administrável neste contrato.
+        if (explicitActiveOwner && !request.getRoles().contains(TenantUserRole.TENANT_OWNER)) {
             assertNotLastActiveOwner(ctx.tenantId(), userId);
         }
 
@@ -233,14 +238,19 @@ public class TenantUsuarioService {
                 .collect(Collectors.toSet());
         TenantUsuarioPolicy.assertAdminCannotModifyOwnerOrAdmin(actorRoles, targetRoles);
 
-        if (targetRoles.contains(TenantUserRole.TENANT_OWNER)) {
+        List<TenantUser> explicitRows = explicitRows(rows);
+        if (explicitRows.isEmpty()) {
+            throw new BusinessException("Acesso derivado do Owner empresarial não pode ser suspenso por este contrato.");
+        }
+        if (explicitRows.stream().anyMatch(row -> row.getRole() == TenantUserRole.TENANT_OWNER
+                && row.getEstado() == TenantUserEstado.ATIVO)) {
             assertNotLastActiveOwner(ctx.tenantId(), userId);
         }
 
-        rows.stream()
+        explicitRows.stream()
                 .filter(tu -> tu.getEstado() != TenantUserEstado.REMOVIDO)
                 .forEach(tu -> tu.setEstado(TenantUserEstado.SUSPENSO));
-        tenantUserRepository.saveAll(rows);
+        tenantUserRepository.saveAll(explicitRows);
         tenantUserAccessVersionService.increment(ctx.tenantId(), userId);
 
         TenantUsuarioResponse resp = buscar(userId);
@@ -271,7 +281,8 @@ public class TenantUsuarioService {
             throw new ResourceNotFoundException("Recurso não encontrado.");
         }
 
-        Set<TenantUserRole> existingNonRemovedRoles = rows.stream()
+        List<TenantUser> explicitRows = explicitRows(rows);
+        Set<TenantUserRole> existingNonRemovedRoles = explicitRows.stream()
                 .filter(tu -> tu.getEstado() != TenantUserEstado.REMOVIDO)
                 .map(TenantUser::getRole)
                 .collect(Collectors.toSet());
@@ -285,7 +296,7 @@ public class TenantUsuarioService {
             rolesToSet = EnumSet.copyOf(request.getRoles());
         } else {
             rolesToSet = existingNonRemovedRoles.isEmpty()
-                    ? rows.stream().map(TenantUser::getRole).collect(Collectors.toSet())
+                    ? explicitRows.stream().map(TenantUser::getRole).collect(Collectors.toSet())
                     : existingNonRemovedRoles;
         }
 
@@ -294,7 +305,8 @@ public class TenantUsuarioService {
         }
 
         // Se usuário estava REMOVIDO em todas as roles, reativar conta como +1
-        boolean allRemoved = rows.stream().allMatch(tu -> tu.getEstado() == TenantUserEstado.REMOVIDO);
+        boolean allRemoved = explicitRows.isEmpty()
+                || explicitRows.stream().allMatch(tu -> tu.getEstado() == TenantUserEstado.REMOVIDO);
         if (allRemoved) {
             try {
                 tenantLimitService.assertCanCreateUser(ctx.tenantId(), 1);
@@ -352,12 +364,17 @@ public class TenantUsuarioService {
                 .collect(Collectors.toSet());
         TenantUsuarioPolicy.assertAdminCannotModifyOwnerOrAdmin(actorRoles, targetRoles);
 
-        if (targetRoles.contains(TenantUserRole.TENANT_OWNER)) {
+        List<TenantUser> explicitRows = explicitRows(rows);
+        if (explicitRows.isEmpty()) {
+            throw new BusinessException("Acesso derivado do Owner empresarial não pode ser removido por este contrato.");
+        }
+        if (explicitRows.stream().anyMatch(row -> row.getRole() == TenantUserRole.TENANT_OWNER
+                && row.getEstado() == TenantUserEstado.ATIVO)) {
             assertNotLastActiveOwner(ctx.tenantId(), userId);
         }
 
-        rows.forEach(tu -> tu.setEstado(TenantUserEstado.REMOVIDO));
-        tenantUserRepository.saveAll(rows);
+        explicitRows.forEach(tu -> tu.setEstado(TenantUserEstado.REMOVIDO));
+        tenantUserRepository.saveAll(explicitRows);
         tenantUserAccessVersionService.increment(ctx.tenantId(), userId);
 
         tenantAuditService.log(
@@ -377,21 +394,29 @@ public class TenantUsuarioService {
         Tenant tenant = tenantRepository.findById(tenantId).orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
 
         List<TenantUser> allRows = tenantUserRepository.findAllByTenantIdAndUserId(tenantId, user.getId());
-        Map<TenantUserRole, TenantUser> byRole = allRows.stream().collect(Collectors.toMap(
+        List<TenantUser> explicitRows = explicitRows(allRows);
+        Set<TenantUserRole> derivedActiveRoles = allRows.stream()
+                .filter(row -> row.getAccessOrigin() == TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER)
+                .filter(row -> row.getEstado() == TenantUserEstado.ATIVO)
+                .map(TenantUser::getRole)
+                .collect(Collectors.toSet());
+        Set<TenantUserRole> explicitRolesToSet = EnumSet.copyOf(rolesToSet);
+        explicitRolesToSet.removeAll(derivedActiveRoles);
+
+        Map<TenantUserRole, TenantUser> byRole = explicitRows.stream().collect(Collectors.toMap(
                 TenantUser::getRole,
                 tu -> tu,
                 (a, b) -> a
         ));
 
-        // marcar removidas
-        for (TenantUser tu : allRows) {
-            if (!rolesToSet.contains(tu.getRole())) {
+        // Apenas concessões explícitas são administráveis por este service.
+        for (TenantUser tu : explicitRows) {
+            if (!explicitRolesToSet.contains(tu.getRole())) {
                 tu.setEstado(TenantUserEstado.REMOVIDO);
             }
         }
 
-        // criar/reativar necessárias
-        for (TenantUserRole role : rolesToSet) {
+        for (TenantUserRole role : explicitRolesToSet) {
             TenantUser tu = byRole.get(role);
             if (tu == null) {
                 tu = new TenantUser();
@@ -399,13 +424,20 @@ public class TenantUsuarioService {
                 tu.setUser(user);
                 tu.setRole(role);
                 tu.setEstado(estado);
+                tu.setAccessOrigin(TenantUserAccessOrigin.EXPLICIT);
                 tenantUserRepository.save(tu);
             } else {
                 tu.setEstado(estado);
             }
         }
 
-        tenantUserRepository.saveAll(allRows);
+        tenantUserRepository.saveAll(explicitRows);
+    }
+
+    private List<TenantUser> explicitRows(List<TenantUser> rows) {
+        return rows.stream()
+                .filter(row -> row.getAccessOrigin() == TenantUserAccessOrigin.EXPLICIT)
+                .toList();
     }
 
     private User createUser(CriarTenantUsuarioRequest request, String email, String telefone) {

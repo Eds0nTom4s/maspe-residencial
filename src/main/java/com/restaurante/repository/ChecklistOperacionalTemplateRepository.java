@@ -7,7 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface ChecklistOperacionalTemplateRepository extends JpaRepository<ChecklistOperacionalTemplate, Long> {
-    List<ChecklistOperacionalTemplate> findByTipoAndAtivoTrueOrderByIdAsc(ChecklistTipo tipo);
+    List<ChecklistOperacionalTemplate> findByTenantIsNullAndTipoAndAtivoTrueOrderByIdAsc(ChecklistTipo tipo);
     List<ChecklistOperacionalTemplate> findByTenantIdAndTipoAndAtivoTrueOrderByIdAsc(Long tenantId, ChecklistTipo tipo);
 }
-

@@ -119,7 +119,12 @@ public class AuthController {
      * POST /api/auth/tenant/select
      */
     @PostMapping("/tenant/select")
-    @Operation(summary = "Selecionar tenant", description = "Emite token TENANT com claims tenantId/tenantRoles.")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(
+            summary = "Selecionar tenant",
+            description = "Exige JWT GLOBAL e emite JWT TENANT com tenantId e todas as tenantRoles activas.",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
     public ResponseEntity<ApiResponse<SelectTenantResponse>> selectTenant(@Valid @RequestBody SelectTenantRequest request) {
         SelectTenantResponse resp = tenantTokenService.selectTenant(request);
         return ResponseEntity.ok(ApiResponse.success("Tenant selecionado", resp));

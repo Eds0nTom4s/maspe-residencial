@@ -54,7 +54,7 @@ public class ChecklistOperacionalService {
                 : List.of();
         List<ChecklistOperacionalTemplate> templates = !templatesTenant.isEmpty()
                 ? templatesTenant
-                : templateRepository.findByTipoAndAtivoTrueOrderByIdAsc(tipo);
+                : templateRepository.findByTenantIsNullAndTipoAndAtivoTrueOrderByIdAsc(tipo);
 
         List<ChecklistTemplateResponse> out = new ArrayList<>();
         for (ChecklistOperacionalTemplate t : templates) {
@@ -226,15 +226,16 @@ public class ChecklistOperacionalService {
             List<ChecklistOperacionalTemplate> tenantTemplates = templateRepository.findByTenantIdAndTipoAndAtivoTrueOrderByIdAsc(tenant.getId(), tipo);
             if (!tenantTemplates.isEmpty()) return tenantTemplates.get(0);
         }
-        List<ChecklistOperacionalTemplate> globals = templateRepository.findByTipoAndAtivoTrueOrderByIdAsc(tipo);
+        List<ChecklistOperacionalTemplate> globals =
+                templateRepository.findByTenantIsNullAndTipoAndAtivoTrueOrderByIdAsc(tipo);
         if (globals.isEmpty()) throw new BusinessException("Checklist template não encontrado para " + tipo + ".");
         return globals.get(0);
     }
 
     @Transactional
     public void ensureDefaultTemplatesExist() {
-        if (!templateRepository.findByTipoAndAtivoTrueOrderByIdAsc(ChecklistTipo.ABERTURA).isEmpty()
-                && !templateRepository.findByTipoAndAtivoTrueOrderByIdAsc(ChecklistTipo.FECHO).isEmpty()) {
+        if (!templateRepository.findByTenantIsNullAndTipoAndAtivoTrueOrderByIdAsc(ChecklistTipo.ABERTURA).isEmpty()
+                && !templateRepository.findByTenantIsNullAndTipoAndAtivoTrueOrderByIdAsc(ChecklistTipo.FECHO).isEmpty()) {
             return;
         }
 
@@ -243,7 +244,7 @@ public class ChecklistOperacionalService {
     }
 
     private void createDefaultTemplateIfMissing(ChecklistTipo tipo, String nome, List<DefaultItem> items) {
-        if (!templateRepository.findByTipoAndAtivoTrueOrderByIdAsc(tipo).isEmpty()) return;
+        if (!templateRepository.findByTenantIsNullAndTipoAndAtivoTrueOrderByIdAsc(tipo).isEmpty()) return;
 
         ChecklistOperacionalTemplate t = new ChecklistOperacionalTemplate();
         t.setTenant(null);
@@ -290,4 +291,3 @@ public class ChecklistOperacionalService {
         );
     }
 }
-

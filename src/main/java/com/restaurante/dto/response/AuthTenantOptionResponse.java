@@ -45,8 +45,9 @@ public class AuthTenantOptionResponse {
     private String planoCodigo;
 
     /**
-     * Indica se este é o tenant principal/padrão do usuário.
-     * Calculado como o primeiro vínculo ativo quando ordenado por id.
+     * Marcador legacy de primeira opção. Não representa propriedade do Tenant
+     * nem Owner empresarial; exactamente a primeira opção elegível por tenantId
+     * recebe true para manter compatibilidade determinística.
      */
     private Boolean principal;
 }

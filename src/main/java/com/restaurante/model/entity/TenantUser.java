@@ -1,6 +1,7 @@
 package com.restaurante.model.entity;
 
 import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.model.enums.TenantUserAccessOrigin;
 import com.restaurante.model.enums.TenantUserRole;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -34,6 +35,10 @@ public class TenantUser extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "estado", nullable = false, length = 20)
     private TenantUserEstado estado;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "access_origin", nullable = false, length = 40)
+    private TenantUserAccessOrigin accessOrigin = TenantUserAccessOrigin.EXPLICIT;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "unidade_atendimento_default_id")
@@ -74,6 +79,14 @@ public class TenantUser extends BaseEntity {
         this.estado = estado;
     }
 
+    public TenantUserAccessOrigin getAccessOrigin() {
+        return accessOrigin;
+    }
+
+    public void setAccessOrigin(TenantUserAccessOrigin accessOrigin) {
+        this.accessOrigin = accessOrigin;
+    }
+
     public UnidadeAtendimento getUnidadeAtendimentoDefault() {
         return unidadeAtendimentoDefault;
     }
@@ -82,4 +95,3 @@ public class TenantUser extends BaseEntity {
         this.unidadeAtendimentoDefault = unidadeAtendimentoDefault;
     }
 }
-

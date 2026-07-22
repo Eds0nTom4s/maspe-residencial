@@ -26,6 +26,7 @@ import com.restaurante.model.enums.LogisticsMode;
 import com.restaurante.model.enums.OperationalDeviceType;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TenantUserAccessOrigin;
 import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.service.producao.RotaProducaoService;
@@ -298,7 +299,13 @@ public class ConsumaRestV1Template implements BusinessTemplate {
         support.configurarCardapioInicial(tenant, 8, 40);
 
         var ownerUser = support.criarOuReusarOwnerUser(request.getOwner(), ua);
-        support.criarTenantUser(tenant, ownerUser, TenantUserRole.TENANT_OWNER, ua);
+        support.criarTenantUser(
+                tenant,
+                ownerUser,
+                TenantUserRole.TENANT_OWNER,
+                ua,
+                TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER
+        );
 
         QrCodeOperacional qrPrincipal = support.criarQrPrincipal(tenant, inst, ua, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Principal");
 

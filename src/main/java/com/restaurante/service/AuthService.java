@@ -130,7 +130,7 @@ public class AuthService {
         user = userRepository.save(user);
 
         // Gera tokens
-        String accessToken = jwtTokenProvider.generateToken(user.getUsername());
+        String accessToken = generateGlobalToken(user);
         String refreshToken = jwtTokenProvider.generateRefreshToken(user.getUsername());
 
         log.info("Usuário registrado com sucesso: {}", user.getUsername());
@@ -173,7 +173,10 @@ public class AuthService {
         }
 
         // Gera novo access token
-        String newAccessToken = jwtTokenProvider.generateToken(username);
+        // Refresh tokens só são emitidos pelo login GLOBAL. O refresh preserva
+        // esse escopo e volta a materializar claims modernas; não existe refresh
+        // de JWT TENANT neste contrato.
+        String newAccessToken = generateGlobalToken(user);
 
         log.info("Token renovado para usuário: {}", username);
 
@@ -199,6 +202,14 @@ public class AuthService {
 
         String username = authentication.getName();
         return userRepository.findByUsername(username).orElse(null);
+    }
+
+    private String generateGlobalToken(User user) {
+        String roles = user.getAuthorities().stream()
+                .map(org.springframework.security.core.GrantedAuthority::getAuthority)
+                .sorted()
+                .collect(java.util.stream.Collectors.joining(","));
+        return jwtTokenProvider.generateToken(user.getUsername(), roles, null, user.getId(), "GLOBAL");
     }
     
     /**
@@ -250,10 +261,12 @@ public class AuthService {
         // Roles separadas por vírgula para o JWT
         String rolesStr = user.getRoles().stream()
             .map(Enum::name)
-            .reduce((a, b) -> a + "," + b)
-            .orElse("ROLE_ATENDENTE");
+            .sorted()
+            .collect(java.util.stream.Collectors.joining(","));
+        if (rolesStr.isBlank()) rolesStr = "ROLE_ATENDENTE";
 
-        String token = jwtTokenProvider.generateToken(user.getUsername(), rolesStr);
+        String token = jwtTokenProvider.generateToken(
+                user.getUsername(), rolesStr, null, user.getId(), "GLOBAL");
 
         // Deriva TipoUsuario da role principal
         TipoUsuario tipoUsuario = user.getRoles().stream()

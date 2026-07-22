@@ -39,6 +39,7 @@ import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.SubscricaoEstado;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.model.enums.TenantUserAccessOrigin;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import com.restaurante.model.enums.TipoUnidadeConsumo;
@@ -455,11 +456,22 @@ public class BusinessTemplateProvisioningSupport {
     }
 
     public TenantUser criarTenantUser(Tenant tenant, com.restaurante.model.entity.User user, TenantUserRole role, UnidadeAtendimento unidadeDefault) {
+        return criarTenantUser(tenant, user, role, unidadeDefault, TenantUserAccessOrigin.EXPLICIT);
+    }
+
+    public TenantUser criarTenantUser(
+            Tenant tenant,
+            com.restaurante.model.entity.User user,
+            TenantUserRole role,
+            UnidadeAtendimento unidadeDefault,
+            TenantUserAccessOrigin accessOrigin
+    ) {
         TenantUser tu = new TenantUser();
         tu.setTenant(tenant);
         tu.setUser(user);
         tu.setRole(role);
         tu.setEstado(TenantUserEstado.ATIVO);
+        tu.setAccessOrigin(accessOrigin);
         tu.setUnidadeAtendimentoDefault(unidadeDefault);
         return tenantUserRepository.saveAndFlush(tu);
     }

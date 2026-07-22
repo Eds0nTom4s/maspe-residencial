@@ -4,6 +4,7 @@ import com.restaurante.dto.request.SelectTenantRequest;
 import com.restaurante.dto.response.AuthTenantOptionResponse;
 import com.restaurante.dto.response.SelectTenantResponse;
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.TenantAccessDeniedException;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.User;
@@ -16,6 +17,7 @@ import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.security.JwtPrincipal;
 import com.restaurante.service.security.TenantUserAccessVersionService;
+import com.restaurante.service.security.OperationalTenantEligibilityService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,7 +28,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.Comparator;
+import java.util.stream.Collectors;
 
 /**
  * Emite token tenant-scoped para reduzir consultas por request no TenantResolver/Guard.
@@ -44,6 +51,7 @@ public class TenantTokenService {
     private final JwtTokenProvider jwtTokenProvider;
     private final TenantUserAccessVersionService tenantUserAccessVersionService;
     private final PlatformTenantAccessService platformTenantAccessService;
+    private final OperationalTenantEligibilityService operationalEligibility;
 
     @Transactional(readOnly = true)
     public SelectTenantResponse selectTenant(SelectTenantRequest request) {
@@ -55,15 +63,15 @@ public class TenantTokenService {
         if (auth == null || !auth.isAuthenticated()) {
             throw new BusinessException("Usuário não autenticado.");
         }
+        requireGlobalScope(auth);
         User user = resolveUserFromPrincipal(auth.getPrincipal());
 
         Tenant tenant = tenantRepository.findById(request.getTenantId())
                 .orElseThrow(() -> new BusinessException("Tenant não encontrado."));
-        if (tenant.getEstado() != TenantEstado.ATIVO) {
-            throw new BusinessException("Tenant não está ativo para operação tenant-aware.");
-        }
-
         if (isPlatformAdmin(auth, user)) {
+            if (tenant.getEstado() != TenantEstado.ATIVO) {
+                throw new TenantAccessDeniedException("TENANT_NOT_OPERATIONAL", "Tenant não está activo.");
+            }
             String token = jwtTokenProvider.generateTenantScopedToken(
                     user,
                     tenant,
@@ -89,23 +97,34 @@ public class TenantTokenService {
                     .build();
         }
 
-        TenantUser membership = tenantUserRepository.findByTenantIdAndUserIdAndEstado(
-                        tenant.getId(), user.getId(), TenantUserEstado.ATIVO
-                )
-                .orElseThrow(() -> new AccessDeniedException("Usuário não possui acesso a este tenant."));
+        List<TenantUser> memberships = tenantUserRepository.findAllByTenantIdAndUserIdAndEstado(
+                tenant.getId(), user.getId(), TenantUserEstado.ATIVO
+        );
+        operationalEligibility.requireEligible(tenant, memberships);
+
+        LinkedHashSet<TenantUserRole> tenantRoles = memberships.stream()
+                .map(TenantUser::getRole)
+                .filter(java.util.Objects::nonNull)
+                .sorted(Comparator.comparing(Enum::name))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (tenantRoles.isEmpty()) {
+            throw new TenantAccessDeniedException("MEMBERSHIP_NOT_ACTIVE", "Membership activa obrigatória.");
+        }
 
         int accessVersion = tenantUserAccessVersionService.getAccessVersion(tenant.getId(), user.getId());
         var permissionsUpdatedAt = tenantUserAccessVersionService.getPermissionsUpdatedAt(tenant.getId(), user.getId());
         String token = jwtTokenProvider.generateTenantScopedToken(
                 user,
                 tenant,
-                membership.getRole(),
-                membership.getEstado(),
+                tenantRoles,
+                TenantUserEstado.ATIVO,
                 accessVersion,
                 permissionsUpdatedAt != null ? permissionsUpdatedAt.toString() : null
         );
 
-        Set<String> roles = Set.of(membership.getRole().name());
+        Set<String> roles = tenantRoles.stream()
+                .map(Enum::name)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         return SelectTenantResponse.builder()
                 .userId(user.getId())
                 .tenantId(tenant.getId())
@@ -140,6 +159,7 @@ public class TenantTokenService {
         if (auth == null || !auth.isAuthenticated()) {
             throw new AccessDeniedException("Usuário não autenticado.");
         }
+        requireGlobalScope(auth);
         User user = resolveUserFromPrincipal(auth.getPrincipal());
         log.info("[AUTH-TENANTS] Listando tenants acessíveis para userId={}", user.getId());
 
@@ -174,35 +194,55 @@ public class TenantTokenService {
 
         log.info("[AUTH-TENANTS] Encontrados {} vínculos ativos para userId={}", memberships.size(), user.getId());
 
-        boolean first = true;
+        Map<Long, List<TenantUser>> membershipsByTenant = memberships.stream()
+                .collect(Collectors.groupingBy(
+                        row -> row.getTenant().getId(),
+                        TreeMap::new,
+                        Collectors.toList()
+                ));
+
         List<AuthTenantOptionResponse> result = new java.util.ArrayList<>();
-        for (TenantUser tu : memberships) {
-            Tenant t = tu.getTenant();
-            AuthTenantOptionResponse opt = AuthTenantOptionResponse.builder()
+        for (List<TenantUser> tenantMemberships : membershipsByTenant.values()) {
+            Tenant t = tenantMemberships.getFirst().getTenant();
+            var eligibility = operationalEligibility.evaluate(t, tenantMemberships);
+            if (!eligibility.eligible()) {
+                continue;
+            }
+            List<String> roles = tenantMemberships.stream()
+                    .map(TenantUser::getRole)
+                    .filter(java.util.Objects::nonNull)
+                    .map(Enum::name)
+                    .distinct()
+                    .sorted()
+                    .toList();
+            result.add(AuthTenantOptionResponse.builder()
                     .tenantId(t.getId())
                     .tenantCode(t.getTenantCode())
                     .slug(t.getSlug())
                     .nome(t.getNome())
                     .estado(t.getEstado().name())
                     .ativo(t.getEstado() == TenantEstado.ATIVO)
-                    .roles(List.of(tu.getRole().name()))
+                    .roles(roles)
                     .templateCode(t.getTemplateCode())
-                    .planoCodigo(resolvePlanoCodigo(t.getId()))
-                    .principal(first)
-                    .build();
-            result.add(opt);
-            first = false;
+                    .planoCodigo(resolvePlanoCodigo(eligibility.activeSubscription()))
+                    .principal(false)
+                    .build());
+        }
+        if (!result.isEmpty()) {
+            // Compatibilidade determinística: não existe Tenant principal no domínio;
+            // o primeiro tenant por tenantId mantém o único marcador legado.
+            result.getFirst().setPrincipal(true);
         }
         return result;
     }
 
     private User resolveUserFromPrincipal(Object principal) {
         if (principal instanceof User u) {
-            return u;
+            return requireActiveUser(u);
         }
         if (principal instanceof JwtPrincipal jp && jp.getUserId() != null) {
-            return userRepository.findById(jp.getUserId())
-                    .orElseThrow(() -> new BusinessException("Usuário não encontrado."));
+            return requireActiveUser(userRepository.findById(jp.getUserId())
+                    .orElseThrow(() -> new BusinessException("Usuário não encontrado.")));
         }
         throw new BusinessException("Principal inválido para seleção de tenant.");
     }
@@ -221,5 +261,28 @@ public class TenantTokenService {
         return subscricaoRepository.findByTenantIdAndEstado(tenantId, SubscricaoEstado.ATIVA)
                 .map(s -> s.getPlano() != null ? s.getPlano().getCodigo() : null)
                 .orElse(null);
+    }
+
+    private String resolvePlanoCodigo(com.restaurante.model.entity.Subscricao subscription) {
+        return subscription != null && subscription.getPlano() != null
+                ? subscription.getPlano().getCodigo()
+                : null;
+    }
+
+    private User requireActiveUser(User user) {
+        if (!Boolean.TRUE.equals(user.getAtivo())) {
+            throw new TenantAccessDeniedException("USER_NOT_ACTIVE", "Utilizador não está activo.");
+        }
+        return user;
+    }
+
+    private void requireGlobalScope(Authentication authentication) {
+        if (authentication.getPrincipal() instanceof JwtPrincipal principal
+                && !principal.isGlobalToken()) {
+            throw new TenantAccessDeniedException(
+                    "TOKEN_SCOPE_INVALID",
+                    "JWT GLOBAL obrigatório para listar ou seleccionar Tenant."
+            );
+        }
     }
 }

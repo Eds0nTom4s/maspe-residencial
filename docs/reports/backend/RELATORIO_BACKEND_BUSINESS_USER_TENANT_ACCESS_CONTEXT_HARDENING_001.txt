@@ -1,0 +1,438 @@
+RELATÓRIO — BACKEND BUSINESS USER TENANT ACCESS CONTEXT HARDENING 001
+===============================================================================
+
+1. IDENTIFICAÇÃO
+-------------------------------------------------------------------------------
+
+Fase: backend/business-user-tenant-access-context-hardening-001
+Repositório: Eds0nTom4s/maspe-residencial
+Branch: backend/business-user-tenant-access-context-hardening-001
+Base exacta: 5908719a8ff2cd61cdae00b9b56040c5c0792b38
+Data: 2026-07-22
+Frontend de referência, somente leitura: Eds0nTom4s/CONSUMA-UI @
+d3c6dc32b0bfa2850a2cf9f191b2bcec0fe2764a
+
+2. BASE
+-------------------------------------------------------------------------------
+
+O repositório, remote, worktree limpo e origin/main foram confirmados antes da
+criação da branch. A branch nasceu directamente do merge documental
+5908719a8ff2cd61cdae00b9b56040c5c0792b38. Não houve rebase, merge da main,
+force push, SQL manual nem alteração no frontend.
+
+Schema inicial contratual: V85. A base já continha a migration histórica fora
+da sequência V1..V85, V20260428_01_store_module.sql.
+
+3. OBJECTIVO
+-------------------------------------------------------------------------------
+
+Endurecer a arquitectura existente de contexto operacional sem criar endpoint,
+membership ou token paralelo. O resultado preserva:
+
+LOGIN GLOBAL -> JWT GLOBAL -> GET /api/auth/tenants ->
+POST /api/auth/tenant/select -> JWT TENANT -> /api/tenant/**.
+
+4. AUDITORIA PREDECESSORA
+-------------------------------------------------------------------------------
+
+A auditoria AUDIT-BACKEND-BUSINESS-USER-TENANT-ACCESS-CONTEXT-CANONICAL-001,
+commit bf7fbb6a3ff0618f994aad8026263dc2f6a3fdc8, classificou o estado como
+Cenário B: a arquitectura era suficiente, mas precisava de hardening pequeno.
+Esta fase corrige os gaps comprovados sem criar GET /me/businesses,
+POST /auth/business/select ou BusinessAccount-scoped JWT.
+
+5. ARQUITECTURA PRESERVADA
+-------------------------------------------------------------------------------
+
+Identidade continua sendo User. Governação empresarial continua sendo
+BusinessAccount + BusinessAccountMember. Acesso operacional continua sendo
+TenantUser + Tenant. BusinessAccount não é contexto operacional e managers não
+ganham acesso operacional implícito.
+
+6. TENANTUSER MULTI-ROLE
+-------------------------------------------------------------------------------
+
+O backend deixou de assumir uma única linha TenantUser por user/tenant.
+Repositories, listagem, selecção, TenantResolver, administração tenant e o
+consumidor financeiro afectado operam sobre listas e conjuntos de roles.
+
+Foi introduzida proveniência persistida:
+- EXPLICIT: role operacional concedida explicitamente;
+- BUSINESS_ACCOUNT_OWNER: TENANT_OWNER derivado do Owner principal.
+
+A unicidade passa a ser (tenant_id,user_id,role,access_origin). Isso permite
+preservar um TENANT_OWNER explicitamente concedido ao remover somente a origem
+derivada, sem perder histórico ou acesso legítimo.
+
+TABELA MULTI-ROLE
+
+Cenário | Memberships DB | /auth/tenants entries | roles response | select | JWT roles | Resultado
+1 role | 1 ATIVA | 1 | role única | PASS | role única | PASS
+2 roles | 2 ATIVAS | 1 | 2, sem duplicados | PASS | 2 | PASS
+3 roles | 3 ATIVAS | 1 | 3 ordenadas | PASS | 3 | PASS
+SUSPENSA + ATIVA | 2 linhas | 1 | somente ATIVA | PASS | somente ATIVA | PASS
+todas não activas | N linhas | 0 | [] | NEGADO | nenhum token | PASS
+
+7. GET /AUTH/TENANTS
+-------------------------------------------------------------------------------
+
+GET /api/auth/tenants permanece o contrato oficial. Para business user:
+- exige JWT GLOBAL moderno;
+- agrupa por tenantId;
+- retorna exactamente uma opção por Tenant;
+- agrega somente roles ATIVAS, distinct e ordenadas pelo nome do enum;
+- ordena opções por tenantId;
+- aplica a policy canónica de elegibilidade;
+- preserva tenantId, tenantCode, slug, nome, estado, ativo, roles,
+  templateCode, planoCodigo e principal.
+
+Não existe conceito persistido de Tenant principal. Para compatibilidade, o
+marcador legado principal=true é atribuído deterministicamente ao primeiro
+tenantId elegível, e não à primeira linha arbitrária do banco.
+
+8. POST /AUTH/TENANT/SELECT
+-------------------------------------------------------------------------------
+
+POST /api/auth/tenant/select continua a receber somente tenantId. Para business
+user resolve todas as memberships ATIVAS, aplica a mesma elegibilidade da
+listagem, exige pelo menos uma role, agrega o conjunto completo e emite JWT
+TENANT. IDOR e cross-account permanecem bloqueados por membership activa.
+
+9. JWT GLOBAL
+-------------------------------------------------------------------------------
+
+Login, registo e refresh emitem/materializam JWT GLOBAL moderno com userId,
+roles/authorities e tokenType=GLOBAL. O refresh token continua pertencendo ao
+login global e não foi criada uma capacidade de refresh tenant paralela.
+
+10. JWT TENANT
+-------------------------------------------------------------------------------
+
+JwtTokenProvider aceita Set<TenantUserRole>, mantendo overload singular para
+callers compatíveis. tenantRoles é serializado como lista distinct e ordenada.
+O token preserva subject, userId, tenantId, tenantCode, tenantRoles,
+tenantUserStatus, platformAdmin, tenantAccessVersion,
+tenantPermissionsUpdatedAt, authorities, issuedAt e expiration.
+
+11. ROLE AGGREGATION
+-------------------------------------------------------------------------------
+
+Nenhuma role primária artificial foi introduzida. As authorities globais do
+User permanecem authorities; tenantRoles representa todas e somente as roles
+TenantUser activas. List e select não dependem da ordem retornada pelo banco.
+
+12. TENANTUSER REPOSITORIES
+-------------------------------------------------------------------------------
+
+Foram removidos os métodos Optional singular incompatíveis com multi-role.
+Foram adicionadas consultas por lista e por accessOrigin. A consulta do
+selector faz fetch de Tenant/BusinessAccount e possui ordenação determinística.
+Nenhum findFirst representa o contexto completo de TenantUser.
+
+13. OPERATIONAL ELIGIBILITY
+-------------------------------------------------------------------------------
+
+OperationalTenantEligibilityService centraliza a decisão usada por list,
+select e TenantResolver. Para business user exige User activo no fluxo auth,
+TenantUser ATIVO e Tenant ATIVO. Tenant canónico exige também BusinessAccount
+ATIVA e Subscricao ATIVA.
+
+TABELA DE ELEGIBILIDADE
+
+Tenant | Account | Subscription | Membership | list? | select? | Platform Admin? | Resultado
+ATIVO | ATIVA | ATIVA | ATIVA | SIM | SIM | SIM | elegível
+INACTIVO | qualquer | qualquer | ATIVA | NÃO | NÃO | NÃO | TENANT_NOT_OPERATIONAL
+ATIVO | RASCUNHO/SUSPENSA | ATIVA | ATIVA | NÃO | NÃO | SIM | BUSINESS_ACCOUNT_NOT_OPERATIONAL
+ATIVO | ATIVA | ausente/não activa | ATIVA | NÃO | NÃO | SIM | SUBSCRIPTION_NOT_OPERATIONAL
+ATIVO | ATIVA | ATIVA | não activa | NÃO | NÃO | SIM | MEMBERSHIP_NOT_ACTIVE
+ATIVO legacy | N/A | qualquer | ATIVA | SIM | SIM | SIM | compatibilidade legacy
+
+14. BUSINESSACCOUNT ELIGIBILITY
+-------------------------------------------------------------------------------
+
+BusinessAccount RASCUNHO, SUSPENSA ou outro estado não operacional não expõe
+nem permite seleccionar Tenant canónico para business user, ainda que Tenant e
+membership estejam activos. Platform Admin conserva bypass elevado explícito.
+
+15. SUBSCRIPTION ELIGIBILITY
+-------------------------------------------------------------------------------
+
+Tenant canónico exige SubscricaoEstado.ATIVA. planoCodigo deriva dessa mesma
+subscrição; falta de subscrição não é mascarada por planoCodigo null.
+
+16. LEGACY TENANT COMPATIBILITY
+-------------------------------------------------------------------------------
+
+Tenant sem BusinessAccount preserva a regra anterior: Tenant ATIVO e ao menos
+uma membership ATIVA. Não houve backfill de BusinessAccount nem quebra
+silenciosa dos Tenants históricos.
+
+17. OWNER PROVISIONING
+-------------------------------------------------------------------------------
+
+ACCOUNT_OWNER_AS_TENANT_OWNER permanece implementação real. Templates
+CONSUMA_PONTO e CONSUMA_REST criam TENANT_OWNER/ATIVO com origem
+BUSINESS_ACCOUNT_OWNER para o Owner principal actual, dentro da operação
+transaccional de provisioning.
+
+18. OWNER REPLACEMENT
+-------------------------------------------------------------------------------
+
+BusinessAccountOwnerTenantAccessService sincroniza todos os Tenants ligados à
+Account, inclusive RASCUNHO, sob o mesmo lock/transaction do owner replacement:
+- garante Owner novo TENANT_OWNER derivado e ATIVO;
+- reactiva linha derivada histórica quando aplicável;
+- marca como REMOVIDO somente TENANT_OWNER derivado dos Owners anteriores;
+- preserva todas as roles EXPLICIT;
+- incrementa accessVersion somente quando existe mutação real;
+- replay exacto é idempotente;
+- provisioning posterior usa o Owner novo.
+
+TABELA OWNER
+
+Evento | Owner empresarial | TENANT_OWNER esperado | Owner anterior | Outras roles preservadas? | AccessVersion | Resultado
+Provision inicial | A | A derivado ATIVO | N/A | SIM | inicializado | PASS
+Novo Business | A | A derivado ATIVO | N/A | SIM | inicializado | PASS
+Replacement A->B | B | B derivado ATIVO | A derivado REMOVIDO | SIM | incrementada em mutation | PASS
+Replay replacement | B | B derivado ATIVO | sem nova mudança | SIM | inalterada | PASS
+Replacement + novo Business | B | B nos existentes e novo | A não derivado | SIM | coerente | PASS
+
+19. ACCESSVERSION
+-------------------------------------------------------------------------------
+
+Concessão/reactivação/revogação derivada actualiza
+TenantUserAccessVersionService por user/tenant afectado. Token antigo do Owner
+anterior é rejeitado como TENANT_TOKEN_STALE. Se o utilizador conservar role
+explícita, essa role não é apagada; um novo select materializa o contexto actual.
+
+20. MANAGER GOVERNANCE SEPARATION
+-------------------------------------------------------------------------------
+
+TABELA MANAGERS
+
+Evento | Manager? | TenantUser explícito? | Acesso operacional esperado | Resultado
+Add Manager | SIM | NÃO | nenhum | PASS
+Add Manager | SIM | SIM | somente o explícito | PASS
+Remove Manager | NÃO | NÃO | nenhum | PASS
+Remove Manager | NÃO | SIM | preservado | PASS
+
+ADMIN, BILLING_MANAGER, MEMBER e VIEWER continuam sem propagação operacional
+automática. BusinessAccount governance e TenantUser são domínios distintos.
+
+21. OPERATIONAL_ADMIN_ACCESS
+-------------------------------------------------------------------------------
+
+Readiness passou a exigir que o Owner principal actual possua exactamente o
+TENANT_OWNER derivado/ATIVO esperado. TENANT_OWNER antigo e TENANT_ADMIN
+explícito adicional não satisfazem essa regra de coerência. TENANT_ADMIN pode
+continuar existindo como acesso operacional adicional.
+
+22. PLATFORM ADMIN BYPASS
+-------------------------------------------------------------------------------
+
+O bypass existente permanece explícito: Platform Admin pode listar Tenants
+ATIVOS e assumir Tenant ATIVO sem TenantUser. A assunção continua auditada por
+PlatformTenantAccessService. Esse bypass não foi usado para provar Owner e não
+contamina a policy de business user.
+
+23. TENANTRESOLVER
+-------------------------------------------------------------------------------
+
+JWT TENANT válido tem prioridade canónica. O resolver valida Tenant,
+memberships activas, elegibilidade e accessVersion; multi-role do mesmo Tenant
+não é confundido com multi-tenant. Contexto injectado de testes sem Bearer
+continua compatível. Membership singular arbitrária foi eliminada.
+
+24. X-TENANT-ID
+-------------------------------------------------------------------------------
+
+X-Tenant-Id não se tornou fonte canónica. Para JWT TENANT, X-Tenant-Id ou
+X-Tenant-Code divergente produz TENANT_CONTEXT_CONFLICT e nunca sobrepõe o
+claim. Headers legacy permanecem apenas nos caminhos compatíveis existentes.
+
+25. VERTICAL/TEMPLATECODE
+-------------------------------------------------------------------------------
+
+Nenhum campo vertical novo foi criado. GET /auth/tenants continua expondo
+templateCode. Allowlist futura da UI:
+- CONSUMA_PONTO -> workspace PONTO;
+- CONSUMA_REST -> workspace REST.
+
+Não se infere vertical por nome livre, planoCodigo ou BusinessAccount.
+
+26. MULTI-BUSINESS
+-------------------------------------------------------------------------------
+
+Owner actual com dois Businesses elegíveis recebe duas opções, uma por Tenant,
+e pode seleccionar ambos. Roles são agregadas isoladamente dentro de cada
+Tenant. Provisioning concorrente e owner replacement respeitam o lock da
+BusinessAccount e a mesma ordem de locking.
+
+27. PONTO
+-------------------------------------------------------------------------------
+
+CONSUMA_PONTO continua a provisionar Owner derivado. JWT TENANT emitido pelo
+select foi aceite em endpoint tenant-aware representativo (/tenant/me). Não
+houve alteração em Pedido, Pagamento ou máquina operacional PONTO.
+
+28. REST
+-------------------------------------------------------------------------------
+
+CONSUMA_REST continua a provisionar Owner derivado e JWT TENANT foi aceite no
+mesmo contrato tenant-aware. A suite multi-business revelou e bloqueou um bug
+preexistente de fallback de checklist: a consulta "global" incluía templates
+de outro Tenant. O fallback agora exige tenant_id IS NULL, evitando vazamento
+cross-tenant sem alterar a semântica do checklist.
+
+29. SEGURANÇA
+-------------------------------------------------------------------------------
+
+TABELA DE SEGURANÇA
+
+ID | Risco anterior | Correcção | Teste | Resultado | Residual
+S1 | membership singular multi-role | listas + agregação | Auth list/select | PASS | nenhum conhecido
+S2 | tenantId IDOR | membership/policy obrigatória | AuthTenantSelectIT | PASS | Platform bypass auditado
+S3 | Owner antigo com token | accessVersion + origem | stale/replacement | PASS | refresh tenant não existe
+S4 | Owner novo sem acesso | sync transaccional | canonical provisioning | PASS | nenhum conhecido
+S5 | Account inactiva | policy central | eligibility PG | PASS | bypass Platform Admin
+S6 | Subscrição inactiva | policy central | eligibility PG | PASS | legacy deliberado
+S7 | JWT TENANT em endpoint GLOBAL | tokenType enforcement | list/select | PASS | tokens legacy devem relogar
+S8 | cross-account | TenantUser obrigatório | select/IDOR | PASS | nenhum conhecido
+S9 | header sobrepõe JWT | conflito 403 | TenantScopedTokenAccessIT | PASS | headers legacy fora do JWT
+S10 | checklist cross-tenant | global exige tenant NULL | unit + Failsafe integral | PASS | nenhum conhecido
+
+Erros contextuais incluem TOKEN_SCOPE_INVALID, MEMBERSHIP_NOT_ACTIVE,
+TENANT_NOT_OPERATIONAL, BUSINESS_ACCOUNT_NOT_OPERATIONAL,
+SUBSCRIPTION_NOT_OPERATIONAL, TENANT_CONTEXT_CONFLICT e TENANT_TOKEN_STALE.
+Respostas não expõem Tenant indevido por dados administrativos.
+
+30. CONCORRÊNCIA
+-------------------------------------------------------------------------------
+
+BusinessAccount é bloqueada pessimisticamente antes de owner replacement e
+provisioning. Testes PostgreSQL cobrem replacements concorrentes e replacement
+concorrente com provisioning, sem TenantUser derivado duplicado e com resultado
+coerente. Optimistic/version e idempotency contracts foram preservados.
+
+31. IDEMPOTÊNCIA
+-------------------------------------------------------------------------------
+
+Replay com mesma key/fingerprint não duplica TenantUser nem incrementa
+accessVersion quando não há mutação. O replay também pode reparar evento
+histórico anterior ao hardening de forma idempotente.
+
+32. MIGRATIONS
+-------------------------------------------------------------------------------
+
+Foi necessária uma migration:
+V20260722_01__tenant_user_access_origin.sql.
+
+Justificação: TENANT_OWNER também podia ser concedido explicitamente; sem
+proveniência, owner replacement não conseguiria revogar apenas acesso derivado
+sem risco de apagar acesso legítimo. A migration:
+- adiciona access_origin NOT NULL com default EXPLICIT;
+- classifica como BUSINESS_ACCOUNT_OWNER o TENANT_OWNER do responsável actual
+  nos Tenants canónicos existentes;
+- amplia a unique constraint com access_origin;
+- cria índice para sincronização/readiness.
+
+Schema final no Flyway: 20260722.01, partindo do baseline contratual V85 e
+preservando a migration histórica V20260428.01. Upgrade e arranque foram
+executados repetidamente em PostgreSQL 16 Testcontainers, sem SQL manual.
+
+33. TESTES
+-------------------------------------------------------------------------------
+
+Baseline exacta isolada antes da correcção:
+- Surefire: 483, failures 0, errors 0, skipped 3;
+- Failsafe: 325, failures 0, errors 0, skipped 0.
+
+Resultado final:
+- mvn -q -DskipTests compile: PASS;
+- Surefire: 493, failures 0, errors 0, skipped 3;
+- Failsafe PostgreSQL: 337, failures 0, errors 0, skipped 0;
+- mvn -Pit verify: BUILD SUCCESS em 13:48;
+- git diff --check: PASS.
+
+Classes obrigatórias:
+- AuthTenantListIT: 7/7;
+- AuthTenantSelectIT: 4/4;
+- TenantScopedTokenAccessIT: 1/1;
+- TenantTokenStaleInvalidationIT: 1/1;
+- CanonicalBusinessProvisioningPostgresIT: 18/18;
+- PlatformBusinessAccountContractIT: 4/4;
+- PlatformOnboardingCanonicalContractIT: 6/6;
+- OperationalTenantEligibilityPostgresIT: 4/4.
+
+Cobertura adicional: TenantResolver, owner sync, eligibility unitária,
+multi-role 1/2/3 roles, membership suspensa, IDOR, cross-account, manager,
+owner replacement/replay/stale, multi-business, account/subscription inactiva,
+PONTO, REST e fallback global de checklist.
+
+Spotless/Checkstyle: plugins não configurados no pom.xml; não executados.
+
+34. RUNTIME
+-------------------------------------------------------------------------------
+
+Os SpringBootTest levantaram a aplicação da branch e PostgreSQL 16 real via
+Testcontainers, executaram Flyway e os fluxos HTTP. Não foi iniciado servidor
+standalone nem atribuído Backend URL, pois o ambiente oficial de runtime com
+secrets/serviços externos não foi fornecido. Por isso health, liveness e
+readiness standalone são NÃO EXECUTADOS; readiness de provisioning foi coberto
+em integração.
+
+35. COMPATIBILIDADE
+-------------------------------------------------------------------------------
+
+Os paths, requests e campos existentes permanecem. templateCode e planoCodigo
+continuam disponíveis. A alteração é backward-compatible para clientes modernos:
+roles passa a representar correctamente todas as roles activas. Tokens legacy
+sem tokenType deixam de ser aceites nos endpoints pré-tenant e requerem novo
+login, por decisão de segurança.
+
+36. GAPS RESIDUAIS
+-------------------------------------------------------------------------------
+
+- A migration infere proveniência histórica pela melhor evidência disponível:
+  Owner principal actual + TENANT_OWNER; casos históricos anómalos devem ser
+  auditados operacionalmente antes de rollout.
+- principal continua marcador de compatibilidade, não preferência canónica.
+- Platform Admin conserva bypass elevado por contrato existente.
+- Não existe refresh de JWT TENANT; a UI deve preservar JWT GLOBAL e
+  seleccionar novamente quando necessário.
+- Health/liveness/readiness standalone não foram executados.
+
+37. PRÓXIMA FASE
+-------------------------------------------------------------------------------
+
+Somente depois de merge controlado e aprovação:
+ui/business-tenant-context-selector-recovery-001.
+
+A fase futura deve adaptar SelectTenantPage/useTenantStore, manter JWT GLOBAL
+para troca de Negócio, armazenar o JWT TENANT seleccionado e rotear por
+allowlist de templateCode. Ela não foi iniciada.
+
+38. COMMITS
+-------------------------------------------------------------------------------
+
+Funcional:
+eb0a5329ffd985175a2c52cffb677d67a1ec2c8d
+feat(backend): endurece contexto tenant de utilizadores empresariais
+
+Testes:
+05d25533182b4ef977022704bef3eb2c0e7f05cb
+test(backend): cobre multi-role e sincronizacao de owner tenant
+
+Documentação:
+docs(backend): documenta hardening de acesso tenant empresarial
+(commit que contém este relatório)
+
+39. DECISÃO FINAL
+-------------------------------------------------------------------------------
+
+A arquitectura canónica foi preservada e endurecida. List e select convergem na
+mesma policy, TenantUser multi-role funciona, Owner derivado é sincronizado com
+proveniência, tokens stale são protegidos, managers permanecem independentes,
+PONTO/REST continuam compatíveis e as suites completas estão verdes.
+
+Decisão técnica da fase: APROVADO PARA MERGE CONTROLADO.

@@ -7,6 +7,7 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.model.entity.BusinessAccount;
 import com.restaurante.model.entity.BusinessProvisioningPreview;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.BusinessAccountEstado;
 import com.restaurante.model.enums.BusinessAccountMemberEstado;
@@ -15,6 +16,7 @@ import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.SubscricaoEstado;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantUserEstado;
+import com.restaurante.model.enums.TenantUserAccessOrigin;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.*;
@@ -73,6 +75,7 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
     @Autowired InstituicaoRepository instituicoes;
     @Autowired UnidadeAtendimentoRepository unidades;
     @Autowired TenantUserRepository tenantUsers;
+    @Autowired TenantUserAccessVersionRepository accessVersions;
     @SpyBean BusinessTemplateService templateService;
 
     @Test
@@ -493,6 +496,323 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
                         .contentType(MediaType.APPLICATION_JSON).content(managerOwner))
                 .andExpect(status().isBadRequest());
         assertThat(accounts.findById(id).orElseThrow().getResponsavel().getId()).isEqualTo(replacement.getId());
+    }
+
+    @Test
+    void ownerReplacementSynchronizesExistingBusinessesPreservesExplicitRolesAndInvalidatesStaleToken() throws Exception {
+        String suffix = "owner-sync-" + suffix();
+        User admin = user("platform-" + suffix, Role.ROLE_ADMIN);
+        User oldOwner = user("old-" + suffix, Role.ROLE_GERENTE);
+        User newOwner = user("new-" + suffix, Role.ROLE_GERENTE);
+        String platformToken = token(admin);
+        JsonNode account = createAccount(platformToken, oldOwner, suffix, 3);
+        long accountId = account.path("id").asLong();
+        long initialVersion = account.path("version").asLong();
+        long activeTenantId = provisionDraftBusiness(
+                platformToken, accountId, initialVersion, suffix + "-active", "owner-sync-a-");
+        long draftTenantId = provisionDraftBusiness(
+                platformToken, accountId, initialVersion, suffix + "-draft", "owner-sync-b-");
+
+        JsonNode activeAccount = activateAccount(
+                platformToken, accountId, initialVersion, "activate-" + suffix, "activar conta");
+        long accountVersion = activeAccount.path("version").asLong();
+        Tenant activeTenant = tenants.findById(activeTenantId).orElseThrow();
+        mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                        accountId, activeTenantId)
+                        .header("Authorization", "Bearer " + platformToken)
+                        .header("Idempotency-Key", "activate-business-" + suffix)
+                        .header("X-Correlation-Id", "corr-activate-business-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(businessActivation(accountVersion, activeTenant.getVersion(), "activar negócio")))
+                .andExpect(status().isOk());
+
+        TenantUser explicitOperator = new TenantUser();
+        explicitOperator.setTenant(tenants.findById(activeTenantId).orElseThrow());
+        explicitOperator.setUser(oldOwner);
+        explicitOperator.setRole(TenantUserRole.TENANT_OPERATOR);
+        explicitOperator.setEstado(TenantUserEstado.ATIVO);
+        explicitOperator.setAccessOrigin(TenantUserAccessOrigin.EXPLICIT);
+        tenantUsers.saveAndFlush(explicitOperator);
+
+        String oldGlobal = userToken(oldOwner);
+        String oldTenantToken = selectTenantToken(oldGlobal, activeTenantId);
+        String replacePayload = "{\"accountVersion\":" + accountVersion + ",\"novoResponsavel\":{"
+                + "\"strategy\":\"ASSOCIATE_EXISTING\",\"userId\":" + newOwner.getId()
+                + ",\"confirmExistingUser\":true},\"reason\":\"sincronização owner\"}";
+        String replacement = mockMvc.perform(post("/platform/business-accounts/{id}/owner/replace", accountId)
+                        .header("Authorization", "Bearer " + platformToken)
+                        .header("Idempotency-Key", "replace-" + suffix)
+                        .header("X-Correlation-Id", "corr-replace-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(replacePayload))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        long replacedVersion = objectMapper.readTree(replacement).at("/data/version").asLong();
+
+        for (Long tenantId : List.of(activeTenantId, draftTenantId)) {
+            assertThat(tenantUsers.existsByTenantIdAndUserIdAndRoleAndEstadoAndAccessOrigin(
+                    tenantId, newOwner.getId(), TenantUserRole.TENANT_OWNER, TenantUserEstado.ATIVO,
+                    TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER)).isTrue();
+            assertThat(tenantUsers.findByTenantIdAndUserIdAndRoleAndAccessOrigin(
+                    tenantId, oldOwner.getId(), TenantUserRole.TENANT_OWNER,
+                    TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER).orElseThrow().getEstado())
+                    .isEqualTo(TenantUserEstado.REMOVIDO);
+        }
+        assertThat(tenantUsers.existsByTenantIdAndUserIdAndRoleAndEstado(
+                activeTenantId, oldOwner.getId(), TenantUserRole.TENANT_OPERATOR, TenantUserEstado.ATIVO)).isTrue();
+
+        mockMvc.perform(get("/tenant/me").header("Authorization", "Bearer " + oldTenantToken))
+                .andExpect(status().isUnauthorized());
+
+        String newGlobal = userToken(newOwner);
+        JsonNode visible = objectMapper.readTree(mockMvc.perform(get("/auth/tenants")
+                        .header("Authorization", "Bearer " + newGlobal))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(visible.findValuesAsText("tenantId")).contains(Long.toString(activeTenantId));
+        assertThat(visible.findValuesAsText("tenantId")).doesNotContain(Long.toString(draftTenantId));
+        JsonNode pontoOption = java.util.stream.StreamSupport.stream(visible.spliterator(), false)
+                .filter(node -> node.path("tenantId").asLong() == activeTenantId)
+                .findFirst().orElseThrow();
+        assertThat(pontoOption.path("templateCode").asText()).isEqualTo("CONSUMA_PONTO");
+        String newTenantToken = selectTenantToken(newGlobal, activeTenantId);
+        mockMvc.perform(get("/tenant/me").header("Authorization", "Bearer " + newTenantToken))
+                .andExpect(status().isOk());
+
+        String readiness = mockMvc.perform(get(
+                        "/platform/business-accounts/{accountId}/businesses/{tenantId}/readiness",
+                        accountId, draftTenantId)
+                        .header("Authorization", "Bearer " + platformToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(readiness).at("/data/blockers").toString())
+                .doesNotContain("OPERATIONAL_ADMIN_ACCESS");
+
+        int oldVersionBeforeReplay = accessVersions.findAccessVersion(activeTenantId, oldOwner.getId()).orElse(1);
+        int newVersionBeforeReplay = accessVersions.findAccessVersion(activeTenantId, newOwner.getId()).orElse(1);
+        mockMvc.perform(post("/platform/business-accounts/{id}/owner/replace", accountId)
+                        .header("Authorization", "Bearer " + platformToken)
+                        .header("Idempotency-Key", "replace-" + suffix)
+                        .header("X-Correlation-Id", "corr-replace-replay-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(replacePayload))
+                .andExpect(status().isOk());
+        assertThat(accessVersions.findAccessVersion(activeTenantId, oldOwner.getId()).orElse(1))
+                .isEqualTo(oldVersionBeforeReplay);
+        assertThat(accessVersions.findAccessVersion(activeTenantId, newOwner.getId()).orElse(1))
+                .isEqualTo(newVersionBeforeReplay);
+
+        long newTenantId = provisionDraftBusiness(
+                platformToken, accountId, replacedVersion, suffix + "-new", "owner-sync-c-");
+        assertThat(tenantUsers.existsByTenantIdAndUserIdAndRoleAndEstadoAndAccessOrigin(
+                newTenantId, newOwner.getId(), TenantUserRole.TENANT_OWNER, TenantUserEstado.ATIVO,
+                TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER)).isTrue();
+        assertThat(tenantUsers.existsByTenantIdAndUserIdAndRoleAndEstadoAndAccessOrigin(
+                newTenantId, oldOwner.getId(), TenantUserRole.TENANT_OWNER, TenantUserEstado.ATIVO,
+                TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER)).isFalse();
+    }
+
+    @Test
+    void managerGovernanceDoesNotGrantOrRevokeExplicitOperationalAccess() throws Exception {
+        String suffix = "manager-separation-" + suffix();
+        User admin = user("platform-" + suffix, Role.ROLE_ADMIN);
+        User owner = user("owner-" + suffix, Role.ROLE_GERENTE);
+        User manager = user("manager-" + suffix, Role.ROLE_GERENTE);
+        String platformToken = token(admin);
+        JsonNode account = createAccount(platformToken, owner, suffix, 1);
+        long accountId = account.path("id").asLong();
+        long initialVersion = account.path("version").asLong();
+        String businessSuffix = "mgr-" + suffix();
+        long tenantId = provisionDraftBusiness(
+                platformToken, accountId, initialVersion, businessSuffix, "manager-separation-");
+        long activeAccountVersion = activateAccount(
+                platformToken, accountId, initialVersion, "activate-" + suffix, "activar conta")
+                .path("version").asLong();
+        Tenant tenant = tenants.findById(tenantId).orElseThrow();
+        mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                        accountId, tenantId)
+                        .header("Authorization", "Bearer " + platformToken)
+                        .header("Idempotency-Key", "activate-business-" + suffix)
+                        .header("X-Correlation-Id", "corr-activate-business-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(businessActivation(activeAccountVersion, tenant.getVersion(), "activar negócio")))
+                .andExpect(status().isOk());
+
+        String addManager = "{\"accountVersion\":" + activeAccountVersion
+                + ",\"userId\":" + manager.getId()
+                + ",\"role\":\"ADMIN\",\"estado\":\"ATIVO\",\"reason\":\"gestão empresarial\"}";
+        mockMvc.perform(post("/platform/business-accounts/{id}/managers", accountId)
+                        .header("Authorization", "Bearer " + platformToken)
+                        .header("Idempotency-Key", "add-manager-" + suffix)
+                        .header("X-Correlation-Id", "corr-add-manager-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(addManager))
+                .andExpect(status().isOk());
+        assertThat(tenantUsers.existsByTenantIdAndUserId(tenantId, manager.getId())).isFalse();
+
+        String managerGlobal = userToken(manager);
+        JsonNode empty = objectMapper.readTree(mockMvc.perform(get("/auth/tenants")
+                        .header("Authorization", "Bearer " + managerGlobal))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(empty.size()).isZero();
+        mockMvc.perform(post("/auth/tenant/select")
+                        .header("Authorization", "Bearer " + managerGlobal)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"tenantId\":" + tenantId + "}"))
+                .andExpect(status().isForbidden());
+
+        TenantUser explicit = new TenantUser();
+        explicit.setTenant(tenants.findById(tenantId).orElseThrow());
+        explicit.setUser(manager);
+        explicit.setRole(TenantUserRole.TENANT_OPERATOR);
+        explicit.setEstado(TenantUserEstado.ATIVO);
+        explicit.setAccessOrigin(TenantUserAccessOrigin.EXPLICIT);
+        tenantUsers.saveAndFlush(explicit);
+
+        long versionAfterAdd = accounts.findById(accountId).orElseThrow().getVersion();
+        String removeManager = "{\"accountVersion\":" + versionAfterAdd
+                + ",\"userId\":" + manager.getId()
+                + ",\"role\":\"ADMIN\",\"estado\":\"REMOVIDO\",\"reason\":\"fim da governance\"}";
+        mockMvc.perform(post("/platform/business-accounts/{id}/managers", accountId)
+                        .header("Authorization", "Bearer " + platformToken)
+                        .header("Idempotency-Key", "remove-manager-" + suffix)
+                        .header("X-Correlation-Id", "corr-remove-manager-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(removeManager))
+                .andExpect(status().isOk());
+
+        assertThat(tenantUsers.existsByTenantIdAndUserIdAndRoleAndEstado(
+                tenantId, manager.getId(), TenantUserRole.TENANT_OPERATOR, TenantUserEstado.ATIVO)).isTrue();
+        JsonNode visible = objectMapper.readTree(mockMvc.perform(get("/auth/tenants")
+                        .header("Authorization", "Bearer " + managerGlobal))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(visible.findValuesAsText("tenantId")).contains(Long.toString(tenantId));
+        selectTenantToken(managerGlobal, tenantId);
+    }
+
+    @Test
+    void concurrentOwnerReplacementsLeaveOneGovernanceAndDerivedOwner() throws Exception {
+        String suffix = suffix();
+        User admin = user("platform-owner-race-" + suffix, Role.ROLE_ADMIN);
+        User ownerA = user("owner-race-a-" + suffix, Role.ROLE_GERENTE);
+        User ownerB = user("owner-race-b-" + suffix, Role.ROLE_GERENTE);
+        User ownerC = user("owner-race-c-" + suffix, Role.ROLE_GERENTE);
+        String platformToken = token(admin);
+        JsonNode account = createAccount(platformToken, ownerA, "owner-race-" + suffix, 1);
+        long accountId = account.path("id").asLong();
+        long version = account.path("version").asLong();
+        long tenantId = provisionDraftBusiness(
+                platformToken, accountId, version, "or-" + suffix, "owner-race-");
+
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Integer> replaceB = () -> replaceOwnerStatus(
+                    platformToken, accountId, version, ownerB, "owner-race-b-" + suffix);
+            Callable<Integer> replaceC = () -> replaceOwnerStatus(
+                    platformToken, accountId, version, ownerC, "owner-race-c-" + suffix);
+            Future<Integer> futureB = executor.submit(replaceB);
+            Future<Integer> futureC = executor.submit(replaceC);
+            List<Integer> statuses = new ArrayList<>(List.of(futureB.get(), futureC.get()));
+            Collections.sort(statuses);
+            assertThat(statuses).containsExactly(200, 409);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        User finalOwner = accounts.findById(accountId).orElseThrow().getResponsavel();
+        assertThat(finalOwner.getId()).isIn(ownerB.getId(), ownerC.getId());
+        assertThat(tenantUsers.countByTenantIdAndRoleAndEstadoAndAccessOrigin(
+                tenantId, TenantUserRole.TENANT_OWNER, TenantUserEstado.ATIVO,
+                TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER)).isEqualTo(1);
+        assertThat(tenantUsers.existsByTenantIdAndUserIdAndRoleAndEstadoAndAccessOrigin(
+                tenantId, finalOwner.getId(), TenantUserRole.TENANT_OWNER, TenantUserEstado.ATIVO,
+                TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER)).isTrue();
+    }
+
+    @Test
+    void concurrentOwnerReplacementAndProvisioningNeverLeaveStaleDerivedOwner() throws Exception {
+        String suffix = suffix();
+        User admin = user("platform-owner-provision-race-" + suffix, Role.ROLE_ADMIN);
+        User oldOwner = user("owner-provision-old-" + suffix, Role.ROLE_GERENTE);
+        User newOwner = user("owner-provision-new-" + suffix, Role.ROLE_GERENTE);
+        String platformToken = token(admin);
+        JsonNode account = createAccount(platformToken, oldOwner, "owner-provision-race-" + suffix, 1);
+        long accountId = account.path("id").asLong();
+        long version = account.path("version").asLong();
+        JsonNode preview = preview(
+                platformToken, accountId, version, "opr-" + suffix, "owner-provision-preview-" + suffix);
+        String provisionPayload = provisionPayload(preview, version, true);
+
+        var executor = Executors.newFixedThreadPool(2);
+        int replaceStatus;
+        int provisionStatus;
+        try {
+            Future<Integer> replace = executor.submit(() -> replaceOwnerStatus(
+                    platformToken, accountId, version, newOwner, "owner-provision-replace-" + suffix));
+            Future<Integer> provision = executor.submit(() -> mockMvc.perform(post(
+                            "/platform/business-accounts/{id}/businesses/provision", accountId)
+                            .header("Authorization", "Bearer " + platformToken)
+                            .header("Idempotency-Key", "owner-provision-command-" + suffix)
+                            .header("X-Correlation-Id", "corr-owner-provision-" + suffix)
+                            .contentType(MediaType.APPLICATION_JSON).content(provisionPayload))
+                    .andReturn().getResponse().getStatus());
+            replaceStatus = replace.get();
+            provisionStatus = provision.get();
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(replaceStatus).isEqualTo(200);
+        assertThat(provisionStatus).isIn(201, 409);
+        assertThat(accounts.findById(accountId).orElseThrow().getResponsavel().getId())
+                .isEqualTo(newOwner.getId());
+        List<Tenant> created = tenants.findByBusinessAccountIdOrderByIdAsc(accountId);
+        if (!created.isEmpty()) {
+            Long tenantId = created.getFirst().getId();
+            assertThat(tenantUsers.existsByTenantIdAndUserIdAndRoleAndEstadoAndAccessOrigin(
+                    tenantId, newOwner.getId(), TenantUserRole.TENANT_OWNER, TenantUserEstado.ATIVO,
+                    TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER)).isTrue();
+            assertThat(tenantUsers.existsByTenantIdAndUserIdAndRoleAndEstadoAndAccessOrigin(
+                    tenantId, oldOwner.getId(), TenantUserRole.TENANT_OWNER, TenantUserEstado.ATIVO,
+                    TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER)).isFalse();
+        }
+    }
+
+    @Test
+    void canonicalRestBusinessIssuesTenantJwtAndKeepsTemplateRouting() throws Exception {
+        String suffix = suffix();
+        User admin = user("platform-rest-auth-" + suffix, Role.ROLE_ADMIN);
+        User owner = user("owner-rest-auth-" + suffix, Role.ROLE_GERENTE);
+        String platformToken = token(admin);
+        JsonNode account = createAccount(platformToken, owner, "rest-auth-" + suffix, 1);
+        long accountId = account.path("id").asLong();
+        long accountVersion = account.path("version").asLong();
+        JsonNode preview = previewRest(platformToken, accountId, accountVersion, "rest-" + suffix);
+        String provisioned = mockMvc.perform(post("/platform/business-accounts/{id}/businesses/provision", accountId)
+                        .header("Authorization", "Bearer " + platformToken)
+                        .header("Idempotency-Key", "rest-provision-" + suffix)
+                        .header("X-Correlation-Id", "corr-rest-provision-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(provisionPayload(preview, accountVersion, true)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long tenantId = objectMapper.readTree(provisioned).at("/data/tenantId").asLong();
+        long activeAccountVersion = activateAccount(
+                platformToken, accountId, accountVersion, "rest-account-activate-" + suffix, "activar REST")
+                .path("version").asLong();
+        Tenant tenant = tenants.findById(tenantId).orElseThrow();
+        mockMvc.perform(post("/platform/business-accounts/{accountId}/businesses/{tenantId}/activate",
+                        accountId, tenantId)
+                        .header("Authorization", "Bearer " + platformToken)
+                        .header("Idempotency-Key", "rest-business-activate-" + suffix)
+                        .header("X-Correlation-Id", "corr-rest-business-activate-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(businessActivation(activeAccountVersion, tenant.getVersion(), "activar REST")))
+                .andExpect(status().isOk());
+
+        assertThat(tenants.findById(tenantId).orElseThrow().getTemplateCode()).isEqualTo("CONSUMA_REST");
+        String ownerGlobal = userToken(owner);
+        JsonNode options = objectMapper.readTree(mockMvc.perform(get("/auth/tenants")
+                        .header("Authorization", "Bearer " + ownerGlobal))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        JsonNode option = java.util.stream.StreamSupport.stream(options.spliterator(), false)
+                .filter(node -> node.path("tenantId").asLong() == tenantId)
+                .findFirst().orElseThrow();
+        assertThat(option.path("templateCode").asText()).isEqualTo("CONSUMA_REST");
+        String tenantToken = selectTenantToken(ownerGlobal, tenantId);
+        mockMvc.perform(get("/tenant/me").header("Authorization", "Bearer " + tenantToken))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -945,6 +1265,28 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
         return new PreparedLifecycle(accountId, accountVersion, tenantId);
     }
 
+    private long provisionDraftBusiness(String token, long accountId, long accountVersion,
+                                        String suffix, String keyPrefix) throws Exception {
+        JsonNode preview = preview(token, accountId, accountVersion, suffix, keyPrefix + "preview" + suffix);
+        String response = mockMvc.perform(post("/platform/business-accounts/{id}/businesses/provision", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", keyPrefix + "provision" + suffix)
+                        .header("X-Correlation-Id", "corr-" + keyPrefix + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(provisionPayload(preview, accountVersion, true)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).at("/data/tenantId").asLong();
+    }
+
+    private String selectTenantToken(String globalToken, long tenantId) throws Exception {
+        String response = mockMvc.perform(post("/auth/tenant/select")
+                        .header("Authorization", "Bearer " + globalToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tenantId\":" + tenantId + "}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).at("/data/accessToken").asText();
+    }
+
     private JsonNode activateAccount(String token, long accountId, long version, String key, String reason) throws Exception {
         String response = mockMvc.perform(post("/platform/business-accounts/{id}/activate", accountId)
                         .header("Authorization", "Bearer " + token)
@@ -963,6 +1305,19 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
                         .header("X-Correlation-Id", "corr-" + key + "-" + Thread.currentThread().getId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"accountVersion\":" + version + ",\"reason\":\"" + reason + "\"}"))
+                .andReturn().getResponse().getStatus();
+    }
+
+    private int replaceOwnerStatus(String platformToken, long accountId, long accountVersion,
+                                   User owner, String key) throws Exception {
+        String payload = "{\"accountVersion\":" + accountVersion + ",\"novoResponsavel\":{"
+                + "\"strategy\":\"ASSOCIATE_EXISTING\",\"userId\":" + owner.getId()
+                + ",\"confirmExistingUser\":true},\"reason\":\"substituição concorrente\"}";
+        return mockMvc.perform(post("/platform/business-accounts/{id}/owner/replace", accountId)
+                        .header("Authorization", "Bearer " + platformToken)
+                        .header("Idempotency-Key", key)
+                        .header("X-Correlation-Id", "corr-" + key)
+                        .contentType(MediaType.APPLICATION_JSON).content(payload))
                 .andReturn().getResponse().getStatus();
     }
 
@@ -1009,6 +1364,40 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
         return objectMapper.readTree(body).path("data");
     }
 
+    private JsonNode previewRest(String token, long accountId, long version, String suffix) throws Exception {
+        String payload = """
+                {
+                  "accountVersion": %d,
+                  "planoCodigo": "PILOTO",
+                  "vertical": "CONSUMA_REST",
+                  "negocio": {
+                    "nomeNegocio": "Rest %s",
+                    "slug": "business-%s",
+                    "tenantCode": "R%s",
+                    "tipo": "RESTAURANTE",
+                    "nif": "NIF-%s",
+                    "telefone": "+24492%s"
+                  },
+                  "rest": {
+                    "temMesas": true,
+                    "quantidadeMesas": 2,
+                    "gerarQrPorMesa": true,
+                    "temBarSeparado": false,
+                    "exigeTurnoAberto": true,
+                    "entrega": "NONE"
+                  },
+                  "acessos": {"strategy": "ACCOUNT_OWNER_AS_TENANT_OWNER", "additionalAccesses": []}
+                }
+                """.formatted(version, suffix, suffix, digits(suffix, 8), suffix, digits(suffix, 9));
+        String response = mockMvc.perform(post("/platform/business-accounts/{id}/businesses/preview", accountId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "rest-preview-" + suffix)
+                        .header("X-Correlation-Id", "corr-rest-preview-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON).content(payload))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).path("data");
+    }
+
     private void member(BusinessAccount account, User user, BusinessAccountRole role) {
         var member = new com.restaurante.model.entity.BusinessAccountMember();
         member.setBusinessAccount(account);
@@ -1049,6 +1438,10 @@ class CanonicalBusinessProvisioningPostgresIT extends PostgresTestcontainersConf
 
     private String token(User user) {
         return jwtTokenProvider.generateToken(user.getUsername(), "ROLE_ADMIN", null, user.getId(), "GLOBAL");
+    }
+
+    private String userToken(User user) {
+        return jwtTokenProvider.generateToken(user.getUsername(), "ROLE_GERENTE", null, user.getId(), "GLOBAL");
     }
 
     private String suffix() { return Long.toString(Math.abs(System.nanoTime() % 100_000_000L)); }

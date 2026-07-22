@@ -353,9 +353,25 @@ public class BusinessProvisioningService {
                         : billing.getBillingPlan().getCode()));
         checks.add(check("INSTITUTION", instituicoes.countByTenantId(tenantId) > 0, "instituição tenant-scoped"));
         checks.add(check("UNIT", unidades.countByTenantId(tenantId) > 0, "unidade tenant-scoped"));
-        boolean adminAccess = tenantUsers.countByTenantIdAndRoleAndEstado(tenantId, TenantUserRole.TENANT_OWNER, TenantUserEstado.ATIVO) == 1
-                || tenantUsers.countByTenantIdAndRoleAndEstado(tenantId, TenantUserRole.TENANT_ADMIN, TenantUserEstado.ATIVO) > 0;
-        checks.add(check("OPERATIONAL_ADMIN_ACCESS", adminAccess, "TENANT_OWNER único ou TENANT_ADMIN activo"));
+        boolean ownerAccess = account.getResponsavel() != null
+                && tenantUsers.existsByTenantIdAndUserIdAndRoleAndEstadoAndAccessOrigin(
+                        tenantId,
+                        account.getResponsavel().getId(),
+                        TenantUserRole.TENANT_OWNER,
+                        TenantUserEstado.ATIVO,
+                        TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER
+                )
+                && tenantUsers.countByTenantIdAndRoleAndEstadoAndAccessOrigin(
+                        tenantId,
+                        TenantUserRole.TENANT_OWNER,
+                        TenantUserEstado.ATIVO,
+                        TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER
+                ) == 1;
+        checks.add(check(
+                "OPERATIONAL_ADMIN_ACCESS",
+                ownerAccess,
+                "Owner principal actual com TENANT_OWNER derivado e activo"
+        ));
         checks.add(check("TEMPLATE_VERSION", tenant.getTemplateCode() != null && tenant.getTemplateVersion() != null,
                 tenant.getTemplateCode() + "_V" + tenant.getTemplateVersion()));
         checks.add(check("TENANT_NOT_ACTIVE_PREMATURELY", tenant.getEstado() == TenantEstado.RASCUNHO || tenant.getEstado() == TenantEstado.ATIVO,

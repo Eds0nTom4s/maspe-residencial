@@ -96,8 +96,11 @@ public class PagamentoReconciliationCaseService {
         if(replayed(c,ReconciliationCaseAction.ASSIGNED,key,fp)) return detailOf(c,platform); checkVersion(c,req.version());
         requireAllowed(c,"ASSIGN",platform);
         User next=users.findById(req.assignedToUserId()).orElseThrow(()->new ResourceNotFoundException("Responsável não encontrado."));
-        var membership=tenantUsers.findByTenantIdAndUserIdAndEstado(c.getTenant().getId(),next.getId(),TenantUserEstado.ATIVO).orElseThrow(()->new BusinessException("Responsável não pertence activamente ao tenant do caso."));
-        if(!EnumSet.of(TenantUserRole.TENANT_OWNER,TenantUserRole.TENANT_ADMIN,TenantUserRole.TENANT_FINANCE).contains(membership.getRole()))throw new BusinessException("Responsável deve possuir role financeira administrativa.");
+        var memberships=tenantUsers.findAllByTenantIdAndUserIdAndEstado(c.getTenant().getId(),next.getId(),TenantUserEstado.ATIVO);
+        if(memberships.isEmpty())throw new BusinessException("Responsável não pertence activamente ao tenant do caso.");
+        if(memberships.stream().map(com.restaurante.model.entity.TenantUser::getRole).noneMatch(
+                EnumSet.of(TenantUserRole.TENANT_OWNER,TenantUserRole.TENANT_ADMIN,TenantUserRole.TENANT_FINANCE)::contains))
+            throw new BusinessException("Responsável deve possuir role financeira administrativa.");
         Long before=c.getAssignedTo()==null?null:c.getAssignedTo().getId(); c.setAssignedTo(next);
         if(c.getStatus()==ReconciliationCaseStatus.ABERTO)stateMachine.transition(c,ReconciliationCaseStatus.EM_ANALISE);
         audit(c,ReconciliationCaseAction.ASSIGNED,String.valueOf(before),String.valueOf(next.getId()),req.reason(),key,fp,null,null,http);

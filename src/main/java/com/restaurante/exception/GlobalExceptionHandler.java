@@ -386,6 +386,24 @@ public class GlobalExceptionHandler {
     /**
      * Trata negação de acesso por role/permissão insuficiente (403).
      */
+    @ExceptionHandler(TenantAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleTenantAccessDeniedException(
+            TenantAccessDeniedException ex, WebRequest request) {
+
+        log.warn("Acesso tenant negado [{}]: {}", ex.getCode(), ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.FORBIDDEN.value())
+                .error("Acesso negado")
+                .code(ex.getCode())
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDeniedException(
             AccessDeniedException ex, WebRequest request) {

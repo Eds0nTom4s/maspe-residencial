@@ -59,7 +59,8 @@ class TenantTokenStaleInvalidationIT extends PostgresTestcontainersConfig {
         var prov = provisionTenant("tok-stale", "TS", "owner-stale@a.com");
 
         User owner = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
-        String ownerGlobal = jwtTokenProvider.generateToken(owner.getUsername(), "ROLE_GERENTE");
+        String ownerGlobal = jwtTokenProvider.generateToken(
+                owner.getUsername(), "ROLE_GERENTE", null, owner.getId(), "GLOBAL");
         String ownerTenant = selectTenantToken(ownerGlobal, prov.getTenantId());
 
         // Owner cria um operador
@@ -84,7 +85,8 @@ class TenantTokenStaleInvalidationIT extends PostgresTestcontainersConfig {
 
         // Operador seleciona tenant e acessa /tenant/me
         User operator = userRepository.findById(operatorUserId).orElseThrow();
-        String operatorGlobal = jwtTokenProvider.generateToken(operator.getUsername(), "ROLE_GERENTE");
+        String operatorGlobal = jwtTokenProvider.generateToken(
+                operator.getUsername(), "ROLE_GERENTE", null, operator.getId(), "GLOBAL");
         String operatorTenantToken = selectTenantToken(operatorGlobal, prov.getTenantId());
 
         mockMvc.perform(get("/tenant/me")
@@ -152,4 +154,3 @@ class TenantTokenStaleInvalidationIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

@@ -56,6 +56,7 @@ public class BusinessAccountGovernanceService {
     private final PasswordEncoder passwordEncoder;
     private final CanonicalCommandSupport commands;
     private final BusinessAccountService accountViews;
+    private final BusinessAccountOwnerTenantAccessService ownerTenantAccess;
 
     @Transactional
     public BusinessAccountResponse create(CanonicalAccountCreateRequest request, String key,
@@ -148,6 +149,9 @@ public class BusinessAccountGovernanceService {
                 .findByScopeKeyAndActionAndIdempotencyKey(scope, "OWNER_REPLACED", key).orElse(null);
         if (replay != null) {
             assertSameFingerprint(replay, fp);
+            // Replays históricos podem anteceder a sincronização operacional.
+            // A operação é idempotente e só incrementa accessVersion em mutation real.
+            ownerTenantAccess.synchronize(account);
             return accountViews.buscarPorId(accountId);
         }
         checkVersion(account, request.accountVersion());
@@ -164,8 +168,13 @@ public class BusinessAccountGovernanceService {
                 BusinessAccountMemberEstado.ATIVO);
         account.setResponsavel(next);
         accounts.saveAndFlush(account);
+        var accessSync = ownerTenantAccess.synchronize(account);
         String before = commands.json(Map.of("ownerUserId", previous == null ? -1L : previous.getId()));
-        String after = commands.json(Map.of("ownerUserId", next.getId(), "reason", request.reason()));
+        String after = commands.json(Map.of(
+                "ownerUserId", next.getId(),
+                "reason", request.reason(),
+                "tenantOwnerAccessMutations", accessSync.mutations()
+        ));
         saveEvent(account, scope, "OWNER_REPLACED", key, fp, before, after,
                 account.getId(), ownerMember.getId(), http);
         return accountViews.buscarPorId(accountId);

@@ -20,6 +20,7 @@ import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.LogisticsMode;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TenantUserAccessOrigin;
 import com.restaurante.model.enums.TipoSessao;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
 import lombok.RequiredArgsConstructor;
@@ -164,7 +165,13 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
         support.configurarCardapioInicial(tenant, 5, 20);
 
         var ownerUser = support.criarOuReusarOwnerUser(request.getOwner(), ua);
-        TenantUser ownerLink = support.criarTenantUser(tenant, ownerUser, TenantUserRole.TENANT_OWNER, ua);
+        TenantUser ownerLink = support.criarTenantUser(
+                tenant,
+                ownerUser,
+                TenantUserRole.TENANT_OWNER,
+                ua,
+                TenantUserAccessOrigin.BUSINESS_ACCOUNT_OWNER
+        );
 
         QrCodeOperacional qr = support.criarQrPrincipal(tenant, inst, ua, QrCodeOperacionalTipo.UNIDADE_ATENDIMENTO, "QR Principal");
 

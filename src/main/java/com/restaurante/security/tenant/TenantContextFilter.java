@@ -19,7 +19,8 @@ import java.io.IOException;
  * - Não aplica enforcement global. Apenas resolve e coloca no holder quando possível.
  *
  * Endpoints pré-tenant (SANDBOX-LOCAL-004-B):
- * - /auth/tenants e /api/auth/tenants são endpoints de descoberta de tenant.
+ * - /auth/tenants e /auth/tenant/select (com ou sem /api) são endpoints
+ *   pré-tenant de descoberta e selecção.
  * - Exigem JWT global válido, mas NÃO devem ter TenantContext resolvido.
  * - São usados justamente antes da seleção de tenant — o TenantContext ainda
  *   não existe para o utilizador autenticado neste ponto do fluxo.
@@ -37,8 +38,8 @@ public class TenantContextFilter extends OncePerRequestFilter {
     /**
      * Endpoints pré-tenant: exigem JWT mas NÃO devem ter TenantContext resolvido.
      *
-     * /auth/tenants e /api/auth/tenants são usados para listar tenants disponíveis
-     * ANTES da seleção de tenant — não há tenantId no contexto ainda.
+     * List e select são usados antes de existir contexto tenant. O select valida
+     * tenantId e eligibility dentro de TenantTokenService.
      *
      * O skip é exacto e deliberado. Não é um skip genérico de /auth/**.
      * JWT continua a ser processado pelo JwtAuthenticationFilter.
@@ -46,7 +47,10 @@ public class TenantContextFilter extends OncePerRequestFilter {
      */
     private boolean isPreTenantDiscoveryEndpoint(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return "/auth/tenants".equals(path) || "/api/auth/tenants".equals(path);
+        return "/auth/tenants".equals(path)
+                || "/api/auth/tenants".equals(path)
+                || "/auth/tenant/select".equals(path)
+                || "/api/auth/tenant/select".equals(path);
     }
 
     @Override
@@ -90,8 +94,9 @@ public class TenantContextFilter extends OncePerRequestFilter {
             response.setContentType("application/json");
             response.setCharacterEncoding("UTF-8");
             String json = String.format(
-                "{\"timestamp\":\"%s\",\"status\":403,\"error\":\"Acesso negado\",\"code\":\"MEMBERSHIP_NOT_ACTIVE\",\"message\":\"%s\",\"path\":\"%s\"}",
+                "{\"timestamp\":\"%s\",\"status\":403,\"error\":\"Acesso negado\",\"code\":\"%s\",\"message\":\"%s\",\"path\":\"%s\"}",
                 java.time.LocalDateTime.now(),
+                e.getCode().replace("\"", "\\\""),
                 e.getMessage().replace("\"", "\\\""),
                 request.getRequestURI().replace("\"", "\\\"")
             );

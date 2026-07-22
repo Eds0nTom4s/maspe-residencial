@@ -57,7 +57,8 @@ class DeviceSecurityWithFiltersIT extends PostgresTestcontainersConfig {
     void tenantEndpoints_doNotAcceptDeviceAuthorizationHeader() throws Exception {
         ProvisionarTenantResponse prov = provisionTenant("t-dev-sec", "TDS", "owner-sec@a.com");
         User owner = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
-        String globalToken = jwtTokenProvider.generateToken(owner.getUsername(), "ROLE_GERENTE");
+        String globalToken = jwtTokenProvider.generateToken(
+                owner.getUsername(), "ROLE_GERENTE", null, owner.getId(), "GLOBAL");
 
         String selectResp = mockMvc.perform(post("/auth/tenant/select")
                         .header("Authorization", "Bearer " + globalToken)
@@ -129,4 +130,3 @@ class DeviceSecurityWithFiltersIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

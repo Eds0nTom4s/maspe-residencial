@@ -11,6 +11,7 @@ import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserAccessVersionRepository;
 import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.security.JwtTokenProvider;
+import com.restaurante.service.security.OperationalTenantEligibilityService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,8 @@ class TenantResolverTest {
     private TenantUserRepository tenantUserRepository;
     @Mock
     private TenantUserAccessVersionRepository tenantUserAccessVersionRepository;
+    @Mock
+    private OperationalTenantEligibilityService operationalEligibility;
 
     private TenantResolver tenantResolver;
 
@@ -67,7 +70,8 @@ class TenantResolverTest {
                     @Override public TenantUserAccessVersionRepository getObject() { return tenantUserAccessVersionRepository; }
                     @Override public TenantUserAccessVersionRepository getIfAvailable() { return tenantUserAccessVersionRepository; }
                     @Override public TenantUserAccessVersionRepository getIfUnique() { return tenantUserAccessVersionRepository; }
-                }
+                },
+                operationalEligibility
         );
     }
 
@@ -93,7 +97,7 @@ class TenantResolverTest {
         membership.setEstado(TenantUserEstado.ATIVO);
 
         when(tenantUserRepository.findByUserIdAndEstado(10L, TenantUserEstado.ATIVO)).thenReturn(List.of(membership));
-        when(tenantRepository.findById(1L)).thenReturn(Optional.of(tenant));
+        when(tenantRepository.findByIdWithBusinessAccount(1L)).thenReturn(Optional.of(tenant));
 
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities())
@@ -128,6 +132,39 @@ class TenantResolverTest {
     }
 
     @Test
+    void shouldAutoResolveMultipleRolesWhenTheyBelongToOneTenant() {
+        User principal = User.builder()
+                .username("multi")
+                .password("x")
+                .telefone("+244900000109")
+                .roles(Set.of(Role.ROLE_ATENDENTE))
+                .ativo(true)
+                .build();
+        principal.setId(10L);
+        Tenant tenant = new Tenant();
+        tenant.setId(9L);
+        tenant.setTenantCode("T9");
+        tenant.setEstado(TenantEstado.ATIVO);
+        TenantUser owner = new TenantUser();
+        owner.setTenant(tenant);
+        owner.setUser(principal);
+        owner.setEstado(TenantUserEstado.ATIVO);
+        TenantUser operator = new TenantUser();
+        operator.setTenant(tenant);
+        operator.setUser(principal);
+        operator.setEstado(TenantUserEstado.ATIVO);
+        when(tenantUserRepository.findByUserIdAndEstado(10L, TenantUserEstado.ATIVO))
+                .thenReturn(List.of(owner, operator));
+        when(tenantRepository.findByIdWithBusinessAccount(9L)).thenReturn(Optional.of(tenant));
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+
+        TenantContext resolved = tenantResolver.resolve(new MockHttpServletRequest()).orElseThrow();
+        assertEquals(9L, resolved.tenantId());
+    }
+
+    @Test
     void shouldResolveByHeaderAndValidateMembership() {
         User principal = User.builder()
                 .username("u1")
@@ -143,8 +180,14 @@ class TenantResolverTest {
         tenant.setTenantCode("T7");
         tenant.setEstado(TenantEstado.ATIVO);
 
-        when(tenantRepository.findById(7L)).thenReturn(Optional.of(tenant));
-        when(tenantUserRepository.existsByTenantIdAndUserIdAndEstado(7L, 10L, TenantUserEstado.ATIVO)).thenReturn(true);
+        TenantUser membership = new TenantUser();
+        membership.setTenant(tenant);
+        membership.setUser(principal);
+        membership.setEstado(TenantUserEstado.ATIVO);
+
+        when(tenantRepository.findByIdWithBusinessAccount(7L)).thenReturn(Optional.of(tenant));
+        when(tenantUserRepository.findAllByTenantIdAndUserIdAndEstado(7L, 10L, TenantUserEstado.ATIVO))
+                .thenReturn(List.of(membership));
 
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities())
@@ -172,7 +215,7 @@ class TenantResolverTest {
         tenant.setTenantCode("T5");
         tenant.setEstado(TenantEstado.ATIVO);
 
-        when(tenantRepository.findById(5L)).thenReturn(Optional.of(tenant));
+        when(tenantRepository.findByIdWithBusinessAccount(5L)).thenReturn(Optional.of(tenant));
 
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities())

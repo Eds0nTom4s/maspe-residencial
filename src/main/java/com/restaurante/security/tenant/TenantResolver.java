@@ -13,6 +13,7 @@ import com.restaurante.repository.TenantUserRepository;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.exception.TenantTokenStaleException;
+import com.restaurante.service.security.OperationalTenantEligibilityService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -47,6 +48,7 @@ public class TenantResolver {
     private final ObjectProvider<TenantUserRepository> tenantUserRepositoryProvider;
     private final ObjectProvider<JwtTokenProvider> jwtTokenProviderProvider;
     private final ObjectProvider<TenantUserAccessVersionRepository> tenantUserAccessVersionRepositoryProvider;
+    private final OperationalTenantEligibilityService operationalEligibility;
 
     @Value("${consuma.security.tenant-token.require-access-version:true}")
     private boolean requireAccessVersion;
@@ -75,9 +77,19 @@ public class TenantResolver {
         boolean platformAdmin = hasAuthority(authentication, Role.ROLE_ADMIN.name());
 
         // Preferir resolução via JWT tenant-scoped (tokenType=TENANT)
+        boolean tenantScopedPrincipal = request.getHeader("Authorization") != null
+                && request.getHeader("Authorization").startsWith("Bearer ")
+                && principal instanceof com.restaurante.security.JwtPrincipal jwtPrincipal
+                && jwtPrincipal.isTenantScoped();
         Optional<TenantContext> fromTenantToken = resolveFromTenantScopedToken(request, authentication, platformAdmin);
         if (fromTenantToken.isPresent()) {
             return fromTenantToken;
+        }
+        if (tenantScopedPrincipal) {
+            throw new com.restaurante.exception.TenantAccessDeniedException(
+                    "TENANT_CONTEXT_INVALID",
+                    "JWT TENANT não contém contexto operacional válido."
+            );
         }
 
         Optional<Long> selectedTenantId = parseTenantIdHeader(request)
@@ -120,12 +132,9 @@ public class TenantResolver {
 
             Tenant tenant = requireActiveTenant(selectedTenantId.get());
             TenantUserRepository tenantUserRepository = requireTenantUserRepository();
-            boolean belongs = tenantUserRepository.existsByTenantIdAndUserIdAndEstado(
-                    tenant.getId(), userId, TenantUserEstado.ATIVO
-            );
-            if (!belongs) {
-                throw new BusinessException("Usuário não pertence ao tenant selecionado.");
-            }
+            List<TenantUser> memberships = tenantUserRepository.findAllByTenantIdAndUserIdAndEstado(
+                    tenant.getId(), userId, TenantUserEstado.ATIVO);
+            operationalEligibility.requireEligible(tenant, memberships);
 
             Set<String> roles = extractRoleNames(authentication);
             roles.addAll(extractTenantRoleNames(tenantUserRepository, tenant.getId(), userId));
@@ -148,8 +157,18 @@ public class TenantResolver {
                 return Optional.empty();
             }
             List<TenantUser> memberships = tenantUserRepository.findByUserIdAndEstado(userId, TenantUserEstado.ATIVO);
-            if (memberships.size() == 1) {
-                Tenant tenant = requireActiveTenant(memberships.get(0).getTenant().getId());
+            Set<Long> tenantIds = memberships.stream()
+                    .map(TenantUser::getTenant)
+                    .filter(java.util.Objects::nonNull)
+                    .map(Tenant::getId)
+                    .collect(java.util.stream.Collectors.toSet());
+            if (tenantIds.size() == 1) {
+                Long tenantId = tenantIds.iterator().next();
+                Tenant tenant = requireActiveTenant(tenantId);
+                List<TenantUser> tenantMemberships = memberships.stream()
+                        .filter(row -> row.getTenant() != null && tenantId.equals(row.getTenant().getId()))
+                        .toList();
+                operationalEligibility.requireEligible(tenant, tenantMemberships);
                 Set<String> roles = extractRoleNames(authentication);
                 roles.addAll(extractTenantRoleNames(tenantUserRepository, tenant.getId(), userId));
                 return Optional.of(new TenantContext(
@@ -200,7 +219,7 @@ public class TenantResolver {
         if (tenantRepository == null) {
             throw new BusinessException("TenantRepository indisponível para resolução de tenant.");
         }
-        Tenant tenant = tenantRepository.findById(tenantId)
+        Tenant tenant = tenantRepository.findByIdWithBusinessAccount(tenantId)
                 .orElseThrow(() -> new BusinessException("Tenant não encontrado: " + tenantId));
         if (tenant.getEstado() != TenantEstado.ATIVO) {
             throw new BusinessException("Tenant não está ativo para operação tenant-aware.");
@@ -287,20 +306,27 @@ public class TenantResolver {
                 return Optional.empty();
             }
 
+            assertHeadersDoNotOverrideTenantToken(request, tenantId, tenantCode);
+
             // Segurança: valida tenant ATIVO e membership (aceita qualquer estado para poder rejeitar com 403)
             Tenant tenant = requireActiveTenant(tenantId);
             TenantUserRepository tenantUserRepository = requireTenantUserRepository();
-            boolean belongs = tenantUserRepository.existsByTenantIdAndUserIdAndEstado(tenant.getId(), userId, TenantUserEstado.ATIVO);
-            if (!belongs && !tenantTokenPlatformAdmin) {
+            List<TenantUser> activeMemberships = tenantUserRepository.findAllByTenantIdAndUserIdAndEstado(
+                    tenant.getId(), userId, TenantUserEstado.ATIVO);
+            if (activeMemberships.isEmpty() && !tenantTokenPlatformAdmin) {
                 // Verificar se existe membership com estado diferente de ATIVO (SUSPENSO, INATIVO)
                 boolean existsAny = tenantUserRepository.existsByTenantIdAndUserId(tenant.getId(), userId);
                 if (existsAny) {
                     // Membership existe mas está suspensa/inactiva → 403
                     throw new com.restaurante.exception.TenantAccessDeniedException(
+                            "MEMBERSHIP_NOT_ACTIVE",
                             "Acesso negado: membership não está activa para este tenant."
                     );
                 }
                 return Optional.empty();
+            }
+            if (!tenantTokenPlatformAdmin) {
+                operationalEligibility.requireEligible(tenant, activeMemberships);
             }
 
             if (requireAccessVersion && !tenantTokenPlatformAdmin) {
@@ -339,6 +365,36 @@ public class TenantResolver {
             throw e;
         } catch (Exception ignored) {
             return Optional.empty();
+        }
+    }
+
+    private void assertHeadersDoNotOverrideTenantToken(
+            HttpServletRequest request,
+            Long tokenTenantId,
+            String tokenTenantCode
+    ) {
+        String headerId = request.getHeader(HEADER_TENANT_ID);
+        if (headerId != null && !headerId.isBlank()) {
+            Long selected;
+            try {
+                selected = Long.parseLong(headerId.trim());
+            } catch (NumberFormatException e) {
+                throw new com.restaurante.exception.TenantAccessDeniedException(
+                        "TENANT_CONTEXT_CONFLICT", "Header de Tenant conflita com JWT TENANT."
+                );
+            }
+            if (!tokenTenantId.equals(selected)) {
+                throw new com.restaurante.exception.TenantAccessDeniedException(
+                        "TENANT_CONTEXT_CONFLICT", "Header de Tenant conflita com JWT TENANT."
+                );
+            }
+        }
+        String headerCode = request.getHeader(HEADER_TENANT_CODE);
+        if (headerCode != null && !headerCode.isBlank()
+                && (tokenTenantCode == null || !tokenTenantCode.equals(headerCode.trim()))) {
+            throw new com.restaurante.exception.TenantAccessDeniedException(
+                    "TENANT_CONTEXT_CONFLICT", "Header de Tenant conflita com JWT TENANT."
+            );
         }
     }
 }

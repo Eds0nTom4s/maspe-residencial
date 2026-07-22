@@ -19,6 +19,9 @@ public interface TenantRepository extends JpaRepository<Tenant, Long> {
 
     Optional<Tenant> findByTenantCode(String tenantCode);
 
+    @Query("select t from Tenant t left join fetch t.businessAccount where t.id = :id")
+    Optional<Tenant> findByIdWithBusinessAccount(@Param("id") Long id);
+
     List<Tenant> findByEstadoOrderByIdAsc(TenantEstado estado);
 
     List<Tenant> findByBusinessAccountIdOrderByIdAsc(Long businessAccountId);

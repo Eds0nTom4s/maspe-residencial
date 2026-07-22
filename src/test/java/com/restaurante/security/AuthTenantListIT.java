@@ -227,7 +227,8 @@ class AuthTenantListIT extends PostgresTestcontainersConfig {
 
                 // Owner do tenant tem vínculo TENANT_OWNER criado pelo provisioning
                 User owner = userRepository.findById(prov.getOwnerUserId()).orElseThrow();
-                String globalToken = jwtTokenProvider.generateToken(owner.getUsername(), "ROLE_GERENTE");
+                String globalToken = jwtTokenProvider.generateToken(
+                                owner.getUsername(), "ROLE_GERENTE", null, owner.getId(), "GLOBAL");
 
                 // 1. Listar tenants
                 String listResp = mockMvc.perform(get("/auth/tenants")
@@ -262,6 +263,67 @@ class AuthTenantListIT extends PostgresTestcontainersConfig {
                 var claims = jwtTokenProvider.getClaims(tenantToken);
                 assertThat(claims.get("tokenType", String.class)).isEqualTo("TENANT");
                 assertThat(claims.get("tenantId", Long.class)).isEqualTo(tenantId);
+        }
+
+        @Test
+        void listarTenants_multiRoleAgregaUmaOpcaoComRolesOrdenadas() throws Exception {
+                String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+                ProvisionarTenantResponse provisioned = provisionTenant(
+                                "multi-role-" + suffix,
+                                "MR" + suffix,
+                                "owner-mr-" + suffix + "@a.com");
+                User user = createUser("multi-role-user-" + suffix + "@test.com");
+                linkTenantUser(provisioned.getTenantId(), user.getId(), TenantUserRole.TENANT_OPERATOR,
+                                TenantUserEstado.ATIVO);
+                linkTenantUser(provisioned.getTenantId(), user.getId(), TenantUserRole.TENANT_FINANCE,
+                                TenantUserEstado.ATIVO);
+                linkTenantUser(provisioned.getTenantId(), user.getId(), TenantUserRole.TENANT_CASHIER,
+                                TenantUserEstado.ATIVO);
+                linkTenantUser(provisioned.getTenantId(), user.getId(), TenantUserRole.TENANT_ADMIN,
+                                TenantUserEstado.SUSPENSO);
+
+                String globalToken = jwtTokenProvider.generateToken(
+                                user.getUsername(), "ROLE_GERENTE", null, user.getId(), "GLOBAL");
+                JsonNode data = objectMapper.readTree(mockMvc.perform(get("/auth/tenants")
+                                .header("Authorization", "Bearer " + globalToken))
+                                .andExpect(status().isOk())
+                                .andReturn().getResponse().getContentAsString()).path("data");
+
+                assertThat(data.size()).isEqualTo(1);
+                assertThat(data.get(0).path("tenantId").asLong()).isEqualTo(provisioned.getTenantId());
+                assertThat(objectMapper.convertValue(data.get(0).path("roles"), java.util.List.class))
+                                .containsExactly("TENANT_CASHIER", "TENANT_FINANCE", "TENANT_OPERATOR");
+        }
+
+        @Test
+        void listarTenants_rejeitaJwtTenantEJwtLegacySemScope() throws Exception {
+                String suffix = String.valueOf(Math.abs(System.nanoTime() % 1_000_000L));
+                ProvisionarTenantResponse provisioned = provisionTenant(
+                                "scope-" + suffix,
+                                "SC" + suffix,
+                                "owner-scope-" + suffix + "@a.com");
+                User owner = userRepository.findById(provisioned.getOwnerUserId()).orElseThrow();
+                String globalToken = jwtTokenProvider.generateToken(
+                                owner.getUsername(), "ROLE_GERENTE", null, owner.getId(), "GLOBAL");
+                String select = mockMvc.perform(post("/auth/tenant/select")
+                                .header("Authorization", "Bearer " + globalToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(new SelectTenantRequest(provisioned.getTenantId()))))
+                                .andExpect(status().isOk())
+                                .andReturn().getResponse().getContentAsString();
+                String tenantToken = objectMapper.readTree(select).at("/data/accessToken").asText();
+
+                String wrongScope = mockMvc.perform(get("/auth/tenants")
+                                .header("Authorization", "Bearer " + tenantToken))
+                                .andExpect(status().isForbidden())
+                                .andReturn().getResponse().getContentAsString();
+                assertThat(objectMapper.readTree(wrongScope).path("code").asText())
+                                .isEqualTo("TOKEN_SCOPE_INVALID");
+
+                String legacyToken = jwtTokenProvider.generateToken(owner.getUsername(), "ROLE_GERENTE");
+                mockMvc.perform(get("/auth/tenants")
+                                .header("Authorization", "Bearer " + legacyToken))
+                                .andExpect(status().isUnauthorized());
         }
 
         // =============================================================

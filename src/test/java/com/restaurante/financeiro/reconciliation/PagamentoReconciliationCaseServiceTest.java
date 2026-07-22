@@ -77,7 +77,7 @@ class PagamentoReconciliationCaseServiceTest {
     }
 
     @Test void responsavelCashierMesmoActivoEhRecusado(){
-        authorizeCase();User cashier=new User();cashier.setId(30L);TenantUser membership=new TenantUser();membership.setRole(com.restaurante.model.enums.TenantUserRole.TENANT_CASHIER);membership.setEstado(com.restaurante.model.enums.TenantUserEstado.ATIVO);when(users.findById(30L)).thenReturn(Optional.of(cashier));when(tenantUsers.findByTenantIdAndUserIdAndEstado(10L,30L,com.restaurante.model.enums.TenantUserEstado.ATIVO)).thenReturn(Optional.of(membership));
+        authorizeCase();User cashier=new User();cashier.setId(30L);TenantUser membership=new TenantUser();membership.setRole(com.restaurante.model.enums.TenantUserRole.TENANT_CASHIER);membership.setEstado(com.restaurante.model.enums.TenantUserEstado.ATIVO);when(users.findById(30L)).thenReturn(Optional.of(cashier));when(tenantUsers.findAllByTenantIdAndUserIdAndEstado(10L,30L,com.restaurante.model.enums.TenantUserEstado.ATIVO)).thenReturn(List.of(membership));
         assertThatThrownBy(()->service.assign(5L,10L,new AssignRequest(0L,30L,"atribuir"),"assign-cashier",http,true)).isInstanceOf(com.restaurante.exception.BusinessException.class).hasMessageContaining("role financeira");
     }
 

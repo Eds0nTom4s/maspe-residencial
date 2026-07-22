@@ -136,7 +136,8 @@ class PlatformTenantProvisioningControllerIT extends PostgresTestcontainersConfi
         assertThat(cat.getAtivo()).isTrue();
 
         User owner = userRepository.findByEmail("rosa@email.com").orElseThrow();
-        TenantUser tu = tenantUserRepository.findByTenantIdAndUserId(t.getId(), owner.getId()).orElseThrow();
+        TenantUser tu = tenantUserRepository.findAllByTenantIdAndUserId(t.getId(), owner.getId()).stream()
+                .findFirst().orElseThrow();
         assertThat(tu.getRole().name()).isEqualTo("TENANT_OWNER");
 
         QrCodeOperacional qr = qrCodeOperacionalRepository.findByTenantId(t.getId()).stream().findFirst().orElseThrow();

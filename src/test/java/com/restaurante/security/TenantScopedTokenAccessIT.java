@@ -56,7 +56,8 @@ class TenantScopedTokenAccessIT extends PostgresTestcontainersConfig {
         ProvisionarTenantResponse provisioned = provisionTenant("banca-tok", "BT", "owner-tok@a.com");
 
         User owner = userRepository.findById(provisioned.getOwnerUserId()).orElseThrow();
-        String globalToken = jwtTokenProvider.generateToken(owner.getUsername(), "ROLE_GERENTE");
+        String globalToken = jwtTokenProvider.generateToken(
+                owner.getUsername(), "ROLE_GERENTE", null, owner.getId(), "GLOBAL");
 
         String selectResp = mockMvc.perform(post("/auth/tenant/select")
                         .header("Authorization", "Bearer " + globalToken)
@@ -79,6 +80,14 @@ class TenantScopedTokenAccessIT extends PostgresTestcontainersConfig {
         assertThat(meJson.at("/success").asBoolean()).isTrue();
         assertThat(meJson.at("/data/tenantId").asLong()).isEqualTo(provisioned.getTenantId());
         assertThat(meJson.at("/data/tenantCode").asText()).isEqualTo(provisioned.getTenantCode());
+
+        String conflict = mockMvc.perform(get("/tenant/me")
+                        .header("Authorization", "Bearer " + tenantToken)
+                        .header("X-Tenant-Id", Long.toString(provisioned.getTenantId() + 999_999L)))
+                .andExpect(status().isForbidden())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(conflict).path("code").asText())
+                .isEqualTo("TENANT_CONTEXT_CONFLICT");
     }
 
     private ProvisionarTenantResponse provisionTenant(String slug, String tenantCode, String ownerEmail) {
@@ -112,4 +121,3 @@ class TenantScopedTokenAccessIT extends PostgresTestcontainersConfig {
         );
     }
 }
-

@@ -26,9 +26,7 @@ import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -82,7 +80,7 @@ class JwtAuthenticationFilterNoUserLookupIT extends PostgresTestcontainersConfig
     }
 
     @Test
-    void legacyToken_usesLoadUserByUsernameFallbackWhenEnabled() throws Exception {
+    void legacyToken_isRejectedOnGlobalOnlyTenantSelectionEvenWhenFallbackEnabled() throws Exception {
         ProvisionarTenantResponse provisioned = provisionTenant("banca-authopt-legacy", "BAL", "owner-authopt-legacy@a.com");
 
         User owner = userRepository.findById(provisioned.getOwnerUserId()).orElseThrow();
@@ -90,15 +88,13 @@ class JwtAuthenticationFilterNoUserLookupIT extends PostgresTestcontainersConfig
         // token legacy: sem userId/tokenType
         String token = jwtTokenProvider.generateToken(owner.getUsername(), "ROLE_GERENTE");
 
-        when(customUserDetailsService.loadUserByUsername(owner.getUsername())).thenReturn(owner);
-
         mockMvc.perform(post("/auth/tenant/select")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(SelectTenantRequest.builder().tenantId(provisioned.getTenantId()).build())))
-                .andExpect(status().isOk());
+                .andExpect(status().isUnauthorized());
 
-        verify(customUserDetailsService, times(1)).loadUserByUsername(owner.getUsername());
+        verify(customUserDetailsService, never()).loadUserByUsername(owner.getUsername());
     }
 
     private ProvisionarTenantResponse provisionTenant(String slug, String tenantCode, String ownerEmail) {

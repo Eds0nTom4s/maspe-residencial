@@ -234,7 +234,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
                 .contains("bebidas", "lanches", "produtos-rapidos", "servicos", "outros");
 
         var owner = userRepository.findByEmail(ownerEmail).orElseThrow();
-        assertThat(tenantUserRepository.findByTenantIdAndUserId(t.getId(), owner.getId())).isPresent();
+        assertThat(tenantUserRepository.findAllByTenantIdAndUserId(t.getId(), owner.getId())).isNotEmpty();
         assertThat(qrCodeOperacionalRepository.countByTenantId(t.getId())).isEqualTo(1);
 
         // PONTO stays simple: no mesas, no produção, no devices.

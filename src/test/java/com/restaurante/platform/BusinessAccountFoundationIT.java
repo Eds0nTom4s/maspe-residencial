@@ -198,19 +198,11 @@ class BusinessAccountFoundationIT extends PostgresTestcontainersConfig {
         assertThat(subscription.getTenant().getId()).isEqualTo(provisioned.getTenantId());
 
         String ownerToken = globalToken(owner, "ROLE_GERENTE");
-        String selectResp = mockMvc.perform(post("/auth/tenant/select")
+        mockMvc.perform(post("/auth/tenant/select")
                         .header("Authorization", "Bearer " + ownerToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new SelectTenantRequest(provisioned.getTenantId()))))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        String tenantToken = objectMapper.readTree(selectResp).at("/data/accessToken").asText();
-        assertThat(tenantToken).isNotBlank();
-
-        mockMvc.perform(get("/tenant/cardapio/status")
-                        .header("Authorization", "Bearer " + tenantToken)
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk());
+                .andExpect(status().isForbidden());
     }
 
     private ProvisionarTenantResponse provisionTenant(User platformAdmin, String slug, String tenantCode, String ownerEmail) {

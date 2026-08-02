@@ -57,6 +57,9 @@ class FullStackFirstLoginHappyPathIT extends PostgresTestcontainersConfig {
         admin.setAtivo(true);
         admin = users.saveAndFlush(admin);
         String adminToken = tokens.generateToken(admin.getUsername(), "ROLE_ADMIN", null, admin.getId(), "GLOBAL");
+        mockMvc.perform(get("/does-not-exist").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
 
         String ownerUsername = "owner.happy." + suffix;
         String ownerPhone = "+24498" + String.format("%07d", Long.parseLong(suffix));

@@ -70,16 +70,15 @@ public class AuthService {
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
-        // Gera tokens usando o username do principal autenticado
         String authenticatedUsername = authentication.getName();
-        String accessToken = jwtTokenProvider.generateToken(authentication);
-        String refreshToken = jwtTokenProvider.generateRefreshToken(authenticatedUsername);
 
         // Busca usuário pelo username real (não pelo input que pode ser telefone)
         User user = userRepository.findByUsername(authenticatedUsername)
                 .orElseThrow(() -> new BusinessException("Credenciais inválidas"));
         user.atualizarUltimoAcesso();
         userRepository.save(user);
+        String accessToken = jwtTokenProvider.generateUserToken(user);
+        String refreshToken = jwtTokenProvider.generateRefreshToken(authenticatedUsername);
 
             log.info("✅ Login JWT bem-sucedido - Username: {}, Roles: {}", user.getUsername(), user.getRoles());
 
@@ -90,6 +89,10 @@ public class AuthService {
                     .expiresIn(3600000L) // 1 hora em ms
                     .username(user.getUsername())
                     .roles(user.getRoles())
+                    .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                    .passwordResetRequired(Boolean.TRUE.equals(user.getPasswordResetRequired()))
+                    .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
+                    .lastPasswordChangedAt(user.getLastPasswordChangedAt())
                     .build();
         } catch (Exception e) {
             // ⚠️ SEGURANÇA: Log interno detalhado, mas mensagem genérica para usuário
@@ -130,7 +133,7 @@ public class AuthService {
         user = userRepository.save(user);
 
         // Gera tokens
-        String accessToken = generateGlobalToken(user);
+        String accessToken = jwtTokenProvider.generateUserToken(user);
         String refreshToken = jwtTokenProvider.generateRefreshToken(user.getUsername());
 
         log.info("Usuário registrado com sucesso: {}", user.getUsername());
@@ -142,6 +145,10 @@ public class AuthService {
                 .expiresIn(86400000L)
                 .username(user.getUsername())
                 .roles(user.getRoles())
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .passwordResetRequired(Boolean.TRUE.equals(user.getPasswordResetRequired()))
+                .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
+                .lastPasswordChangedAt(user.getLastPasswordChangedAt())
                 .build();
     }
 
@@ -176,7 +183,7 @@ public class AuthService {
         // Refresh tokens só são emitidos pelo login GLOBAL. O refresh preserva
         // esse escopo e volta a materializar claims modernas; não existe refresh
         // de JWT TENANT neste contrato.
-        String newAccessToken = generateGlobalToken(user);
+        String newAccessToken = jwtTokenProvider.generateUserToken(user);
 
         log.info("Token renovado para usuário: {}", username);
 
@@ -187,6 +194,10 @@ public class AuthService {
                 .expiresIn(86400000L)
                 .username(user.getUsername())
                 .roles(user.getRoles())
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .passwordResetRequired(Boolean.TRUE.equals(user.getPasswordResetRequired()))
+                .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
+                .lastPasswordChangedAt(user.getLastPasswordChangedAt())
                 .build();
     }
 

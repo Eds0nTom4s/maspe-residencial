@@ -30,7 +30,7 @@ public final class BusinessProvisioningContracts {
             Long userId,
             Boolean confirmExistingUser,
             String username,
-            @Size(min = 12, max = 200) String temporaryPassword,
+            @Size(min = 5, max = 200, message = "A palavra-passe temporária deve ter entre 5 e 200 caracteres.") String temporaryPassword,
             String nome,
             @Email String email,
             String telefone

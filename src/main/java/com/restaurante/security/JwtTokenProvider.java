@@ -48,6 +48,9 @@ public class JwtTokenProvider {
      */
     public String generateToken(Authentication authentication) {
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
+        if (authentication.getPrincipal() instanceof com.restaurante.model.entity.User user) {
+            return generateUserToken(user);
+        }
         String roles = userDetails.getAuthorities()
                 .stream()
                 .map(GrantedAuthority::getAuthority)
@@ -57,6 +60,16 @@ public class JwtTokenProvider {
             userId = u.getId();
         }
         return generateToken(userDetails.getUsername(), roles, null, userId, "GLOBAL");
+    }
+
+    public String generateUserToken(com.restaurante.model.entity.User user) {
+        String roles = user.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .collect(Collectors.joining(","));
+        return generateToken(user.getUsername(), roles, null, user.getId(), "GLOBAL",
+                Boolean.TRUE.equals(user.getMustChangePassword()),
+                Boolean.TRUE.equals(user.getPasswordResetRequired()),
+                user.getTemporaryPasswordExpiresAt(), user.getLastPasswordChangedAt());
     }
 
     /**
@@ -84,6 +97,13 @@ public class JwtTokenProvider {
      * Gera token JWT com claims adicionais.
      */
     public String generateToken(String username, String roles, String instituicaoNome, Long userId, String tokenType) {
+        return generateToken(username, roles, instituicaoNome, userId, tokenType, null, null, null, null);
+    }
+
+    public String generateToken(String username, String roles, String instituicaoNome, Long userId, String tokenType,
+                                Boolean mustChangePassword, Boolean passwordResetRequired,
+                                java.time.LocalDateTime temporaryPasswordExpiresAt,
+                                java.time.LocalDateTime lastPasswordChangedAt) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpiration);
 
@@ -105,6 +125,10 @@ public class JwtTokenProvider {
         if (tokenType != null) {
             builder.claim("tokenType", tokenType);
         }
+        if (mustChangePassword != null) builder.claim("mustChangePassword", mustChangePassword);
+        if (passwordResetRequired != null) builder.claim("passwordResetRequired", passwordResetRequired);
+        if (temporaryPasswordExpiresAt != null) builder.claim("temporaryPasswordExpiresAt", temporaryPasswordExpiresAt.toString());
+        if (lastPasswordChangedAt != null) builder.claim("lastPasswordChangedAt", lastPasswordChangedAt.toString());
 
         return builder.compact();
     }
@@ -262,6 +286,12 @@ public class JwtTokenProvider {
 
     public String getTokenType(String token) {
         return getClaims(token).get("tokenType", String.class);
+    }
+
+    public boolean requiresPasswordChange(String token) {
+        Claims claims = getClaims(token);
+        return Boolean.TRUE.equals(claims.get("mustChangePassword", Boolean.class))
+                || Boolean.TRUE.equals(claims.get("passwordResetRequired", Boolean.class));
     }
 
     /**

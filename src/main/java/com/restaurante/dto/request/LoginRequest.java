@@ -12,7 +12,7 @@ public class LoginRequest {
     private String username;
 
     @NotBlank(message = "Password é obrigatório")
-    @Size(min = 6, message = "Password deve ter no mínimo 6 caracteres")
+    @Size(min = 5, message = "Password deve ter no mínimo 5 caracteres")
     private String password;
 
     public LoginRequest() {}

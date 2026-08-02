@@ -3,6 +3,8 @@ FROM eclipse-temurin:21-jre
 WORKDIR /app
 
 ARG JAR_FILE=target/*.jar
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.revision=$VCS_REF
 
 RUN groupadd --system app \
     && useradd --system --gid app --home-dir /app --shell /usr/sbin/nologin app \

@@ -4,7 +4,6 @@ import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.request.AtualizarStatusPedidoRequest;
 import com.restaurante.dto.request.ConfirmarPedidoPaymentOrderRequest;
 import com.restaurante.dto.request.RejeitarPedidoRequest;
-import com.restaurante.dto.response.PaymentOrderResponse;
 import com.restaurante.dto.response.TenantPedidoDetalheResponse;
 import com.restaurante.dto.response.TenantPedidoResumoResponse;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
@@ -31,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -145,30 +145,32 @@ public class TenantPedidoController {
 
     @PatchMapping("/pedidos/{id}/payment-order/confirm")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<PaymentOrderResponse>> confirmarPaymentOrder(
+    public ResponseEntity<ApiResponse<TenantPedidoDetalheResponse>> confirmarPaymentOrder(
             @PathVariable Long id,
-            @RequestBody(required = false) ConfirmarPedidoPaymentOrderRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody ConfirmarPedidoPaymentOrderRequest request,
             jakarta.servlet.http.HttpServletRequest http
     ) {
         tenantGuard.assertAnyTenantRole(
                 TenantUserRole.TENANT_OWNER,
                 TenantUserRole.TENANT_ADMIN,
-                TenantUserRole.TENANT_OPERATOR,
                 TenantUserRole.TENANT_CASHIER,
                 TenantUserRole.TENANT_FINANCE
         );
         TenantContext ctx = tenantGuard.requireContext();
         String ip = http != null ? http.getRemoteAddr() : null;
         String ua = http != null ? http.getHeader("User-Agent") : null;
-        PaymentOrderResponse resp = ordemPagamentoService.confirmarOrdemPedidoPorOperador(
+        ordemPagamentoService.confirmarOrdemPedidoPorOperador(
                 ctx.tenantId(),
                 id,
                 ctx.userId(),
                 resolvePaymentOrigem(ctx),
                 request,
+                idempotencyKey,
                 ip,
                 ua
         );
+        TenantPedidoDetalheResponse resp = pedidoService.buscarDetalhe(id);
         return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success("Ordem de pagamento confirmada", resp));
     }
 

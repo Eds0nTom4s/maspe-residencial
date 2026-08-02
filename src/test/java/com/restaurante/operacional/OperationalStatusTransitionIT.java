@@ -3,6 +3,7 @@ package com.restaurante.operacional;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.dto.request.ConfirmarPedidoPaymentOrderRequest;
+import com.restaurante.fiscal.autoissue.event.PaymentConfirmedForFiscalIssueEvent;
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
@@ -58,6 +59,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -76,10 +79,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
+@RecordApplicationEvents
 class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
+    @Autowired ApplicationEvents applicationEvents;
 
     @Autowired TenantRepository tenantRepository;
     @Autowired InstituicaoRepository instituicaoRepository;
@@ -377,16 +382,34 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         assertThat(publicData.at("/paymentOrder/confirmedBy").isMissingNode()).isTrue();
 
         ConfirmarPedidoPaymentOrderRequest request = new ConfirmarPedidoPaymentOrderRequest();
+        request.setClientRequestId("owner-confirm-payment-ok");
         request.setMetodoConfirmado(MetodoPagamentoManual.TPA);
         request.setReferenciaOperador("TPA-FREEZY-001");
 
         String confirmJson = mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/payment-order/confirm")
+                        .header("Idempotency-Key", "owner-confirm-payment-ok")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode confirmData = objectMapper.readTree(confirmJson).at("/data");
-        assertThat(confirmData.at("/status").asText()).isEqualTo("CONFIRMADA");
+        assertThat(confirmData.at("/statusFinanceiro").asText()).isEqualTo("PAGO");
+        assertThat(confirmData.at("/paymentOrder/status").asText()).isEqualTo("CONFIRMADA");
+
+        assertThat(applicationEvents.stream(PaymentConfirmedForFiscalIssueEvent.class)
+                .filter(event -> setup.pedidoId.equals(event.pedidoId()))
+                .count()).isEqualTo(1L);
+
+        String replayJson = mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/payment-order/confirm")
+                        .header("Idempotency-Key", "owner-confirm-payment-ok")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(replayJson).at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
+        assertThat(applicationEvents.stream(PaymentConfirmedForFiscalIssueEvent.class)
+                .filter(event -> setup.pedidoId.equals(event.pedidoId()))
+                .count()).isEqualTo(1L);
 
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);
@@ -441,10 +464,12 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         assertThat(tenantData.at("/actionReasons/CONFIRM_PAYMENT").asText()).isEqualTo("Ordem de pagamento expirada.");
 
         ConfirmarPedidoPaymentOrderRequest request = new ConfirmarPedidoPaymentOrderRequest();
+        request.setClientRequestId("owner-confirm-payment-expired");
         request.setMetodoConfirmado(MetodoPagamentoManual.TPA);
         request.setReferenciaOperador("TPA-EXP");
 
         mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/payment-order/confirm")
+                        .header("Idempotency-Key", "owner-confirm-payment-expired")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict());

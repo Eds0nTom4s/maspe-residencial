@@ -16,6 +16,7 @@ import com.restaurante.model.entity.Produto;
 import com.restaurante.model.entity.QrCodeOperacional;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantUser;
+import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.MetodoPagamentoManual;
@@ -32,6 +33,8 @@ import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TipoCozinha;
 import com.restaurante.model.enums.TipoUnidadeAtendimento;
+import com.restaurante.model.enums.TurnoOperacionalStatus;
+import com.restaurante.model.enums.TurnoOperacionalTipo;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.repository.CategoriaProdutoRepository;
 import com.restaurante.repository.CozinhaRepository;
@@ -42,6 +45,7 @@ import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.tenant.TenantContext;
@@ -101,6 +105,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
     @Autowired QrCodeOperacionalService qrCodeOperacionalService;
     @Autowired UserRepository userRepository;
     @Autowired TenantUserRepository tenantUserRepository;
+    @Autowired TurnoOperacionalRepository turnoOperacionalRepository;
 
     @AfterEach
     void clear() {
@@ -560,6 +565,67 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    @WithMockUser(username = "cashier-pdv")
+    void tenantPdvCreatesServerPricedOrderWithPaymentOrderAndIdempotentReplay() throws Exception {
+        Setup setup = setupTenantAndPedido("pdv-create-1", "PC1");
+        User cashier = criarTenantActor(setup.tenant, TenantUserRole.TENANT_CASHIER, "cashier-pdv-create");
+        TenantContextHolder.set(new TenantContext(
+                setup.tenant.getId(), setup.tenant.getTenantCode(), cashier.getId(),
+                Set.of(TenantUserRole.TENANT_CASHIER.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+
+        String payload = """
+                {
+                  "clientRequestId": "pdv-create-request-1",
+                  "instituicaoId": %d,
+                  "unidadeAtendimentoId": %d,
+                  "metodoPagamento": "TPA",
+                  "itens": [
+                    { "produtoId": %d, "quantidade": 2 }
+                  ]
+                }
+                """.formatted(setup.instituicaoId, setup.unidadeId, setup.produtoId);
+
+        mockMvc.perform(post("/tenant/pedidos")
+                        .header("Idempotency-Key", "pdv-create-idem-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isConflict());
+
+        abrirTurno(setup, cashier);
+
+        String firstResponse = mockMvc.perform(post("/tenant/pedidos")
+                        .header("Idempotency-Key", "pdv-create-idem-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode firstData = objectMapper.readTree(firstResponse).at("/data");
+        long createdPedidoId = firstData.at("/id").asLong();
+        assertThat(firstData.at("/pedidoOrigem").asText()).isEqualTo("PDV_INTERNO");
+        assertThat(firstData.at("/total").decimalValue()).isEqualByComparingTo("20.00");
+        assertThat(firstData.at("/statusFinanceiro").asText()).isEqualTo("NAO_PAGO");
+        assertThat(firstData.at("/paymentOrder/status").asText()).isEqualTo("AGUARDANDO_CONFIRMACAO");
+        assertThat(firstData.at("/paymentOrder/metodoPagamento").asText()).isEqualTo("TPA");
+
+        String replayResponse = mockMvc.perform(post("/tenant/pedidos")
+                        .header("Idempotency-Key", "pdv-create-idem-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(replayResponse).at("/data/id").asLong()).isEqualTo(createdPedidoId);
+
+        String conflictingPayload = payload.replace("\"quantidade\": 2", "\"quantidade\": 3");
+        mockMvc.perform(post("/tenant/pedidos")
+                        .header("Idempotency-Key", "pdv-create-idem-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(conflictingPayload))
+                .andExpect(status().isConflict());
+    }
+
     private Setup setupTenantAndPedido(String slug, String tenantCode) throws Exception {
         Tenant tenant = criarTenant("Tenant " + slug, slug, tenantCode);
         Instituicao inst = criarInstituicao(tenant, "Inst " + slug, tenantCode.substring(0, Math.min(3, tenantCode.length())), "NIF-" + tenantCode, "+244900" + Math.abs(slug.hashCode() % 1_000_000));
@@ -590,7 +656,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         var subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedidoId);
         Long subPedidoId = subs.getFirst().getId();
 
-        return new Setup(tenant, pedidoId, subPedidoId, qr.getToken());
+        return new Setup(tenant, pedidoId, subPedidoId, qr.getToken(), inst.getId(), unidade.getId(), prod.getId());
     }
 
     private boolean allowedActionsContain(JsonNode data, PedidoAllowedAction action) {
@@ -687,5 +753,26 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         return user;
     }
 
-    private record Setup(Tenant tenant, Long pedidoId, Long subPedidoId, String qrToken) {}
+    private void abrirTurno(Setup setup, User actor) {
+        TurnoOperacional turno = new TurnoOperacional();
+        turno.setTenant(setup.tenant);
+        turno.setInstituicao(instituicaoRepository.findById(setup.instituicaoId).orElseThrow());
+        turno.setUnidadeAtendimento(unidadeAtendimentoRepository.findById(setup.unidadeId).orElseThrow());
+        turno.setAbertoPor(actor);
+        turno.setStatus(TurnoOperacionalStatus.ABERTO);
+        turno.setTipo(TurnoOperacionalTipo.BALCAO);
+        turno.setNome("Turno PDV test");
+        turno.setAbertoEm(LocalDateTime.now());
+        turnoOperacionalRepository.saveAndFlush(turno);
+    }
+
+    private record Setup(
+            Tenant tenant,
+            Long pedidoId,
+            Long subPedidoId,
+            String qrToken,
+            Long instituicaoId,
+            Long unidadeId,
+            Long produtoId
+    ) {}
 }

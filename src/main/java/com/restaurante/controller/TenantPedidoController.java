@@ -4,6 +4,7 @@ import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.request.AtualizarStatusPedidoRequest;
 import com.restaurante.dto.request.ConfirmarPedidoPaymentOrderRequest;
 import com.restaurante.dto.request.RejeitarPedidoRequest;
+import com.restaurante.dto.request.TenantPdvCreatePedidoRequest;
 import com.restaurante.dto.response.TenantPedidoDetalheResponse;
 import com.restaurante.dto.response.TenantPedidoResumoResponse;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
@@ -14,6 +15,7 @@ import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.tenantadmin.TenantAdminPedidoService;
+import com.restaurante.service.tenantadmin.TenantPdvPedidoService;
 import com.restaurante.service.operacional.PedidoStatusTransitionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -26,6 +28,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,8 +49,37 @@ public class TenantPedidoController {
 
     private final TenantGuard tenantGuard;
     private final TenantAdminPedidoService pedidoService;
+    private final TenantPdvPedidoService tenantPdvPedidoService;
     private final PedidoStatusTransitionService pedidoStatusTransitionService;
     private final OrdemPagamentoService ordemPagamentoService;
+
+    @PostMapping("/pedidos")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<TenantPedidoDetalheResponse>> criarPedidoPdv(
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody TenantPdvCreatePedidoRequest request,
+            jakarta.servlet.http.HttpServletRequest http
+    ) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
+        TenantContext ctx = tenantGuard.requireContext();
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        TenantPdvPedidoService.CreateResult result = tenantPdvPedidoService.criarPedido(
+                request,
+                idempotencyKey,
+                resolvePaymentOrigem(ctx),
+                ip,
+                ua
+        );
+        TenantPedidoDetalheResponse response = pedidoService.buscarDetalhe(result.pedidoId());
+        String message = result.idempotentReplay() ? "Pedido PDV recuperado" : "Pedido PDV criado";
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(message, response));
+    }
 
     @GetMapping("/pedidos")
     @PreAuthorize("isAuthenticated()")

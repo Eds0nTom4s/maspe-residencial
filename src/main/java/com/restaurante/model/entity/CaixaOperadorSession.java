@@ -1,6 +1,7 @@
 package com.restaurante.model.entity;
 
 import com.restaurante.model.enums.CaixaOperadorSessionStatus;
+import com.restaurante.model.enums.CaixaOperadorSessionChannel;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -47,9 +48,14 @@ public class CaixaOperadorSession extends BaseEntity {
     @JoinColumn(name = "turno_operacional_id")
     private TurnoOperacional turnoOperacional;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "operational_device_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "operational_device_id")
     private DispositivoOperacional dispositivoOperacional;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "channel", nullable = false, length = 20)
+    private CaixaOperadorSessionChannel channel = CaixaOperadorSessionChannel.DEVICE_POS;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "operador_user_id", nullable = false)

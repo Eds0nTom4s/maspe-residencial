@@ -6,6 +6,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.math.BigDecimal;
+
 @Data
 public class ConfirmarPedidoPaymentOrderRequest {
     @NotBlank
@@ -14,6 +16,8 @@ public class ConfirmarPedidoPaymentOrderRequest {
 
     @NotNull
     private MetodoPagamentoManual metodoConfirmado;
+
+    private BigDecimal valorRecebido;
 
     @Size(max = 200)
     private String referenciaOperador;

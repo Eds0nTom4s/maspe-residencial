@@ -212,6 +212,13 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
                         .content(abrirTurnoNode.toString()))
                 .andExpect(status().isCreated());
 
+        mockMvc.perform(post("/tenant/caixa-operador/open")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"instituicaoId": %d, "unidadeAtendimentoId": %d}
+                                """.formatted(ua.getInstituicao().getId(), ua.getId())))
+                .andExpect(status().isOk());
+
         String respBeforeAccept = mockMvc.perform(get("/tenant/pedidos/" + pedidoId))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();

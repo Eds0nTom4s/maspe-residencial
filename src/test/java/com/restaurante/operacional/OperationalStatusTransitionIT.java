@@ -76,6 +76,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
@@ -369,6 +370,18 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
                 TenantResolutionSource.JWT, false, false
         ));
 
+        abrirTurno(setup, owner);
+        mockMvc.perform(post("/tenant/caixa-operador/open")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "instituicaoId": %d,
+                                  "unidadeAtendimentoId": %d
+                                }
+                                """.formatted(setup.instituicaoId, setup.unidadeId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.channel").value("WEB_PDV"));
+
         mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/aceitar"))
                 .andExpect(status().isOk());
 
@@ -400,6 +413,9 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         JsonNode confirmData = objectMapper.readTree(confirmJson).at("/data");
         assertThat(confirmData.at("/statusFinanceiro").asText()).isEqualTo("PAGO");
         assertThat(confirmData.at("/paymentOrder/status").asText()).isEqualTo("CONFIRMADA");
+        assertThat(confirmData.at("/paymentOrder/metodoConfirmado").asText()).isEqualTo("TPA");
+        assertThat(confirmData.at("/paymentOrder/valorRecebido").decimalValue()).isEqualByComparingTo("10.00");
+        assertThat(confirmData.at("/paymentOrder/troco").decimalValue()).isEqualByComparingTo("0.00");
 
         assertThat(applicationEvents.stream(PaymentConfirmedForFiscalIssueEvent.class)
                 .filter(event -> setup.pedidoId.equals(event.pedidoId()))
@@ -438,6 +454,86 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
                 org.springframework.data.domain.PageRequest.of(0, 20)
         );
         assertThat(events.getContent().stream().anyMatch(e -> e.getEntityId().equals(ordem.getId()))).isTrue();
+    }
+
+    @Test
+    @WithMockUser(username = "cashier-cash-user")
+    void tenantPdvCashConfirmationRequiresWebCashSessionAndRecordsChange() throws Exception {
+        Setup setup = setupTenantAndPedido("pdv-cash-confirm", "P14");
+        User cashier = criarTenantActor(setup.tenant, TenantUserRole.TENANT_CASHIER, "cashier-cash-confirm");
+        TenantContextHolder.set(new TenantContext(
+                setup.tenant.getId(), setup.tenant.getTenantCode(), cashier.getId(),
+                Set.of(TenantUserRole.TENANT_CASHIER.name()),
+                TenantResolutionSource.JWT, false, false
+        ));
+        abrirTurno(setup, cashier);
+
+        String created = mockMvc.perform(post("/tenant/pedidos")
+                        .header("Idempotency-Key", "pdv-cash-create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "clientRequestId": "pdv-cash-create",
+                                  "instituicaoId": %d,
+                                  "unidadeAtendimentoId": %d,
+                                  "metodoPagamento": "CASH",
+                                  "itens": [{"produtoId": %d, "quantidade": 2}]
+                                }
+                                """.formatted(setup.instituicaoId, setup.unidadeId, setup.produtoId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long pedidoId = objectMapper.readTree(created).at("/data/id").asLong();
+
+        ConfirmarPedidoPaymentOrderRequest confirm = new ConfirmarPedidoPaymentOrderRequest();
+        confirm.setClientRequestId("pdv-cash-confirm");
+        confirm.setMetodoConfirmado(MetodoPagamentoManual.CASH);
+        confirm.setValorRecebido(new BigDecimal("25.00"));
+
+        mockMvc.perform(patch("/tenant/pedidos/" + pedidoId + "/payment-order/confirm")
+                        .header("Idempotency-Key", "pdv-cash-confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirm)))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/tenant/caixa-operador/open")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"instituicaoId": %d, "unidadeAtendimentoId": %d}
+                                """.formatted(setup.instituicaoId, setup.unidadeId)))
+                .andExpect(status().isOk());
+
+        String confirmed = mockMvc.perform(patch("/tenant/pedidos/" + pedidoId + "/payment-order/confirm")
+                        .header("Idempotency-Key", "pdv-cash-confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirm)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode paymentOrder = objectMapper.readTree(confirmed).at("/data/paymentOrder");
+        assertThat(paymentOrder.at("/metodoConfirmado").asText()).isEqualTo("CASH");
+        assertThat(paymentOrder.at("/valorRecebido").decimalValue()).isEqualByComparingTo("25.00");
+        assertThat(paymentOrder.at("/troco").decimalValue()).isEqualByComparingTo("5.00");
+
+        OrdemPagamento ordem = ordemPagamentoRepository
+                .findTopByTenantIdAndPedidoIdOrderByCreatedAtDesc(setup.tenant.getId(), pedidoId)
+                .orElseThrow();
+        assertThat(ordem.getCaixaOperadorSession()).isNotNull();
+        assertThat(ordem.getCaixaOperadorSession().getId()).isNotNull();
+        assertThat(ordem.getMetodoConfirmado()).isEqualTo(MetodoPagamentoManual.CASH);
+        assertThat(ordem.getTroco()).isEqualByComparingTo("5.00");
+
+        long caixaId = ordem.getCaixaOperadorSession().getId();
+        mockMvc.perform(post("/tenant/caixa-operador/" + caixaId + "/close")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"declaredCashAmount": 20.00, "declaredTpaAmount": 0.00}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CLOSED"))
+                .andExpect(jsonPath("$.data.expectedCashAmount").value(20.00))
+                .andExpect(jsonPath("$.data.cashDifferenceAmount").value(0.00));
+        mockMvc.perform(get("/tenant/caixa-operador/current"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test

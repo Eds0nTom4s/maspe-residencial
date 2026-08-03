@@ -11,6 +11,7 @@ import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.financeiro.repository.TenantPaymentConfirmationIdempotencyRepository;
+import com.restaurante.financeiro.caixa.service.CaixaOperadorSessionService;
 import com.restaurante.model.entity.FundoConsumo;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
@@ -80,6 +81,7 @@ public class OrdemPagamentoService {
     private final PaymentOrderProperties paymentOrderProperties;
     private final Clock clock;
     private final OperationalTemplatePolicy operationalTemplatePolicy;
+    private final CaixaOperadorSessionService caixaOperadorSessionService;
 
     @Transactional
     public OrdemPagamento criarOrdemCarregamentoFundo(Tenant tenant,
@@ -332,6 +334,9 @@ public class OrdemPagamentoService {
                 .valor(ordem.getValor())
                 .moeda(ordem.getMoeda())
                 .metodoPagamento(ordem.getMetodoSolicitado())
+                .metodoConfirmado(ordem.getMetodoConfirmado())
+                .valorRecebido(ordem.getValorRecebido())
+                .troco(ordem.getTroco())
                 .createdAt(ordem.getCreatedAt())
                 .expiresAt(ordem.getExpiresAt())
                 .confirmedAt(ordem.getConfirmadoEm())
@@ -418,26 +423,38 @@ public class OrdemPagamentoService {
         }
 
         MetodoPagamentoManual metodo = resolveMetodoConfirmado(request, ordem);
-        if (metodo != MetodoPagamentoManual.TPA) {
-            throw new BusinessException("Confirmação tenant desta fase suporta apenas TPA, sem cash/troco.");
-        }
         if (ordem.getMetodoSolicitado() != metodo) {
             throw new ConflictException("Método confirmado não corresponde ao método solicitado na ordem.");
         }
-        boolean hasReference = request.getReferenciaOperador() != null && !request.getReferenciaOperador().isBlank();
-        boolean hasObservation = request.getObservacao() != null && request.getObservacao().trim().length() >= 5;
-        if (!hasReference && !hasObservation) {
-            throw new BusinessException("TPA exige referenciaOperador ou observação mínima.");
+        if (metodo == MetodoPagamentoManual.TPA) {
+            boolean hasReference = request.getReferenciaOperador() != null && !request.getReferenciaOperador().isBlank();
+            boolean hasObservation = request.getObservacao() != null && request.getObservacao().trim().length() >= 5;
+            if (!hasReference && !hasObservation) {
+                throw new BusinessException("TPA exige referenciaOperador ou observação mínima.");
+            }
         }
         if (pedido.getTotal() == null || ordem.getValor() == null || ordem.getValor().compareTo(pedido.getTotal()) != 0) {
             throw new ConflictException("Valor da ordem de pagamento não corresponde ao total do pedido.");
         }
 
+        BigDecimal valorRecebido = request.getValorRecebido();
+        if (metodo == MetodoPagamentoManual.TPA) {
+            if (valorRecebido != null && valorRecebido.compareTo(ordem.getValor()) != 0) {
+                throw new BusinessException("TPA exige valorRecebido igual ao valor da ordem.");
+            }
+            valorRecebido = ordem.getValor();
+        } else if (valorRecebido == null || valorRecebido.compareTo(ordem.getValor()) < 0) {
+            throw new BusinessException("CASH exige valorRecebido igual ou superior ao valor da ordem.");
+        }
+
+        var caixa = caixaOperadorSessionService.requireOpenWebForPayment(tenantId, actorUserId, ordem);
+        ordem.setCaixaOperadorSession(caixa);
+
         ordem.setConfirmadoPorUser(confirmedBy);
         Pagamento pagamento = aplicarConfirmacaoManualOrdem(
                 ordem,
                 metodo,
-                ordem.getValor(),
+                valorRecebido,
                 request.getReferenciaOperador(),
                 request.getObservacao()
         );
@@ -518,7 +535,8 @@ public class OrdemPagamentoService {
                     safeHashValue(request.getClientRequestId()),
                     request.getMetodoConfirmado() != null ? request.getMetodoConfirmado().name() : "",
                     safeHashValue(request.getReferenciaOperador()),
-                    safeHashValue(request.getObservacao())
+                    safeHashValue(request.getObservacao()),
+                    request.getValorRecebido() != null ? request.getValorRecebido().stripTrailingZeros().toPlainString() : ""
             );
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(canonical.getBytes(StandardCharsets.UTF_8)));
@@ -634,6 +652,11 @@ public class OrdemPagamentoService {
 
         ordem.setStatus(OrdemPagamentoStatus.CONFIRMADA);
         ordem.setConfirmadoEm(now());
+        ordem.setMetodoConfirmado(metodoConfirmado);
+        ordem.setValorRecebido(valorRecebido);
+        ordem.setTroco(metodoConfirmado == MetodoPagamentoManual.CASH
+                ? valorRecebido.subtract(ordem.getValor())
+                : BigDecimal.ZERO);
         ordem.setReferenciaOperador(referenciaOperador);
         ordem.setObservacao(observacao);
         ordemPagamentoRepository.save(ordem);

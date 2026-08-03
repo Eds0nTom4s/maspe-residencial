@@ -87,6 +87,7 @@ public class DeviceCaixaOperadorController {
         CaixaOperadorSessionResponse r = new CaixaOperadorSessionResponse();
         r.setId(caixa.getId());
         r.setStatus(caixa.getStatus());
+        r.setChannel(caixa.getChannel());
         r.setTenantId(caixa.getTenant() != null ? caixa.getTenant().getId() : null);
         r.setInstituicaoId(caixa.getInstituicao() != null ? caixa.getInstituicao().getId() : null);
         r.setUnidadeAtendimentoId(caixa.getUnidadeAtendimento() != null ? caixa.getUnidadeAtendimento().getId() : null);

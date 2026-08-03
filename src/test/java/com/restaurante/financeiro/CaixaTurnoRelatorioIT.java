@@ -10,12 +10,25 @@ import com.restaurante.dto.request.CriarCarregamentoFundoRequest;
 import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.DispositivoOperacional;
+import com.restaurante.model.entity.OperationalEventLog;
+import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.MetodoPagamentoManual;
+import com.restaurante.model.enums.OperationalActorType;
+import com.restaurante.model.enums.OperationalEntityType;
+import com.restaurante.model.enums.OperationalEventType;
+import com.restaurante.model.enums.OperationalOrigem;
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.Role;
+import com.restaurante.model.enums.StatusFinanceiroPedido;
+import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.model.enums.TurnoOperacionalTipo;
+import com.restaurante.model.enums.TipoPagamentoPedido;
+import com.restaurante.repository.OperationalEventLogRepository;
+import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.repository.DispositivoOperacionalRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.TenantRepository;
@@ -61,6 +74,9 @@ class CaixaTurnoRelatorioIT extends DeviceAuthIntegrationTestSupport {
     @Autowired InstituicaoRepository instituicaoRepository;
     @Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
     @Autowired DispositivoOperacionalRepository dispositivoOperacionalRepository;
+    @Autowired PedidoRepository pedidoRepository;
+    @Autowired OperationalEventLogRepository operationalEventLogRepository;
+    @Autowired TurnoOperacionalRepository turnoOperacionalRepository;
     @Autowired FinanceiroItFixtureSupport fixtureSupport;
 
     @AfterEach
@@ -86,6 +102,31 @@ class CaixaTurnoRelatorioIT extends DeviceAuthIntegrationTestSupport {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         Long turnoId = objectMapper.readTree(abrirJson).get("data").get("id").asLong();
+
+        var turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, prov.getTenantId()).orElseThrow();
+        Pedido pedidoTurno = new Pedido();
+        pedidoTurno.setTenant(turno.getTenant());
+        pedidoTurno.setTurnoOperacional(turno);
+        pedidoTurno.setNumero("PED-EXTRATO-" + turnoId);
+        pedidoTurno.setStatus(StatusPedido.EM_ANDAMENTO);
+        pedidoTurno.setStatusFinanceiro(StatusFinanceiroPedido.NAO_PAGO);
+        pedidoTurno.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
+        pedidoTurno.setPedidoOrigem(PedidoOrigem.PDV_INTERNO);
+        pedidoTurno.setTotal(new BigDecimal("2500.00"));
+        pedidoTurno = pedidoRepository.saveAndFlush(pedidoTurno);
+
+        OperationalEventLog pedidoCriado = new OperationalEventLog();
+        pedidoCriado.setTenant(turno.getTenant());
+        pedidoCriado.setTurno(turno);
+        pedidoCriado.setPedido(pedidoTurno);
+        pedidoCriado.setActorType(OperationalActorType.USER);
+        pedidoCriado.setActorUser(turno.getAbertoPor());
+        pedidoCriado.setEventType(OperationalEventType.PEDIDO_CRIADO);
+        pedidoCriado.setEntityType(OperationalEntityType.PEDIDO);
+        pedidoCriado.setEntityId(pedidoTurno.getId());
+        pedidoCriado.setOrigem(OperationalOrigem.TENANT_OPERATOR);
+        pedidoCriado.setStatusNovo(StatusPedido.EM_ANDAMENTO.name());
+        operationalEventLogRepository.saveAndFlush(pedidoCriado);
 
         // cria consumo e ordem cash (público)
         String consumoJson = mockMvc.perform(post("/public/q/" + mesaQrToken + "/consumos/anonimo"))
@@ -151,6 +192,8 @@ class CaixaTurnoRelatorioIT extends DeviceAuthIntegrationTestSupport {
                 .andReturn().getResponse().getContentAsString();
         JsonNode rel = objectMapper.readTree(relJson).get("data");
         assertThat(rel.get("totalManualConfirmado").decimalValue()).isEqualByComparingTo(new BigDecimal("10000.00"));
+        assertThat(rel.get("pedidos").toString()).contains(pedidoTurno.getNumero());
+        assertThat(rel.get("eventosOperacionais").toString()).contains("PEDIDO_CRIADO");
     }
 
     @Test

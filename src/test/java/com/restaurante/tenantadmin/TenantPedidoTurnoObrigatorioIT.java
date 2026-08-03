@@ -111,6 +111,7 @@ class TenantPedidoTurnoObrigatorioIT extends PostgresTestcontainersConfig {
         Pedido pedidoAberto = criarPedido(tenant, instituicao, unidade, turnoAberto, "ABERTO");
 
         String response = mockMvc.perform(get("/tenant/pedidos")
+                        .param("turnoId", turnoAberto.getId().toString())
                         .param("instituicaoId", instituicao.getId().toString())
                         .param("unidadeAtendimentoId", unidade.getId().toString())
                         .param("page", "0")
@@ -144,7 +145,7 @@ class TenantPedidoTurnoObrigatorioIT extends PostgresTestcontainersConfig {
 
     @Test
     @WithMockUser(username = "tenant-owner")
-    void turnoEmFecho_listsPedidoWithoutSessao_withAndWithoutOperationalScope() throws Exception {
+    void turnoEmFecho_requiresExplicitTurnoAndListsOnlyThatTurno() throws Exception {
         ProvisionarTenantResponse provisioned = provisionTenant();
         setTenantContext(provisioned);
 
@@ -166,20 +167,19 @@ class TenantPedidoTurnoObrigatorioIT extends PostgresTestcontainersConfig {
         pedido = pedidoRepository.saveAndFlush(pedido);
 
         mockMvc.perform(get("/tenant/pedidos").param("page", "0").param("size", "20"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.totalElements").value(1))
-                .andExpect(jsonPath("$.data.content[0].id").value(pedido.getId()))
-                .andExpect(jsonPath("$.data.content[0].instituicaoId").value(instituicao.getId()))
-                .andExpect(jsonPath("$.data.content[0].unidadeAtendimentoId").value(unidade.getId()));
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TURNO_ABERTO_OBRIGATORIO"));
 
         mockMvc.perform(get("/tenant/pedidos")
+                        .param("turnoId", turno.getId().toString())
                         .param("instituicaoId", instituicao.getId().toString())
                         .param("unidadeAtendimentoId", unidade.getId().toString())
                         .param("page", "0")
                         .param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1))
-                .andExpect(jsonPath("$.data.content[0].id").value(pedido.getId()));
+                .andExpect(jsonPath("$.data.content[0].id").value(pedido.getId()))
+                .andExpect(jsonPath("$.data.content[0].turnoOperacionalId").value(turno.getId()));
     }
 
     private ProvisionarTenantResponse provisionTenant() {

@@ -9,6 +9,8 @@ import com.restaurante.financeiro.service.PagamentoMonitoramentoService;
 import com.restaurante.model.enums.CallbackProcessingStatus;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TurnoOperacionalStatus;
+import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -35,6 +37,7 @@ public class TenantFinanceiroController {
 
     private final TenantGuard tenantGuard;
     private final PagamentoMonitoramentoService monitoramentoService;
+    private final TurnoOperacionalRepository turnoOperacionalRepository;
 
     @GetMapping("/pagamentos")
     @PreAuthorize("isAuthenticated()")
@@ -43,6 +46,7 @@ public class TenantFinanceiroController {
             @RequestParam(required = false) StatusFinanceiroPedido statusFinanceiroPedido,
             @RequestParam(required = false) String externalReference,
             @RequestParam(required = false) String pedidoNumero,
+            @RequestParam(required = false) Long turnoId,
             @RequestParam(required = false) Integer pendenteHaMaisDeMinutos,
             @RequestParam(required = false) Boolean somenteDivergentes,
             @RequestParam(required = false) Boolean somenteComCallbackInvalido,
@@ -50,16 +54,23 @@ public class TenantFinanceiroController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime ate,
             @PageableDefault(size = 50) Pageable pageable
     ) {
-        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_FINANCE,
+                TenantUserRole.TENANT_CASHIER
+        );
         TenantContext ctx = tenantGuard.requireContext();
         if (ctx.tenantId() == null) {
             throw new com.restaurante.exception.BusinessException("TenantContext obrigatório para listar pagamentos.");
         }
+        validarEscopoDoCaixa(ctx, turnoId);
         PagamentoMonitoramentoFiltro filtro = new PagamentoMonitoramentoFiltro();
         filtro.setStatusPagamento(statusPagamento);
         filtro.setStatusFinanceiroPedido(statusFinanceiroPedido);
         filtro.setExternalReference(externalReference);
         filtro.setPedidoNumero(pedidoNumero);
+        filtro.setTurnoId(turnoId);
         filtro.setPendenteHaMaisDeMinutos(pendenteHaMaisDeMinutos);
         filtro.setSomenteDivergentes(somenteDivergentes);
         filtro.setSomenteComCallbackInvalido(somenteComCallbackInvalido);
@@ -68,6 +79,33 @@ public class TenantFinanceiroController {
 
         Page<PagamentoResumoDTO> page = monitoramentoService.listarPagamentosDoTenant(ctx.tenantId(), filtro, pageable);
         return ResponseEntity.ok(ApiResponse.success("Pagamentos listados", page));
+    }
+
+    private void validarEscopoDoCaixa(TenantContext ctx, Long turnoId) {
+        if (ctx.platformAdmin() || ctx.roles() == null || !ctx.roles().contains(TenantUserRole.TENANT_CASHIER.name())) {
+            return;
+        }
+        boolean possuiAcessoFinanceiroAmplo = ctx.roles().contains(TenantUserRole.TENANT_OWNER.name())
+                || ctx.roles().contains(TenantUserRole.TENANT_ADMIN.name())
+                || ctx.roles().contains(TenantUserRole.TENANT_FINANCE.name());
+        if (possuiAcessoFinanceiroAmplo) {
+            return;
+        }
+        if (turnoId == null) {
+            throw new com.restaurante.exception.TenantAccessDeniedException(
+                    "Caixa deve informar o turno operacional atual para listar pagamentos."
+            );
+        }
+        var turno = turnoOperacionalRepository.findByIdAndTenantId(turnoId, ctx.tenantId())
+                .orElseThrow(() -> new com.restaurante.exception.TenantAccessDeniedException(
+                        "Turno operacional inválido para o tenant atual."
+                ));
+        if (turno.getStatus() != TurnoOperacionalStatus.ABERTO
+                && turno.getStatus() != TurnoOperacionalStatus.EM_FECHO) {
+            throw new com.restaurante.exception.TenantAccessDeniedException(
+                    "Caixa somente pode consultar pagamentos do turno operacional atual."
+            );
+        }
     }
 
     @GetMapping("/pagamentos/{pagamentoId}")

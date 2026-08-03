@@ -72,6 +72,7 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
               and (cast(:from as timestamp) is null or p.createdAt >= :from)
               and (cast(:to as timestamp) is null or p.createdAt <= :to)
               and (cast(:pedidoNumero as string) is null or ped.numero = :pedidoNumero)
+              and (cast(:turnoId as long) is null or ped.turnoOperacional.id = :turnoId)
             """)
     Page<Pagamento> searchTenantPagamentos(
             Long tenantId,
@@ -81,6 +82,7 @@ public interface PagamentoGatewayRepository extends JpaRepository<Pagamento, Lon
             LocalDateTime from,
             LocalDateTime to,
             String pedidoNumero,
+            Long turnoId,
             Pageable pageable
     );
 

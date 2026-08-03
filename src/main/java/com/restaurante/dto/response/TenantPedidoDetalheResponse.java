@@ -29,6 +29,7 @@ public class TenantPedidoDetalheResponse {
     private StatusFinanceiroPedido statusFinanceiro;
     private BigDecimal total;
     private PedidoOrigem pedidoOrigem;
+    private Long turnoOperacionalId;
 
     private String observacoes;
     private LocalDateTime criadoEm;

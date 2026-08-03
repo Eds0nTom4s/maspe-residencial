@@ -5,13 +5,19 @@ import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantUser;
+import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserEstado;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TurnoOperacionalStatus;
+import com.restaurante.model.enums.TurnoOperacionalTipo;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TenantUserRepository;
+import com.restaurante.repository.TurnoOperacionalRepository;
+import com.restaurante.repository.InstituicaoRepository;
+import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.repository.UserRepository;
 import com.restaurante.security.JwtTokenProvider;
 import com.restaurante.security.tenant.TenantContext;
@@ -28,6 +34,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDateTime;
 import java.util.Set;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -49,6 +56,9 @@ class TenantRoleAuthorizationIT extends PostgresTestcontainersConfig {
 	@Autowired UserRepository userRepository;
 	@Autowired TenantUserRepository tenantUserRepository;
 	@Autowired TenantRepository tenantRepository;
+	@Autowired TurnoOperacionalRepository turnoOperacionalRepository;
+	@Autowired InstituicaoRepository instituicaoRepository;
+	@Autowired UnidadeAtendimentoRepository unidadeAtendimentoRepository;
 	@Autowired JwtTokenProvider jwtTokenProvider;
 
     @AfterEach
@@ -97,7 +107,7 @@ class TenantRoleAuthorizationIT extends PostgresTestcontainersConfig {
 	}
 
 	@Test
-	void cashier_canListQr_butCannotGenerateMesaQr_orAccessFinance() throws Exception {
+	void cashier_canListQr_butCannotGenerateMesaQr_orAccessFinanceWithoutTurno() throws Exception {
 	    ProvisionarTenantResponse prov = provisionarTenant("t-cash");
 
 	    User cashier = createUser("cash@t.com", "+244900000003");
@@ -122,6 +132,26 @@ class TenantRoleAuthorizationIT extends PostgresTestcontainersConfig {
 	                    .header("Authorization", "Bearer " + token)
 	                    .accept(MediaType.APPLICATION_JSON))
 	            .andExpect(status().isForbidden());
+
+	    Tenant tenant = tenantRepository.findById(prov.getTenantId()).orElseThrow();
+	    TurnoOperacional turno = new TurnoOperacional();
+	    turno.setTenant(tenant);
+	    turno.setInstituicao(instituicaoRepository.findByIdAndTenantId(
+	            prov.getInstituicaoId(), prov.getTenantId()).orElseThrow());
+	    turno.setUnidadeAtendimento(unidadeAtendimentoRepository.findByIdAndTenantId(
+	            prov.getUnidadeAtendimentoId(), prov.getTenantId()).orElseThrow());
+	    turno.setAbertoPor(cashier);
+	    turno.setStatus(TurnoOperacionalStatus.ABERTO);
+	    turno.setTipo(TurnoOperacionalTipo.DIARIO);
+	    turno.setNome("Turno do caixa");
+	    turno.setAbertoEm(LocalDateTime.now());
+	    turno = turnoOperacionalRepository.saveAndFlush(turno);
+
+	    mockMvc.perform(get("/tenant/financeiro/pagamentos")
+	                    .param("turnoId", turno.getId().toString())
+	                    .header("Authorization", "Bearer " + token)
+	                    .accept(MediaType.APPLICATION_JSON))
+	            .andExpect(status().isOk());
 	}
 
 	@Test

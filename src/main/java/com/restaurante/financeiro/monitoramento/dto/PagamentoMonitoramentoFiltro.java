@@ -12,6 +12,7 @@ public class PagamentoMonitoramentoFiltro {
     private StatusFinanceiroPedido statusFinanceiroPedido;
     private String externalReference;
     private String pedidoNumero;
+    private Long turnoId;
     private LocalDateTime de;
     private LocalDateTime ate;
     private Integer pendenteHaMaisDeMinutos;
@@ -33,6 +34,9 @@ public class PagamentoMonitoramentoFiltro {
     public String getPedidoNumero() { return pedidoNumero; }
     public void setPedidoNumero(String pedidoNumero) { this.pedidoNumero = pedidoNumero; }
 
+    public Long getTurnoId() { return turnoId; }
+    public void setTurnoId(Long turnoId) { this.turnoId = turnoId; }
+
     public LocalDateTime getDe() { return de; }
     public void setDe(LocalDateTime de) { this.de = de; }
 
@@ -48,4 +52,3 @@ public class PagamentoMonitoramentoFiltro {
     public Boolean getSomenteComCallbackInvalido() { return somenteComCallbackInvalido; }
     public void setSomenteComCallbackInvalido(Boolean somenteComCallbackInvalido) { this.somenteComCallbackInvalido = somenteComCallbackInvalido; }
 }
-

@@ -89,6 +89,7 @@ public class TenantPedidoController {
             @RequestParam(required = false) Long instituicaoId,
             @RequestParam(required = false) Long unidadeAtendimentoId,
             @RequestParam(required = false) Long mesaId,
+            @RequestParam(required = false) Long turnoId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime de,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime ate,
             @PageableDefault(size = 50) Pageable pageable
@@ -101,7 +102,7 @@ public class TenantPedidoController {
                 TenantUserRole.TENANT_FINANCE
         );
         Page<TenantPedidoResumoResponse> page = pedidoService.listarPedidos(
-                statusOperacional, statusFinanceiro, instituicaoId, unidadeAtendimentoId, mesaId, de, ate, pageable
+                statusOperacional, statusFinanceiro, instituicaoId, unidadeAtendimentoId, mesaId, de, ate, turnoId, pageable
         );
         return ResponseEntity.ok(ApiResponse.success("Pedidos", page));
     }

@@ -7,6 +7,7 @@ import com.restaurante.model.enums.TipoPagamentoPedido;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -131,6 +132,9 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
             @Param("mesaId") Long mesaId,
             Pageable pageable
     );
+
+    @EntityGraph(attributePaths = {"itens"})
+    List<Pedido> findByTenantIdAndTurnoOperacionalIdOrderByCreatedAtAsc(Long tenantId, Long turnoId);
 
     @Query("select p from Pedido p where p.tenant.id = :tenantId and p.turnoOperacional.id = :turnoId " +
            "and p.status not in (com.restaurante.model.enums.StatusPedido.FINALIZADO, com.restaurante.model.enums.StatusPedido.CANCELADO) " +

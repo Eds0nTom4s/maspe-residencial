@@ -49,11 +49,12 @@ public class PagamentoMonitoramentoService {
         StatusPagamentoGateway status = filtro != null ? filtro.getStatusPagamento() : null;
         StatusFinanceiroPedido statusFin = filtro != null ? filtro.getStatusFinanceiroPedido() : null;
         String externalRef = filtro != null ? filtro.getExternalReference() : null;
+        Long turnoId = filtro != null ? filtro.getTurnoId() : null;
         LocalDateTime de = filtro != null ? filtro.getDe() : null;
         LocalDateTime ate = filtro != null ? filtro.getAte() : null;
 
         Page<Pagamento> page = pagamentoRepository.searchTenantPagamentos(
-                tenantId, status, statusFin, externalRef, de, ate, pedidoNumero, pageable
+                tenantId, status, statusFin, externalRef, de, ate, pedidoNumero, turnoId, pageable
         );
 
         int timeout = resolveTimeoutMinutos(filtro);
@@ -84,7 +85,7 @@ public class PagamentoMonitoramentoService {
         LocalDateTime ate = filtro != null ? filtro.getAte() : null;
 
         Page<Pagamento> page = (tenantId != null)
-                ? pagamentoRepository.searchTenantPagamentos(tenantId, status, statusFin, externalRef, de, ate, pedidoNumero, pageable)
+                ? pagamentoRepository.searchTenantPagamentos(tenantId, status, statusFin, externalRef, de, ate, pedidoNumero, null, pageable)
                 : pagamentoRepository.searchPlatformPagamentos(status, statusFin, externalRef, de, ate, pedidoNumero, pageable);
 
         int timeout = resolveTimeoutMinutos(filtro);

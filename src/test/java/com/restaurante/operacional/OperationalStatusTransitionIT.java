@@ -29,6 +29,7 @@ import com.restaurante.model.enums.QrCodeOperacionalTipo;
 import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
+import com.restaurante.model.enums.StatusSessaoConsumo;
 import com.restaurante.model.enums.StatusSubPedido;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
@@ -43,6 +44,7 @@ import com.restaurante.repository.CozinhaRepository;
 import com.restaurante.repository.InstituicaoRepository;
 import com.restaurante.repository.OperationalEventLogRepository;
 import com.restaurante.repository.PedidoRepository;
+import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.repository.ProdutoRepository;
 import com.restaurante.repository.SubPedidoRepository;
 import com.restaurante.repository.TenantRepository;
@@ -100,6 +102,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
     @Autowired CategoriaProdutoRepository categoriaProdutoRepository;
     @Autowired ProdutoRepository produtoRepository;
     @Autowired PedidoRepository pedidoRepository;
+    @Autowired SessaoConsumoRepository sessaoConsumoRepository;
     @Autowired PedidoService pedidoService;
     @Autowired SubPedidoRepository subPedidoRepository;
     @Autowired OrdemPagamentoRepository ordemPagamentoRepository;
@@ -271,9 +274,12 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
                         .content("{\"status\":\"FINALIZADO\",\"motivo\":\"Entregue ao cliente\"}"))
                 .andExpect(status().isOk());
 
-        Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
+        Pedido pedido = pedidoRepository.findByIdAndTenantIdComSessaoConsumo(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedido.FINALIZADO);
         assertThat(pedido.getStatusFinanceiro()).isEqualTo(StatusFinanceiroPedido.PAGO);
+        assertThat(pedido.getSessaoConsumo()).isNotNull();
+        assertThat(sessaoConsumoRepository.findById(pedido.getSessaoConsumo().getId()).orElseThrow().getStatus())
+                .isEqualTo(StatusSessaoConsumo.ENCERRADA);
 
         var sub = subPedidoRepository.findByIdAndTenantId(setup.subPedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(sub.getStatus()).isEqualTo(StatusSubPedido.ENTREGUE);
@@ -788,6 +794,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         t.setTenantCode(tenantCode);
         t.setTipo(TenantTipo.RESTAURANTE);
         t.setEstado(TenantEstado.ATIVO);
+        t.setTemplateCode("CONSUMA_REST_V1");
         return tenantRepository.saveAndFlush(t);
     }
 

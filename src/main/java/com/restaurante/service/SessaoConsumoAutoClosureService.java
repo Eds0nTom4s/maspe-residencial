@@ -1,5 +1,6 @@
 package com.restaurante.service;
 
+import com.restaurante.consumo.participante.service.SessaoOwnerActionTokenService;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.enums.OperationalEventType;
@@ -28,22 +29,26 @@ public class SessaoConsumoAutoClosureService {
     private final PedidoRepository pedidoRepository;
     private final OrdemPagamentoRepository ordemPagamentoRepository;
     private final OperationalEventLogService operationalEventLogService;
+    private final SessaoOwnerActionTokenService ownerActionTokenService;
 
     public SessaoConsumoAutoClosureService(SessaoConsumoRepository sessaoConsumoRepository,
             PedidoRepository pedidoRepository,
             OrdemPagamentoRepository ordemPagamentoRepository,
-            OperationalEventLogService operationalEventLogService) {
+            OperationalEventLogService operationalEventLogService,
+            SessaoOwnerActionTokenService ownerActionTokenService) {
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.pedidoRepository = pedidoRepository;
         this.ordemPagamentoRepository = ordemPagamentoRepository;
         this.operationalEventLogService = operationalEventLogService;
+        this.ownerActionTokenService = ownerActionTokenService;
     }
 
     /**
      * Avalia e executa o encerramento automático da Sessão de Consumo.
-     * Protege fluxos REST/KDS, fechando automaticamente apenas sessões
-     * elegíveis de fluxo rápido (CONSUMA_PONTO), quando 100% das obrigações
-     * estão cumpridas.
+     * Fecha automaticamente uma sessão quando todos os pedidos associados
+     * estão terminais, todas as obrigações financeiras foram liquidadas e não
+     * existem ordens de pagamento activas. A regra é conservadora e idempotente:
+     * uma sessão com qualquer pendência permanece aberta.
      */
     @Transactional
     public void tryAutoCloseSessaoConsumo(Long sessaoId) {
@@ -69,17 +74,7 @@ public class SessaoConsumoAutoClosureService {
             return;
         }
 
-        // 2. Verificar template da unidade (Escopo exclusivo PONTO)
-        if (sessao.getTenant() != null) {
-            String template = sessao.getTenant().getTemplateCode();
-            if (template != null && !template.equals("CONSUMA_PONTO_V1") && !template.equals("CONSUMA_PONTO_QR")) {
-                log.debug("Auto-closure ignorado: template {} não elegível (apenas PONTO) na sessão {}.", template,
-                        sessaoId);
-                return;
-            }
-        }
-
-        // 3. Obter todos os pedidos
+        // 2. Obter todos os pedidos, independentemente do template operacional.
         List<Pedido> pedidos = pedidoRepository.findBySessaoConsumoId(sessaoId, org.springframework.data.domain.Pageable.unpaged()).getContent();
 
         // Regra de segurança: não encerrar sessão vazia por esta via (deixar para o
@@ -89,7 +84,7 @@ public class SessaoConsumoAutoClosureService {
             return;
         }
 
-        // 4. Avaliar pedidos e subpedidos
+        // 3. Avaliar pedidos e subpedidos
         for (Pedido p : pedidos) {
             if (p.getStatus() == StatusPedido.CRIADO || p.getStatus() == StatusPedido.EM_ANDAMENTO) {
                 log.debug("Auto-closure ignorado: pedido {} pendente na sessão {}.", p.getId(), sessaoId);
@@ -111,8 +106,7 @@ public class SessaoConsumoAutoClosureService {
             if (p.getStatus() != StatusPedido.CANCELADO) {
                 if (p.getSubPedidos() != null) {
                     boolean hasPendingSub = p.getSubPedidos().stream()
-                            .anyMatch(sub -> sub.getStatus() == com.restaurante.model.enums.StatusSubPedido.PENDENTE ||
-                                    sub.getStatus() == com.restaurante.model.enums.StatusSubPedido.EM_PREPARACAO);
+                            .anyMatch(sub -> sub.getStatus() == null || !sub.getStatus().isTerminal());
                     if (hasPendingSub) {
                         log.debug("Auto-closure ignorado: subpedido pendente no pedido {} da sessão {}.", p.getId(),
                                 sessaoId);
@@ -122,7 +116,7 @@ public class SessaoConsumoAutoClosureService {
             }
         }
 
-        // 5. Verificar Ordens de Pagamento Ativas
+        // 4. Verificar Ordens de Pagamento Ativas
         boolean hasActiveOrders = ordemPagamentoRepository.existsBySessaoConsumoIdAndStatusIn(
                 sessaoId, List.of(OrdemPagamentoStatus.AGUARDANDO_CONFIRMACAO));
         if (hasActiveOrders) {
@@ -130,20 +124,31 @@ public class SessaoConsumoAutoClosureService {
             return;
         }
 
-        // 6. Encerrar
-        log.info("Executando auto-closure da sessão {} (CONSUMA PONTO). Todos os requisitos cumpridos.", sessaoId);
+        // 5. Encerrar
+        log.info("Executando auto-closure da sessão {}. Todos os requisitos cumpridos.", sessaoId);
 
         StatusSessaoConsumo oldStatus = sessao.getStatus();
         sessao.encerrar(); // O método na entidade muda o status e encerra o FundoConsumo
         sessaoConsumoRepository.save(sessao);
 
-        // 7. Auditoria
+        // Tokens de gestão da sessão deixam de ser válidos imediatamente.
+        if (sessao.getTenant() != null) {
+            try {
+                ownerActionTokenService.revokeActiveTokensBySessao(
+                        sessao.getTenant().getId(), sessao.getId(), "AUTO_SESSION_CLOSE", null, null
+                );
+            } catch (Exception ex) {
+                log.warn("Falha ao revogar tokens da sessão {} durante auto-closure: {}", sessaoId, ex.getMessage());
+            }
+        }
+
+        // 6. Auditoria
         if (sessao.getTenant() != null) {
             java.util.Map<String, Object> meta = new java.util.HashMap<>();
             meta.put("old_status", oldStatus.name());
             meta.put("new_status", sessao.getStatus().name());
             meta.put("total_pedidos", pedidos.size());
-            meta.put("reason", "AUTO_CLOSURE_CONSUMA_PONTO");
+            meta.put("reason", "AUTO_CLOSURE_ALL_ORDERS_TERMINAL");
 
             operationalEventLogService.logGenericForTenant(
                     sessao.getTenant().getId(),
@@ -151,7 +156,7 @@ public class SessaoConsumoAutoClosureService {
                     com.restaurante.model.enums.OperationalEntityType.SESSAO_CONSUMO,
                     sessao.getId(),
                     com.restaurante.model.enums.OperationalOrigem.SYSTEM,
-                    "Auto encerramento por conclusão de pedidos PONTO",
+                    "Auto encerramento por conclusão integral dos pedidos",
                     meta,
                     "127.0.0.1",
                     "SystemAutoClosureWorker");

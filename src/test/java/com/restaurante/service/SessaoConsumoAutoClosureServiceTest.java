@@ -1,6 +1,7 @@
 package com.restaurante.service;
 
 import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
+import com.restaurante.consumo.participante.service.SessaoOwnerActionTokenService;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
@@ -45,6 +46,7 @@ class SessaoConsumoAutoClosureServiceTest {
     @Mock PedidoRepository pedidoRepository;
     @Mock OrdemPagamentoRepository ordemPagamentoRepository;
     @Mock OperationalEventLogService operationalEventLogService;
+    @Mock SessaoOwnerActionTokenService ownerActionTokenService;
 
     @InjectMocks SessaoConsumoAutoClosureService service;
 
@@ -211,28 +213,32 @@ class SessaoConsumoAutoClosureServiceTest {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Cenário 10: sessão REST/KDS → NÃO auto-encerrada pela regra PONTO
+    // Cenário 10: sessão REST liquidada → auto-encerrada
     // ──────────────────────────────────────────────────────────────────────────
     @Test
-    @DisplayName("10. sessão REST/KDS → não auto-encerrada pela regra PONTO")
-    void cenario10_restKds_naoEncerra() {
+    @DisplayName("10. sessão REST com pedido terminal e liquidado → encerrada")
+    void cenario10_restFinalizadoPago_encerra() {
         tenantPonto.setTemplateCode("CONSUMA_REST_V1");
+        Pedido p = pedidoFinalizado();
         mockSessao(sessaoPonto);
+        mockPedidos(p);
+        mockSemOrdemAtiva();
 
         service.tryAutoCloseSessaoConsumo(10L);
 
-        verify(sessaoConsumoRepository, never()).save(any());
-        verify(pedidoRepository, never()).findBySessaoConsumoId(any(), any());
+        verify(sessaoConsumoRepository).save(argThat(s -> s.getStatus() == StatusSessaoConsumo.ENCERRADA));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Cenário 11: sessão QR Mesa REST → NÃO auto-encerrada agressivamente
+    // Cenário 11: REST/KDS com pedido pendente permanece aberta
     // ──────────────────────────────────────────────────────────────────────────
     @Test
-    @DisplayName("11. sessão QR Mesa REST → não auto-encerrada agressivamente")
-    void cenario11_qrMesaRest_naoEncerra() {
+    @DisplayName("11. sessão REST/KDS com pedido em andamento → permanece aberta")
+    void cenario11_restKdsPendente_naoEncerra() {
         tenantPonto.setTemplateCode("CONSUMA_REST_KDS_V1");
+        Pedido p = pedidoComStatus(StatusPedido.EM_ANDAMENTO);
         mockSessao(sessaoPonto);
+        mockPedidos(p);
 
         service.tryAutoCloseSessaoConsumo(10L);
 
@@ -278,7 +284,7 @@ class SessaoConsumoAutoClosureServiceTest {
                 eq(10L),
                 eq(com.restaurante.model.enums.OperationalOrigem.SYSTEM),
                 anyString(),
-                argThat(m -> "AUTO_CLOSURE_CONSUMA_PONTO".equals(m.get("reason"))),
+                argThat(m -> "AUTO_CLOSURE_ALL_ORDERS_TERMINAL".equals(m.get("reason"))),
                 anyString(),
                 anyString()
         );
@@ -380,6 +386,7 @@ class SessaoConsumoAutoClosureServiceTest {
         // Gateway não é dependência do service — qualquer chamada extra quebraria
         // o contexto de injecção. Confirmamos apenas o comportamento esperado:
         verify(sessaoConsumoRepository).save(argThat(s -> s.getStatus() == StatusSessaoConsumo.ENCERRADA));
+        verify(ownerActionTokenService).revokeActiveTokensBySessao(1L, 10L, "AUTO_SESSION_CLOSE", null, null);
         // Nenhum repositório financeiro de pagamento externo é chamado (sem gateway)
         verify(pedidoRepository, never()).save(any());
     }

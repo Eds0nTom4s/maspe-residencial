@@ -12,6 +12,7 @@ import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.financeiro.repository.TenantPaymentConfirmationIdempotencyRepository;
 import com.restaurante.financeiro.caixa.service.CaixaOperadorSessionService;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.model.entity.FundoConsumo;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
@@ -32,6 +33,8 @@ import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.OrdemPagamentoTipo;
 import com.restaurante.model.enums.OrdemPagamentoManualIdempotencyStatus;
+import com.restaurante.model.enums.PaymentDestination;
+import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.fiscal.autoissue.event.PaymentConfirmedForFiscalIssueEvent;
@@ -82,6 +85,7 @@ public class OrdemPagamentoService {
     private final Clock clock;
     private final OperationalTemplatePolicy operationalTemplatePolicy;
     private final CaixaOperadorSessionService caixaOperadorSessionService;
+    private final PaymentMethodPolicyResolutionService paymentMethodPolicyResolutionService;
 
     @Transactional
     public OrdemPagamento criarOrdemCarregamentoFundo(Tenant tenant,
@@ -446,6 +450,14 @@ public class OrdemPagamentoService {
         } else if (valorRecebido == null || valorRecebido.compareTo(ordem.getValor()) < 0) {
             throw new BusinessException("CASH exige valorRecebido igual ou superior ao valor da ordem.");
         }
+
+        paymentMethodPolicyResolutionService.validateManualForTenantPdv(
+                tenantId,
+                ordem.getUnidadeAtendimento().getId(),
+                metodo == MetodoPagamentoManual.CASH ? PaymentMethodCode.CASH : PaymentMethodCode.TPA,
+                PaymentDestination.PEDIDO,
+                ordem.getValor()
+        );
 
         var caixa = caixaOperadorSessionService.requireOpenWebForPayment(tenantId, actorUserId, ordem);
         ordem.setCaixaOperadorSession(caixa);

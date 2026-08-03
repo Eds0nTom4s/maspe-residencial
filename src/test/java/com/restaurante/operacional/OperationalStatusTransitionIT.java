@@ -7,6 +7,7 @@ import com.restaurante.fiscal.autoissue.event.PaymentConfirmedForFiscalIssueEven
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
+import com.restaurante.inventory.repository.InventoryConsumptionRecordRepository;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
@@ -20,6 +21,7 @@ import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.MetodoPagamentoManual;
+import com.restaurante.model.enums.InventoryConsumptionStatus;
 import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.PedidoAllowedAction;
@@ -107,6 +109,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
     @Autowired UserRepository userRepository;
     @Autowired TenantUserRepository tenantUserRepository;
     @Autowired TurnoOperacionalRepository turnoOperacionalRepository;
+    @Autowired InventoryConsumptionRecordRepository inventoryConsumptionRecordRepository;
 
     @AfterEach
     void clear() {
@@ -468,6 +471,12 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         ));
         abrirTurno(setup, cashier);
 
+        mockMvc.perform(get("/tenant/pdv/payment-methods")
+                        .param("unidadeAtendimentoId", String.valueOf(setup.unidadeId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].code").value(org.hamcrest.Matchers.hasItems("CASH", "TPA")))
+                .andExpect(jsonPath("$.data[*].code").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("APPYPAY"))));
+
         String created = mockMvc.perform(post("/tenant/pedidos")
                         .header("Idempotency-Key", "pdv-cash-create")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -520,6 +529,10 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         assertThat(ordem.getCaixaOperadorSession().getId()).isNotNull();
         assertThat(ordem.getMetodoConfirmado()).isEqualTo(MetodoPagamentoManual.CASH);
         assertThat(ordem.getTroco()).isEqualByComparingTo("5.00");
+        var inventoryConsumption = inventoryConsumptionRecordRepository
+                .findByTenantIdAndPedidoId(setup.tenant.getId(), pedidoId)
+                .orElseThrow();
+        assertThat(inventoryConsumption.getStatus()).isEqualTo(InventoryConsumptionStatus.CONSUMED);
 
         long caixaId = ordem.getCaixaOperadorSession().getId();
         mockMvc.perform(post("/tenant/caixa-operador/" + caixaId + "/close")

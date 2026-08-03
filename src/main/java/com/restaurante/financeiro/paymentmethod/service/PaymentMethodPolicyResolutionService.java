@@ -37,7 +37,8 @@ public class PaymentMethodPolicyResolutionService {
         Map<PaymentMethodCode, UnidadePaymentMethodPolicy> unidadePolicies = loadUnidadePolicies(tenantId, unidadeAtendimentoId);
 
         return base.stream()
-                .map(m -> resolveForListing(m, unidadePolicies.get(m.getCode()), null))
+                .map(m -> resolveForListing(m, unidadePolicies.get(m.getCode()), null,
+                        PaymentUsageContext.QR_PUBLICO, destination))
                 .filter(EffectivePolicy::allowed)
                 .sorted(Comparator.comparingInt(p -> p.method.getSortOrder()))
                 .map(p -> toAvailableResponse(p.method, p.effectiveMin, p.effectiveMax))
@@ -55,7 +56,8 @@ public class PaymentMethodPolicyResolutionService {
         Map<PaymentMethodCode, DevicePaymentMethodPolicy> devicePolicies = loadDevicePolicies(tenantId, device.dispositivoId());
 
         return base.stream()
-                .map(m -> resolveForListing(m, unidadePolicies.get(m.getCode()), devicePolicies.get(m.getCode())))
+                .map(m -> resolveForListing(m, unidadePolicies.get(m.getCode()), devicePolicies.get(m.getCode()),
+                        PaymentUsageContext.DEVICE_POS, destination))
                 .filter(p -> {
                     if (!p.allowed()) return false;
                     // tornar lista "acionável": se o método exige manual/gateway, device precisa estar apto.
@@ -82,7 +84,8 @@ public class PaymentMethodPolicyResolutionService {
         TenantPaymentMethod method = tenantPaymentMethodService.validateMethodAllowed(tenantId, code, PaymentUsageContext.QR_PUBLICO, destination, amount);
 
         Map<PaymentMethodCode, UnidadePaymentMethodPolicy> unidadePolicies = loadUnidadePolicies(tenantId, unidadeAtendimentoId);
-        EffectivePolicy eff = resolveWithAmount(method, unidadePolicies.get(code), null, amount);
+        EffectivePolicy eff = resolveWithAmount(method, unidadePolicies.get(code), null, amount,
+                PaymentUsageContext.QR_PUBLICO, destination);
         if (!eff.allowed()) throw new BusinessException("Método bloqueado pela política (QR/unidade).");
     }
 
@@ -111,7 +114,8 @@ public class PaymentMethodPolicyResolutionService {
 
         Map<PaymentMethodCode, UnidadePaymentMethodPolicy> unidadePolicies = loadUnidadePolicies(tenantId, unidadeId);
         Map<PaymentMethodCode, DevicePaymentMethodPolicy> devicePolicies = loadDevicePolicies(tenantId, device.dispositivoId());
-        EffectivePolicy eff = resolveWithAmount(method, unidadePolicies.get(code), devicePolicies.get(code), amount);
+        EffectivePolicy eff = resolveWithAmount(method, unidadePolicies.get(code), devicePolicies.get(code), amount,
+                PaymentUsageContext.DEVICE_POS, destination);
         if (!eff.allowed()) throw new BusinessException("Método bloqueado pela política (device/unidade).");
     }
 
@@ -144,6 +148,65 @@ public class PaymentMethodPolicyResolutionService {
         Boolean canConfirmManual = resolveCanConfirmManual(device, code);
         if (!Boolean.TRUE.equals(canConfirmManual)) {
             throw new BusinessException("Device não está autorizado a confirmar manualmente este método.");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<AvailablePaymentMethodResponse> listEffectiveForTenantPdv(
+            Long tenantId,
+            Long unidadeAtendimentoId,
+            PaymentDestination destination
+    ) {
+        tenantPaymentMethodService.ensureDefaultsForTenant(tenantId);
+        List<TenantPaymentMethod> base = tenantPaymentMethodService.listAvailableForContext(
+                tenantId, PaymentUsageContext.DEVICE_POS, destination
+        );
+        Map<PaymentMethodCode, UnidadePaymentMethodPolicy> unidadePolicies = loadUnidadePolicies(
+                tenantId, unidadeAtendimentoId
+        );
+        return base.stream()
+                .map(method -> resolveForListing(
+                        method,
+                        unidadePolicies.get(method.getCode()),
+                        null,
+                        PaymentUsageContext.DEVICE_POS,
+                        destination
+                ))
+                .filter(EffectivePolicy::allowed)
+                .filter(policy -> policy.method.isRequiresManualConfirmation())
+                .sorted(Comparator.comparingInt(policy -> policy.method.getSortOrder()))
+                .map(policy -> toAvailableResponse(policy.method, policy.effectiveMin, policy.effectiveMax))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public void validateManualForTenantPdv(
+            Long tenantId,
+            Long unidadeAtendimentoId,
+            PaymentMethodCode code,
+            PaymentDestination destination,
+            BigDecimal amount
+    ) {
+        tenantPaymentMethodService.ensureDefaultsForTenant(tenantId);
+        TenantPaymentMethod method = tenantPaymentMethodService.validateMethodAllowed(
+                tenantId, code, PaymentUsageContext.DEVICE_POS, destination, amount
+        );
+        Map<PaymentMethodCode, UnidadePaymentMethodPolicy> unidadePolicies = loadUnidadePolicies(
+                tenantId, unidadeAtendimentoId
+        );
+        EffectivePolicy effective = resolveWithAmount(
+                method,
+                unidadePolicies.get(code),
+                null,
+                amount,
+                PaymentUsageContext.DEVICE_POS,
+                destination
+        );
+        if (!effective.allowed()) {
+            throw new BusinessException("Método bloqueado pela política do PDV/unidade.");
+        }
+        if (!method.isRequiresManualConfirmation()) {
+            throw new BusinessException("Método de pagamento do PDV deve possuir confirmação manual.");
         }
     }
 
@@ -193,11 +256,16 @@ public class PaymentMethodPolicyResolutionService {
 
     private EffectivePolicy resolveForListing(TenantPaymentMethod method,
                                               UnidadePaymentMethodPolicy unidadePolicy,
-                                              DevicePaymentMethodPolicy devicePolicy) {
+                                              DevicePaymentMethodPolicy devicePolicy,
+                                              PaymentUsageContext context,
+                                              PaymentDestination destination) {
         ResolvedFlags unitFlags = applyUnidade(method, unidadePolicy);
         if (!unitFlags.allowed) return EffectivePolicy.blocked(method, unitFlags.blockedReason);
         ResolvedFlags deviceFlags = applyDevice(method, unitFlags, devicePolicy);
         if (!deviceFlags.allowed) return EffectivePolicy.blocked(method, deviceFlags.blockedReason);
+        if (!allowedForContextAndDestination(deviceFlags, context, destination)) {
+            return EffectivePolicy.blocked(method, "PAYMENT_METHOD_CONTEXT_OR_DESTINATION_BLOCKED");
+        }
 
         BigDecimal effMin = maxOf(method.getMinAmount(), unitFlags.minAmount, deviceFlags.minAmount);
         BigDecimal effMax = minOf(method.getMaxAmount(), unitFlags.maxAmount, deviceFlags.maxAmount);
@@ -215,8 +283,10 @@ public class PaymentMethodPolicyResolutionService {
     private EffectivePolicy resolveWithAmount(TenantPaymentMethod method,
                                               UnidadePaymentMethodPolicy unidadePolicy,
                                               DevicePaymentMethodPolicy devicePolicy,
-                                              BigDecimal amount) {
-        EffectivePolicy base = resolveForListing(method, unidadePolicy, devicePolicy);
+                                              BigDecimal amount,
+                                              PaymentUsageContext context,
+                                              PaymentDestination destination) {
+        EffectivePolicy base = resolveForListing(method, unidadePolicy, devicePolicy, context, destination);
         if (!base.allowed()) return base;
         if (amount != null) {
             BigDecimal effMin = base.effectiveMin;
@@ -225,6 +295,23 @@ public class PaymentMethodPolicyResolutionService {
             if (effMax != null && amount.compareTo(effMax) > 0) return EffectivePolicy.blocked(method, "PAYMENT_METHOD_AMOUNT_ABOVE_MAX");
         }
         return base;
+    }
+
+    private boolean allowedForContextAndDestination(
+            ResolvedFlags flags,
+            PaymentUsageContext context,
+            PaymentDestination destination
+    ) {
+        boolean contextAllowed = switch (context) {
+            case QR_PUBLICO -> flags.enabledForQr;
+            case DEVICE_POS -> flags.enabledForPos;
+            case TENANT_ADMIN -> true;
+        };
+        boolean destinationAllowed = switch (destination) {
+            case PEDIDO -> flags.enabledForPedido;
+            case FUNDO_CONSUMO -> flags.enabledForFundoConsumo;
+        };
+        return contextAllowed && destinationAllowed;
     }
 
     private ResolvedFlags applyUnidade(TenantPaymentMethod tenantMethod, UnidadePaymentMethodPolicy policy) {

@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -135,6 +136,58 @@ class PaymentMethodPolicyResolutionServiceTest {
             return;
         }
         throw new AssertionError("Expected exception");
+    }
+
+    @Test
+    void tenantPdvListHonorsUnitPosOverrideAndOnlyReturnsManualMethods() {
+        TenantPaymentMethodService tenantService = mock(TenantPaymentMethodService.class);
+        TenantPaymentMethodRepository tenantRepo = mock(TenantPaymentMethodRepository.class);
+        UnidadePaymentMethodPolicyRepository unidadeRepo = mock(UnidadePaymentMethodPolicyRepository.class);
+        DevicePaymentMethodPolicyRepository deviceRepo = mock(DevicePaymentMethodPolicyRepository.class);
+        TenantPaymentMethod cash = tenantMethod(PaymentMethodCode.CASH, true, true, true, true);
+        TenantPaymentMethod tpa = tenantMethod(PaymentMethodCode.TPA, true, true, true, true);
+        TenantPaymentMethod appy = tenantMethod(PaymentMethodCode.APPYPAY, true, true, true, true);
+        when(tenantService.listAvailableForContext(1L, PaymentUsageContext.DEVICE_POS, PaymentDestination.PEDIDO))
+                .thenReturn(List.of(cash, tpa, appy));
+        UnidadePaymentMethodPolicy blockedCash = unidadePolicy(
+                PaymentMethodCode.CASH, PaymentMethodPolicyStatus.ALLOW, false
+        );
+        blockedCash.setEnabledForPos(false);
+        when(unidadeRepo.findByTenant_IdAndUnidadeAtendimento_Id(1L, 10L))
+                .thenReturn(List.of(blockedCash));
+
+        PaymentMethodPolicyResolutionService service = new PaymentMethodPolicyResolutionService(
+                tenantService, tenantRepo, unidadeRepo, deviceRepo
+        );
+        assertThat(service.listEffectiveForTenantPdv(1L, 10L, PaymentDestination.PEDIDO))
+                .extracting(AvailablePaymentMethodResponse::getCode)
+                .containsExactly(PaymentMethodCode.TPA);
+    }
+
+    @Test
+    void tenantPdvValidationRejectsMethodBlockedByUnitPosPolicy() {
+        TenantPaymentMethodService tenantService = mock(TenantPaymentMethodService.class);
+        TenantPaymentMethodRepository tenantRepo = mock(TenantPaymentMethodRepository.class);
+        UnidadePaymentMethodPolicyRepository unidadeRepo = mock(UnidadePaymentMethodPolicyRepository.class);
+        DevicePaymentMethodPolicyRepository deviceRepo = mock(DevicePaymentMethodPolicyRepository.class);
+        TenantPaymentMethod cash = tenantMethod(PaymentMethodCode.CASH, true, true, true, true);
+        when(tenantService.validateMethodAllowed(
+                1L, PaymentMethodCode.CASH, PaymentUsageContext.DEVICE_POS,
+                PaymentDestination.PEDIDO, new BigDecimal("20.00")
+        )).thenReturn(cash);
+        UnidadePaymentMethodPolicy blockedCash = unidadePolicy(
+                PaymentMethodCode.CASH, PaymentMethodPolicyStatus.ALLOW, false
+        );
+        blockedCash.setEnabledForPos(false);
+        when(unidadeRepo.findByTenant_IdAndUnidadeAtendimento_Id(1L, 10L))
+                .thenReturn(List.of(blockedCash));
+
+        PaymentMethodPolicyResolutionService service = new PaymentMethodPolicyResolutionService(
+                tenantService, tenantRepo, unidadeRepo, deviceRepo
+        );
+        assertThatThrownBy(() -> service.validateManualForTenantPdv(
+                1L, 10L, PaymentMethodCode.CASH, PaymentDestination.PEDIDO, new BigDecimal("20.00")
+        )).hasMessageContaining("PDV/unidade");
     }
 
     private TenantPaymentMethod tenantMethod(PaymentMethodCode code, boolean qr, boolean pos, boolean pedido, boolean fundo) {

@@ -171,7 +171,7 @@ public class InventoryConsumptionService {
                     null,
                     null
             );
-            throw e;
+            return record;
         }
     }
 

@@ -6,6 +6,7 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.ItemPedido;
@@ -22,6 +23,8 @@ import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.PedidoOrigem;
+import com.restaurante.model.enums.PaymentDestination;
+import com.restaurante.model.enums.PaymentMethodCode;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.model.enums.StatusSubPedido;
@@ -84,6 +87,7 @@ public class TenantPdvPedidoService {
     private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
     private final OperationalEventLogService operationalEventLogService;
     private final OrdemPagamentoService ordemPagamentoService;
+    private final PaymentMethodPolicyResolutionService paymentMethodPolicyResolutionService;
 
     @Transactional
     public CreateResult criarPedido(
@@ -145,6 +149,13 @@ public class TenantPdvPedidoService {
         boolean productionEnabled = operationalCapabilitiesPolicy.resolve(tenant).productionEnabled();
         addItemsAndProduction(pedido, tenant, instituicao, unidade, request.getItens(), produtos, productionEnabled);
         pedido.calcularTotal();
+        paymentMethodPolicyResolutionService.validateManualForTenantPdv(
+                context.tenantId(),
+                unidade.getId(),
+                toPaymentMethodCode(request.getMetodoPagamento()),
+                PaymentDestination.PEDIDO,
+                pedido.getTotal()
+        );
         pedido = pedidoRepository.saveAndFlush(pedido);
 
         OperationalOrigem effectiveActor = actor != null ? actor : OperationalOrigem.TENANT_CASHIER;
@@ -400,6 +411,14 @@ public class TenantPdvPedidoService {
     private String trim(String value) {
         if (value == null) return "";
         return value.trim();
+    }
+
+    private PaymentMethodCode toPaymentMethodCode(MetodoPagamentoManual method) {
+        return switch (method) {
+            case CASH -> PaymentMethodCode.CASH;
+            case TPA -> PaymentMethodCode.TPA;
+            case APPYPAY -> PaymentMethodCode.APPYPAY;
+        };
     }
 
     public record CreateResult(Long pedidoId, boolean idempotentReplay) {

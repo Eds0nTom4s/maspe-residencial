@@ -430,13 +430,9 @@ public class OrdemPagamentoService {
         if (ordem.getMetodoSolicitado() != metodo) {
             throw new ConflictException("Método confirmado não corresponde ao método solicitado na ordem.");
         }
-        if (metodo == MetodoPagamentoManual.TPA) {
-            boolean hasReference = request.getReferenciaOperador() != null && !request.getReferenciaOperador().isBlank();
-            boolean hasObservation = request.getObservacao() != null && request.getObservacao().trim().length() >= 5;
-            if (!hasReference && !hasObservation) {
-                throw new BusinessException("TPA exige referenciaOperador ou observação mínima.");
-            }
-        }
+        // A confirmação no TPA representa a liquidação no terminal. A referência do
+        // comprovativo é evidência complementar e opcional; quando informada continua
+        // persistida e auditável, mas não deve bloquear a adoção do PDV.
         if (pedido.getTotal() == null || ordem.getValor() == null || ordem.getValor().compareTo(pedido.getTotal()) != 0) {
             throw new ConflictException("Valor da ordem de pagamento não corresponde ao total do pedido.");
         }

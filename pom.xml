@@ -152,6 +152,13 @@
             <artifactId>javase</artifactId>
             <version>3.5.3</version>
         </dependency>
+
+        <!-- Server-side invoice/quotation PDF rendering -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.4</version>
+        </dependency>
         
         <!-- MinIO Client for File Storage -->
         <dependency>

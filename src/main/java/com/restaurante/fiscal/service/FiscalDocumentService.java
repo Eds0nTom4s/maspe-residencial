@@ -3,6 +3,7 @@ package com.restaurante.fiscal.service;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.DeviceApiException;
 import com.restaurante.dto.request.IssueFiscalDocumentRequest;
+import com.restaurante.dto.request.CreateFiscalQuoteRequest;
 import com.restaurante.dto.response.DeviceErrorResponse;
 import com.restaurante.fiscal.config.TaxProperties;
 import com.restaurante.fiscal.dto.TaxCalculationResult;
@@ -30,6 +31,7 @@ import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.TenantUserRole;
+import com.restaurante.model.enums.TaxCategory;
 import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.repository.PedidoRepository;
@@ -49,7 +51,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.data.domain.Page;
@@ -75,9 +79,106 @@ public class FiscalDocumentService {
 
     @Transactional
     public FiscalDocument issueForPedidoPaymentAsTenant(Long pedidoId, Long pagamentoId, IssueFiscalDocumentRequest request, String ip, String userAgent) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE, TenantUserRole.TENANT_CASHIER);
+        TenantContext ctx = tenantGuard.requireContext();
+        if (pagamentoId == null) {
+            Pedido pedido = pedidoRepository.findByIdAndTenantIdComItens(pedidoId, ctx.tenantId())
+                    .orElseThrow(() -> new BusinessException("Pedido não encontrado."));
+            pagamentoId = pagamentoGatewayRepository.findByPedidoIdOrderByCreatedAtDesc(pedido.getId()).stream()
+                    .filter(p -> p.getStatus() == StatusPagamentoGateway.CONFIRMADO && p.getConfirmedAt() != null)
+                    .map(Pagamento::getId)
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessException("Pedido não possui pagamento confirmado."));
+        }
+        return issueInternal(ctx.tenantId(), pedidoId, pagamentoId, request, FiscalDocumentSource.ADMIN, ctx.userId(), null, ip, userAgent);
+    }
+
+    @Transactional
+    public FiscalDocument createQuoteAsTenant(CreateFiscalQuoteRequest request, String ip, String userAgent) {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
         TenantContext ctx = tenantGuard.requireContext();
-        return issueInternal(ctx.tenantId(), pedidoId, pagamentoId, request, FiscalDocumentSource.ADMIN, ctx.userId(), null, ip, userAgent);
+        TenantFiscalProfile profile = requireActiveProfile(ctx.tenantId());
+
+        LocalDateTime createdAt = LocalDateTime.now();
+        FiscalDocument doc = new FiscalDocument();
+        doc.setTenant(profile.getTenant());
+        doc.setDocumentType(FiscalDocumentType.INTERNAL_INVOICE);
+        doc.setStatus(FiscalDocumentStatus.DRAFT);
+        doc.setFiscalRegime(profile.getFiscalRegime());
+        doc.setSeries("Q");
+        doc.setDocumentNumber(sequenceService.nextNumber(ctx.tenantId(), null, FiscalDocumentType.INTERNAL_INVOICE, "Q", createdAt));
+        doc.setIssuedAt(createdAt);
+        doc.setCustomerName(trimToNull(request.customerName()));
+        doc.setCustomerTaxpayerNumber(trimToNull(request.customerTaxpayerNumber()));
+        doc.setCurrency("AOA");
+        doc.setSource(FiscalDocumentSource.ADMIN);
+        if (ctx.userId() != null) {
+            doc.setCreatedByUser(userRepository.findById(ctx.userId()).orElse(null));
+        }
+
+        BigDecimal subtotal = BigDecimal.ZERO;
+        BigDecimal totalTax = BigDecimal.ZERO;
+        for (CreateFiscalQuoteRequest.Line line : request.lines()) {
+            BigDecimal net = line.unitPrice().multiply(BigDecimal.valueOf(line.quantity())).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal tax = net.multiply(line.taxRatePercent()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            subtotal = subtotal.add(net);
+            totalTax = totalTax.add(tax);
+        }
+        doc.setSubtotalAmount(subtotal);
+        doc.setTaxableAmount(subtotal);
+        doc.setExemptAmount(BigDecimal.ZERO);
+        doc.setTaxAmount(totalTax);
+        doc.setTotalAmount(subtotal.add(totalTax));
+        doc = fiscalDocumentRepository.save(doc);
+
+        for (CreateFiscalQuoteRequest.Line sourceLine : request.lines()) {
+            BigDecimal net = sourceLine.unitPrice().multiply(BigDecimal.valueOf(sourceLine.quantity())).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal tax = net.multiply(sourceLine.taxRatePercent()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            FiscalDocumentLine line = new FiscalDocumentLine();
+            line.setFiscalDocument(doc);
+            line.setTenant(doc.getTenant());
+            line.setDescription(sourceLine.description().trim());
+            line.setQuantity(sourceLine.quantity());
+            line.setUnitPrice(sourceLine.unitPrice().setScale(2, RoundingMode.HALF_UP));
+            line.setNetAmount(net);
+            line.setTaxRateCode("MANUAL-" + sourceLine.taxRatePercent().stripTrailingZeros().toPlainString());
+            line.setTaxRateValue(sourceLine.taxRatePercent());
+            line.setTaxAmount(tax);
+            line.setGrossAmount(net.add(tax));
+            line.setTaxCategory(sourceLine.taxRatePercent().signum() == 0 ? TaxCategory.ZERO_RATED : TaxCategory.STANDARD);
+            fiscalDocumentLineRepository.save(line);
+        }
+
+        operationalEventLogService.logGeneric(
+                OperationalEventType.FISCAL_QUOTE_CREATED,
+                OperationalEntityType.FISCAL_DOCUMENT,
+                doc.getId(),
+                OperationalOrigem.SYSTEM,
+                "Cotação criada",
+                Map.of("documentId", doc.getId(), "documentNumber", doc.getDocumentNumber(), "totalAmount", doc.getTotalAmount()),
+                ip,
+                userAgent
+        );
+        return doc;
+    }
+
+    @Transactional(readOnly = true)
+    public FiscalDocument findLatestForPedidoAsTenant(Long pedidoId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE, TenantUserRole.TENANT_CASHIER);
+        TenantContext ctx = tenantGuard.requireContext();
+        return fiscalDocumentRepository.findFirstByTenantIdAndPedidoIdOrderByIdDesc(ctx.tenantId(), pedidoId).orElse(null);
+    }
+
+    private TenantFiscalProfile requireActiveProfile(Long tenantId) {
+        if (!props.isEnabled()) throw new BusinessException("Tax module desativado.");
+        TenantFiscalProfile profile = fiscalProfileRepository.findByTenantId(tenantId)
+                .orElseThrow(() -> new BusinessException("TenantFiscalProfile não configurado."));
+        if (profile.getFiscalRegime() == FiscalRegime.NOT_CONFIGURED
+                || profile.getStatus() != com.restaurante.model.enums.TenantFiscalProfileStatus.ACTIVE
+                || !profile.isFiscalDocumentEnabled()) {
+            throw new BusinessException("Perfil fiscal não está ativo para emissão de documentos.");
+        }
+        return profile;
     }
 
     @Transactional
@@ -156,7 +257,7 @@ public class FiscalDocumentService {
 
     @Transactional(readOnly = true)
     public FiscalDocument getForTenant(Long documentId) {
-        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE, TenantUserRole.TENANT_CASHIER);
         TenantContext ctx = tenantGuard.requireContext();
         FiscalDocument doc = fiscalDocumentRepository.findById(documentId).orElse(null);
         if (doc == null || doc.getTenant() == null || !doc.getTenant().getId().equals(ctx.tenantId())) return null;

@@ -24,6 +24,8 @@ public class FiscalDocumentResponse {
     private String documentNumber;
     private String series;
     private LocalDateTime issuedAt;
+    private String customerName;
+    private String customerTaxpayerNumber;
 
     private BigDecimal subtotalAmount;
     private BigDecimal taxableAmount;
@@ -64,6 +66,10 @@ public class FiscalDocumentResponse {
     public void setSeries(String series) { this.series = series; }
     public LocalDateTime getIssuedAt() { return issuedAt; }
     public void setIssuedAt(LocalDateTime issuedAt) { this.issuedAt = issuedAt; }
+    public String getCustomerName() { return customerName; }
+    public void setCustomerName(String customerName) { this.customerName = customerName; }
+    public String getCustomerTaxpayerNumber() { return customerTaxpayerNumber; }
+    public void setCustomerTaxpayerNumber(String customerTaxpayerNumber) { this.customerTaxpayerNumber = customerTaxpayerNumber; }
     public BigDecimal getSubtotalAmount() { return subtotalAmount; }
     public void setSubtotalAmount(BigDecimal subtotalAmount) { this.subtotalAmount = subtotalAmount; }
     public BigDecimal getTaxableAmount() { return taxableAmount; }
@@ -128,4 +134,3 @@ public class FiscalDocumentResponse {
         public void setExemptReason(String exemptReason) { this.exemptReason = exemptReason; }
     }
 }
-

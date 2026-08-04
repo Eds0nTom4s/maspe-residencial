@@ -370,7 +370,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
 
     @Test
     @WithMockUser(username = "owner-user")
-    void owner_canConfirmValidPaymentOrder_andPedidoStaysOperationallyOpen() throws Exception {
+    void owner_canConfirmTpaWithoutOptionalReceiptReference_andPedidoStaysOperationallyOpen() throws Exception {
         Setup setup = setupTenantAndPedido("op-status-pay-ok", "P12");
         User owner = criarTenantActor(setup.tenant, TenantUserRole.TENANT_OWNER, "owner-pay-ok");
         TenantContextHolder.set(new TenantContext(
@@ -411,7 +411,6 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
         ConfirmarPedidoPaymentOrderRequest request = new ConfirmarPedidoPaymentOrderRequest();
         request.setClientRequestId("owner-confirm-payment-ok");
         request.setMetodoConfirmado(MetodoPagamentoManual.TPA);
-        request.setReferenciaOperador("TPA-FREEZY-001");
 
         String confirmJson = mockMvc.perform(patch("/tenant/pedidos/" + setup.pedidoId + "/payment-order/confirm")
                         .header("Idempotency-Key", "owner-confirm-payment-ok")

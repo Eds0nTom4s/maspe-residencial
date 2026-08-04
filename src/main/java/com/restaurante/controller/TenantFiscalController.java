@@ -1,18 +1,24 @@
 package com.restaurante.controller;
 
 import com.restaurante.dto.request.CancelFiscalDocumentRequest;
+import com.restaurante.dto.request.CreateFiscalQuoteRequest;
 import com.restaurante.dto.request.IssueFiscalDocumentRequest;
+import com.restaurante.dto.request.SendFiscalDocumentSmsRequest;
 import com.restaurante.dto.request.UpsertProductTaxClassificationRequest;
 import com.restaurante.dto.request.UpsertTenantFiscalProfileRequest;
 import com.restaurante.dto.request.UpsertTenantTaxPolicyRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.FiscalDocumentResponse;
+import com.restaurante.dto.response.FiscalDocumentDeliveryResponse;
 import com.restaurante.dto.response.ProductTaxClassificationResponse;
 import com.restaurante.dto.response.TenantFiscalProfileResponse;
 import com.restaurante.dto.response.TenantTaxPolicyResponse;
 import com.restaurante.fiscal.repository.TaxRateRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentLineRepository;
 import com.restaurante.fiscal.service.FiscalDocumentService;
+import com.restaurante.fiscal.service.FiscalDocumentDeliveryService;
+import com.restaurante.fiscal.service.FiscalDocumentPdfService;
+import com.restaurante.exception.BusinessException;
 import com.restaurante.fiscal.service.ProductTaxClassificationService;
 import com.restaurante.fiscal.service.TenantFiscalProfileService;
 import com.restaurante.fiscal.service.TenantTaxPolicyService;
@@ -34,6 +40,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.CacheControl;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -56,6 +65,8 @@ public class TenantFiscalController {
     private final TenantTaxPolicyService policyService;
     private final ProductTaxClassificationService classificationService;
     private final FiscalDocumentService fiscalDocumentService;
+    private final FiscalDocumentDeliveryService fiscalDocumentDeliveryService;
+    private final FiscalDocumentPdfService fiscalDocumentPdfService;
     private final TaxRateRepository taxRateRepository;
     private final FiscalDocumentLineRepository fiscalDocumentLineRepository;
 
@@ -158,15 +169,51 @@ public class TenantFiscalController {
         return ResponseEntity.ok(ApiResponse.success("Fiscal document", d != null ? mapDocWithLines(d) : null));
     }
 
+    @GetMapping("/documents/by-pedido/{pedidoId}")
+    public ResponseEntity<ApiResponse<FiscalDocumentResponse>> getLatestForPedido(@PathVariable Long pedidoId) {
+        FiscalDocument d = fiscalDocumentService.findLatestForPedidoAsTenant(pedidoId);
+        return ResponseEntity.ok(ApiResponse.success("Documento fiscal do pedido", d != null ? mapDocWithLines(d) : null));
+    }
+
+    @PostMapping("/documents/quotes")
+    public ResponseEntity<ApiResponse<FiscalDocumentResponse>> createQuote(
+            @Valid @RequestBody CreateFiscalQuoteRequest request,
+            HttpServletRequest http) {
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        String ip = http != null ? http.getRemoteAddr() : null;
+        FiscalDocument d = fiscalDocumentService.createQuoteAsTenant(request, ip, ua);
+        return ResponseEntity.ok(ApiResponse.success("Cotação criada", mapDocWithLines(d)));
+    }
+
     @PostMapping("/documents/issue-for-pedido/{pedidoId}")
     public ResponseEntity<ApiResponse<FiscalDocumentResponse>> issueForPedido(@PathVariable Long pedidoId,
-                                                                              @RequestParam("pagamentoId") Long pagamentoId,
+                                                                              @RequestParam(name = "pagamentoId", required = false) Long pagamentoId,
                                                                               @Valid @RequestBody IssueFiscalDocumentRequest request,
                                                                               HttpServletRequest http) {
         String ua = http != null ? http.getHeader("User-Agent") : null;
         String ip = http != null ? http.getRemoteAddr() : null;
         FiscalDocument d = fiscalDocumentService.issueForPedidoPaymentAsTenant(pedidoId, pagamentoId, request, ip, ua);
         return ResponseEntity.ok(ApiResponse.success("Documento fiscal interno emitido", mapDoc(d)));
+    }
+
+    @GetMapping("/documents/{documentId}/pdf")
+    public ResponseEntity<byte[]> downloadPdf(@PathVariable Long documentId) {
+        FiscalDocument document = fiscalDocumentService.getForTenant(documentId);
+        if (document == null) throw new BusinessException("Documento fiscal não encontrado.");
+        var file = fiscalDocumentPdfService.render(document);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.filename() + "\"")
+                .body(file.bytes());
+    }
+
+    @PostMapping("/documents/{documentId}/sms")
+    public ResponseEntity<ApiResponse<FiscalDocumentDeliveryResponse>> sendBySms(
+            @PathVariable Long documentId,
+            @Valid @RequestBody SendFiscalDocumentSmsRequest request) {
+        FiscalDocumentDeliveryResponse delivery = fiscalDocumentDeliveryService.sendBySms(documentId, request.phone());
+        return ResponseEntity.ok(ApiResponse.success("Link do documento enviado por SMS", delivery));
     }
 
     @PostMapping("/documents/{documentId}/cancel")
@@ -243,6 +290,8 @@ public class TenantFiscalController {
         r.setDocumentNumber(d.getDocumentNumber());
         r.setSeries(d.getSeries());
         r.setIssuedAt(d.getIssuedAt());
+        r.setCustomerName(d.getCustomerName());
+        r.setCustomerTaxpayerNumber(d.getCustomerTaxpayerNumber());
         r.setSubtotalAmount(d.getSubtotalAmount());
         r.setTaxableAmount(d.getTaxableAmount());
         r.setExemptAmount(d.getExemptAmount());

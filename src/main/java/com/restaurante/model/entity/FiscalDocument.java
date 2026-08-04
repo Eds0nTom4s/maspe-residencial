@@ -115,6 +115,12 @@ public class FiscalDocument extends BaseEntity {
     @Column(name = "customer_taxpayer_number", length = 40)
     private String customerTaxpayerNumber;
 
+    @Column(name = "public_share_token_hash", length = 64, unique = true)
+    private String publicShareTokenHash;
+
+    @Column(name = "public_share_expires_at")
+    private LocalDateTime publicShareExpiresAt;
+
     @Column(name = "subtotal_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal subtotalAmount = BigDecimal.ZERO;
 

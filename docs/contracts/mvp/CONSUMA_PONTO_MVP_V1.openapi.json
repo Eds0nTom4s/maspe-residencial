@@ -1,0 +1,97 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CONSUMA PONTO MVP V1",
+    "version": "1.0.0",
+    "description": "Subconjunto contratual confirmado no backend 813503ea0513a5e2761ecb7a092b0a9ff5cb5cb0. REST/mesa não integra o primeiro RC."
+  },
+  "servers": [{ "url": "/api" }],
+  "paths": {
+    "/auth/jwt/login": { "post": { "operationId": "login", "security": [], "requestBody": { "$ref": "#/components/requestBodies/Login" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" } } } },
+    "/auth/tenants": { "get": { "operationId": "getTenants", "security": [{ "globalBearer": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" } } } },
+    "/auth/tenant/select": { "post": { "operationId": "selectTenant", "security": [{ "globalBearer": [] }], "requestBody": { "$ref": "#/components/requestBodies/SelectTenant" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/me": { "get": { "operationId": "me", "security": [{ "tenantBearer": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "401": { "$ref": "#/components/responses/Error" } } } },
+
+    "/tenant/operacao/config": { "get": { "operationId": "getConfig", "security": [{ "tenantBearer": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "403": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/operacao/turnos/abrir": { "post": { "operationId": "abrirTurno", "security": [{ "tenantBearer": [] }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/operacao/turnos/atual": { "get": { "operationId": "getTurnoAtual", "security": [{ "tenantBearer": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "404": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/operacao/turnos": { "get": { "operationId": "listarTurnos", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Size" }, { "$ref": "#/components/parameters/Sort" }], "responses": { "200": { "$ref": "#/components/responses/Success" } } } },
+    "/tenant/operacao/turnos/{turnoId}/iniciar-fecho": { "post": { "operationId": "iniciarFecho", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/TurnoId" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/operacao/turnos/{turnoId}/pre-fecho": { "get": { "operationId": "preFecho", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/TurnoId" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/operacao/turnos/{turnoId}/fechar": { "post": { "operationId": "fecharTurno", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/TurnoId" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+
+    "/tenant/produtos": {
+      "get": { "operationId": "listarProdutos", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Size" }, { "$ref": "#/components/parameters/Sort" }], "responses": { "200": { "$ref": "#/components/responses/Success" } } },
+      "post": { "operationId": "criarProduto", "security": [{ "tenantBearer": [] }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "201": { "$ref": "#/components/responses/Success" }, "400": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenant/produtos/{produtoId}": { "put": { "operationId": "atualizarProduto", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/ProdutoId" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "404": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/produtos/{produtoId}/disponibilidade": { "patch": { "operationId": "alterarDisponibilidadeProduto", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/ProdutoId" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "404": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/categorias-produto": {
+      "get": { "operationId": "listarCategoriasProduto", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Size" }], "responses": { "200": { "$ref": "#/components/responses/Success" } } },
+      "post": { "operationId": "criarCategoriaProduto", "security": [{ "tenantBearer": [] }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "201": { "$ref": "#/components/responses/Success" }, "400": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenant/cardapio/status": { "get": { "operationId": "statusCardapio", "security": [{ "tenantBearer": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } } },
+    "/tenant/cardapio/publicar": { "post": { "operationId": "publicarCardapio", "security": [{ "tenantBearer": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+
+    "/public/q/{token}": { "get": { "operationId": "resolver", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "404": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/cardapio": { "get": { "operationId": "cardapio", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "404": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/payment-methods": { "get": { "operationId": "paymentMethods", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }, { "name": "destination", "in": "query", "required": true, "schema": { "type": "string", "enum": ["PEDIDO", "FUNDO_CONSUMO"] } }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "400": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/identificacao/otp/request": { "post": { "operationId": "requestIdentifyOtp", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "429": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/identificacao/otp/verify": { "post": { "operationId": "verifyIdentifyOtp", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "400": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/recuperar/otp/request": { "post": { "operationId": "requestRecoveryOtp", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "429": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/recuperar/otp/verify": { "post": { "operationId": "verifyRecoveryOtp", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "400": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/pedidos": { "post": { "operationId": "criarPedido", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }, { "$ref": "#/components/parameters/IdempotencyKey" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "201": { "$ref": "#/components/responses/Success" }, "400": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/pedidos/{pedidoId}": { "get": { "operationId": "consultarPedido", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }, { "$ref": "#/components/parameters/PedidoId" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "404": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/pedidos/{pedidoId}/ordens-pagamento-manual": { "post": { "operationId": "criarOrdemPedidoManual", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }, { "$ref": "#/components/parameters/PedidoId" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "201": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/public/q/{token}/pedidos/{pedidoId}/pagamentos": { "post": { "operationId": "iniciarPagamento", "security": [], "parameters": [{ "$ref": "#/components/parameters/QrToken" }, { "$ref": "#/components/parameters/PedidoId" }, { "$ref": "#/components/parameters/IdempotencyKey" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "201": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/public/ordens-pagamento/{token}/status": { "get": { "operationId": "statusOrdemPagamento", "security": [], "parameters": [{ "$ref": "#/components/parameters/PaymentToken" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "404": { "$ref": "#/components/responses/Error" } } } },
+
+    "/tenant/pedidos": { "get": { "operationId": "listarPedidos", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Size" }, { "$ref": "#/components/parameters/Sort" }], "responses": { "200": { "$ref": "#/components/responses/Success" } } } },
+    "/tenant/pedidos/{pedidoId}": { "get": { "operationId": "detalharPedido", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/PedidoId" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "404": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/pedidos/{pedidoId}/aceitar": { "patch": { "operationId": "aceitarPedido", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/PedidoId" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/pedidos/{pedidoId}/rejeitar": { "patch": { "operationId": "rejeitarPedido", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/PedidoId" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/pedidos/{pedidoId}/status": { "patch": { "operationId": "atualizarStatusPedido", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/PedidoId" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/pedidos/{pedidoId}/entregar": { "patch": { "operationId": "entregarPedido", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/PedidoId" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/pedidos/{pedidoId}/payment-order/confirm": { "patch": { "operationId": "confirmarOrdemPagamento", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/PedidoId" }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "409": { "$ref": "#/components/responses/Error" } } } },
+    "/pagamentos/webhook": { "post": { "operationId": "webhook", "security": [], "parameters": [{ "name": "X-AppyPay-Signature", "in": "header", "required": true, "schema": { "type": "string" } }], "requestBody": { "$ref": "#/components/requestBodies/JsonObject" }, "responses": { "200": { "$ref": "#/components/responses/Success" }, "401": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/dispositivos": { "get": { "operationId": "listarDispositivos", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Size" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "403": { "$ref": "#/components/responses/Error" } } } },
+    "/tenant/fiscal/documents": { "get": { "operationId": "listDocuments", "description": "Documento técnico interno; não prova fiscal oficial.", "security": [{ "tenantBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Size" }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "403": { "$ref": "#/components/responses/Error" } } } }
+  },
+  "components": {
+    "securitySchemes": {
+      "globalBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT GLOBAL", "description": "Only tokenType GLOBAL." },
+      "tenantBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT TENANT", "description": "Only tokenType TENANT; tenant context comes from claims." }
+    },
+    "parameters": {
+      "QrToken": { "name": "token", "in": "path", "required": true, "schema": { "type": "string" } },
+      "PaymentToken": { "name": "token", "in": "path", "required": true, "schema": { "type": "string" } },
+      "PedidoId": { "name": "pedidoId", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } },
+      "ProdutoId": { "name": "produtoId", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } },
+      "TurnoId": { "name": "turnoId", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } },
+      "Page": { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 0, "default": 0 } },
+      "Size": { "name": "size", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+      "Sort": { "name": "sort", "in": "query", "schema": { "type": "string" } },
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": false, "description": "Semantically required; request body key is a compatibility fallback.", "schema": { "type": "string", "maxLength": 255 } }
+    },
+    "requestBodies": {
+      "Login": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } } },
+      "SelectTenant": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SelectTenantRequest" } } } },
+      "JsonObject": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+    },
+    "responses": {
+      "Success": { "description": "Canonical ApiResponse success envelope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+      "Error": { "description": "Canonical domain error where handler supports it", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+    },
+    "schemas": {
+      "LoginRequest": { "type": "object", "required": ["username", "password"], "properties": { "username": { "type": "string" }, "password": { "type": "string", "format": "password" } }, "additionalProperties": false },
+      "SelectTenantRequest": { "type": "object", "required": ["tenantId"], "properties": { "tenantId": { "type": "integer", "format": "int64" } }, "additionalProperties": false },
+      "ApiResponse": { "type": "object", "required": ["success"], "properties": { "success": { "type": "boolean" }, "message": { "type": "string", "nullable": true }, "data": { "nullable": true } } },
+      "ErrorResponse": { "type": "object", "required": ["timestamp", "status", "error", "message", "path"], "properties": { "timestamp": { "type": "string", "format": "date-time" }, "status": { "type": "integer" }, "error": { "type": "string" }, "message": { "type": "string" }, "code": { "type": "string", "nullable": true }, "path": { "type": "string" }, "validationErrors": { "type": "object", "nullable": true, "additionalProperties": { "type": "string" } }, "additionalData": { "type": "object", "nullable": true, "additionalProperties": true } } },
+      "PedidoStatus": { "type": "string", "enum": ["CRIADO", "EM_ANDAMENTO", "FINALIZADO", "CANCELADO"] },
+      "SubPedidoStatus": { "type": "string", "enum": ["CRIADO", "PENDENTE", "EM_PREPARACAO", "PRONTO", "ENTREGUE", "CANCELADO"] },
+      "FinanceStatus": { "type": "string", "enum": ["NAO_PAGO", "PENDENTE_PAGAMENTO", "PAGO", "ESTORNADO"] },
+      "TurnoStatus": { "type": "string", "enum": ["ABERTO", "EM_FECHO", "FECHADO", "CANCELADO"] },
+      "AllowedAction": { "type": "string", "enum": ["ACCEPT_ORDER", "REJECT_ORDER", "CANCEL_ORDER", "CONFIRM_PAYMENT", "VIEW_PAYMENT", "VIEW_EXTRACT", "START_PREPARATION", "MARK_READY", "MARK_DELIVERED"] }
+    }
+  }
+}

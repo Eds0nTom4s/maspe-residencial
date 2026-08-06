@@ -110,4 +110,39 @@ class ConsumaAquiAndroidV1ContractTest {
             assertEquals(manifestStatus, openApiStatus, endpoint.path("path").asText());
         });
     }
+
+    @Test
+    void identityAndMoneyFoundationExistsWithoutPromotingEndpoints() throws IOException {
+        Map<String, Long> statuses = contract.path("endpoints").findValues("implementationStatus").stream()
+                .collect(java.util.stream.Collectors.groupingBy(JsonNode::asText, java.util.stream.Collectors.counting()));
+        assertEquals(0L, statuses.getOrDefault("IMPLEMENTED", 0L));
+        assertEquals(0L, statuses.getOrDefault("PARTIAL", 0L));
+        assertEquals(3L, statuses.getOrDefault("HISTORICAL_BRANCH_ONLY", 0L));
+        assertEquals(6L, statuses.getOrDefault("NOT_IMPLEMENTED", 0L));
+
+        assertTrue(Files.isRegularFile(Path.of(
+                "src/main/resources/db/migration/V20260806_01__android_public_identity_foundation.sql")));
+        assertTrue(Files.isRegularFile(Path.of(
+                "src/main/java/com/restaurante/android/foundation/identity/AndroidPublicIdentityLookupService.java")));
+        assertTrue(Files.isRegularFile(Path.of(
+                "src/main/java/com/restaurante/android/foundation/money/AndroidMoneyConverter.java")));
+        assertTrue(Files.isRegularFile(Path.of(
+                "src/main/java/com/restaurante/android/api/error/AndroidPublicErrorEnvelope.java")));
+    }
+
+    @Test
+    void foundationDoesNotAddTenantOverrideOrFloatingPointMoney() throws IOException {
+        String lookup = Files.readString(Path.of(
+                "src/main/java/com/restaurante/android/foundation/identity/AndroidPublicIdentityLookupService.java"));
+        String money = Files.readString(Path.of(
+                "src/main/java/com/restaurante/android/foundation/money/AndroidMoneyConverter.java"));
+
+        assertFalse(lookup.contains("Long tenantId,"));
+        assertFalse(lookup.contains("findFirst"));
+        assertFalse(money.contains("doubleValue"));
+        assertFalse(money.contains("floatValue"));
+        assertFalse(money.contains("Math.round"));
+        assertTrue(money.contains("RoundingMode.UNNECESSARY"));
+        assertTrue(money.contains("longValueExact"));
+    }
 }

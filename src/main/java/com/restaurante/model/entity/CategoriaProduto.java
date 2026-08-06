@@ -1,12 +1,16 @@
 package com.restaurante.model.entity;
 
+import com.restaurante.android.foundation.identity.PublicIdSupport;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+
+import java.util.UUID;
 
 @Entity
 @Table(name = "categoria_produtos", indexes = {
@@ -15,6 +19,9 @@ import jakarta.persistence.Table;
         @Index(name = "uk_categoria_produto_tenant_slug", columnList = "tenant_id, slug", unique = true)
 })
 public class CategoriaProduto extends BaseEntity {
+
+    @Column(name = "public_id", nullable = false, unique = true, updatable = false, columnDefinition = "uuid")
+    private UUID publicId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "tenant_id", nullable = false)
@@ -36,6 +43,17 @@ public class CategoriaProduto extends BaseEntity {
     private Boolean ativo = true;
 
     public CategoriaProduto() {
+    }
+
+    @PrePersist
+    private void ensurePublicId() {
+        if (publicId == null) {
+            publicId = PublicIdSupport.generate();
+        }
+    }
+
+    public UUID getPublicId() {
+        return publicId;
     }
 
     public Tenant getTenant() {
@@ -86,4 +104,3 @@ public class CategoriaProduto extends BaseEntity {
         this.ativo = ativo;
     }
 }
-

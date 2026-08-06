@@ -9,10 +9,13 @@ import java.time.LocalDateTime;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import com.restaurante.repository.projection.SyncAggProjection;
+import java.util.UUID;
 
 public interface CategoriaProdutoRepository extends JpaRepository<CategoriaProduto, Long> {
 
     Optional<CategoriaProduto> findByIdAndTenantId(Long id, Long tenantId);
+
+    Optional<CategoriaProduto> findByTenantIdAndPublicId(Long tenantId, UUID publicId);
 
     Optional<CategoriaProduto> findBySlugAndTenantId(String slug, Long tenantId);
 

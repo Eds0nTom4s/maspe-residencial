@@ -14,6 +14,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import com.restaurante.repository.projection.SyncAggProjection;
 import java.util.Collection;
+import java.util.UUID;
 
 /**
  * Repository para operações de banco de dados com Produto
@@ -61,6 +62,8 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
 
     // Tenant-aware (Prompt 5)
     Optional<Produto> findByIdAndTenantId(Long id, Long tenantId);
+
+    Optional<Produto> findByTenantIdAndPublicId(Long tenantId, UUID publicId);
 
     boolean existsByIdAndTenantId(Long id, Long tenantId);
 

@@ -1,5 +1,6 @@
 package com.restaurante.model.entity;
 
+import com.restaurante.android.foundation.identity.PublicIdSupport;
 import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
@@ -11,6 +12,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Entidade Pedido
@@ -25,6 +27,9 @@ import java.util.List;
     @Index(name = "idx_pedido_numero", columnList = "numero")
 })
 public class Pedido extends BaseEntity {
+
+    @Column(name = "public_id", nullable = false, unique = true, updatable = false, columnDefinition = "uuid")
+    private UUID publicId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "tenant_id", nullable = false)
@@ -123,6 +128,9 @@ public class Pedido extends BaseEntity {
     @PrePersist
     @PreUpdate
     private void preencherTenantSeNecessario() {
+        if (publicId == null) {
+            publicId = PublicIdSupport.generate();
+        }
         if (tenant != null) return;
         if (sessaoConsumo == null) {
             throw new IllegalStateException("Pedido sem tenant e sem sessão de consumo.");
@@ -147,6 +155,8 @@ public class Pedido extends BaseEntity {
     }
 
     public Pedido() {}
+
+    public UUID getPublicId() { return publicId; }
 
     public Pedido(String numero, SessaoConsumo sessaoConsumo, StatusPedido status, StatusFinanceiroPedido statusFinanceiro, TipoPagamentoPedido tipoPagamento, LocalDateTime pagoEm, String observacoes, List<ItemPedido> itens, List<SubPedido> subPedidos, BigDecimal total) {
         this.numero = numero;

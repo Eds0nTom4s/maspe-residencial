@@ -1,0 +1,154 @@
+{
+  "contractName": "CONSUMA_AQUI_ANDROID_V1",
+  "contractVersion": "1.0.0-rc.2",
+  "status": "FROZEN_WITH_BLOCKERS",
+  "generatedAt": "2026-08-06",
+  "androidRepository": "Eds0nTom4s/consumaaqui",
+  "androidBaseCommit": "b8b6fffd048558e0c1cd688f5addac7d5fac18bb",
+  "backendRepository": "Eds0nTom4s/maspe-residencial",
+  "backendBaseCommit": "124bb92fff9e599a102b6f174390e90ec1069c09",
+  "backendSchema": "V20260722.01",
+  "apiBase": "/api/v1",
+  "contractSeparation": {
+    "consumer": "CONSUMA_AQUI_ANDROID_V1",
+    "establishment": "CONSUMA_PONTO_MVP_V1",
+    "androidForbiddenContexts": ["/tenant/**", "JWT TENANT", "X-Tenant-Id", "X-Tenant-Code", "X-Business-Id", "PDV", "STORE", "QR_MESA"]
+  },
+  "endpoints": [
+    {
+      "method": "GET", "path": "/api/v1/discovery/home", "purpose": "Public discovery home",
+      "auth": "PUBLIC", "headers": ["Accept", "X-Request-Id?"], "request": "DiscoveryHomeQuery",
+      "response": "DiscoveryHomeResponse", "errors": ["INVALID_REQUEST", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
+      "cache": "public,max-age=60 + ETag", "rateLimit": "180/min/IP", "idempotency": "NOT_APPLICABLE",
+      "tenantResolution": "SERVER_FROM_PUBLICATION", "currentMain": "ABSENT", "historicalBranch": "PARTIAL",
+      "implementationStatus": "HISTORICAL_BRANCH_ONLY", "phase": "BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"
+    },
+    {
+      "method": "GET", "path": "/api/v1/discovery/search", "purpose": "Search public merchants",
+      "auth": "PUBLIC", "headers": ["Accept", "X-Request-Id?"], "request": "DiscoverySearchQuery",
+      "response": "DiscoverySearchResponse", "errors": ["INVALID_REQUEST", "SORT_NOT_SUPPORTED", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
+      "cache": "public,max-age=60 + ETag", "rateLimit": "180/min/IP", "idempotency": "NOT_APPLICABLE",
+      "tenantResolution": "SERVER_FROM_PUBLICATION", "currentMain": "ABSENT", "historicalBranch": "PARTIAL",
+      "implementationStatus": "HISTORICAL_BRANCH_ONLY", "phase": "BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"
+    },
+    {
+      "method": "GET", "path": "/api/v1/discovery/merchants/{merchantId}", "purpose": "Public merchant detail",
+      "auth": "PUBLIC", "headers": ["Accept", "X-Request-Id?"], "request": "merchantId UUID path",
+      "response": "MerchantDetailResponse", "errors": ["INVALID_REQUEST", "MERCHANT_NOT_FOUND", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
+      "cache": "public,max-age=60 + ETag", "rateLimit": "180/min/IP", "idempotency": "NOT_APPLICABLE",
+      "tenantResolution": "SERVER_FROM_MERCHANT", "currentMain": "ABSENT", "historicalBranch": "SINGULAR_PATH_AND_SLUG_ONLY",
+      "implementationStatus": "HISTORICAL_BRANCH_ONLY", "phase": "BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"
+    },
+    {
+      "method": "GET", "path": "/api/v1/merchants/{merchantId}/catalog", "purpose": "Public catalog metadata and categories",
+      "auth": "PUBLIC", "headers": ["Accept", "X-Request-Id?"], "request": "merchantId UUID path",
+      "response": "CatalogResponse", "errors": ["INVALID_REQUEST", "MERCHANT_NOT_FOUND", "CATALOG_NOT_FOUND", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
+      "cache": "public,max-age=60 + ETag", "rateLimit": "180/min/IP", "idempotency": "NOT_APPLICABLE",
+      "tenantResolution": "SERVER_FROM_MERCHANT", "currentMain": "ABSENT", "historicalBranch": "ABSENT",
+      "implementationStatus": "NOT_IMPLEMENTED", "phase": "BACKEND-ANDROID-PUBLIC-CATALOG-001"
+    },
+    {
+      "method": "GET", "path": "/api/v1/merchants/{merchantId}/products", "purpose": "Paginated public products",
+      "auth": "PUBLIC", "headers": ["Accept", "X-Request-Id?"], "request": "ProductSearchQuery",
+      "response": "ProductPageResponse", "errors": ["INVALID_REQUEST", "MERCHANT_NOT_FOUND", "CATALOG_NOT_FOUND", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
+      "cache": "public,max-age=60 + ETag", "rateLimit": "180/min/IP", "idempotency": "NOT_APPLICABLE",
+      "tenantResolution": "SERVER_FROM_MERCHANT", "currentMain": "ABSENT", "historicalBranch": "ABSENT",
+      "implementationStatus": "NOT_IMPLEMENTED", "phase": "BACKEND-ANDROID-PUBLIC-CATALOG-001"
+    },
+    {
+      "method": "GET", "path": "/api/v1/merchants/{merchantId}/products/{productId}", "purpose": "Public product detail and option groups",
+      "auth": "PUBLIC", "headers": ["Accept", "X-Request-Id?"], "request": "merchantId/productId UUID paths",
+      "response": "ProductDetailResponse", "errors": ["INVALID_REQUEST", "MERCHANT_NOT_FOUND", "PRODUCT_NOT_FOUND", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
+      "cache": "public,max-age=60 + ETag", "rateLimit": "180/min/IP", "idempotency": "NOT_APPLICABLE",
+      "tenantResolution": "SERVER_FROM_MERCHANT_AND_OWNERSHIP", "currentMain": "ABSENT", "historicalBranch": "ABSENT",
+      "implementationStatus": "NOT_IMPLEMENTED", "phase": "BACKEND-PRODUCT-OPTIONS-CANONICAL-001"
+    },
+    {
+      "method": "POST", "path": "/api/v1/checkout/quotes", "purpose": "Authoritative immutable checkout quote",
+      "auth": "ANONYMOUS", "headers": ["Content-Type", "X-Client-Instance-Id", "X-Request-Id?"], "request": "CheckoutQuoteRequest",
+      "response": "CheckoutQuoteResponse", "errors": ["INVALID_REQUEST", "MERCHANT_NOT_FOUND", "CATALOG_CHANGED", "PRICE_CHANGED", "INVALID_PRODUCT_CONFIGURATION", "FULFILLMENT_UNAVAILABLE", "DELIVERY_ADDRESS_UNSUPPORTED", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
+      "cache": "no-store", "rateLimit": "30/min/client-instance + 60/min/IP", "idempotency": "NOT_REQUIRED",
+      "tenantResolution": "SERVER_FROM_MERCHANT", "currentMain": "ABSENT", "historicalBranch": "ABSENT",
+      "implementationStatus": "NOT_IMPLEMENTED", "phase": "BACKEND-ANDROID-CHECKOUT-QUOTE-001"
+    },
+    {
+      "method": "POST", "path": "/api/v1/orders", "purpose": "Consume quote and create exactly one order",
+      "auth": "ANONYMOUS", "headers": ["Content-Type", "X-Client-Instance-Id", "Idempotency-Key", "X-Request-Id?"], "request": "CreateOrderRequest",
+      "response": "CreateOrderResponse", "errors": ["INVALID_REQUEST", "QUOTE_EXPIRED", "QUOTE_ALREADY_USED", "IDEMPOTENCY_CONFLICT", "REQUEST_IN_PROGRESS", "MERCHANT_UNAVAILABLE", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
+      "cache": "no-store", "rateLimit": "10/min/client-instance + 20/min/IP", "idempotency": "REQUIRED",
+      "tenantResolution": "SERVER_FROM_QUOTE", "currentMain": "ABSENT", "historicalBranch": "ABSENT",
+      "implementationStatus": "NOT_IMPLEMENTED", "phase": "BACKEND-ANDROID-ORDER-CREATION-001"
+    },
+    {
+      "method": "GET", "path": "/api/v1/orders/{orderId}", "purpose": "Secure anonymous order projection",
+      "auth": "ORDER_ACCESS_TOKEN", "headers": ["Accept", "X-Order-Access-Token", "If-None-Match?", "X-Request-Id?"], "request": "orderId UUID path",
+      "response": "OrderResponse", "errors": ["INVALID_REQUEST", "ORDER_NOT_FOUND", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
+      "cache": "private,no-cache,no-store + ETag", "rateLimit": "60/min/token + 120/min/IP", "idempotency": "NOT_APPLICABLE",
+      "tenantResolution": "SERVER_FROM_ORDER_AFTER_TOKEN_VERIFICATION", "currentMain": "ABSENT", "historicalBranch": "ABSENT",
+      "implementationStatus": "NOT_IMPLEMENTED", "phase": "BACKEND-ANDROID-ORDER-QUERY-001"
+    }
+  ],
+  "auth": {
+    "discoveryAndCatalog": "PUBLIC",
+    "quoteAndOrderCreation": "ANONYMOUS_WITH_ABUSE_CONTROLS",
+    "orderQuery": "X-Order-Access-Token",
+    "forbidden": ["JWT TENANT", "tenant headers", "QR token", "phone + order number"]
+  },
+  "headers": {
+    "X-Client-Instance-Id": "UUID required on POST",
+    "Idempotency-Key": "UUID required only on POST /orders",
+    "X-Order-Access-Token": "Opaque secret required on GET order; never URL/query/log/SavedStateHandle"
+  },
+  "money": {"shape": {"amountMinor": "integer int64", "currencyCode": "AOA"}, "exponent": 2, "androidType": "Long", "decimalJsonForbidden": true, "backendConversion": "setScale(2,UNNECESSARY).movePointRight(2).longValueExact()"},
+  "ids": {"publicType": "UUID_V4_LOWERCASE", "entities": ["merchant", "catalog", "category", "product", "optionGroup", "option", "quote", "order"], "internalPrimaryKeysExposed": false, "slugCanonical": false, "migration": "REQUIRED_BEFORE_ENDPOINT"},
+  "pagination": {"pageBase": 0, "defaultPage": 0, "defaultPageSize": 20, "maxPageSize": 100, "stableTieBreak": "public UUID ASC", "androidAdapter": "domain page N maps to HTTP max(1,N)-1"},
+  "enums": {
+    "operationalStatus": ["PENDING_ACCEPTANCE", "ACCEPTED", "PREPARING", "READY", "COMPLETED", "REJECTED", "CANCELLED"],
+    "financialStatus": ["NOT_PAYABLE", "UNPAID", "PAYMENT_PENDING", "PAID", "REFUNDED"],
+    "discoverySort": ["NAME", "FEATURED", "NEAREST", "TOP_RATED", "MOST_POPULAR"],
+    "fulfillment": ["PICKUP", "DELIVERY"]
+  },
+  "catalog": {"catalogVersion": "positive monotonic integer serialized as string", "productVersion": "positive monotonic integer serialized as string", "versionBumps": ["product", "category", "price", "options", "availability", "publication", "promotion", "currency", "commercial fulfillment or fee"]},
+  "options": {"decision": "NEW_MODEL_REQUIRED", "legacyVariacaoProdutoEquivalent": false, "constraints": ["minSelections", "maxSelections", "required", "singleChoice", "defaultSelected", "sortOrder", "additionalPrice", "available"], "migration": "REQUIRED_BEFORE_PRODUCT_DETAIL_AND_QUOTE"},
+  "quote": {"requiredBeforeOrder": true, "ttlMinutes": 10, "configurable": true, "immutable": true, "singleUse": true, "createsOrder": false, "createsPaymentOrder": false, "startsGateway": false, "authorities": ["merchant", "tenant", "publication", "catalog", "product", "options", "availability", "fulfillment", "address", "pricing", "snapshot", "totals", "expiry", "divergences"]},
+  "orders": {"requestFields": ["quoteId", "quoteVersion", "customer", "clientReference"], "forbiddenRequestFields": ["price", "subtotal", "tax", "fee", "total", "productName", "merchantName", "paymentAmount", "tenantId", "businessAccountId", "institutionId", "unitId"], "initialOperationalStatus": "PENDING_ACCEPTANCE", "initialFinancialStatus": "NOT_PAYABLE", "initialPaymentAvailable": false, "origin": "CONSUMA_AQUI_ANDROID"},
+  "idempotency": {"scope": ["clientInstance", "endpoint", "idempotencyKey"], "sameKeySameHash": "REPLAY", "sameKeyDifferentHash": "409 IDEMPOTENCY_CONFLICT", "processing": "REQUEST_IN_PROGRESS", "exactlyOneOrder": true, "retentionHours": 72, "configurable": true},
+  "orderAccess": {"strategy": "VERSIONED_HMAC_RECONSTRUCTIBLE_WITH_RANDOM_PER_ORDER_SALT_AND_STORED_VERIFICATION_HASH", "tokenBits": 256, "plaintextPersisted": false, "databaseBreachResistance": "salt+hash cannot reconstruct without versioned secret", "lostResponse": "same idempotent replay reconstructs during 72h retention", "rotation": "retain referenced old key at least through idempotency replay window; verification uses stored hash", "revocation": true, "terminalTtlDays": 90, "configurable": true, "invalidAccess": "uniform 404 ORDER_NOT_FOUND"},
+  "states": {
+    "paymentInvariant": "UNACCEPTED_ORDER_HAS_NO_PAYMENT_ORDER",
+    "paymentAvailablePolicy": ["accepted", "non-terminal", "allowed method", "financial infrastructure active"],
+    "projection": [
+      {"operational":"PENDING_ACCEPTANCE","financial":"NOT_PAYABLE","internalFacts":"Pedido.CRIADO + Android origin + no termination","paymentAvailable":false,"terminal":false},
+      {"operational":"ACCEPTED","financial":"UNPAID","internalFacts":"Pedido.EM_ANDAMENTO + all relevant SubPedido.PENDENTE","paymentAvailable":true,"terminal":false},
+      {"operational":"PREPARING","financial":"UNPAID|PAYMENT_PENDING|PAID","internalFacts":"any relevant SubPedido.EM_PREPARACAO","paymentAvailable":"policy","terminal":false},
+      {"operational":"READY","financial":"UNPAID|PAYMENT_PENDING|PAID","internalFacts":"all relevant SubPedido.PRONTO","paymentAvailable":"policy","terminal":false},
+      {"operational":"COMPLETED","financial":"UNPAID|PAYMENT_PENDING|PAID|REFUNDED","internalFacts":"Pedido.FINALIZADO","paymentAvailable":false,"terminal":true},
+      {"operational":"REJECTED","financial":"NOT_PAYABLE","internalFacts":"terminationType=REJECTED","paymentAvailable":false,"terminal":true},
+      {"operational":"CANCELLED","financial":"NOT_PAYABLE|UNPAID|REFUNDED","internalFacts":"terminationType=CANCELLED","paymentAvailable":false,"terminal":true}
+    ],
+    "rejectionPersistence": ["terminationType", "terminationCode", "publicRejectionMessage"],
+    "currentGap": "REJECTED_AND_CANCELLED_BOTH_USE_CANCELADO"
+  },
+  "errors": {"shape": {"error": {"code":"string","message":"string","retryable":"boolean","fieldErrors":"array","traceId":"string"}}, "publicFacadeTranslationRequired": true, "internalEnvelopeReplacementRequired": false},
+  "tenantResolution": {"source": "merchant -> quote -> order, server-side", "clientOverride": "INVALID_REQUEST_OR_UNKNOWN_FIELD", "crossTenant": "indistinguishable error", "merchantToUnit": "explicit persisted mapping required; never first row", "status": "BLOCKER_BEFORE_QUOTE_OR_ORDER"},
+  "security": {"httpsRequired": true, "maxPostBytes": 65536, "piiMinimized": true, "tokensLogged": false, "idempotencyKeyMasked": true, "publicUuidAntiEnumeration": true, "rateLimiting": true, "uniformOrder404": true, "imagePolicy": "HTTPS and allowlisted host", "sensitiveCache": "no-store", "stackTraceExposed": false, "internalIdsExposed": false},
+  "capabilities": {
+    "NAME": {"supported": true, "source": "historical branch only until canonical integration"},
+    "MUNICIPALITY": {"supported": true, "source": "persisted fiscal municipality in historical branch"},
+    "NEAREST": {"supported": false}, "TOP_RATED": {"supported": false}, "MOST_POPULAR": {"supported": false},
+    "FEATURED": {"supported": false}, "onlyOpen": {"supported": false}, "distanceMeters": {"supported": false},
+    "rating": {"supported": false}, "popularityScore": {"supported": false}, "weeklySchedule": {"supported": false},
+    "fulfillmentFilter": {"supported": false}
+  },
+  "pendingDecisions": [
+    {"id":"D-01","decision":"quote TTL","state":"RESOLVED","default":"10 minutes configurable","blocking":false,"phase":"BACKEND-ANDROID-CHECKOUT-QUOTE-001"},
+    {"id":"D-02","decision":"order token TTL","state":"DEFERRED_WITH_SAFE_DEFAULT","default":"90 days after terminal configurable","blocking":false,"phase":"BACKEND-ANDROID-ANONYMOUS-SECURITY-IDEMPOTENCY-001"},
+    {"id":"D-03","decision":"token replay","state":"RESOLVED","default":"versioned HMAC + random salt + stored verification hash","blocking":false,"phase":"BACKEND-ANDROID-ANONYMOUS-SECURITY-IDEMPOTENCY-001"},
+    {"id":"D-04","decision":"geo/rating/popularity/featured/schedule","state":"DEFERRED_WITH_SAFE_DEFAULT","default":"unsupported and omitted","blocking":false,"phase":"BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"},
+    {"id":"D-05","decision":"merchant to unit","state":"UNRESOLVED_BLOCKING","default":"no implicit fallback; fail unavailable","blocking":true,"phase":"BACKEND-ANDROID-FULFILLMENT-POLICY-001"},
+    {"id":"D-06","decision":"future fiscal rounding","state":"OUT_OF_V1","default":"no percentages; exact minor units","blocking":false,"phase":"FUTURE_FISCAL_POLICY"},
+    {"id":"D-07","decision":"singular Discovery alias","state":"RESOLVED","default":"no alias in canonical V1; migration concern only","blocking":false,"phase":"BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"},
+    {"id":"D-08","decision":"VariacaoProduto migration","state":"RESOLVED","default":"new option model; validated opt-in backfill only","blocking":false,"phase":"BACKEND-PRODUCT-OPTIONS-CANONICAL-001"},
+    {"id":"LEGAL_RETENTION","decision":"legal order and PII retention in Angola","state":"UNRESOLVED_NON_BLOCKING","default":"none invented","blocking":false,"phase":"LEGAL_COMPLIANCE_REVIEW"}
+  ]
+}

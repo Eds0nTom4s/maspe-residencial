@@ -1,0 +1,245 @@
+RELATÓRIO ANDROID-API-CONTRACT-FREEZE-001
+Data: 2026-08-06
+
+1. IDENTIFICAÇÃO
+
+Tipo: auditoria contratual, congelamento de API, reconciliação Android/backend e plano de implementação.
+Decisão: CONTRATO ANDROID V1 CONGELADO COM BLOCKERS.
+Versão de entrada: 1.0.0-rc.1. Versão de saída: 1.0.0-rc.2.
+Não foram implementados endpoints, UI, migrations nem integração de branches históricas.
+
+2. BASES
+
+Android: Eds0nTom4s/consumaaqui, origin/android/checkout-flow-mock-001,
+b8b6fffd048558e0c1cd688f5addac7d5fac18bb.
+Backend: Eds0nTom4s/maspe-residencial, origin/main,
+124bb92fff9e599a102b6f174390e90ec1069c09, schema V20260722.01.
+Os dois SHAs foram confirmados depois de fetch origin --prune. Worktrees isolados nasceram limpos.
+O worktree Android original permaneceu sem add/stash/clean/reset/switch/checkout/rm/mv/commit.
+Os três ficheiros protegidos permaneceram no original; somente o conteúdo do contrato foi copiado.
+
+3. ESTADO DO CONTRATO RC.1
+
+O RC.1 já descrevia a arquitectura alvo com boa precisão, mas usava uma main backend anterior,
+deixava D-01..D-08 sem decisão formal e não possuía manifesto/OpenAPI versionados. A auditoria
+actualizou a evidência para a main exacta, classificou decisões e congelou o alvo como RC.2 porque
+D-05 merchant→unidade continua blocking e sem mapping persistido na main.
+
+4. RELAÇÃO COM PONTO MVP V1
+
+Foram auditados CONTRATO_CONSUMA_PONTO_MVP_V1.md, CONSUMA_PONTO_MVP_V1.contract.json e
+CONSUMA_PONTO_MVP_V1.openapi.json integrados na main. PONTO é o contrato operacional do
+estabelecimento; Android V1 é a facade pública do consumidor. A invariante compartilhada é:
+pedido não aceite não possui ordem de pagamento. Criação Android projecta
+PENDING_ACCEPTANCE / NOT_PAYABLE / paymentAvailable=false. Somente aceite válido projecta
+ACCEPTED / UNPAID e pode tornar paymentAvailable=true por policy.
+
+5. ARQUITECTURA ANDROID
+
+O baseline usa repositories de domínio substituíveis e implementações in-memory para Discovery,
+Catalog, Cart e Checkout. O carrinho continua process-local, um merchant por vez; nomes, imagens
+e preços locais são snapshots visuais e nunca autoridade financeira. Não foi alterado app/src/main.
+A branch remota origin/android/discovery-remote-001 existe em ac01b962a75db0ca727f23c6adb8e37177d4fb7f,
+três commits acima do baseline, e implementa somente adaptação dos três endpoints Discovery
+históricos. Ela não foi integrada nem apagada.
+
+6. ARQUITECTURA BACKEND
+
+Main possui tenant, catálogo interno, QR, Store, pedidos/subpedidos, turnos, fulfillment, origem,
+idempotências específicas e payment-after-acceptance. Não possui qualquer dos nove paths públicos
+Android. IDs públicos transversais, catálogo versionado, options completas, quote, idempotência
+Android, token por pedido e projecção pública ainda requerem implementação. Zero src/main alterado.
+
+7. DISCOVERY BRANCH RECONCILIATION
+
+Branch: origin/backend/discovery-api-001@b979d2ead1d6663af5955c55d54bdae6861832bc.
+Merge-base: 4568d1ddeb712a80ca3939f9a332e94db52cff3e.
+Main ahead: 10. Discovery ahead: 2.
+Commits exclusivos: 13a61ef (implementação/testes) e b979d2e (relatório).
+Decisão: não fazer merge integral. Reimplementar controllers/services contra main; portar queries e
+testes selectivamente; manter Security/Tenant hardening da main; eliminar runtime in-memory e
+deprecar path singular/slug. O detalhe histórico é /discovery/merchant/{merchantId}; o canónico é
+/discovery/merchants/{merchantId}.
+
+8. ENDPOINTS
+
+GET /api/v1/discovery/home                                  HISTORICAL_BRANCH_ONLY
+GET /api/v1/discovery/search                                HISTORICAL_BRANCH_ONLY
+GET /api/v1/discovery/merchants/{merchantId}                HISTORICAL_BRANCH_ONLY
+GET /api/v1/merchants/{merchantId}/catalog                  NOT_IMPLEMENTED
+GET /api/v1/merchants/{merchantId}/products                 NOT_IMPLEMENTED
+GET /api/v1/merchants/{merchantId}/products/{productId}     NOT_IMPLEMENTED
+POST /api/v1/checkout/quotes                                NOT_IMPLEMENTED
+POST /api/v1/orders                                         NOT_IMPLEMENTED
+GET /api/v1/orders/{orderId}                                NOT_IMPLEMENTED
+
+Implemented na main: 0. Partial na main: 0. Historical only: 3. Not implemented: 6.
+Handlers QR, Tenant, Store e Device não são equivalentes e não contam.
+
+9. IDs
+
+UUID v4 lowercase imutável para merchant/catalog/category/product/optionGroup/option/quote/order.
+PK Long permanece interna; slug é somente alias de apresentação. public_id + uniques/backfill e
+constraints tenant-aware são REQUIRED_BEFORE_ENDPOINT.
+
+10. MONEY
+
+JSON exclusivo {amountMinor: integer int64, currencyCode: "AOA"}. Expoente AOA: 2.
+Android: Long. Backend: setScale(2, UNNECESSARY), movePointRight(2), longValueExact.
+BigDecimal/double/float/decimal textual não aparecem no contrato público.
+
+11. PAGINATION
+
+HTTP zero-based: page default 0; pageSize default 20, máximo 100; desempate UUID público ASC.
+Adapter Android converte domain page N para HTTP max(1,N)-1.
+
+12. CATALOG
+
+catalogVersion e productVersion são inteiros positivos monotónicos serializados como strings.
+Produto, categoria, preço, opções, disponibilidade, publicação, promoção, moeda e fulfillment/taxa
+comercial incrementam catalogVersion na mesma transacção. Main não oferece esta garantia hoje.
+
+13. OPTIONS
+
+VariacaoProduto é estruturalmente incompatível. Decisão: NEW_MODEL_REQUIRED com grupos/opções,
+min/max, required, singleChoice, defaultSelected, sortOrder, additionalPrice e available.
+Backfill legado somente explícito, validado e no caso simples aprovado.
+
+14. QUOTE
+
+POST /checkout/quotes é autoridade obrigatória: resolve merchant/tenant/publicação/catálogo/
+produto/opções/disponibilidade/fulfillment/endereço, recalcula preço, gera snapshot, totals,
+expiresAt e divergences. Não cria Pedido, OrdemPagamento nem gateway transaction.
+TTL congelado: 10 minutos, configurável por ambiente/policy.
+
+15. FULFILLMENT
+
+Checkout V1 aceita PICKUP e DELIVERY. Mapping merchant→instituição/unidade/rota/cozinha deve ser
+explícito e persistido; primeira unidade encontrada é proibida. Ausência: MERCHANT_UNAVAILABLE.
+Esta lacuna é BLOCKER_BEFORE_QUOTE_OR_ORDER. Turno é resolvido/locked antes de qualquer Pedido;
+quando obrigatório e ausente, rollback total e quote não consumida.
+
+16. ORDERS
+
+POST /orders aceita apenas quoteId, quoteVersion, customer e clientReference. Não aceita items,
+nomes comerciais, preços, subtotal, taxas, total, payment amount ou IDs internos. Consome snapshot
+autoritativo e cria origem CONSUMA_AQUI_ANDROID; enum/migration ainda são necessários.
+
+17. IDEMPOTENCY
+
+Scope: client instance + endpoint + key. Mesma key/hash faz replay; key igual/hash diferente dá
+409 IDEMPOTENCY_CONFLICT; lease em processamento dá REQUEST_IN_PROGRESS. Exactly-one order.
+Retenção default configurável: 72 horas.
+
+18. TOKEN
+
+Estratégia escolhida: HMAC versionado de domínio+orderPublicId+salt aleatório, saída opaca >=256
+bits, guardando salt, key version e hash de verificação, nunca plaintext. Replay por 72 h reconstrói
+o mesmo token; rotação mantém key version antiga pela janela; hash valida consulta; revogação é
+persistida. Breach apenas da DB não revela o segredo. Token errado/expirado/revogado e order
+inexistente/cross-tenant recebem 404 uniforme. TTL default: 90 dias após terminal, configurável.
+
+19. STATES
+
+Operacionais públicos: PENDING_ACCEPTANCE, ACCEPTED, PREPARING, READY, COMPLETED, REJECTED,
+CANCELLED. Financeiros: NOT_PAYABLE, UNPAID, PAYMENT_PENDING, PAID, REFUNDED.
+Enums internos nunca são serializados directamente.
+
+20. PAYMENT INVARIANT
+
+Main verifica StatusPedido.EM_ANDAMENTO antes de OrdemPagamentoService criar ordem e o aceite
+preserva estado financeiro antes dessa chamada. Android não cria/inicia/exibe pagamento. NAO_PAGO
+pré-aceite projecta NOT_PAYABLE. paymentAvailable exige aceite, pedido não terminal, método
+permitido e infraestrutura activa.
+
+21. ERRORS
+
+Facade Android garante {error:{code,message,retryable,fieldErrors,traceId}}. ErrorResponse interno
+não precisa ser substituído globalmente; adapter público traduz e não expõe stack/SQL/classes/PK.
+TURNO_ABERTO_OBRIGATORIO interno mapeia para MERCHANT_UNAVAILABLE sem detalhe excessivo.
+
+22. TENANT ISOLATION
+
+Tenant é resolvido no servidor por merchant→quote→order. Android não envia tenantId,
+businessAccountId, institutionId ou unitId. Override é INVALID_REQUEST/campo desconhecido.
+Cross-tenant é indistinguível de inexistente.
+
+23. SECURITY
+
+HTTPS obrigatório; POST <=64 KiB; PII mínima; tokens nunca logados; idem key mascarada; UUID
+anti-enumeração; rate limit; imagens HTTPS/allowlist; no-store sensível; sem IDs internos/stack.
+
+24. PII
+
+CheckoutViewModel persiste em SavedStateHandle: customer name/phone/email; pickup name/phone;
+delivery province, municipality, area, street/reference, building/house, reference point, recipient
+name/phone e instructions. Decisão: PII_SAVEDSTATE_REMOVAL_REQUIRED na fase
+ANDROID-REMOTE-CONTRACT-INTEGRATION-001, antes de dados reais. Nenhuma source foi alterada aqui.
+
+25. DECISÕES PENDENTES
+
+D-01 RESOLVED (quote 10 min); D-02 DEFERRED_WITH_SAFE_DEFAULT (token 90 d); D-03 RESOLVED
+(HMAC); D-04 DEFERRED_WITH_SAFE_DEFAULT (unsupported); D-05 UNRESOLVED_BLOCKING
+(merchant→unit); D-06 OUT_OF_V1; D-07 RESOLVED (plural sem alias canónico); D-08 RESOLVED
+(novo modelo). LEGAL_RETENTION_UNRESOLVED é não bloqueante e nenhum prazo angolano foi inventado.
+
+26. MANIFEST
+
+Owner backend: docs/contracts/android/CONSUMA_AQUI_ANDROID_V1.contract.json.
+Snapshot Android: docs/contracts/CONSUMA_AQUI_ANDROID_V1.contract.json.
+SHA-256 de ambos: 8f85713a250856c3322f4572acb8e5df8926c1ce16737f01b17c175408039891.
+
+27. OPENAPI
+
+OpenAPI 3.1.0 válido sintacticamente, versão 1.0.0-rc.2, 9 paths e 9 operations.
+x-consuma-implementation-status: 0 IMPLEMENTED, 0 PARTIAL, 3 HISTORICAL_BRANCH_ONLY,
+6 NOT_IMPLEMENTED. Runtime indisponível não é apresentado como implementado.
+
+28. HASHES
+
+Hash backend = hash Android =
+8f85713a250856c3322f4572acb8e5df8926c1ce16737f01b17c175408039891.
+
+29. TESTS
+
+Backend contract test: PASS — 7 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS.
+Android testDebugUnitTest: PASS — 378 tests, 0 failures, 0 errors, 0 skipped.
+Android assembleDebug: PASS — app-debug.apk, 11,378,066 bytes.
+Android lintDebug: PASS — 0 errors, 34 warnings preexistentes; relatório HTML gerado em
+app/build/reports/lint-results-debug.html.
+Gate Android conjunto: BUILD SUCCESSFUL, 62 actionable tasks, 7m53s. A primeira invocação
+falhou antes das tasks por SDK location ausente no worktree; a repetição usou ANDROID_HOME para
+o SDK já instalado, sem copiar local.properties protegido/não rastreado.
+Instrumented physical baseline histórico: 110 total, 109 pass, 0 failure/error, 1 ignored.
+Não será repetido porque nenhuma source Android funcional foi alterada.
+
+30. IMPLEMENTATION SEQUENCE
+
+1 BACKEND-ANDROID-PUBLIC-IDENTITY-FOUNDATION-001
+2 BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001
+3 BACKEND-ANDROID-PUBLIC-CATALOG-001
+4 BACKEND-PRODUCT-OPTIONS-CANONICAL-001
+5 BACKEND-ANDROID-FULFILLMENT-POLICY-001
+6 BACKEND-ANDROID-CHECKOUT-QUOTE-001
+7 BACKEND-ANDROID-ANONYMOUS-SECURITY-IDEMPOTENCY-001
+8 BACKEND-ANDROID-ORDER-CREATION-001
+9 BACKEND-ANDROID-PUBLIC-ORDER-PROJECTION-001
+10 BACKEND-ANDROID-ORDER-QUERY-001
+11 ANDROID-REMOTE-CONTRACT-INTEGRATION-001
+
+Fulfillment foi movido antes de quote porque quote deve validar unidade, turno, endereço e taxa.
+
+31. BLOCKERS
+
+Contractual blocking decision: D-05 merchant→unidade sem mapping persistido explícito.
+Implementation blockers: public UUID foundation; publication opt-in; catalog/product versions;
+option model; fulfillment mapping/turno; quote; Android-scoped idempotency; order token; origem Android;
+terminationType/code/message; public projections/rate-limit. Legal retention é unresolved non-blocking.
+Discovery Remote Android: BLOCKED_BY_BACKEND_CANONICAL_DISCOVERY.
+
+32. CONCLUSÃO
+
+CONTRATO ANDROID V1 CONGELADO COM BLOCKERS — MAPPING MERCHANT→UNIDADE AUSENTE; FUNDAÇÕES
+PÚBLICAS E ENDPOINTS AINDA NÃO IMPLEMENTADOS. A próxima fase é
+BACKEND-ANDROID-PUBLIC-IDENTITY-FOUNDATION-001. A cadeia preservada é pedido → aceite → só então
+pagamento. QR, Store, PDV e Tenant não são atalhos válidos.

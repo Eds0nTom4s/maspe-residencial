@@ -1,9 +1,9 @@
 # CONTRATO CONSUMA PONTO MVP V1
 
-Estado: congelado para implementação dos Passos 2, 3 e 4  
-Versão: 1.0.0  
-Backend proprietário: `Eds0nTom4s/maspe-residencial@813503ea0513a5e2761ecb7a092b0a9ff5cb5cb0`  
-Schema: `V20260722.01`  
+Estado: congelado para implementação dos Passos 2, 3 e 4
+Versão: 1.0.0
+Backend proprietário: `Eds0nTom4s/maspe-residencial@813503ea0513a5e2761ecb7a092b0a9ff5cb5cb0`
+Schema: `V20260722.01`
 Frontend consumidor: `Eds0nTom4s/CONSUMA-UI@f8bec74c822bbeacbefdde303c8e66fd325f5035`
 
 ## 1. Decisão de produto

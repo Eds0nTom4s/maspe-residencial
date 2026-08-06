@@ -1,0 +1,169 @@
+{
+  "contractName": "CONSUMA_PONTO_MVP",
+  "contractVersion": "1.0.0",
+  "backendRepository": "Eds0nTom4s/maspe-residencial",
+  "backendBaseCommit": "813503ea0513a5e2761ecb7a092b0a9ff5cb5cb0",
+  "backendSchema": "V20260722.01",
+  "frontendRepository": "Eds0nTom4s/CONSUMA-UI",
+  "frontendBaseCommit": "f8bec74c822bbeacbefdde303c8e66fd325f5035",
+  "releaseVertical": "CONSUMA_PONTO",
+  "restReleaseExposure": "PRESERVED_NOT_RELEASED",
+  "selectorPolicyTarget": "HIDE_OR_DISABLE_IN_RC",
+  "generatedAt": "2026-08-05T00:00:00+01:00",
+  "authScopes": {
+    "NONE": "No JWT; public tenant context may only be resolved by a non-enumerable QR or order token.",
+    "GLOBAL": "JWT with tokenType GLOBAL; required for tenant discovery and selection.",
+    "TENANT": "JWT with tokenType TENANT; tenantId and business membership are server-derived claims."
+  },
+  "headers": {
+    "Authorization": { "classification": "REQUIRED_WHEN_AUTHENTICATED", "value": "Bearer <JWT>" },
+    "Content-Type": { "classification": "REQUIRED_FOR_JSON_BODY", "value": "application/json" },
+    "Idempotency-Key": { "classification": "REQUIRED_ON_PUBLIC_ORDER_AND_PAYMENT", "maxLength": 255, "bodyFallback": true },
+    "X-Correlation-Id": { "classification": "OPTIONAL_ON_MVP_PONTO", "note": "Not propagated consistently by current handlers; publication gap CG-06." },
+    "X-Tenant-Id": { "classification": "FORBIDDEN" },
+    "X-Tenant-Code": { "classification": "FORBIDDEN" },
+    "X-Business-Id": { "classification": "FORBIDDEN" },
+    "X-AppyPay-Signature": { "classification": "REQUIRED_ON_GATEWAY_WEBHOOK" }
+  },
+  "successEnvelope": { "fields": ["success", "message", "data"], "source": "ApiResponse" },
+  "errorEnvelope": {
+    "fields": ["timestamp", "status", "error", "message", "code", "path", "validationErrors", "additionalData"],
+    "source": "GlobalExceptionHandler.ErrorResponse",
+    "knownInconsistency": "Authentication handlers and several domain exceptions do not always emit code; tracked as CG-05."
+  },
+  "pagination": { "canonical": "Spring Page", "query": ["page", "size", "sort"], "indexBase": 0 },
+  "formats": { "dateTime": "ISO-8601", "timezone": "server/client explicit; no implicit product timezone frozen", "currency": "AOA", "money": "JSON decimal, BigDecimal server-side" },
+  "fieldOwnership": {
+    "tenantId": "SERVER-GENERATED",
+    "businessAccountId": "SERVER-GENERATED",
+    "templateCode": "IMMUTABLE_AFTER_PROVISIONING",
+    "orderId": "SERVER-GENERATED",
+    "orderCode": "SERVER-GENERATED",
+    "status": "BACKEND",
+    "allowedActions": "BACKEND",
+    "amount": "DERIVED",
+    "currency": "BACKEND",
+    "paymentOrderId": "SERVER-GENERATED",
+    "idempotencyKey": "CLIENT",
+    "turnoId": "DERIVED",
+    "sessionId": "SERVER-GENERATED",
+    "deliveryMode": "CLIENT_VALIDATED_BY_BACKEND",
+    "createdAt": "SERVER-GENERATED",
+    "updatedAt": "SERVER-GENERATED"
+  },
+  "endpoints": [
+    { "domain": "IDENTITY", "operation": "login", "method": "POST", "path": "/auth/jwt/login", "authScope": "NONE", "headers": ["Content-Type"], "request": "LoginRequest", "response": "ApiResponse<AuthResponse>", "errors": ["VALIDATION", "AUTHENTICATION"], "idempotency": "NOT_APPLICABLE", "backendHandler": "JwtAuthController.login", "frontendConsumer": "auth.service.login", "state": "CANONICAL" },
+    { "domain": "IDENTITY", "operation": "listTenants", "method": "GET", "path": "/auth/tenants", "authScope": "GLOBAL", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<List<TenantMembershipResponse>>", "errors": ["AUTHENTICATION", "TOKEN_SCOPE"], "idempotency": "SAFE", "backendHandler": "AuthController.getTenants", "frontendConsumer": "tenant-context.service.listTenants", "state": "CANONICAL" },
+    { "domain": "IDENTITY", "operation": "selectTenant", "method": "POST", "path": "/auth/tenant/select", "authScope": "GLOBAL", "headers": ["Authorization", "Content-Type"], "request": "SelectTenantRequest", "response": "ApiResponse<SelectTenantResponse>", "errors": ["AUTHENTICATION", "TOKEN_SCOPE", "MEMBERSHIP", "TENANT_ELIGIBILITY"], "idempotency": "SEMANTIC", "backendHandler": "AuthController.selectTenant", "frontendConsumer": "tenant-context.service.selectTenant", "state": "CANONICAL" },
+    { "domain": "CONTEXT", "operation": "tenantMe", "method": "GET", "path": "/tenant/me", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<TenantMeResponse>", "errors": ["AUTHENTICATION", "TOKEN_SCOPE", "TENANT_TOKEN_STALE"], "idempotency": "SAFE", "backendHandler": "TenantMeController.me", "frontendConsumer": "NONE_CURRENT", "state": "BACKEND_ONLY" },
+
+    { "domain": "SHIFTS", "operation": "getConfig", "method": "GET", "path": "/tenant/operacao/config", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<OperacaoConfigResponse>", "errors": ["TENANT_CONTEXT", "AUTHORIZATION"], "idempotency": "SAFE", "backendHandler": "TenantOperacaoController.getConfig", "frontendConsumer": "HISTORICAL_operations.service", "state": "PORT" },
+    { "domain": "SHIFTS", "operation": "openShift", "method": "POST", "path": "/tenant/operacao/turnos/abrir", "authScope": "TENANT", "headers": ["Authorization", "Content-Type"], "request": "AbrirTurnoOperacionalRequest", "response": "ApiResponse<TurnoOperacionalResponse>", "errors": ["TURN_OPEN_CONFLICT", "AUTHORIZATION"], "idempotency": "STATE_GUARD_ONLY", "backendHandler": "TenantOperacaoController.abrirTurno", "frontendConsumer": "HISTORICAL_operations.service", "state": "PORT" },
+    { "domain": "SHIFTS", "operation": "currentShift", "method": "GET", "path": "/tenant/operacao/turnos/atual", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<TurnoOperacionalResponse>", "errors": ["TENANT_CONTEXT"], "idempotency": "SAFE", "backendHandler": "TenantOperacaoController.getTurnoAtual", "frontendConsumer": "HISTORICAL_operations.service", "state": "PORT" },
+    { "domain": "SHIFTS", "operation": "listShifts", "method": "GET", "path": "/tenant/operacao/turnos", "authScope": "TENANT", "headers": ["Authorization"], "request": "Pageable", "response": "ApiResponse<Page<TurnoOperacionalResponse>>", "errors": ["AUTHORIZATION"], "idempotency": "SAFE", "backendHandler": "TenantOperacaoController.listarTurnos", "frontendConsumer": "HISTORICAL_operations.service", "state": "PORT" },
+    { "domain": "SHIFTS", "operation": "beginClose", "method": "POST", "path": "/tenant/operacao/turnos/{turnoId}/iniciar-fecho", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<TurnoOperacionalResponse>", "errors": ["SHIFT_NOT_FOUND", "SHIFT_STATE_CONFLICT"], "idempotency": "STATE_GUARD_ONLY", "backendHandler": "TenantOperacaoController.iniciarFecho", "frontendConsumer": "HISTORICAL_operations.service", "state": "PORT" },
+    { "domain": "SHIFTS", "operation": "preClose", "method": "GET", "path": "/tenant/operacao/turnos/{turnoId}/pre-fecho", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<TurnoPreFechoResponse>", "errors": ["SHIFT_NOT_FOUND", "SHIFT_STATE_CONFLICT"], "idempotency": "SAFE", "backendHandler": "TenantOperacaoController.preFecho", "frontendConsumer": "HISTORICAL_operations.service", "state": "PORT" },
+    { "domain": "SHIFTS", "operation": "closeShift", "method": "POST", "path": "/tenant/operacao/turnos/{turnoId}/fechar", "authScope": "TENANT", "headers": ["Authorization", "Content-Type"], "request": "FecharTurnoOperacionalRequest", "response": "ApiResponse<TurnoOperacionalResponse>", "errors": ["SHIFT_NOT_FOUND", "SHIFT_STATE_CONFLICT", "OPEN_ORDERS"], "idempotency": "STATE_GUARD_ONLY", "backendHandler": "TenantOperacaoController.fecharTurno", "frontendConsumer": "HISTORICAL_operations.service", "state": "PORT" },
+
+    { "domain": "CATALOG", "operation": "listProducts", "method": "GET", "path": "/tenant/produtos", "authScope": "TENANT", "headers": ["Authorization"], "request": "ProdutoFiltro+Pageable", "response": "ApiResponse<Page<ProdutoResponse>>", "errors": ["AUTHORIZATION"], "idempotency": "SAFE", "backendHandler": "TenantProdutoController.listar", "frontendConsumer": "HISTORICAL_catalog.service", "state": "PORT" },
+    { "domain": "CATALOG", "operation": "createProduct", "method": "POST", "path": "/tenant/produtos", "authScope": "TENANT", "headers": ["Authorization", "Content-Type"], "request": "ProdutoRequest", "response": "ApiResponse<ProdutoResponse>", "errors": ["VALIDATION", "AUTHORIZATION", "CONFLICT"], "idempotency": "NOT_SUPPORTED", "backendHandler": "TenantProdutoController.criar", "frontendConsumer": "HISTORICAL_catalog.service", "state": "PORT" },
+    { "domain": "CATALOG", "operation": "updateProduct", "method": "PUT", "path": "/tenant/produtos/{produtoId}", "authScope": "TENANT", "headers": ["Authorization", "Content-Type"], "request": "ProdutoRequest", "response": "ApiResponse<ProdutoResponse>", "errors": ["VALIDATION", "NOT_FOUND", "AUTHORIZATION"], "idempotency": "SEMANTIC", "backendHandler": "TenantProdutoController.atualizar", "frontendConsumer": "HISTORICAL_catalog.service", "state": "PORT" },
+    { "domain": "CATALOG", "operation": "setAvailability", "method": "PATCH", "path": "/tenant/produtos/{produtoId}/disponibilidade", "authScope": "TENANT", "headers": ["Authorization", "Content-Type"], "request": "ProdutoDisponibilidadeRequest", "response": "ApiResponse<ProdutoResponse>", "errors": ["NOT_FOUND", "AUTHORIZATION"], "idempotency": "SEMANTIC", "backendHandler": "TenantProdutoController.alterarDisponibilidade", "frontendConsumer": "HISTORICAL_catalog.service", "state": "PORT" },
+    { "domain": "CATALOG", "operation": "listCategories", "method": "GET", "path": "/tenant/categorias-produto", "authScope": "TENANT", "headers": ["Authorization"], "request": "Pageable", "response": "ApiResponse<Page<CategoriaProdutoResponse>>", "errors": ["AUTHORIZATION"], "idempotency": "SAFE", "backendHandler": "TenantCategoriaProdutoController.listar", "frontendConsumer": "HISTORICAL_catalog.service", "state": "PORT" },
+    { "domain": "CATALOG", "operation": "createCategory", "method": "POST", "path": "/tenant/categorias-produto", "authScope": "TENANT", "headers": ["Authorization", "Content-Type"], "request": "CategoriaProdutoRequest", "response": "ApiResponse<CategoriaProdutoResponse>", "errors": ["VALIDATION", "AUTHORIZATION", "CONFLICT"], "idempotency": "NOT_SUPPORTED", "backendHandler": "TenantCategoriaProdutoController.criar", "frontendConsumer": "HISTORICAL_catalog.service", "state": "PORT" },
+    { "domain": "CATALOG", "operation": "publishMenu", "method": "POST", "path": "/tenant/cardapio/publicar", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<CardapioStatusResponse>", "errors": ["AUTHORIZATION", "CATALOG_NOT_ELIGIBLE"], "idempotency": "SEMANTIC", "backendHandler": "TenantCardapioController.publicar", "frontendConsumer": "HISTORICAL_catalog.service", "state": "PORT" },
+    { "domain": "CATALOG", "operation": "menuStatus", "method": "GET", "path": "/tenant/cardapio/status", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<CardapioStatusResponse>", "errors": ["AUTHORIZATION"], "idempotency": "SAFE", "backendHandler": "TenantCardapioController.status", "frontendConsumer": "HISTORICAL_catalog.service", "state": "PORT" },
+
+    { "domain": "PUBLIC_MENU", "operation": "resolveQr", "method": "GET", "path": "/public/q/{token}", "authScope": "NONE", "headers": [], "request": "none", "response": "ApiResponse<QrPublicContext>", "errors": ["QR_INVALID_OR_EXPIRED"], "idempotency": "SAFE", "backendHandler": "PublicQrController.resolver", "frontendConsumer": "qr.service", "state": "CANONICAL" },
+    { "domain": "PUBLIC_MENU", "operation": "publicMenu", "method": "GET", "path": "/public/q/{token}/cardapio", "authScope": "NONE", "headers": [], "request": "none", "response": "ApiResponse<PublicCardapioResponse>", "errors": ["QR_INVALID_OR_EXPIRED", "CATALOG_NOT_PUBLISHED"], "idempotency": "SAFE", "backendHandler": "PublicQrController.cardapio", "frontendConsumer": "publicMenu.service+qr.service", "state": "CANONICAL" },
+    { "domain": "PUBLIC_MENU", "operation": "paymentMethods", "method": "GET", "path": "/public/q/{token}/payment-methods", "authScope": "NONE", "headers": [], "request": "destination query", "response": "ApiResponse<List<AvailablePaymentMethodResponse>>", "errors": ["QR_INVALID_OR_EXPIRED", "MISSING_PARAMETER"], "idempotency": "SAFE", "backendHandler": "PublicQrController.paymentMethods", "frontendConsumer": "publicMenu.service", "state": "CANONICAL" },
+    { "domain": "PUBLIC_IDENTITY", "operation": "requestIdentityOtp", "method": "POST", "path": "/public/q/{token}/identificacao/otp/request", "authScope": "NONE", "headers": ["Content-Type"], "request": "PublicIdentificacaoOtpRequest", "response": "ApiResponse<PublicOtpChallengeResponse>", "errors": ["VALIDATION", "RATE_LIMIT_EXCEEDED", "QR_INVALID_OR_EXPIRED"], "idempotency": "RATE_LIMITED", "backendHandler": "PublicConsumoIdentificadoController.requestIdentifyOtp", "frontendConsumer": "HISTORICAL_publicMenu.service", "state": "PORT" },
+    { "domain": "PUBLIC_IDENTITY", "operation": "verifyIdentityOtp", "method": "POST", "path": "/public/q/{token}/identificacao/otp/verify", "authScope": "NONE", "headers": ["Content-Type"], "request": "PublicIdentificacaoOtpVerifyRequest", "response": "ApiResponse<PublicIdentificacaoOtpVerifyResponse>", "errors": ["OTP_INVALID", "OTP_EXPIRED", "OTP_ATTEMPTS_EXHAUSTED"], "idempotency": "ONE_TIME_CHALLENGE", "backendHandler": "PublicConsumoIdentificadoController.verifyIdentifyOtp", "frontendConsumer": "HISTORICAL_publicMenu.service", "state": "PORT" },
+    { "domain": "PUBLIC_IDENTITY", "operation": "requestRecoveryOtp", "method": "POST", "path": "/public/q/{token}/recuperar/otp/request", "authScope": "NONE", "headers": ["Content-Type"], "request": "PublicRecuperacaoOtpRequest", "response": "ApiResponse<PublicOtpChallengeResponse>", "errors": ["VALIDATION", "RATE_LIMIT_EXCEEDED", "QR_INVALID_OR_EXPIRED"], "idempotency": "RATE_LIMITED", "backendHandler": "PublicConsumoIdentificadoController.requestRecoveryOtp", "frontendConsumer": "HISTORICAL_publicMenu.service", "state": "PORT" },
+    { "domain": "PUBLIC_IDENTITY", "operation": "verifyRecoveryOtp", "method": "POST", "path": "/public/q/{token}/recuperar/otp/verify", "authScope": "NONE", "headers": ["Content-Type"], "request": "PublicRecuperacaoOtpVerifyRequest", "response": "ApiResponse<PublicRecuperacaoOtpVerifyResponse>", "errors": ["OTP_INVALID", "OTP_EXPIRED", "OTP_ATTEMPTS_EXHAUSTED"], "idempotency": "ONE_TIME_CHALLENGE", "backendHandler": "PublicConsumoIdentificadoController.verifyRecoveryOtp", "frontendConsumer": "HISTORICAL_publicMenu.service", "state": "PORT" },
+
+    { "domain": "ORDERS", "operation": "createPublicOrder", "method": "POST", "path": "/public/q/{token}/pedidos", "authScope": "NONE", "headers": ["Content-Type", "Idempotency-Key"], "request": "PublicQrPedidoRequest", "response": "ApiResponse<PublicQrPedidoResponse>", "errors": ["IDEMPOTENCY_REQUIRED", "IDEMPOTENCY_CONFLICT", "TURNO_ABERTO_OBRIGATORIO", "QR_INVALID_OR_EXPIRED"], "idempotency": "REQUIRED_REPLAY_SAME_RESPONSE", "backendHandler": "PublicQrController.criarPedido", "frontendConsumer": "publicMenu.service", "state": "CANONICAL" },
+    { "domain": "ORDERS", "operation": "getPublicOrder", "method": "GET", "path": "/public/q/{token}/pedidos/{pedidoId}", "authScope": "NONE", "headers": [], "request": "none", "response": "ApiResponse<PublicQrPedidoResponse>", "errors": ["NOT_FOUND", "QR_TENANT_MISMATCH"], "idempotency": "SAFE", "backendHandler": "PublicQrController.consultarPedido", "frontendConsumer": "publicMenu.service", "state": "CANONICAL" },
+    { "domain": "ORDERS", "operation": "listTenantOrders", "method": "GET", "path": "/tenant/pedidos", "authScope": "TENANT", "headers": ["Authorization"], "request": "filters+Pageable", "response": "ApiResponse<Page<TenantPedidoResumoResponse>>", "errors": ["AUTHORIZATION"], "idempotency": "SAFE", "backendHandler": "TenantPedidoController.listar", "frontendConsumer": "HISTORICAL_orders.service", "state": "PORT" },
+    { "domain": "ORDERS", "operation": "getTenantOrder", "method": "GET", "path": "/tenant/pedidos/{pedidoId}", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<TenantPedidoDetalheResponse>", "errors": ["NOT_FOUND", "AUTHORIZATION"], "idempotency": "SAFE", "backendHandler": "TenantPedidoController.detalhar", "frontendConsumer": "HISTORICAL_orders.service", "state": "PORT" },
+    { "domain": "ORDERS", "operation": "acceptOrder", "method": "PATCH", "path": "/tenant/pedidos/{pedidoId}/aceitar", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<TenantPedidoDetalheResponse>", "errors": ["NOT_FOUND", "ORDER_STATE_CONFLICT", "TURNO_ABERTO_OBRIGATORIO"], "idempotency": "STATE_GUARD_ONLY", "backendHandler": "TenantPedidoController.aceitar", "frontendConsumer": "HISTORICAL_orders.service", "state": "PORT" },
+    { "domain": "ORDERS", "operation": "rejectOrder", "method": "PATCH", "path": "/tenant/pedidos/{pedidoId}/rejeitar", "authScope": "TENANT", "headers": ["Authorization", "Content-Type"], "request": "RejeitarPedidoRequest", "response": "ApiResponse<TenantPedidoDetalheResponse>", "errors": ["NOT_FOUND", "ORDER_STATE_CONFLICT"], "idempotency": "STATE_GUARD_ONLY", "backendHandler": "TenantPedidoController.rejeitar", "frontendConsumer": "HISTORICAL_orders.service", "state": "PORT" },
+    { "domain": "FULFILMENT", "operation": "transitionOrder", "method": "PATCH", "path": "/tenant/pedidos/{pedidoId}/status", "authScope": "TENANT", "headers": ["Authorization", "Content-Type"], "request": "AtualizarStatusPedidoRequest", "response": "ApiResponse<TenantPedidoDetalheResponse>", "errors": ["ORDER_STATE_CONFLICT", "ACTION_NOT_ALLOWED"], "idempotency": "STATE_GUARD_ONLY", "backendHandler": "TenantPedidoController.atualizarStatus", "frontendConsumer": "HISTORICAL_orders.service", "state": "PORT" },
+    { "domain": "FULFILMENT", "operation": "deliverOrder", "method": "PATCH", "path": "/tenant/pedidos/{pedidoId}/entregar", "authScope": "TENANT", "headers": ["Authorization"], "request": "none", "response": "ApiResponse<TenantPedidoDetalheResponse>", "errors": ["PAYMENT_REQUIRED", "ACTION_NOT_ALLOWED"], "idempotency": "STATE_GUARD_ONLY", "backendHandler": "TenantPedidoController.entregar", "frontendConsumer": "HISTORICAL_orders.service", "state": "PORT" },
+
+    { "domain": "PAYMENTS", "operation": "createManualPaymentOrder", "method": "POST", "path": "/public/q/{token}/pedidos/{pedidoId}/ordens-pagamento-manual", "authScope": "NONE", "headers": ["Content-Type"], "request": "PublicCriarOrdemPagamentoManualPedidoRequest", "response": "ApiResponse<OrdemPagamentoResponse>", "errors": ["ORDER_NOT_ACCEPTED", "ACTION_NOT_ALLOWED", "TURNO_ABERTO_OBRIGATORIO"], "idempotency": "NOT_SUPPORTED_GAP_CG_07", "backendHandler": "PublicQrConsumoController.criarOrdemPedidoManual", "frontendConsumer": "publicMenu.service", "state": "CANONICAL_WITH_GAP" },
+    { "domain": "PAYMENTS", "operation": "startPublicPayment", "method": "POST", "path": "/public/q/{token}/pedidos/{pedidoId}/pagamentos", "authScope": "NONE", "headers": ["Content-Type", "Idempotency-Key"], "request": "PublicQrPagamentoRequest", "response": "ApiResponse<PublicQrPagamentoResponse>", "errors": ["ORDER_NOT_ACCEPTED", "ACTION_NOT_ALLOWED", "IDEMPOTENCY_REQUIRED", "IDEMPOTENCY_CONFLICT"], "idempotency": "REQUIRED_REPLAY_SAME_RESPONSE", "backendHandler": "PublicQrController.iniciarPagamento", "frontendConsumer": "publicMenu.service", "state": "CANONICAL" },
+    { "domain": "PAYMENTS", "operation": "paymentOrderStatus", "method": "GET", "path": "/public/ordens-pagamento/{token}/status", "authScope": "NONE", "headers": [], "request": "none", "response": "ApiResponse<PublicOrdemPagamentoStatusResponse>", "errors": ["NOT_FOUND", "TOKEN_EXPIRED"], "idempotency": "SAFE", "backendHandler": "PublicOrdemPagamentoController.status", "frontendConsumer": "publicMenu.service", "state": "CANONICAL" },
+    { "domain": "PAYMENTS", "operation": "confirmManualPayment", "method": "PATCH", "path": "/tenant/pedidos/{pedidoId}/payment-order/confirm", "authScope": "TENANT", "headers": ["Authorization", "Content-Type"], "request": "ConfirmarOrdemPagamentoRequest", "response": "ApiResponse<TenantPedidoDetalheResponse>", "errors": ["ACTION_NOT_ALLOWED", "PAYMENT_ORDER_NOT_FOUND", "PAYMENT_ORDER_EXPIRED"], "idempotency": "STATE_GUARD_ONLY", "backendHandler": "TenantPedidoController.confirmarOrdemPagamento", "frontendConsumer": "HISTORICAL_orders.service", "state": "PORT" },
+    { "domain": "PAYMENTS", "operation": "gatewayWebhook", "method": "POST", "path": "/pagamentos/webhook", "authScope": "NONE", "headers": ["Content-Type", "X-AppyPay-Signature"], "request": "PagamentoCallbackRequest", "response": "ApiResponse<Void>", "errors": ["INVALID_SIGNATURE"], "idempotency": "PROVIDER_REFERENCE", "backendHandler": "PagamentoCallbackController.webhook", "frontendConsumer": "NONE_EXPECTED", "state": "CANONICAL" },
+
+    { "domain": "DEVICES", "operation": "listDevices", "method": "GET", "path": "/tenant/dispositivos", "authScope": "TENANT", "headers": ["Authorization"], "request": "Pageable", "response": "ApiResponse<Page<DispositivoOperacionalResponse>>", "errors": ["AUTHORIZATION"], "idempotency": "SAFE", "backendHandler": "TenantDispositivoOperacionalController.listar", "frontendConsumer": "device.service", "state": "CANONICAL_OPTIONAL" },
+    { "domain": "DOCUMENTS", "operation": "listInternalDocuments", "method": "GET", "path": "/tenant/fiscal/documents", "authScope": "TENANT", "headers": ["Authorization"], "request": "status+Pageable", "response": "ApiResponse<Page<FiscalDocumentResponse>>", "errors": ["AUTHORIZATION"], "idempotency": "SAFE", "backendHandler": "TenantFiscalController.listDocuments", "frontendConsumer": "HISTORICAL_fiscal.service", "state": "TECHNICAL_INTERNAL_NOT_OFFICIAL" }
+  ],
+  "errors": [
+    { "code": "TURNO_ABERTO_OBRIGATORIO", "httpStatus": 409, "condition": "Order mutation requires an open shift", "retryable": true, "uiAction": "Open a shift", "source": "TurnoObrigatorioException" },
+    { "code": "TENANT_TOKEN_STALE", "httpStatus": 401, "condition": "Tenant accessVersion changed", "retryable": true, "uiAction": "Discard tenant JWT and reselect business", "source": "JwtAuthenticationFilter" },
+    { "code": "RATE_LIMIT_EXCEEDED", "httpStatus": 429, "condition": "OTP/request rate exceeded", "retryable": true, "uiAction": "Wait before retry", "source": "GlobalExceptionHandler" },
+    { "code": "DEVICE_UNAUTHORIZED", "httpStatus": 401, "condition": "Invalid device credentials", "retryable": false, "uiAction": "Pair device again", "source": "device security handlers" },
+    { "code": "DEVICE_FORBIDDEN", "httpStatus": 403, "condition": "Device lacks permission", "retryable": false, "uiAction": "Contact administrator", "source": "device security handlers" },
+    { "code": "OPTIMISTIC_VERSION_CONFLICT", "httpStatus": 409, "condition": "Concurrent update", "retryable": true, "uiAction": "Reload state", "source": "GlobalExceptionHandler" },
+    { "code": "MISSING_PARAMETER", "httpStatus": 400, "condition": "Required query parameter missing", "retryable": false, "uiAction": "Correct request", "source": "GlobalExceptionHandler" },
+    { "code": "MISSING_HEADER", "httpStatus": 400, "condition": "Required header missing", "retryable": false, "uiAction": "Correct request", "source": "GlobalExceptionHandler" }
+  ],
+  "states": {
+    "pedido": ["CRIADO", "EM_ANDAMENTO", "FINALIZADO", "CANCELADO"],
+    "subPedido": ["CRIADO", "PENDENTE", "EM_PREPARACAO", "PRONTO", "ENTREGUE", "CANCELADO"],
+    "financeiro": ["NAO_PAGO", "PENDENTE_PAGAMENTO", "PAGO", "ESTORNADO"],
+    "pagamento": ["PENDENTE", "PROCESSANDO", "APROVADO", "RECUSADO", "CANCELADO", "ESTORNADO"],
+    "pagamentoGateway": ["PENDENTE", "CONFIRMADO", "FALHOU", "ESTORNADO"],
+    "turno": ["ABERTO", "EM_FECHO", "FECHADO", "CANCELADO"]
+  },
+  "transitions": [
+    { "entity": "Pedido", "from": "CRIADO", "event": "ACCEPT_ORDER", "actor": ["TENANT_OWNER", "TENANT_ADMIN", "TENANT_OPERATOR", "TENANT_CASHIER"], "precondition": "open shift when policy requires; all suborders CRIADO", "to": "EM_ANDAMENTO", "sideEffect": "suborders become PENDENTE; guarantee one payment order", "endpoint": "PATCH /tenant/pedidos/{pedidoId}/aceitar", "allowedAction": "ACCEPT_ORDER" },
+    { "entity": "Pedido", "from": "CRIADO", "event": "REJECT_ORDER", "actor": ["TENANT_OWNER", "TENANT_ADMIN", "TENANT_OPERATOR", "TENANT_CASHIER"], "precondition": "REJECT_ORDER allowed", "to": "CANCELADO", "sideEffect": "No payment order may be created", "endpoint": "PATCH /tenant/pedidos/{pedidoId}/rejeitar", "allowedAction": "REJECT_ORDER" },
+    { "entity": "SubPedido", "from": "PENDENTE", "event": "START_PREPARATION", "actor": ["TENANT_OWNER", "TENANT_ADMIN", "TENANT_OPERATOR", "TENANT_CASHIER"], "precondition": "Production capability or PONTO direct-flow policy", "to": "EM_PREPARACAO", "sideEffect": "operational state only", "endpoint": "PATCH /tenant/pedidos/{pedidoId}/status", "allowedAction": "START_PREPARATION" },
+    { "entity": "SubPedido", "from": "EM_PREPARACAO", "event": "MARK_READY", "actor": ["TENANT_OWNER", "TENANT_ADMIN", "TENANT_OPERATOR", "TENANT_CASHIER"], "precondition": "preparation active", "to": "PRONTO", "sideEffect": "ready notification when configured", "endpoint": "PATCH /tenant/pedidos/{pedidoId}/status", "allowedAction": "MARK_READY" },
+    { "entity": "SubPedido", "from": "PENDENTE|PRONTO", "event": "MARK_DELIVERED", "actor": ["TENANT_OWNER", "TENANT_ADMIN", "TENANT_OPERATOR", "TENANT_CASHIER"], "precondition": "pedido finance status PAGO; allowedActions contains MARK_DELIVERED", "to": "ENTREGUE", "sideEffect": "Pedido becomes FINALIZADO when all suborders terminal", "endpoint": "PATCH /tenant/pedidos/{pedidoId}/entregar", "allowedAction": "MARK_DELIVERED" },
+    { "entity": "TurnoOperacional", "from": "ABERTO", "event": "BEGIN_CLOSE", "actor": ["TENANT_OWNER", "TENANT_ADMIN", "TENANT_OPERATOR", "TENANT_CASHIER"], "precondition": "current open shift", "to": "EM_FECHO", "sideEffect": "sales gate/revalidation applies", "endpoint": "POST /tenant/operacao/turnos/{turnoId}/iniciar-fecho", "allowedAction": "SERVER_POLICY" },
+    { "entity": "TurnoOperacional", "from": "EM_FECHO", "event": "CLOSE", "actor": ["TENANT_OWNER", "TENANT_ADMIN", "TENANT_OPERATOR", "TENANT_CASHIER"], "precondition": "pre-close blockers cleared", "to": "FECHADO", "sideEffect": "close snapshot retained", "endpoint": "POST /tenant/operacao/turnos/{turnoId}/fechar", "allowedAction": "SERVER_POLICY" }
+  ],
+  "idempotency": {
+    "publicOrder": { "required": true, "scope": "tenant+QR+key", "replay": "same response", "conflict": "same key with different fingerprint is 409", "source": "PublicQrOrderIdempotencyService" },
+    "publicPayment": { "required": true, "scope": "tenant+order+key", "replay": "same response", "conflict": "same key with different fingerprint is 409", "source": "PublicQrPaymentIdempotencyService" },
+    "acceptance": { "required": false, "behavior": "state guard; replay conflicts", "gap": "No request key or response replay in base" },
+    "paymentOrderInvariant": "A payment order MUST NOT exist before a valid order acceptance. Acceptance guarantees at most one order.",
+    "webhook": { "required": false, "behavior": "provider reference/signature deduplication" }
+  },
+  "allowedActions": ["ACCEPT_ORDER", "REJECT_ORDER", "CANCEL_ORDER", "CONFIRM_PAYMENT", "VIEW_PAYMENT", "VIEW_EXTRACT", "START_PREPARATION", "MARK_READY", "MARK_DELIVERED"],
+  "providerReadiness": {
+    "otp": "MOCK_OR_UNKNOWN_PRODUCTION_CONFIGURATION",
+    "gateway": "MOCK_BY_DEFAULT_NOT_REAL_CONFIRMED",
+    "officialFiscal": "NOT_DETERMINED; DisabledOfficialFiscalClient and FakeOfficialFiscalSigningService exist",
+    "firstMvpPromise": "COMPROVATIVO_TECNICO_INTERNO_ONLY"
+  },
+  "legacyContracts": [
+    "lowercase authScope in historical UI",
+    "/select-tenant legacy route",
+    "manual X-Tenant-Id/X-Tenant-Code/X-Business-Id context",
+    "frontend-local orderStatus transition authority",
+    "/public/consumo-anonimo REST/table family",
+    "/app/* historical operational routes without /app/ponto namespace"
+  ],
+  "deprecatedContracts": [
+    { "name": "historical tenant operations client", "replacement": "current scoped HTTP client plus this manifest", "removeInStep": 4 },
+    { "name": "payment before accepted order affordance", "replacement": "backend allowedActions", "removeInStep": 6 },
+    { "name": "REST exposure in first RC selector", "replacement": "HIDE_OR_DISABLE_IN_RC", "removeInStep": 10 }
+  ],
+  "contractGaps": [
+    { "id": "CG-01", "domain": "WORKSPACE", "description": "Current /app/ponto is a minimal entry and operational modules remain historical.", "ownerStep": 4 },
+    { "id": "CG-02", "domain": "PUBLIC_IDENTITY", "description": "Current public UI does not integrate the confirmed OTP/recovery handlers.", "ownerStep": 5 },
+    { "id": "CG-03", "domain": "ORDER_PAYMENT", "description": "Current public UI may expose payment without consuming backend allowedActions/acceptance gate.", "ownerStep": 6 },
+    { "id": "CG-04", "domain": "PDV", "description": "Idempotent tenant PDV creation exists only on post-base backend branches and cannot be canonical at this base.", "ownerStep": 4 },
+    { "id": "CG-05", "domain": "ERRORS", "description": "Error code taxonomy is not consistently emitted across security and domain errors.", "ownerStep": 6 },
+    { "id": "CG-06", "domain": "OBSERVABILITY", "description": "X-Correlation-Id is not consistently generated, returned and logged on MVP operations.", "ownerStep": 9 },
+    { "id": "CG-07", "domain": "IDEMPOTENCY", "description": "Accept, manual confirmation and shift close use state guards but lack replayable command idempotency.", "ownerStep": 6 },
+    { "id": "CG-08", "domain": "EXTERNALS", "description": "OTP, gateway and official fiscal providers are not production-confirmed.", "ownerStep": 8 },
+    { "id": "CG-09", "domain": "RUNTIME_FIXTURE", "description": "Official sandbox demo seed aborts while creating an order because no shift is open; PONTO smoke cannot be bootstrapped without manual data.", "ownerStep": 3 },
+    { "id": "CG-10", "domain": "TEST_RUNTIME", "description": "Failsafe completes tests with zero failures/errors but the fork is killed after its 30-second shutdown timeout due to live Ryuk/Hikari/MessageBroker threads.", "ownerStep": 3 }
+  ]
+}

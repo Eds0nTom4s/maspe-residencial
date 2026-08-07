@@ -22,7 +22,7 @@ import org.springframework.test.context.ActiveProfiles;
 class AndroidPublicIdentityMigrationPostgresIT extends PostgresTestcontainersConfig {
 
     private static final MigrationVersion PREVIOUS = MigrationVersion.fromVersion("20260722.01");
-    private static final String CURRENT = "20260806.01";
+    private static final String CURRENT = "20260807.01";
 
     @Autowired DataSource dataSource;
     @Autowired DataSourceProperties dataSourceProperties;
@@ -36,7 +36,7 @@ class AndroidPublicIdentityMigrationPostgresIT extends PostgresTestcontainersCon
             ExistingRows rows = insertExistingRows(jdbc);
 
             var migration = flyway(migrationDataSource, null).migrate();
-            assertThat(migration.migrationsExecuted).isEqualTo(1);
+            assertThat(migration.migrationsExecuted).isEqualTo(2);
             assertBackfilled(jdbc);
             assertConstraintsAndIndexes(jdbc);
 

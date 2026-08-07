@@ -50,7 +50,7 @@ class PlatformOnboardingCanonicalMigrationPostgresIT extends PostgresTestcontain
                         """, "Legacy " + i, "Legacy business " + i, states.get(i));
             }
 
-            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isEqualTo(3);
+            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isEqualTo(4);
             assertThat(jdbc.queryForList("select status from onboarding_requests order by id", String.class))
                     .containsExactlyElementsOf(states);
             assertThat(jdbc.queryForObject("""
@@ -67,6 +67,9 @@ class PlatformOnboardingCanonicalMigrationPostgresIT extends PostgresTestcontain
                     """, Long.class)).isEqualTo(1);
             assertThat(jdbc.queryForObject("""
                     select count(*) from flyway_schema_history where version = '20260806.01' and success = true
+                    """, Long.class)).isEqualTo(1);
+            assertThat(jdbc.queryForObject("""
+                    select count(*) from flyway_schema_history where version = '20260807.01' and success = true
                     """, Long.class)).isEqualTo(1);
             assertThat(jdbc.queryForObject("""
                     select count(*) from information_schema.columns

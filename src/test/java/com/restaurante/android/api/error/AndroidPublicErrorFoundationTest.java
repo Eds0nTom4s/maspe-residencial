@@ -48,7 +48,7 @@ class AndroidPublicErrorFoundationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(response.getBody()).isNotNull();
         AndroidPublicError error = response.getBody().error();
-        assertThat(error.code()).isEqualTo("INTERNAL_ERROR");
+        assertThat(error.code()).isEqualTo("UNKNOWN");
         assertThat(error.message()).isEqualTo("Não foi possível processar o pedido.");
         assertThat(error.message()).doesNotContain("select", "tenant_id", "stack", "secret");
         assertThat(error.traceId()).isEqualTo("request-safe-1");

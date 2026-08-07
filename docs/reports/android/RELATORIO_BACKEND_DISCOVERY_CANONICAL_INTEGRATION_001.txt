@@ -1,0 +1,235 @@
+RELATORIO_BACKEND_DISCOVERY_CANONICAL_INTEGRATION_001
+====================================================
+
+1. IDENTIFICACAO
+----------------
+Fase: BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001
+Posicao: passo 2 de 11 da sequencia Android Backend.
+Repositorio: Eds0nTom4s/maspe-residencial.
+Branch: backend/discovery-canonical-integration-001.
+Worktree isolado: /tmp/consuma-backend-discovery-canonical-integration-001.
+Tipo: reimplementacao selectiva da Discovery publica canonica.
+
+2. BASES
+--------
+Base exacta: 723307d8a3105fbc7afbfd823289b64a5288b6ad
+Main ancestral: 124bb92fff9e599a102b6f174390e90ec1069c09
+Schema de entrada: 20260806.01
+Contrato Android: CONSUMA_AQUI_ANDROID_V1 1.0.0-rc.2
+Contrato PONTO: CONSUMA_PONTO_MVP_V1 1.0.0
+Os SHAs remotos foram confirmados apos git fetch origin --prune. A branch nasceu da
+foundation, nao da main. Worktrees anteriores e Android nao foram alterados.
+
+3. DIVERGENCIA HISTORICA
+------------------------
+Branch: origin/backend/discovery-api-001
+HEAD: b979d2ead1d6663af5955c55d54bdae6861832bc
+Merge-base: 4568d1ddeb712a80ca3939f9a332e94db52cff3e
+Commits exclusivos historicos: 2 (13a61ef, b979d2e).
+Commits da foundation depois do merge-base: 15.
+Merge: NAO. Cherry-pick: NAO. Checkout integral de ficheiros: NAO.
+
+4. COMMIT MAP HISTORICO
+-----------------------
+13a61ef: implementacao, testes e 66 ficheiros/5143 linhas; fonte de ideias, nao de arquitectura.
+b979d2e: relatorio historico; evidencia documental apenas.
+
+5. ARTEFACTOS PORTADOS
+----------------------
+Foram recuperadas as ideias de separacao controller/service/repository, validacao explicita de
+query, projection de leitura, pagina deterministica e testes de publication/security. Nenhum
+ficheiro historico foi copiado integralmente. Os novos simbolos pertencem a
+com.restaurante.android.discovery e dependem da foundation Android actual.
+
+6. ARTEFACTOS REJEITADOS
+------------------------
+Foram rejeitados: InMemoryDiscoveryRepository e cenarios demo em runtime; slug como identidade;
+path singular /discovery/merchant/{id}; primeira unidade/localizacao; categorias derivadas de
+TenantTipo; dados fake de geo/rating/open/schedule; MoneyAmount e error envelope duplicados;
+SecurityConfig, JwtAuthenticationFilter e TenantContextFilter historicos.
+
+7. CONTRATO RC.2
+----------------
+O manifesto e OpenAPI congelados nao foram alterados. Na main oficial continuam 3 endpoints
+HISTORICAL_BRANCH_ONLY e 6 NOT_IMPLEMENTED. Nesta branch existem 3
+IMPLEMENTED_ON_PHASE_BRANCH. A promocao oficial fica reservada ao sync controlado pos-merge.
+
+8. MERCHANT IDENTITY
+--------------------
+Merchant canonico: Tenant. Identidade: Tenant.merchantPublicId UUID v4 lowercase, imutavel e
+nao sequencial. O slug permanece MUTABLE_ALIAS e nao participa em lookup, tenant resolution,
+FK, cache ou ETag. Nenhuma entidade/tabela Merchant paralela foi criada.
+
+9. PUBLICATION
+--------------
+Migration V20260807_01 adiciona tenants.discovery_published BOOLEAN NOT NULL DEFAULT FALSE,
+backfill FALSE e indice parcial por nome/public UUID para os publicaveis activos. A policy exige
+opt-in explicito, Tenant ATIVO, cardapio publicado e nome wire-safe. Para Tenant canonico com
+BusinessAccount exige conta ATIVA e Subscricao ATIVA; preserva compatibilidade real com Tenant
+legacy sem BusinessAccount. Existe servico interno persistente de opt-in, sem novo endpoint
+administrativo. Estado operacional: DISCOVERY_PUBLICATION_MANAGEMENT_UI/API_PENDING.
+
+10. HOME
+--------
+GET /api/v1/discovery/home e publico. Aceita apenas latitude, longitude, municipality,
+categoryId, page, pageSize e sort. Paginacao: page=0, pageSize=20, max=100. Sem fonte de
+merchant category, geo, recomendacao ou featured, as quatro estruturas obrigatorias sao
+devolvidas vazias de acordo com a nullability RC.2. Nao se rotula NAME como recomendacao.
+
+11. SEARCH
+----------
+GET /api/v1/discovery/search consulta exclusivamente persistencia publicavel. Busca textual usa
+parametros JPQL escapados por nome/alias, trim e limite 100. Municipality usa
+TenantFiscalProfile merchant-level. Pagina alem do fim retorna items vazios. Ordenacao NAME:
+lower(nome), merchant_public_id ASC. categoryId, fulfillment e onlyOpen=true sao rejeitados por
+falta de fonte canonica.
+
+12. DETAIL
+----------
+GET /api/v1/discovery/merchants/{merchantId} usa exclusivamente UUID publico canonico. UUID
+inexistente, merchant opt-out, cardapio nao publicado, Tenant inelegivel ou conta inelegivel
+produzem o mesmo 404 MERCHANT_NOT_FOUND. Long, slug e UUID malformado produzem INVALID_REQUEST.
+Nao existe alias singular.
+
+13. CAPABILITIES
+----------------
+NAME: suportado. Municipality: suportado por TenantFiscalProfile. Publication/catalogAvailable:
+suportados por persistencia real. FEATURED, NEAREST, TOP_RATED, MOST_POPULAR, onlyOpen,
+fulfillment filter e merchant category: nao suportados e rejeitados quando pedidos.
+
+14. PAGINATION
+--------------
+Zero-based; defaults 0/20; pageSize 1..100; totalCount persistido; hasMore derivado de Page.
+Todos os resultados possuem order total estavel por nome e UUID publico.
+
+15. SORTING
+-----------
+NAME e o unico sort activo. Sorts reservados nunca fazem fallback silencioso e retornam 400
+SORT_NOT_SUPPORTED com fieldError /sort.
+
+16. UNSUPPORTED FEATURES
+------------------------
+Geography/distance, rating, popularity e weeklySchedule sao null/omitidos. Availability e
+UNKNOWN. fulfillmentOptions e vazio. featured=false representa factualmente ausencia de
+curadoria persistida. Nao existem placeholders nem valores inventados.
+
+17. CACHE
+---------
+Os tres endpoints usam Cache-Control: public, max-age=60, exactamente o RC.2. O cache nao usa
+slug, tenantId ou PK interna.
+
+18. ETAG
+--------
+ETag forte e o SHA-256 deterministico do JSON publico serializado. If-None-Match suporta lista,
+wildcard e weak comparison; match retorna 304 sem body. Mudanca de representacao muda o ETag.
+
+19. RATE LIMIT
+--------------
+Implementado fixed-window 180/min por remote address e operacao, configuravel, bounded a 10000
+chaves e sem dependencia nova. O header X-Forwarded-For nao e confiado pelo codigo da aplicacao,
+impedindo spoofing. O pedido 180 e permitido; o 181 retorna 429 RATE_LIMITED, retryable=true e
+Retry-After. Headers X-RateLimit-Limit/Remaining acompanham respostas. Em deployment horizontal,
+o limite e por instancia; centralizacao futura e risco operacional de escala, nao capability fake.
+
+20. ERRORS
+----------
+Um unico envelope: AndroidPublicErrorEnvelope/AndroidPublicError/AndroidPublicFieldError. Foram
+adicionados somente codes activos exigidos pela Discovery: SORT_NOT_SUPPORTED,
+MERCHANT_NOT_FOUND, RATE_LIMITED e UNKNOWN. Advice continua restrito a @AndroidPublicApiController.
+Nao ha stack, SQL, entidade ou IDs internos no wire.
+
+21. SECURITY
+------------
+SecurityConfig usa a allowlist compartilhada AndroidDiscoveryPublicPaths, que aceita somente GET
+home/search/detail plural com um segmento. /api/v1/** nao foi aberto. JWT e Tenant filters pulam
+somente esses paths exactos. GLOBAL/TENANT JWT e QR nao sao usados. /tenant/** continua protegido.
+
+22. TENANT ISOLATION
+--------------------
+O cliente nao envia tenant. X-Tenant-Id, X-Tenant-Code e X-Business-Id sao rejeitados com 400.
+Repository correlaciona cardapio/produtos/fiscal/subscricao ao mesmo Tenant. Detail parte do UUID
+publico canonico e da publication policy. Testes A/B/C/D provam que somente A aparece.
+
+23. MIGRATION
+-------------
+Versao: 20260807.01. Fresh DB, DB existente, backfill FALSE, NOT NULL/default, indice, restart e
+cadeia Flyway completa passaram em PostgreSQL 16 Testcontainers. SQL manual de producao: nenhum.
+Remediation forward: publicar somente por mecanismo interno/admin futuro depois de validar policy;
+em falha de rollout, manter todos FALSE, corrigir por nova migration versionada, nunca editar
+schema history nem executar rollback destrutivo.
+
+24. TESTS
+---------
+Compile: PASS.
+Surefire completa: 534 tests, 0 failures, 0 errors, 3 skipped.
+Failsafe completa: 346 tests, 0 failures, 0 errors, 0 skipped; exit code 0.
+Discovery: 16 tests novos (11 unit/contract + 5 PostgreSQL/runtime), todos PASS.
+Android contract: 9 PASS. PONTO contract explicito: 4 PASS.
+PublicQrPagamentoStartIT: 3 PASS. Foundation identity/money/error/migrations: PASS.
+Payment invariant: PASS; pedido nao aceite continua sem ordem de pagamento.
+
+25. RUNTIME
+-----------
+Runtime funcional testado no codigo 4e4cdda83f0aef2c17cb71449559e18a1bac8bb6, com PostgreSQL 16
+isolado e servidor web em porta aleatoria. Flyway 20260807.01, health UP, liveness CORRECT e
+readiness ACCEPTING_TRAFFIC. HTTP real home/search/detail=200, 304 sem body, unpublished=404,
+tenant override=400 e /tenant/produtos=401. Nenhum mock runtime.
+
+26. CG-09
+---------
+CG-09 (seed PONTO sem turno) permanece fora de escopo e nao foi alterado.
+
+27. CG-10
+---------
+Failsafe reportou a assinatura conhecida no shutdown: "Surefire is going to kill self fork JVM"
+depois de System.exit(0). O comando concluiu com exit code 0, 346/0/0/0. Sem agravamento.
+
+28. D-05
+--------
+Merchant->unidade permanece UNRESOLVED_BLOCKING para fulfillment/quote/order. Discovery nao
+consulta Unidade e nao usa findFirst/LIMIT 1/fallback. D-05 nao bloqueia os tres endpoints.
+
+29. DISCOVERY REMOTE ANDROID
+----------------------------
+Antes: BLOCKED_BY_BACKEND_CANONICAL_DISCOVERY.
+Depois desta branch: BACKEND_READY_ON_PHASE_BRANCH.
+Desbloqueio definitivo: merge controlado na main, main sem drift, gates pos-merge e sync oficial
+HISTORICAL_BRANCH_ONLY -> IMPLEMENTED. Android nao foi alterado.
+
+30. COMMITS
+-----------
+d34cc398cefb7efdeea5a801d5d11d7352cd2fd2 feat(backend): integra discovery publica canonica android
+4e4cdda83f0aef2c17cb71449559e18a1bac8bb6 test(backend): cobre discovery publica e isolamento tenant
+Commit documental: registado no HEAD final desta branch.
+
+31. DECISAO
+-----------
+Os tres endpoints canónicos estao implementados na branch sem merge/cherry-pick historico, sem
+fake capabilities, sem tenant/PK leak, sem unidade implicita e sem antecipar catalogo, quote,
+order ou payment. Riscos pendentes nao bloqueantes desta fase: UI/API de gestao do opt-in,
+centralizacao do rate-limit quando houver escala horizontal e D-05 para fases futuras.
+
+Decisao: DISCOVERY CANONICA APROVADA - PRONTA PARA MERGE CONTROLADO.
+
+MAPA DE PORT HISTORICO
+======================
+SOURCE PATH | SOURCE SYMBOL | COMMIT | DECISION | NEW PATH/SYMBOL | ADAPTATION | REASON | TEST
+platform/discovery/controller/DiscoveryController | controller | 13a61ef | REIMPLEMENT | android/discovery/controller/AndroidDiscoveryController | paths RC.2, UUID, cache/ETag/rate | controller antigo singular/no-store | CanonicalContract + PostgresIT
+platform/discovery/controller/DiscoveryPublicEndpoints | path predicates | 13a61ef | PORT_IDEA | AndroidDiscoveryPublicPaths | GET allowlist exacta plural | preservar abertura minima | ContractTest + RuntimeIT
+platform/discovery/service/DiscoveryService | boundary | 13a61ef | PORT_IDEA | AndroidDiscoveryService | DTO/policy foundation | separacao util | PostgresIT
+platform/discovery/service/DefaultDiscoveryService | orchestration | 13a61ef | REIMPLEMENT | AndroidDiscoveryService | sem demo/fake/fallback | semantica historica divergente | PostgresIT
+platform/discovery/repository/JpaDiscoveryReadRepository | projection query | 13a61ef | PORT_IDEA | AndroidDiscoveryReadRepository | UUID/publication/cardapio/account; sem unidade | evitar N+1 e leakage | PostgresIT
+platform/discovery/repository/PersistentDiscoveryRepository | adapter | 13a61ef | REIMPLEMENT | AndroidDiscoveryReadRepository | uma query canonica | antigo dependia de location/unit | PostgresIT
+platform/discovery/repository/MerchantPublicationPolicy | eligibility | 13a61ef | REIMPLEMENT | MerchantDiscoveryPublicationPolicy | opt-in FALSE e policy actual | policy antiga escolhia location | PublicationMigrationIT/PostgresIT
+platform/discovery/validation/DiscoveryRequestValidator | values | 13a61ef | PORT_IDEA | AndroidDiscoveryRequestValidator | parametros RC.2/capability errors | disciplina valida | ValidatorTest
+platform/discovery/validation/DiscoveryHttpParameterValidator | shape | 13a61ef | PORT_SYMBOL | AndroidDiscoveryRequestValidator.validateParameterShape | unknown/repeated exactos | comportamento reaproveitavel | ValidatorTest
+platform/discovery/mapper/DiscoveryDtoMapper | wire mapping | 13a61ef | REIMPLEMENT | Android DTO records/service summary | foundation errors/UUID/nullability | DTO antigo divergia | ContractTest
+platform/discovery/mapper/PersistentDiscoveryMapper | persistence mapping | 13a61ef | REIMPLEMENT | repository projection + summary | sem unit/location/fake | D-05 | PostgresIT
+platform/discovery/repository/InMemoryDiscoveryRepository | runtime demo | 13a61ef | DROP | nenhum | nao portado | mocks proibidos | RuntimeIT
+platform/discovery/dto/DiscoveryErrorResponse | error wire | 13a61ef | DROP | AndroidPublicErrorEnvelope | envelope unico | duplicacao incompatível | ErrorFoundationTest
+platform/discovery/domain/MoneyAmount | money wire | 13a61ef | DROP | AndroidMoneyAmount foundation | nenhuma money em Discovery actual | duplicacao | Foundation tests
+config/SecurityConfig | historical permit | 13a61ef | DROP | SecurityConfig actual + AndroidDiscoveryPublicPaths | alteracao minima actual | config historica divergente | RuntimeIT
+security/JwtAuthenticationFilter | historical bypass | 13a61ef | DROP | filtro actual com predicate exacto | nao restaurado | hardening actual | RuntimeIT
+security/tenant/TenantContextFilter | historical bypass | 13a61ef | DROP | filtro actual com predicate exacto | nao restaurado | hardening actual | RuntimeIT
+/api/v1/discovery/merchant/{id} | singular endpoint | 13a61ef | DEPRECATE | nenhum alias | RC.2 plural apenas | D-07 SEM ALIAS | ContractTest
+b979d2e docs/reports/backend/RELATORIO_BACKEND_DISCOVERY_API_001.txt | relatorio | b979d2e | PORT_IDEA | este relatorio | evidencia reconciliada | nao e fonte arquitectural | review documental

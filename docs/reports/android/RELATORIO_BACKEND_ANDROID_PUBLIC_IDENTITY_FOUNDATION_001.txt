@@ -1,0 +1,277 @@
+RELATORIO_BACKEND_ANDROID_PUBLIC_IDENTITY_FOUNDATION_001
+=======================================================
+
+1. BASES
+--------
+
+Fase: BACKEND-ANDROID-PUBLIC-IDENTITY-FOUNDATION-001 (passo 1 de 11)
+Repositorio: Eds0nTom4s/maspe-residencial
+Main de referencia: 124bb92fff9e599a102b6f174390e90ec1069c09
+Base contratual: 202494c97761504f79a9d9dc10adda2bb0a3f6bb
+Branch: backend/android-public-identity-foundation-001
+Worktree: /tmp/consuma-backend-android-public-identity-foundation-001
+
+As duas referencias remotas foram verificadas depois de `git fetch origin --prune` e
+coincidiram byte a byte com os SHAs exigidos. A main e ancestral da base contratual.
+Nenhum worktree anterior e nenhum repositorio Android foi alterado.
+
+2. CONTRATOS
+------------
+
+Contrato Android: CONSUMA_AQUI_ANDROID_V1, versao 1.0.0-rc.2, preservado sem
+alteracao do manifesto ou OpenAPI. Esta fase nao implementa operacoes HTTP, logo
+os nove estados permanecem: IMPLEMENTED=0, PARTIAL=0,
+HISTORICAL_BRANCH_ONLY=3, NOT_IMPLEMENTED=6.
+
+Contrato PONTO: CONTRATO_CONSUMA_PONTO_MVP_V1 preservado. A foundation nao
+alterou Pedido, OrdemPagamento ou o guard financeiro alem de acrescentar um UUID
+opaco ao Pedido. A invariante compartilhada permanece:
+
+    PEDIDO NAO ACEITE -> NAO EXISTE ORDEM DE PAGAMENTO.
+
+3. INVENTARIO DE ENTIDADES
+--------------------------
+
+ENTITY                 TABLE                         PK      TENANT COLUMN/DERIVATION       CURRENT PUBLIC IDENTIFIER       UNIQUE/MUTABLE                  EXPOSED TODAY       ANDROID NEED   ACTION
+Tenant                 tenants                       Long    proprio tenant                 merchant_public_id UUID         global unique / immutable       slug legacy         merchant       IMPLEMENTED
+BusinessAccount        business_accounts             Long    owner de varios tenants       nenhum                            n/a                              interno             nao            KEEP_INTERNAL
+Instituicao            instituicoes                  Long    tenant_id                      nenhum                            n/a                              interno             nao            KEEP_INTERNAL
+UnidadeAtendimento     unidades_atendimento          Long    via instituicao.tenant_id      nenhum                            n/a                              interno             futuro policy  DEFER D-05
+Produto                produtos                      Long    tenant_id                      public_id UUID                   global unique / immutable       Long interno        product        IMPLEMENTED
+CategoriaProduto       categoria_produtos            Long    tenant_id                      public_id UUID                   global unique / immutable       Long interno        category       IMPLEMENTED
+ProdutoImagem          produto_imagens               Long    tenant_id                      nenhum                            n/a                              interno             nao direto     KEEP_INTERNAL
+Pedido                 pedidos                       Long    tenant_id                      public_id UUID                   global unique / immutable       numero/Long interno order          IMPLEMENTED
+SubPedido              sub_pedidos                   Long    tenant_id                      nenhum                            n/a                              interno             nao            KEEP_INTERNAL
+ItemPedido             itens_pedido                  Long    tenant_id                      nenhum                            n/a                              interno             nao            KEEP_INTERNAL
+TenantCardapioConfig   tenant_cardapio_configs       Long    tenant_id                      nenhum                            um por tenant                     interno             catalog        DEFER
+VariacaoProduto        variacoes_produto             Long    via produto/tenant             nenhum                            n/a                              Store legacy        options        DO NOT MAP
+
+4. MERCHANT IDENTITY
+--------------------
+
+Merchant canonico: Tenant.
+
+Evidencia:
+- Tenant contem nome comercial, slug, tipo e estado de publicacao/operacao;
+- produtos, categorias e TenantCardapioConfig sao tenant-scoped;
+- BusinessAccount representa ownership e pode possuir varios tenants;
+- Instituicao e UnidadeAtendimento representam estrutura operacional;
+- a escolha de Unidade pertence a fulfillment e nao a identidade publica.
+
+Esta decisao preserva 1 BusinessAccount -> N Tenants e permite que um merchant
+futuro mapeie explicitamente para uma ou varias unidades. Nao foi criada relacao
+merchant->unit nem fallback `first`.
+
+Entidade: Tenant
+Tabela: tenants
+Coluna: merchant_public_id uuid NOT NULL DEFAULT gen_random_uuid()
+Wire: UUID v4 lowercase canonico, 36 caracteres
+Geracao: Java `UUID.randomUUID()` em @PrePersist e PostgreSQL default
+Backfill: `gen_random_uuid()` para registos existentes
+Unicidade: constraint global uq_tenants_merchant_public_id
+Imutabilidade: sem setter, `updatable=false` e trigger PostgreSQL
+Indice: indice unique criado pela constraint
+
+Merchant slug: preservado como MUTABLE_ALIAS. Nao e FK nem identidade Android.
+
+5. PUBLIC IDS
+-------------
+
+Produto, CategoriaProduto e Pedido receberam `public_id uuid` com a mesma
+disciplina de geracao, backfill, NOT NULL, unique global por agregado e trigger
+de imutabilidade. PKs e FKs bigint internas foram preservadas.
+
+Lookups operacionais:
+- ProdutoRepository.findByTenantIdAndPublicId
+- CategoriaProdutoRepository.findByTenantIdAndPublicId
+- PedidoRepository.findByTenantIdAndPublicId
+- TenantRepository.findByMerchantPublicId
+
+Foi adicionada uma FK composta de produtos(tenant_id, categoria_produto_id) para
+categoria_produtos(tenant_id, id). Assim, um produto nao pode referenciar uma
+categoria de outro tenant nem por SQL directo.
+
+Catalog public ID: DEFERRED_TO_PUBLIC_CATALOG_PHASE. TenantCardapioConfig e
+configuracao/publicacao um-para-um, nao um agregado completo de catalogo. Nao foi
+criada entidade artificial. Responsavel: BACKEND-ANDROID-PUBLIC-CATALOG-001.
+
+Pedido public ID: IMPLEMENTED nesta fase; nao altera numero, origem, estados ou
+endpoint. Options public IDs: DEFERRED_TO_PRODUCT_OPTIONS_CANONICAL. A entidade
+VariacaoProduto nao foi mascarada como optionGroup/option.
+
+6. MIGRATION
+------------
+
+Arquivo: V20260806_01__android_public_identity_foundation.sql
+Versao Flyway: 20260806.01
+PostgreSQL auditado/testado: 16-alpine; `gen_random_uuid()` nativo, nenhuma
+extensao ou dependencia nova.
+
+Sequencia executada por agregado: coluna nullable, backfill, verificacao de
+duplicados, default, NOT NULL, unique, indices tenant-aware e triggers de
+imutabilidade. A migration e transaccional em PostgreSQL e usa guards nos
+artefactos DDL coerentes com a politica existente do projecto.
+
+Teste de base existente: 2 tenants, 2 categorias, 2 produtos e 2 pedidos antigos,
+total de 8 registos backfilled. Resultado: 0 null e 0 duplicados. Teste de base
+vazia: cadeia completa aplicada. Segundo arranque: 0 migrations reaplicadas.
+
+Rollback/forward remediation:
+- antes do commit Flyway, a transaccao aborta integralmente;
+- depois de aplicada, nao remover UUIDs nem executar SQL manual fora do Flyway;
+- a aplicacao anterior tolera as colunas adicionais, permitindo rollback de
+  binario com schema forward-compatible;
+- qualquer correcao de constraint/backfill deve ser nova migration versionada;
+- os UUIDs ja emitidos nunca devem ser recalculados.
+
+7. MONEY
+--------
+
+Foundation central:
+- AndroidCurrency: policy fechada AOA, scale 2;
+- AndroidMoneyConverter: BigDecimal <-> long amountMinor;
+- AndroidMoneyAmount: shape wire-safe {amountMinor, currencyCode}.
+
+Forward usa setScale(2, UNNECESSARY), movePointRight(2), longValueExact(). Reverse
+usa BigDecimal.valueOf(amountMinor, 2). Nao existe double, float, Math.round ou
+rounding silencioso. Moeda null/blank/nao-AOA e rejeitada; `aoa` e normalizado
+para `AOA`. A conversao exacta permite negativos, enquanto a policy de dominio
+`toNonNegativeMinor` os rejeita onde aplicavel.
+
+Cobertura: 0, 0.01, 1.00, 2500.00, valor grande, Long MIN/MAX, overflow nos dois
+sentidos, scale 0/2/>2, negativo, round-trip, null, lowercase e moeda diferente.
+
+8. ERROR ENVELOPE
+-----------------
+
+DTO dedicado implementado:
+
+    {"error":{"code":"...","message":"...","retryable":false,
+      "fieldErrors":[],"traceId":"..."}}
+
+Codigos runtime fundacionais: INVALID_REQUEST, INTERNAL_ERROR e
+SERVICE_UNAVAILABLE. Codigos de endpoints futuros permanecem apenas no contrato.
+Field errors usam field/code/message e paths JSON Pointer.
+
+O advice e limitado a controllers anotados com @AndroidPublicApiController.
+Nenhum controller actual usa a annotation, portanto APIs Platform/Tenant/QR/Store
+nao mudaram. X-Request-Id seguro e preferido, depois X-Correlation-Id; caso
+contrario gera UUID request-scoped. Excepcoes inesperadas recebem mensagem fixa,
+sem stack, SQL, entidade, tabela, PII ou IDs internos na resposta.
+
+9. TENANT-SAFE LOOKUP
+---------------------
+
+AndroidPublicIdentityLookupService resolve:
+
+    merchantPublicId -> Tenant -> tenantId interno -> child(tenantId, publicId)
+
+Nenhum metodo publico aceita tenantId, businessAccountId, institutionId ou unitId
+do cliente. UUID inexistente ou pertencente a outro tenant produz Optional vazio,
+sem revelar o tenant real. MerchantIdentityContext e interno e nunca e DTO wire.
+
+Os testes com dois tenants comprovaram lookups correctos e bloqueio cruzado para
+produto, categoria e pedido. A FK composta comprova tambem o isolamento produto-
+categoria no banco.
+
+10. D-05 MERCHANT -> UNIT
+-------------------------
+
+Estado: UNRESOLVED_BLOCKING para quote/order, mas nao bloqueia esta foundation.
+Fallback implicito: NAO IMPLEMENTADO. Nao existe findFirst, ORDER BY id LIMIT 1,
+first active unit ou default global. Responsavel:
+BACKEND-ANDROID-FULFILLMENT-POLICY-001 (passo 5).
+
+11. COMPATIBILIDADE DISCOVERY
+-----------------------------
+
+origin/backend/discovery-api-001 foi usada apenas como evidencia historica. A
+branch usa slug de Tenant como identificador/alias e possui comportamento de
+primeira unidade incompatível com D-05. Compatibilidade futura definida:
+
+    canonical merchant ID = Tenant.merchant_public_id
+    legacy slug = MUTABLE_ALIAS
+
+Nenhum merge, cherry-pick, controller, redirect ou endpoint Discovery foi criado.
+A proxima fase deve portar selectivamente e remover qualquer first-unit fallback.
+
+12. TESTES
+----------
+
+Compile: PASS (`mvn -q -DskipTests compile`)
+Test compile: PASS
+Surefire completa: PASS; 524 tests, 0 failures, 0 errors, 3 skipped preexistentes
+Contrato Android explicito: PASS; 9 tests
+Contrato PONTO explicito: PASS; 4 tests
+Failsafe completa: PASS; 341 tests, 0 failures, 0 errors, 0 skipped
+PublicQrPagamentoStartIT: PASS; 3 tests
+CatalogTenantIsolationIT: PASS
+Foundation PostgreSQL: PASS; 4 tests (2 migration + 2 repository)
+
+Payment invariant: PASS no contrato PONTO e PublicQrPagamentoStartIT. Nenhuma
+ordem de pagamento e criada antes de aceite valido.
+
+CG-09: blocker geral preexistente fora de escopo, nao corrigido nem agravado.
+CG-10: assinatura conhecida reproduzida no encerramento completo —
+`Surefire is going to kill self fork JVM... 30 seconds after System.exit(0)` —
+mas o Failsafe devolveu exit code 0 e todos os 341 testes passaram. Nao corrigido.
+
+13. RUNTIME
+-----------
+
+Runtime SHA: 854bbd8f59b89f1d473b6daffdc68529bbb1d70c
+Java: 21
+PostgreSQL: 16.13 em container isolado
+Flyway: 87 migrations validadas/aplicadas
+Schema: 20260806.01
+Health: HTTP 200, UP
+Liveness: HTTP 200, UP
+Readiness: HTTP 200, UP
+Hibernate ddl-auto=validate: PASS
+
+Base runtime: 1 tenant, 10 categorias e 24 produtos; zero public UUID null ou
+duplicado. O runtime foi encerrado normalmente e o container isolado removido.
+
+14. SCHEMA E PERFORMANCE
+------------------------
+
+Indices confirmados em PostgreSQL:
+- uq_tenants_merchant_public_id
+- uq_produtos_public_id
+- uq_categoria_produtos_public_id
+- uq_pedidos_public_id
+- idx_produtos_tenant_public_id
+- idx_categoria_produtos_tenant_public_id
+- idx_pedidos_tenant_public_id
+
+Os lookups por merchant usam indice unique; child lookups tenant+public_id usam
+indices compostos, evitando full scans previsiveis.
+
+15. RISCOS E BLOCKERS RESTANTES
+-------------------------------
+
+- D-05 merchant->unit: unresolved, bloqueia quote/order; passo 5.
+- Catalog public ID: depende de agregado/versionamento canonico; passo 3.
+- Option group/option public IDs: modelo canonico inexistente; passo 4.
+- CG-09: blocker geral PONTO fora de escopo.
+- CG-10: shutdown Failsafe geral fora de escopo, assinatura inalterada.
+
+Nenhum destes itens bloqueia a identidade publica ou a proxima fase Discovery,
+desde que Discovery nao seleccione unidade implicitamente e nao exponha slug como
+chave canonica.
+
+16. COMMITS
+-----------
+
+1. 9135176 feat(backend): adiciona identidade publica para api android
+2. 854bbd8 test(backend): cobre public ids money e isolamento android
+3. docs(backend): documenta fundacao publica do consuma aqui (este relatorio)
+
+17. DECISAO
+-----------
+
+FUNDAÇÃO PÚBLICA ANDROID APROVADA COM BLOCKERS DECLARADOS — D-05 merchant->unit,
+catalog public ID, options public IDs, CG-09 e CG-10 gerais fora de escopo.
+
+A identidade canonica, money exacto, error envelope isolado e tenant-safe lookup
+estao prontos. A fase seguinte e BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001.

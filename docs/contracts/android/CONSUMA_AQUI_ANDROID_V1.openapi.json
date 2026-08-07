@@ -1,0 +1,145 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CONSUMA AQUI Android Public API",
+    "version": "1.0.0-rc.2",
+    "description": "Frozen target contract. x-consuma-implementation-status is authoritative for runtime availability."
+  },
+  "servers": [{"url": "/api/v1"}],
+  "paths": {
+    "/discovery/home": {
+      "get": {
+        "operationId": "getDiscoveryHome",
+        "summary": "Public discovery home",
+        "x-consuma-implementation-status": "HISTORICAL_BRANCH_ONLY",
+        "parameters": [
+          {"$ref":"#/components/parameters/Latitude"},{"$ref":"#/components/parameters/Longitude"},
+          {"name":"municipality","in":"query","schema":{"type":"string","maxLength":120}},
+          {"name":"categoryId","in":"query","schema":{"$ref":"#/components/schemas/PublicId"}},
+          {"$ref":"#/components/parameters/Page"},{"$ref":"#/components/parameters/PageSize"},{"$ref":"#/components/parameters/DiscoverySort"}
+        ],
+        "responses": {"200":{"description":"Discovery sections","headers":{"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiscoveryHomeResponse"}}}},"304":{"description":"Not modified"},"400":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
+      }
+    },
+    "/discovery/search": {
+      "get": {
+        "operationId": "searchDiscovery",
+        "summary": "Search public merchants",
+        "x-consuma-implementation-status": "HISTORICAL_BRANCH_ONLY",
+        "parameters": [
+          {"name":"query","in":"query","schema":{"type":"string","maxLength":100}},
+          {"name":"categoryId","in":"query","schema":{"$ref":"#/components/schemas/PublicId"}},
+          {"name":"municipality","in":"query","schema":{"type":"string","maxLength":120}},
+          {"name":"onlyOpen","in":"query","schema":{"type":"boolean","default":false},"description":"Reserved; capability currently unsupported"},
+          {"name":"fulfillmentOptions","in":"query","schema":{"type":"array","items":{"type":"string","enum":["PICKUP","DELIVERY"]}},"explode":true,"description":"Reserved; capability currently unsupported"},
+          {"$ref":"#/components/parameters/Latitude"},{"$ref":"#/components/parameters/Longitude"},{"$ref":"#/components/parameters/Page"},{"$ref":"#/components/parameters/PageSize"},{"$ref":"#/components/parameters/DiscoverySort"}
+        ],
+        "responses": {"200":{"description":"Merchant page","headers":{"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiscoverySearchResponse"}}}},"304":{"description":"Not modified"},"400":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
+      }
+    },
+    "/discovery/merchants/{merchantId}": {
+      "get": {
+        "operationId": "getDiscoveryMerchant",
+        "summary": "Get public merchant detail; plural path is canonical",
+        "x-consuma-implementation-status": "HISTORICAL_BRANCH_ONLY",
+        "parameters": [{"$ref":"#/components/parameters/MerchantId"}],
+        "responses": {"200":{"description":"Merchant detail","headers":{"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/MerchantDetail"}}}},"304":{"description":"Not modified"},"400":{"$ref":"#/components/responses/Error"},"404":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
+      }
+    },
+    "/merchants/{merchantId}/catalog": {
+      "get": {
+        "operationId": "getMerchantCatalog",
+        "summary": "Get public catalog metadata and categories",
+        "x-consuma-implementation-status": "NOT_IMPLEMENTED",
+        "parameters": [{"$ref":"#/components/parameters/MerchantId"}],
+        "responses": {"200":{"description":"Catalog","headers":{"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Catalog"}}}},"304":{"description":"Not modified"},"400":{"$ref":"#/components/responses/Error"},"404":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
+      }
+    },
+    "/merchants/{merchantId}/products": {
+      "get": {
+        "operationId": "getMerchantProducts",
+        "summary": "Get paginated public products",
+        "x-consuma-implementation-status": "NOT_IMPLEMENTED",
+        "parameters": [{"$ref":"#/components/parameters/MerchantId"},{"name":"query","in":"query","schema":{"type":"string","maxLength":100}},{"name":"categoryId","in":"query","schema":{"$ref":"#/components/schemas/PublicId"}},{"name":"onlyAvailable","in":"query","schema":{"type":"boolean","default":false}},{"$ref":"#/components/parameters/Page"},{"$ref":"#/components/parameters/PageSize"}],
+        "responses": {"200":{"description":"Product page","headers":{"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ProductPage"}}}},"304":{"description":"Not modified"},"400":{"$ref":"#/components/responses/Error"},"404":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
+      }
+    },
+    "/merchants/{merchantId}/products/{productId}": {
+      "get": {
+        "operationId": "getMerchantProduct",
+        "summary": "Get public product and option groups",
+        "x-consuma-implementation-status": "NOT_IMPLEMENTED",
+        "parameters": [{"$ref":"#/components/parameters/MerchantId"},{"$ref":"#/components/parameters/ProductId"}],
+        "responses": {"200":{"description":"Product detail","headers":{"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Product"}}}},"304":{"description":"Not modified"},"400":{"$ref":"#/components/responses/Error"},"404":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
+      }
+    },
+    "/checkout/quotes": {
+      "post": {
+        "operationId": "createCheckoutQuote",
+        "summary": "Create authoritative quote without order or payment side effects",
+        "x-consuma-implementation-status": "NOT_IMPLEMENTED",
+        "parameters": [{"$ref":"#/components/parameters/ClientInstanceId"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CheckoutQuoteRequest"}}}},
+        "responses": {"201":{"description":"Immutable quote","headers":{"Cache-Control":{"schema":{"type":"string","const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CheckoutQuote"}}}},"400":{"$ref":"#/components/responses/Error"},"404":{"$ref":"#/components/responses/Error"},"409":{"$ref":"#/components/responses/Error"},"422":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
+      }
+    },
+    "/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Consume quote and create exactly one pending-acceptance order",
+        "x-consuma-implementation-status": "NOT_IMPLEMENTED",
+        "parameters": [{"$ref":"#/components/parameters/ClientInstanceId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CreateOrderRequest"}}}},
+        "responses": {"201":{"description":"Order created; token returned only here or idempotent replay","headers":{"Cache-Control":{"schema":{"type":"string","const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CreateOrderResponse"}}}},"202":{"$ref":"#/components/responses/Error"},"400":{"$ref":"#/components/responses/Error"},"409":{"$ref":"#/components/responses/Error"},"410":{"$ref":"#/components/responses/Error"},"422":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
+      }
+    },
+    "/orders/{orderId}": {
+      "get": {
+        "operationId": "getOrder",
+        "summary": "Get anonymous public order projection",
+        "x-consuma-implementation-status": "NOT_IMPLEMENTED",
+        "parameters": [{"$ref":"#/components/parameters/OrderId"},{"$ref":"#/components/parameters/OrderAccessToken"},{"name":"If-None-Match","in":"header","schema":{"type":"string"}}],
+        "responses": {"200":{"description":"Public order projection","headers":{"Cache-Control":{"schema":{"type":"string","const":"private,no-cache,no-store"}},"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Order"}}}},"304":{"description":"Not modified"},"400":{"$ref":"#/components/responses/Error"},"404":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "MerchantId":{"name":"merchantId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/PublicId"}},
+      "ProductId":{"name":"productId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/PublicId"}},
+      "OrderId":{"name":"orderId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/PublicId"}},
+      "ClientInstanceId":{"name":"X-Client-Instance-Id","in":"header","required":true,"schema":{"$ref":"#/components/schemas/PublicId"}},
+      "IdempotencyKey":{"name":"Idempotency-Key","in":"header","required":true,"schema":{"$ref":"#/components/schemas/PublicId"}},
+      "OrderAccessToken":{"name":"X-Order-Access-Token","in":"header","required":true,"schema":{"type":"string","minLength":43,"maxLength":128}},
+      "Page":{"name":"page","in":"query","schema":{"type":"integer","minimum":0,"default":0}},
+      "PageSize":{"name":"pageSize","in":"query","schema":{"type":"integer","minimum":1,"maximum":100,"default":20}},
+      "Latitude":{"name":"latitude","in":"query","schema":{"type":"number","format":"double","minimum":-90,"maximum":90}},
+      "Longitude":{"name":"longitude","in":"query","schema":{"type":"number","format":"double","minimum":-180,"maximum":180}},
+      "DiscoverySort":{"name":"sort","in":"query","schema":{"type":"string","enum":["NAME","FEATURED","NEAREST","TOP_RATED","MOST_POPULAR"],"default":"NAME"},"description":"Only NAME is supported in the initial canonical implementation"}
+    },
+    "responses": {"Error":{"description":"Uniform public error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ErrorEnvelope"}}}}},
+    "schemas": {
+      "PublicId":{"type":"string","format":"uuid","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+      "Version":{"type":"string","pattern":"^[1-9][0-9]*$"},
+      "Money":{"type":"object","additionalProperties":false,"required":["amountMinor","currencyCode"],"properties":{"amountMinor":{"type":"integer","format":"int64"},"currencyCode":{"type":"string","const":"AOA"}}},
+      "MerchantSummary":{"type":"object","additionalProperties":false,"required":["merchantId","name","availability","fulfillmentOptions","featured","catalogAvailable"],"properties":{"merchantId":{"$ref":"#/components/schemas/PublicId"},"name":{"type":"string","minLength":1,"maxLength":120},"availability":{"type":"string","enum":["OPEN","CLOSING_SOON","OPENS_AT","CLOSED","UNKNOWN"]},"fulfillmentOptions":{"type":"array","items":{"type":"string","enum":["PICKUP","DELIVERY","DINE_IN","SERVICE"]}},"distanceMeters":{"type":["integer","null"],"minimum":0},"rating":{"type":["object","null"]},"popularityScore":{"type":["number","null"]},"featured":{"type":"boolean"},"catalogAvailable":{"type":"boolean"}}},
+      "MerchantDetail":{"allOf":[{"$ref":"#/components/schemas/MerchantSummary"},{"type":"object","properties":{"fullDescription":{"type":["string","null"],"maxLength":2000},"weeklySchedule":{"type":["array","null"],"items":{"type":"object"}},"catalogId":{"oneOf":[{"$ref":"#/components/schemas/PublicId"},{"type":"null"}]}}}]},
+      "DiscoveryHomeResponse":{"type":"object","required":["categories","nearby","recommended","featured"],"properties":{"categories":{"type":"array","items":{"type":"object"}},"nearby":{"$ref":"#/components/schemas/MerchantSection"},"recommended":{"$ref":"#/components/schemas/MerchantSection"},"featured":{"$ref":"#/components/schemas/MerchantSection"}}},
+      "MerchantSection":{"type":"object","required":["items","hasMore"],"properties":{"items":{"type":"array","items":{"$ref":"#/components/schemas/MerchantSummary"}},"hasMore":{"type":"boolean"}}},
+      "DiscoverySearchResponse":{"type":"object","required":["categories","merchants","page","pageSize","totalCount","hasMore"],"properties":{"categories":{"type":"array","items":{"type":"object"}},"merchants":{"type":"array","items":{"$ref":"#/components/schemas/MerchantSummary"}},"page":{"type":"integer","minimum":0},"pageSize":{"type":"integer","minimum":1,"maximum":100},"totalCount":{"type":"integer","minimum":0},"hasMore":{"type":"boolean"}}},
+      "Catalog":{"type":"object","additionalProperties":false,"required":["catalogId","merchantId","catalogVersion","currencyCode","categories"],"properties":{"catalogId":{"$ref":"#/components/schemas/PublicId"},"merchantId":{"$ref":"#/components/schemas/PublicId"},"catalogVersion":{"$ref":"#/components/schemas/Version"},"currencyCode":{"type":"string","const":"AOA"},"categories":{"type":"array","items":{"type":"object","required":["categoryId","name","sortOrder"],"properties":{"categoryId":{"$ref":"#/components/schemas/PublicId"},"name":{"type":"string"},"sortOrder":{"type":"integer"}}}}}},
+      "ProductPage":{"type":"object","required":["items","page","pageSize","totalCount","hasMore"],"properties":{"items":{"type":"array","items":{"$ref":"#/components/schemas/Product"}},"page":{"type":"integer","minimum":0},"pageSize":{"type":"integer","minimum":1,"maximum":100},"totalCount":{"type":"integer","minimum":0},"hasMore":{"type":"boolean"}}},
+      "Product":{"type":"object","additionalProperties":false,"required":["productId","merchantId","categoryId","name","basePrice","available","optionGroups","productVersion"],"properties":{"productId":{"$ref":"#/components/schemas/PublicId"},"merchantId":{"$ref":"#/components/schemas/PublicId"},"categoryId":{"$ref":"#/components/schemas/PublicId"},"name":{"type":"string","minLength":1,"maxLength":150},"basePrice":{"$ref":"#/components/schemas/Money"},"available":{"type":"boolean"},"optionGroups":{"type":"array","items":{"$ref":"#/components/schemas/OptionGroup"}},"productVersion":{"$ref":"#/components/schemas/Version"}}},
+      "OptionGroup":{"type":"object","additionalProperties":false,"required":["optionGroupId","name","minSelections","maxSelections","required","singleChoice","sortOrder","options"],"properties":{"optionGroupId":{"$ref":"#/components/schemas/PublicId"},"name":{"type":"string","maxLength":120},"minSelections":{"type":"integer","minimum":0},"maxSelections":{"type":"integer","minimum":1},"required":{"type":"boolean"},"singleChoice":{"type":"boolean"},"sortOrder":{"type":"integer"},"options":{"type":"array","items":{"$ref":"#/components/schemas/Option"}}}},
+      "Option":{"type":"object","additionalProperties":false,"required":["optionId","name","additionalPrice","available","defaultSelected","sortOrder"],"properties":{"optionId":{"$ref":"#/components/schemas/PublicId"},"name":{"type":"string","maxLength":120},"additionalPrice":{"$ref":"#/components/schemas/Money"},"available":{"type":"boolean"},"defaultSelected":{"type":"boolean"},"sortOrder":{"type":"integer"}}},
+      "QuoteItemIntent":{"type":"object","additionalProperties":false,"required":["clientItemId","productId","productVersion","quantity","selectedOptionIds"],"properties":{"clientItemId":{"$ref":"#/components/schemas/PublicId"},"productId":{"$ref":"#/components/schemas/PublicId"},"productVersion":{"$ref":"#/components/schemas/Version"},"quantity":{"type":"integer","minimum":1,"maximum":99},"selectedOptionIds":{"type":"array","items":{"$ref":"#/components/schemas/PublicId"},"uniqueItems":true},"note":{"type":["string","null"],"maxLength":250}}},
+      "CheckoutQuoteRequest":{"type":"object","additionalProperties":false,"required":["merchantId","catalogVersion","fulfillment","items"],"properties":{"merchantId":{"$ref":"#/components/schemas/PublicId"},"catalogVersion":{"$ref":"#/components/schemas/Version"},"fulfillment":{"type":"object"},"items":{"type":"array","minItems":1,"maxItems":50,"items":{"$ref":"#/components/schemas/QuoteItemIntent"}}}},
+      "CheckoutQuote":{"type":"object","additionalProperties":false,"required":["quoteId","quoteVersion","expiresAt","items","subtotal","fees","total","divergences"],"properties":{"quoteId":{"$ref":"#/components/schemas/PublicId"},"quoteVersion":{"$ref":"#/components/schemas/Version"},"expiresAt":{"type":"string","format":"date-time"},"items":{"type":"array","items":{"type":"object"}},"subtotal":{"$ref":"#/components/schemas/Money"},"fees":{"type":"array","items":{"$ref":"#/components/schemas/Money"}},"total":{"$ref":"#/components/schemas/Money"},"divergences":{"type":"array","items":{"type":"object"}}}},
+      "CreateOrderRequest":{"type":"object","additionalProperties":false,"required":["quoteId","quoteVersion","customer","clientReference"],"properties":{"quoteId":{"$ref":"#/components/schemas/PublicId"},"quoteVersion":{"$ref":"#/components/schemas/Version"},"customer":{"type":"object","additionalProperties":false,"required":["fullName","phone"],"properties":{"fullName":{"type":"string","maxLength":120},"phone":{"type":"string","pattern":"^\\+[0-9]{9,15}$"},"email":{"type":["string","null"],"format":"email","maxLength":254}}},"clientReference":{"$ref":"#/components/schemas/PublicId"}}},
+      "CreateOrderResponse":{"type":"object","additionalProperties":false,"required":["order","orderAccessToken"],"properties":{"order":{"$ref":"#/components/schemas/Order"},"orderAccessToken":{"type":"string","minLength":43,"maxLength":128}}},
+      "Order":{"type":"object","additionalProperties":false,"required":["orderId","orderNumber","operationalStatus","financialStatus","paymentAvailable","items","totals","createdAt","updatedAt","version"],"properties":{"orderId":{"$ref":"#/components/schemas/PublicId"},"orderNumber":{"type":"string"},"operationalStatus":{"type":"string","enum":["PENDING_ACCEPTANCE","ACCEPTED","PREPARING","READY","COMPLETED","REJECTED","CANCELLED"]},"financialStatus":{"type":"string","enum":["NOT_PAYABLE","UNPAID","PAYMENT_PENDING","PAID","REFUNDED"]},"paymentAvailable":{"type":"boolean"},"items":{"type":"array","items":{"type":"object"}},"totals":{"type":"object"},"rejection":{"type":["object","null"]},"createdAt":{"type":"string","format":"date-time"},"acceptedAt":{"type":["string","null"],"format":"date-time"},"updatedAt":{"type":"string","format":"date-time"},"version":{"$ref":"#/components/schemas/Version"}}},
+      "FieldError":{"type":"object","additionalProperties":false,"required":["field","code","message"],"properties":{"field":{"type":"string"},"code":{"type":"string"},"message":{"type":"string"}}},
+      "ErrorEnvelope":{"type":"object","additionalProperties":false,"required":["error"],"properties":{"error":{"type":"object","additionalProperties":false,"required":["code","message","retryable","fieldErrors","traceId"],"properties":{"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"},"fieldErrors":{"type":"array","items":{"$ref":"#/components/schemas/FieldError"}},"traceId":{"type":"string"}}}}}
+    }
+  }
+}

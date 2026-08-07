@@ -1,5 +1,6 @@
 package com.restaurante.model.entity;
 
+import com.restaurante.android.foundation.identity.PublicIdSupport;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
 import jakarta.persistence.Column;
@@ -10,9 +11,11 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "tenants", indexes = {
@@ -22,6 +25,12 @@ import java.time.LocalDateTime;
         @Index(name = "idx_tenant_business_account", columnList = "business_account_id")
 })
 public class Tenant extends BaseEntity {
+
+    @Column(name = "merchant_public_id", nullable = false, unique = true, updatable = false, columnDefinition = "uuid")
+    private UUID merchantPublicId;
+
+    @Column(name = "discovery_published", nullable = false)
+    private boolean discoveryPublished = false;
 
     @Column(name = "nome", nullable = false, length = 160)
     private String nome;
@@ -70,6 +79,25 @@ public class Tenant extends BaseEntity {
     private String provisioningSource;
 
     public Tenant() {
+    }
+
+    @PrePersist
+    private void ensureMerchantPublicId() {
+        if (merchantPublicId == null) {
+            merchantPublicId = PublicIdSupport.generate();
+        }
+    }
+
+    public UUID getMerchantPublicId() {
+        return merchantPublicId;
+    }
+
+    public boolean isDiscoveryPublished() {
+        return discoveryPublished;
+    }
+
+    public void setDiscoveryPublished(boolean discoveryPublished) {
+        this.discoveryPublished = discoveryPublished;
     }
 
     public String getNome() {

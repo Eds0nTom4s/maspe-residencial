@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Repository para operações de banco de dados com Pedido
@@ -23,6 +24,8 @@ import java.util.Optional;
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
     Optional<Pedido> findByIdAndTenantId(Long id, Long tenantId);
+
+    Optional<Pedido> findByTenantIdAndPublicId(Long tenantId, UUID publicId);
 
     long countByTenantIdAndTurnoOperacionalIdAndStatus(Long tenantId, Long turnoOperacionalId, StatusPedido status);
 

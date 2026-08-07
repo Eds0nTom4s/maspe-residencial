@@ -1,5 +1,6 @@
 package com.restaurante.model.entity;
 
+import com.restaurante.android.foundation.identity.PublicIdSupport;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
@@ -8,6 +9,7 @@ import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Entidade Produto
@@ -21,6 +23,9 @@ import java.util.List;
     @Index(name = "idx_produto_tenant_ativo", columnList = "tenant_id, ativo")
 })
 public class Produto extends BaseEntity {
+
+    @Column(name = "public_id", nullable = false, unique = true, updatable = false, columnDefinition = "uuid")
+    private UUID publicId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "tenant_id", nullable = false)
@@ -85,6 +90,15 @@ public class Produto extends BaseEntity {
 
     public Tenant getTenant() { return tenant; }
     public void setTenant(Tenant tenant) { this.tenant = tenant; }
+
+    public UUID getPublicId() { return publicId; }
+
+    @PrePersist
+    private void ensurePublicId() {
+        if (publicId == null) {
+            publicId = PublicIdSupport.generate();
+        }
+    }
 
     public String getCodigo() { return this.codigo; }
     public void setCodigo(String codigo) { this.codigo = codigo; }

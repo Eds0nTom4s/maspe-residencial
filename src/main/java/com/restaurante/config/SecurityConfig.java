@@ -1,5 +1,6 @@
 package com.restaurante.config;
 
+import com.restaurante.android.discovery.security.AndroidDiscoveryPublicPaths;
 import com.restaurante.security.JwtAuthenticationFilter;
 import com.restaurante.security.JwtSecurityExceptionHandlers;
 import com.restaurante.security.device.DeviceAuthenticationFilter;
@@ -71,6 +72,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/store/catalogo", "/store/catalogo/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/store/ordens").permitAll()
                         .requestMatchers(HttpMethod.GET, "/store/ordens/rastreio").permitAll()
+                        .requestMatchers(AndroidDiscoveryPublicPaths::matches).permitAll()
 
                         // Debug endpoints: restritos por @Profile("!prod") + @PreAuthorize("ADMIN") no controller
                         // Sem regra de permitAll aqui — autenticação obrigatória

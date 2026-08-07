@@ -29,13 +29,20 @@ public class AndroidPublicApiExceptionHandler {
     @ExceptionHandler(AndroidPublicApiException.class)
     public ResponseEntity<AndroidPublicErrorEnvelope> handlePublic(
             AndroidPublicApiException exception, HttpServletRequest request) {
-        return response(
+        ResponseEntity<AndroidPublicErrorEnvelope> response = response(
                 exception.getStatus(),
                 exception.getCode(),
                 exception.getMessage(),
                 exception.isRetryable(),
                 exception.getFieldErrors(),
                 traceIds.resolve(request));
+        if (exception.getRetryAfterSeconds() == null) {
+            return response;
+        }
+        return ResponseEntity.status(response.getStatusCode())
+                .headers(response.getHeaders())
+                .header("Retry-After", Long.toString(exception.getRetryAfterSeconds()))
+                .body(response.getBody());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -72,7 +79,7 @@ public class AndroidPublicApiExceptionHandler {
         log.error("Unexpected Android public API failure traceId={}", traceId, exception);
         return response(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                AndroidPublicErrorCode.INTERNAL_ERROR,
+                AndroidPublicErrorCode.UNKNOWN,
                 "Não foi possível processar o pedido.",
                 false,
                 List.of(),

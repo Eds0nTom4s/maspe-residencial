@@ -9,6 +9,7 @@ public final class AndroidPublicApiException extends RuntimeException {
     private final HttpStatus status;
     private final boolean retryable;
     private final List<AndroidPublicFieldError> fieldErrors;
+    private final Long retryAfterSeconds;
 
     public AndroidPublicApiException(
             AndroidPublicErrorCode code,
@@ -16,11 +17,22 @@ public final class AndroidPublicApiException extends RuntimeException {
             String publicMessage,
             boolean retryable,
             List<AndroidPublicFieldError> fieldErrors) {
+        this(code, status, publicMessage, retryable, fieldErrors, null);
+    }
+
+    public AndroidPublicApiException(
+            AndroidPublicErrorCode code,
+            HttpStatus status,
+            String publicMessage,
+            boolean retryable,
+            List<AndroidPublicFieldError> fieldErrors,
+            Long retryAfterSeconds) {
         super(publicMessage);
         this.code = code;
         this.status = status;
         this.retryable = retryable;
         this.fieldErrors = fieldErrors == null ? List.of() : List.copyOf(fieldErrors);
+        this.retryAfterSeconds = retryAfterSeconds;
     }
 
     public AndroidPublicErrorCode getCode() {
@@ -37,5 +49,9 @@ public final class AndroidPublicApiException extends RuntimeException {
 
     public List<AndroidPublicFieldError> getFieldErrors() {
         return fieldErrors;
+    }
+
+    public Long getRetryAfterSeconds() {
+        return retryAfterSeconds;
     }
 }

@@ -4,5 +4,9 @@ package com.restaurante.android.api.error;
 public enum AndroidPublicErrorCode {
     INVALID_REQUEST,
     INTERNAL_ERROR,
-    SERVICE_UNAVAILABLE
+    SERVICE_UNAVAILABLE,
+    SORT_NOT_SUPPORTED,
+    MERCHANT_NOT_FOUND,
+    RATE_LIMITED,
+    UNKNOWN
 }

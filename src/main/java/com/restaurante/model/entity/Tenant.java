@@ -29,6 +29,9 @@ public class Tenant extends BaseEntity {
     @Column(name = "merchant_public_id", nullable = false, unique = true, updatable = false, columnDefinition = "uuid")
     private UUID merchantPublicId;
 
+    @Column(name = "discovery_published", nullable = false)
+    private boolean discoveryPublished = false;
+
     @Column(name = "nome", nullable = false, length = 160)
     private String nome;
 
@@ -87,6 +90,14 @@ public class Tenant extends BaseEntity {
 
     public UUID getMerchantPublicId() {
         return merchantPublicId;
+    }
+
+    public boolean isDiscoveryPublished() {
+        return discoveryPublished;
+    }
+
+    public void setDiscoveryPublished(boolean discoveryPublished) {
+        this.discoveryPublished = discoveryPublished;
     }
 
     public String getNome() {

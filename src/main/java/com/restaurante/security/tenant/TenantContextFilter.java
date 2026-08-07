@@ -1,5 +1,6 @@
 package com.restaurante.security.tenant;
 
+import com.restaurante.android.discovery.security.AndroidDiscoveryPublicPaths;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -55,7 +56,7 @@ public class TenantContextFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return isPreTenantDiscoveryEndpoint(request);
+        return isPreTenantDiscoveryEndpoint(request) || AndroidDiscoveryPublicPaths.matches(request);
     }
 
     @Override

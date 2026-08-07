@@ -1,5 +1,6 @@
 package com.restaurante.security;
 
+import com.restaurante.android.discovery.security.AndroidDiscoveryPublicPaths;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,7 +44,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         // Não aplicar filtro JWT para endpoints públicos
-        return path.startsWith("/h2-console") || 
+        return AndroidDiscoveryPublicPaths.matches(request)
+                || path.startsWith("/h2-console") ||
                path.startsWith("/api/h2-console") ||
                (path.startsWith("/api/auth/") && !path.startsWith("/api/auth/tenant/select") && !path.startsWith("/api/auth/tenants")) ||
                (path.startsWith("/auth/") && !path.startsWith("/auth/tenant/select") && !path.startsWith("/auth/tenants")) ||

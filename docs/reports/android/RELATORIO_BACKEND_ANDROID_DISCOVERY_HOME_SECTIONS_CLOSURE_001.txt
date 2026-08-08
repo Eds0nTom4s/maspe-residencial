@@ -1,0 +1,211 @@
+RELATORIO — BACKEND-ANDROID-DISCOVERY-HOME-SECTIONS-CLOSURE-001
+
+1. IDENTIFICACAO E BASES
+
+Fase: BACKEND-ANDROID-DISCOVERY-HOME-SECTIONS-CLOSURE-001
+Origem: ANDROID-DISCOVERY-REMOTE-001-GATES-CLOSURE
+Blocker tratado: HOME_DISCOVERY_SECTIONS_EMPTY_ON_CANONICAL_BACKEND_MAIN
+Repositorio: Eds0nTom4s/maspe-residencial
+Base exacta: ac1b3ba5dc0b90d1509cc86f24a9f8e0404bdaba
+Branch: backend/android-discovery-home-sections-closure-001
+Schema preservado: 20260807.01
+Contrato: CONSUMA_AQUI_ANDROID_V1 1.0.0-rc.2
+Android de referencia read-only: android/discovery-remote-001 @
+464d3c41660e6084c12d7ae0d8e0838a29e340a7
+
+2. ROOT CAUSE
+
+Classificacao: BACKEND_HOME_SERVICE_HARDCODED_EMPTY_SECTIONS.
+
+No SHA base, AndroidDiscoveryService.home(...) construia directamente uma
+AndroidDiscoveryHomeResponse com categories, nearby, recommended e featured
+vazios. O metodo nao chamava AndroidDiscoveryReadRepository.findPublicMerchants.
+AndroidDiscoveryService.search(...) ja consultava o mesmo repositorio com os
+estados da MerchantDiscoveryPublicationPolicy.
+
+Search e Detail localizavam correctamente o merchant controlado. Portanto, a
+causa nao era Android, Retrofit, UUID, publication flag, fixture, Tenant
+isolation nem adb reverse.
+
+3. CORRECCAO
+
+home(...) passou a carregar a pagina publication-safe atraves do helper interno
+loadPublicMerchants(...), partilhado com search(...). O helper preserva:
+
+- query parametrizada do AndroidDiscoveryReadRepository;
+- estados de Tenant, BusinessAccount e Subscription vindos de
+  MerchantDiscoveryPublicationPolicy;
+- discovery_published=true;
+- cardapio publicado;
+- nome valido;
+- pagina HTTP zero-based e pageSize contratual;
+- ordenacao NAME com merchant_public_id como desempate na query existente.
+
+O conteudo da pagina e projectado pelo mapper seguro ja existente e e colocado
+somente em recommended. hasMore deriva de Page.hasNext(). Search nao mudou de
+resultado funcional; Detail e SecurityConfig nao foram alterados.
+
+4. SEMANTICA HOME RC.2
+
+recommended significa a coleccao base deterministica de merchants publicaveis
+para descoberta inicial. Nao significa personalizacao, recomendacao
+comportamental, ML, rating, popularidade ou scoring.
+
+Ordenacao: NAME + merchant_public_id ASC.
+categories: [] porque merchant category permanece UNSUPPORTED e
+CategoriaProduto nao foi reutilizada.
+nearby.items: [] e nearby.hasMore=false porque geography permanece UNSUPPORTED.
+featured.items: [] e featured.hasMore=false porque nao ha fonte persistente de
+destaque.
+availability: UNKNOWN enquanto nao existe schedule.
+rating, distance, popularity, schedule e preparation estimate: nao fabricados.
+catalogAvailable: preserva o calculo real do backend; nao implica Catalog API.
+
+5. PUBLICATION E ISOLAMENTO
+
+O mesmo universo publication-safe alimenta Home e Search. O dataset controlado
+provou:
+
+- Tenant A elegivel, opt-in Discovery e cardapio publicado: visivel em Home,
+  Search e Detail;
+- Tenant B com discovery_published=false: ausente de Home/Search e Detail 404;
+- merchant sem cardapio publicado ou Tenant inelegivel: permanece invisivel
+  pelos testes de policy existentes;
+- nenhum X-Tenant-Id, X-Tenant-Code ou X-Business-Id pode substituir contexto;
+- nenhum Long PK ou ID interno aparece nas respostas publicas;
+- D-05 nao foi contornado e nenhuma Unidade foi escolhida.
+
+6. PAGINACAO, CACHE E ETAG
+
+page: zero-based; default 0.
+pageSize: default 20; maximo 100.
+recommended.hasMore: Page.hasNext().
+Cache-Control: public, max-age=60, inalterado.
+ETag: deterministico SHA-256, estavel para a mesma representacao.
+
+No runtime, Home com conteudo produziu ETag
+"4c267e98681093d032817e5c1409486d40b3d674ba58118791e5919b106795a2".
+O mesmo request com If-None-Match devolveu 304 e body de zero bytes. Com o
+merchant retirado legitimamente da publicacao, o ETag passou para
+"396a42466ce014923085a95879f83312d9764036ea4e80a83a460c21061c9377".
+Logo o ETag muda quando recommended muda e permanece estavel sem mudanca.
+
+7. TESTES BACKEND
+
+Compile: PASS — mvn -q -DskipTests compile.
+Surefire completa limpa: 537 testes; 0 failures; 0 errors; 3 skipped.
+
+Cobertura Discovery explicitamente executada:
+
+- AndroidDiscoveryServiceTest: 2/2 PASS;
+- AndroidDiscoveryCanonicalContractTest: 3/3 PASS;
+- AndroidDiscoveryCanonicalPostgresIT: 3/3 PASS;
+- AndroidDiscoveryPublicationMigrationPostgresIT: 2/2 PASS;
+- AndroidDiscoveryRuntimePostgresIT: 1/1 PASS;
+- AndroidDiscoveryHttpFoundationTest: 4/4 PASS;
+- AndroidDiscoveryRequestValidatorTest: 4/4 PASS.
+
+Os novos testes cobrem Home com merchant, zero merchants, paginacao, hasMore,
+ordenacao estavel, convergencia Home/Search, opt-in, elegibilidade, no fake
+capabilities, ETag e 304.
+
+Foundation regression: PASS para public identity, Tenant-safe lookup, Money,
+AndroidPublicErrorEnvelope e migrations da foundation.
+ConsumaAquiAndroidV1ContractTest: 9/9 PASS.
+ConsumaPontoMvpContractIT: 4/4 PASS.
+PublicQrPagamentoStartIT: 3/3 PASS; pedido nao aceite nao cria OrdemPagamento.
+
+Failsafe completa: 347 testes; 0 failures; 0 errors; 0 skipped; Maven exit 0.
+Depois de concluir as assercoes, Surefire forcou o encerramento do fork 30
+segundos apos System.exit(0). A assinatura permanece a divida conhecida CG-10;
+nao houve nova regressao funcional.
+
+8. RUNTIME BACKEND REAL
+
+Runtime SHA funcional: 76d8136198ae6870870b39954a7a03c7f42194af.
+PostgreSQL: 16, isolado, porta host 55434.
+Backend: porta host 18084, context path /api.
+Schema/Flyway: 20260807.01; 88 migrations; restart sem reaplicacao.
+Health: UP.
+Liveness: UP.
+Readiness: UP.
+
+Fixture criada por APIs de servico/test fixture controlada, sem SQL manual:
+
+- public UUID: 2637190a-397f-4a64-bea0-266c6f575129;
+- private UUID: 8e6cd184-eb69-4645-9f04-825b7786dc92;
+- public name: Discovery Gate Public;
+- municipality: Luanda.
+
+GET /api/v1/discovery/search?sort=NAME encontrou o public UUID.
+GET /api/v1/discovery/home devolveu HTTP 200 e recommended com exactamente o
+mesmo public UUID; categories, nearby e featured continuaram vazios.
+GET /api/v1/discovery/merchants/{publicUuid} devolveu HTTP 200.
+GET Detail do private UUID devolveu 404 MERCHANT_NOT_FOUND.
+Ao despublicar o public UUID por MerchantDiscoveryPublicationService, Home
+continuou HTTP 200 com recommended vazio, Search vazio e Detail 404. O opt-in
+foi restaurado pelo mesmo mecanismo.
+
+9. VALIDACAO ANDROID READ-ONLY
+
+Dispositivo: Samsung SM-S928U1, Android 16, API 36, arm64-v8a, USB fisico.
+Transporte: adb reverse tcp:18084 -> tcp:18084.
+Base URL Debug foi fornecida externamente; nao foi versionada.
+Discovery Source foi seleccionada explicitamente como REMOTE.
+
+No Android exacto 464d3c41660e6084c12d7ae0d8e0838a29e340a7:
+
+- Home mostrou o merchant real "Discovery Gate Public" em
+  "Recomendados para si";
+- o card mostrou "Horario indisponivel", coerente com availability UNKNOWN;
+- toque no card abriu Detail do mesmo merchant e exibiu catalogAvailable real;
+- Search continuou a mostrar "Discovery Gate Public";
+- nenhum merchant mock apareceu depois do refresh REMOTE;
+- nao houve fallback Remote -> Mock.
+
+Instrumentados directamente relacionados:
+HomeDiscoveryPresentationTest: 5/5 PASS no Samsung fisico, 0 failures, 0
+errors, 0 skipped. Uma execucao filtrada mais ampla foi cancelada e nao
+contabilizada porque o One UI congelou o runner quando outro aplicativo retomou
+o foreground; nao produziu falha funcional nem alteracao de codigo.
+
+Android source, branch, HEAD e worktrees permaneceram inalterados. Os artefactos
+locais protegidos do worktree original nao foram tocados.
+
+10. CONTRATO E ESCOPO
+
+Versao permanece 1.0.0-rc.2. Paths, DTO shape, enums, auth, headers e wire format
+nao mudaram; nenhuma revisao contratual e requerida.
+
+O snapshot Android @ 464d3c4 marca os tres endpoints Discovery como
+IMPLEMENTED. O snapshot backend herdado ainda os marca como
+HISTORICAL_BRANCH_ONLY. Nesta fase ele nao foi reinterpretado nem alterado:
+BACKEND_CONTRACT_SNAPSHOT_STATUS_SYNC_PENDING.
+
+Nenhum endpoint novo, migration, dependencia, SQL manual, Catalog API, Product,
+Options, Quote, Order Android, Payment, gateway, frontend ou Android foi
+implementado.
+
+11. DIVIDAS PRESERVADAS
+
+D-05: UNRESOLVED_BLOCKING para fulfillment/quote/order; sem fallback de Unidade.
+CG-09: ABERTO; seed PONTO sem turno, fora do escopo.
+CG-10: ABERTO; shutdown tardio Ryuk/Hikari/MessageBroker, sem regressao.
+RATE_LIMIT_DISTRIBUTED_COORDINATION_PENDING: ABERTO; limiter 180/min/IP por
+instancia foi preservado.
+BACKEND_CONTRACT_SNAPSHOT_STATUS_SYNC_PENDING: ABERTO documentalmente.
+
+12. DECISAO
+
+O blocker HOME_DISCOVERY_SECTIONS_EMPTY_ON_CANONICAL_BACKEND_MAIN esta
+resolvido na branch: Search e Home usam o mesmo universo publication-safe,
+recommended contem merchants reais e as capacidades sem fonte permanecem
+vazias/UNKNOWN sem dados fabricados.
+
+DECISAO: DISCOVERY HOME CANONICA APROVADA COM DIVIDAS NAO BLOQUEANTES — CG-09,
+CG-10, D-05, RATE_LIMIT_DISTRIBUTED_COORDINATION_PENDING E
+BACKEND_CONTRACT_SNAPSHOT_STATUS_SYNC_PENDING.
+
+Proxima operacao recomendada: merge controlado da branch backend
+backend/android-discovery-home-sections-closure-001. Nao iniciar Catalog,
+Options, Fulfillment, Quote ou Order nesta operacao.

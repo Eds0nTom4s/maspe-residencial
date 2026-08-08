@@ -39,20 +39,21 @@ public class AndroidDiscoveryService {
     }
 
     public AndroidDiscoveryHomeResponse home(ValidatedDiscoveryQuery query) {
-        // No recommendation, geo, featured or merchant-category source is canonical yet.
-        return new AndroidDiscoveryHomeResponse(
-                List.of(), EMPTY_SECTION, EMPTY_SECTION, EMPTY_SECTION);
+        try {
+            Page<AndroidDiscoveryMerchantProjection> page = loadPublicMerchants(query);
+            AndroidMerchantSectionResponse recommended = new AndroidMerchantSectionResponse(
+                    page.getContent().stream().map(this::summary).toList(), page.hasNext());
+            // Geography, featured and merchant-category sources are not canonical yet.
+            return new AndroidDiscoveryHomeResponse(
+                    List.of(), EMPTY_SECTION, recommended, EMPTY_SECTION);
+        } catch (DataAccessException exception) {
+            throw unavailable();
+        }
     }
 
     public AndroidDiscoverySearchResponse search(ValidatedDiscoveryQuery query) {
         try {
-            Page<AndroidDiscoveryMerchantProjection> page = repository.findPublicMerchants(
-                    publicationPolicy.requiredTenantState(),
-                    publicationPolicy.requiredBusinessAccountState(),
-                    publicationPolicy.requiredSubscriptionStateForCanonicalAccount(),
-                    escapeLike(query.query()),
-                    query.municipality() == null ? null : query.municipality().toLowerCase(Locale.ROOT),
-                    PageRequest.of(query.page(), query.pageSize()));
+            Page<AndroidDiscoveryMerchantProjection> page = loadPublicMerchants(query);
             List<AndroidMerchantSummaryResponse> merchants = page.getContent().stream()
                     .map(this::summary)
                     .toList();
@@ -62,6 +63,17 @@ public class AndroidDiscoveryService {
         } catch (DataAccessException exception) {
             throw unavailable();
         }
+    }
+
+    private Page<AndroidDiscoveryMerchantProjection> loadPublicMerchants(
+            ValidatedDiscoveryQuery query) {
+        return repository.findPublicMerchants(
+                publicationPolicy.requiredTenantState(),
+                publicationPolicy.requiredBusinessAccountState(),
+                publicationPolicy.requiredSubscriptionStateForCanonicalAccount(),
+                escapeLike(query.query()),
+                query.municipality() == null ? null : query.municipality().toLowerCase(Locale.ROOT),
+                PageRequest.of(query.page(), query.pageSize()));
     }
 
     public AndroidMerchantDetailResponse detail(UUID merchantPublicId) {

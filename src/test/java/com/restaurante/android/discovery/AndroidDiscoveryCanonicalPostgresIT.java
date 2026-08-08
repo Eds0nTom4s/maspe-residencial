@@ -3,6 +3,7 @@ package com.restaurante.android.discovery;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -41,6 +42,11 @@ class AndroidDiscoveryCanonicalPostgresIT extends PostgresTestcontainersConfig {
 
     @Test
     void exposesOnlyExplicitlyPublishedEligibleMerchantAndHonoursHttpContract() throws Exception {
+        MvcResult emptyHome = mvc.perform(get("/v1/discovery/home"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommended.items", empty()))
+                .andReturn();
+
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         Tenant visible = saveTenant("Alpha Publicável", "a", suffix, TenantEstado.ATIVO);
         Tenant optedOut = saveTenant("Beta Opt-out", "b", suffix, TenantEstado.ATIVO);
@@ -75,12 +81,27 @@ class AndroidDiscoveryCanonicalPostgresIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isNotModified())
                 .andExpect(content().string(""));
 
-        mvc.perform(get("/v1/discovery/home"))
+        MvcResult home = mvc.perform(get("/v1/discovery/home"))
                 .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "public, max-age=60"))
+                .andExpect(header().string("ETag", not(emptyHome.getResponse().getHeader("ETag"))))
                 .andExpect(jsonPath("$.categories", empty()))
                 .andExpect(jsonPath("$.nearby.items", empty()))
-                .andExpect(jsonPath("$.recommended.items", empty()))
-                .andExpect(jsonPath("$.featured.items", empty()));
+                .andExpect(jsonPath("$.recommended.items", hasSize(1)))
+                .andExpect(jsonPath("$.recommended.items[0].merchantId", is(visible.getMerchantPublicId().toString())))
+                .andExpect(jsonPath("$.recommended.items[0].availability", is("UNKNOWN")))
+                .andExpect(jsonPath("$.recommended.items[0].distanceMeters", nullValue()))
+                .andExpect(jsonPath("$.recommended.items[0].rating", nullValue()))
+                .andExpect(jsonPath("$.recommended.items[0].popularityScore", nullValue()))
+                .andExpect(jsonPath("$.recommended.items[0].featured", is(false)))
+                .andExpect(jsonPath("$.recommended.hasMore", is(false)))
+                .andExpect(jsonPath("$.featured.items", empty()))
+                .andReturn();
+
+        mvc.perform(get("/v1/discovery/home")
+                        .header("If-None-Match", home.getResponse().getHeader("ETag")))
+                .andExpect(status().isNotModified())
+                .andExpect(content().string(""));
 
         mvc.perform(get("/v1/discovery/merchants/{id}", visible.getMerchantPublicId()))
                 .andExpect(status().isOk())
@@ -97,6 +118,31 @@ class AndroidDiscoveryCanonicalPostgresIT extends PostgresTestcontainersConfig {
                     .andExpect(jsonPath("$.error.code", is("MERCHANT_NOT_FOUND")))
                     .andExpect(jsonPath("$.error.message", is("Merchant não encontrado.")));
         }
+    }
+
+    @Test
+    void homeUsesStableNameAndPublicUuidOrderingWithZeroBasedPagination() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Tenant first = publish(saveTenant("Stable Merchant", "s1", suffix, TenantEstado.ATIVO));
+        Tenant second = publish(saveTenant("Stable Merchant", "s2", suffix, TenantEstado.ATIVO));
+        Tenant third = publish(saveTenant("Stable Merchant", "s3", suffix, TenantEstado.ATIVO));
+        java.util.List<String> ordered = java.util.stream.Stream.of(first, second, third)
+                .map(tenant -> tenant.getMerchantPublicId().toString())
+                .sorted()
+                .toList();
+
+        mvc.perform(get("/v1/discovery/home").param("page", "0").param("pageSize", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommended.items[*].merchantId", is(ordered.subList(0, 2))))
+                .andExpect(jsonPath("$.recommended.hasMore", is(true)))
+                .andExpect(jsonPath("$.categories", empty()))
+                .andExpect(jsonPath("$.nearby.items", empty()))
+                .andExpect(jsonPath("$.featured.items", empty()));
+
+        mvc.perform(get("/v1/discovery/home").param("page", "1").param("pageSize", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommended.items[*].merchantId", is(ordered.subList(2, 3))))
+                .andExpect(jsonPath("$.recommended.hasMore", is(false)));
     }
 
     @Test
@@ -130,5 +176,11 @@ class AndroidDiscoveryCanonicalPostgresIT extends PostgresTestcontainersConfig {
         config.setTenant(tenant);
         config.setCardapioPublicado(published);
         cardapios.saveAndFlush(config);
+    }
+
+    private Tenant publish(Tenant tenant) {
+        saveCatalog(tenant, true);
+        publication.setPublished(tenant.getId(), true);
+        return tenant;
     }
 }

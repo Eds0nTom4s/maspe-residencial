@@ -57,6 +57,24 @@ class AndroidDiscoveryRuntimePostgresIT extends PostgresTestcontainersConfig {
                     .as("root=%s body=%s", http.getRootUri(), home.getBody())
                     .isEqualTo(HttpStatus.OK);
             assertThat(home.getHeaders().getCacheControl()).isEqualTo("public, max-age=60");
+            assertThat(home.getHeaders().getETag()).isNotBlank();
+            JsonNode homeJson = json.readTree(home.getBody());
+            assertThat(homeJson.at("/recommended/items/0/merchantId").asText())
+                    .isEqualTo(published.getMerchantPublicId().toString());
+            assertThat(homeJson.at("/recommended/items/0/availability").asText()).isEqualTo("UNKNOWN");
+            assertThat(homeJson.at("/nearby/items").isEmpty()).isTrue();
+            assertThat(homeJson.at("/featured/items").isEmpty()).isTrue();
+            assertThat(homeJson.at("/categories").isEmpty()).isTrue();
+            assertThat(homeJson.toString()).doesNotContain(
+                    "tenantId", "businessAccountId", "distanceMeters\":0", "rating\":0", "OPEN");
+
+            HttpHeaders homeConditional = new HttpHeaders();
+            homeConditional.setIfNoneMatch(home.getHeaders().getETag());
+            var homeNotModified = http.exchange(
+                    "/v1/discovery/home", HttpMethod.GET,
+                    new HttpEntity<>(homeConditional), String.class);
+            assertThat(homeNotModified.getStatusCode()).isEqualTo(HttpStatus.NOT_MODIFIED);
+            assertThat(homeNotModified.getBody()).isNull();
 
             var search = http.getForEntity(
                     "/v1/discovery/search?query=" + suffix + "&sort=NAME", String.class);
@@ -64,6 +82,8 @@ class AndroidDiscoveryRuntimePostgresIT extends PostgresTestcontainersConfig {
             JsonNode searchJson = json.readTree(search.getBody());
             assertThat(searchJson.at("/merchants/0/merchantId").asText())
                     .isEqualTo(published.getMerchantPublicId().toString());
+            assertThat(homeJson.at("/recommended/items/0/merchantId").asText())
+                    .isEqualTo(searchJson.at("/merchants/0/merchantId").asText());
             assertThat(searchJson.toString()).doesNotContain(
                     "tenantId", "businessAccountId", "distanceMeters\":0", "rating\":0", "OPEN");
 

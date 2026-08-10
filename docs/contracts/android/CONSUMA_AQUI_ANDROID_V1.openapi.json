@@ -11,7 +11,7 @@
       "get": {
         "operationId": "getDiscoveryHome",
         "summary": "Public discovery home",
-        "x-consuma-implementation-status": "HISTORICAL_BRANCH_ONLY",
+        "x-consuma-implementation-status": "IMPLEMENTED",
         "parameters": [
           {"$ref":"#/components/parameters/Latitude"},{"$ref":"#/components/parameters/Longitude"},
           {"name":"municipality","in":"query","schema":{"type":"string","maxLength":120}},
@@ -25,7 +25,7 @@
       "get": {
         "operationId": "searchDiscovery",
         "summary": "Search public merchants",
-        "x-consuma-implementation-status": "HISTORICAL_BRANCH_ONLY",
+        "x-consuma-implementation-status": "IMPLEMENTED",
         "parameters": [
           {"name":"query","in":"query","schema":{"type":"string","maxLength":100}},
           {"name":"categoryId","in":"query","schema":{"$ref":"#/components/schemas/PublicId"}},
@@ -41,7 +41,7 @@
       "get": {
         "operationId": "getDiscoveryMerchant",
         "summary": "Get public merchant detail; plural path is canonical",
-        "x-consuma-implementation-status": "HISTORICAL_BRANCH_ONLY",
+        "x-consuma-implementation-status": "IMPLEMENTED",
         "parameters": [{"$ref":"#/components/parameters/MerchantId"}],
         "responses": {"200":{"description":"Merchant detail","headers":{"ETag":{"schema":{"type":"string"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/MerchantDetail"}}}},"304":{"description":"Not modified"},"400":{"$ref":"#/components/responses/Error"},"404":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"},"500":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}
       }

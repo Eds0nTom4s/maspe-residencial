@@ -45,12 +45,12 @@ class AndroidDiscoveryCanonicalContractTest {
     }
 
     @Test
-    void officialManifestRemainsFrozenUntilControlledMerge() throws Exception {
+    void officialManifestReflectsDiscoveryImplementedOnMain() throws Exception {
         JsonNode contract = new ObjectMapper().readTree(Files.readString(CONTRACT));
         List<JsonNode> endpoints = contract.path("endpoints").findValues("implementationStatus");
         assertThat(endpoints.stream().map(JsonNode::asText).toList())
                 .containsExactly(
-                        "HISTORICAL_BRANCH_ONLY", "HISTORICAL_BRANCH_ONLY", "HISTORICAL_BRANCH_ONLY",
+                        "IMPLEMENTED", "IMPLEMENTED", "IMPLEMENTED",
                         "NOT_IMPLEMENTED", "NOT_IMPLEMENTED", "NOT_IMPLEMENTED",
                         "NOT_IMPLEMENTED", "NOT_IMPLEMENTED", "NOT_IMPLEMENTED");
     }

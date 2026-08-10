@@ -1,0 +1,184 @@
+RELATÓRIO — BACKEND-ANDROID-CONTRACT-SNAPSHOT-STATUS-SYNC-001
+
+1. IDENTIFICAÇÃO
+
+Fase: BACKEND-ANDROID-CONTRACT-SNAPSHOT-STATUS-SYNC-001
+Tipo: sincronização contratual, contract tests, validação de proveniência e merge documental controlado.
+Código funcional: inalterado.
+Comportamento runtime: inalterado.
+
+2. BASES E PROVENIÊNCIA
+
+Backend: Eds0nTom4s/maspe-residencial
+Base backend: b813d55c239432a7c8c763862de2dc2fba1e3cb3
+Schema: 20260807.01
+Branch: backend/android-contract-snapshot-status-sync-001
+
+Android read-only: Eds0nTom4s/consumaaqui
+Branch Android: android/discovery-remote-001
+HEAD Android: 464d3c41660e6084c12d7ae0d8e0838a29e340a7
+Fonte machine-readable: docs/contracts/CONSUMA_AQUI_ANDROID_V1.contract.json
+Android alterado: não.
+
+3. DIVERGÊNCIA ANTERIOR
+
+O snapshot backend ainda descrevia:
+IMPLEMENTED=0
+PARTIAL=0
+HISTORICAL_BRANCH_ONLY=3
+NOT_IMPLEMENTED=6
+
+O snapshot Android aprovado e a realidade da main backend descreviam:
+IMPLEMENTED=3
+PARTIAL=0
+HISTORICAL_BRANCH_ONLY=0
+NOT_IMPLEMENTED=6
+
+Classificação anterior: BACKEND_CONTRACT_SNAPSHOT_STATUS_SYNC_PENDING.
+
+4. REALIDADE RUNTIME JÁ COMPROVADA
+
+GET /api/v1/discovery/home: implementado, integrado, publicado e validado.
+GET /api/v1/discovery/search: implementado, integrado, publicado e validado.
+GET /api/v1/discovery/merchants/{merchantId}: implementado, integrado, publicado e validado.
+
+Provas predecessoras preservadas:
+- Home PASS;
+- Search PASS;
+- Detail PASS;
+- Home → Detail PASS;
+- ETag e 304 PASS;
+- publication policy PASS;
+- Tenant override bloqueado;
+- zero IDs internos;
+- Samsung físico e instrumentados PASS.
+
+5. MANIFESTO SINCRONIZADO
+
+Contrato: CONSUMA_AQUI_ANDROID_V1
+Versão: 1.0.0-rc.2
+Status global: FROZEN_WITH_BLOCKERS
+
+Estado final:
+IMPLEMENTED=3
+PARTIAL=0
+HISTORICAL_BRANCH_ONLY=0
+NOT_IMPLEMENTED=6
+
+Somente os três endpoints Discovery foram promovidos. Catalog, Products,
+Product Detail, Quote, Order Create e Order Query permanecem NOT_IMPLEMENTED.
+catalogAvailable não foi interpretado como Catalog API implementada.
+
+O manifesto backend foi alinhado byte-a-byte com o snapshot Android aprovado.
+backendBaseCommit foi preservado conforme a proveniência Android aprovada:
+ac1b3ba5dc0b90d1509cc86f24a9f8e0404bdaba.
+
+6. OPENAPI SINCRONIZADO
+
+Somente x-consuma-implementation-status foi alterado:
+- /discovery/home: IMPLEMENTED;
+- /discovery/search: IMPLEMENTED;
+- /discovery/merchants/{merchantId}: IMPLEMENTED.
+
+Os seis endpoints futuros permanecem NOT_IMPLEMENTED. Paths, operationIds,
+schemas, headers, auth, Money, UUID, paginação, cache, rate limit, responses,
+request fields e enums não foram alterados.
+
+7. HANDLERS REAIS
+
+Controller auditado:
+src/main/java/com/restaurante/android/discovery/controller/AndroidDiscoveryController.java
+
+Base mapping: @RequestMapping("/v1/discovery")
+Home: @GetMapping("/home")
+Search: @GetMapping("/search")
+Detail: @GetMapping("/merchants/{merchantId}")
+
+O contract test associa explicitamente cada operação IMPLEMENTED ao mapping
+real do controller. O path singular /discovery/merchant/{merchantId} continua
+não canónico e ausente.
+
+8. CONSISTÊNCIA MANIFESTO ↔ OPENAPI
+
+Os nove endpoints foram comparados por method/path. O status do manifesto é
+idêntico ao x-consuma-implementation-status do OpenAPI para todos os nove.
+
+9. BYTE E HASH
+
+Manifest backend:
+docs/contracts/android/CONSUMA_AQUI_ANDROID_V1.contract.json
+
+Manifest Android:
+docs/contracts/CONSUMA_AQUI_ANDROID_V1.contract.json
+
+cmp: exit 0.
+SHA-256 backend: 7d9bca83eafad33686e754520df28d5069fd6b2a3c64d1810e7daaa15f8398dd
+SHA-256 Android: 7d9bca83eafad33686e754520df28d5069fd6b2a3c64d1810e7daaa15f8398dd
+Hashes idênticos: sim.
+
+10. TESTES E GATES
+
+Compile: PASS.
+Surefire completa: 75 testes, 0 failures, 0 errors, 0 skipped.
+ConsumaAquiAndroidV1ContractTest: 9/9 PASS.
+AndroidDiscoveryCanonicalContractTest: 3/3 PASS.
+ConsumaPontoMvpContractIT: 4/4 PASS.
+PublicQrPagamentoStartIT: 3/3 PASS no runner Failsafe.
+Failsafe integral: 347 testes, 0 failures, 0 errors, 0 skipped.
+Failsafe verify: exit code 0.
+Shutdown: mensagem conhecida após 30 segundos; CG-10 preservado.
+git diff --check: PASS.
+
+O ficheiro AndroidDiscoveryCanonicalContractTest.java foi ajustado de forma
+mínima porque continha uma assertion histórica incompatível com o próprio sync.
+Esta necessidade testual comprovada é o único ficheiro adicional ao inventário
+preferencial do prompt; nenhum src/main foi alterado.
+
+11. BLOCKERS PRESERVADOS
+
+CG-09: ABERTO.
+CG-10: ABERTO.
+D-05 merchant→unit: UNRESOLVED_BLOCKING para fulfillment/quote/order.
+RATE_LIMIT_DISTRIBUTED_COORDINATION_PENDING: ABERTO.
+HTTPS Staging/Release: PENDING_DEPLOYMENT_ENVIRONMENT.
+Catalog, Options, Fulfillment, Quote, Idempotência/token, Order creation e
+public order projection/query continuam pendentes.
+
+12. ALTERAÇÕES
+
+Alterados:
+- docs/contracts/android/CONSUMA_AQUI_ANDROID_V1.contract.json;
+- docs/contracts/android/CONSUMA_AQUI_ANDROID_V1.openapi.json;
+- src/test/java/com/restaurante/contract/android/ConsumaAquiAndroidV1ContractTest.java;
+- src/test/java/com/restaurante/android/discovery/AndroidDiscoveryCanonicalContractTest.java;
+- este relatório.
+
+Código funcional: zero.
+Migration: zero.
+Dependências: zero.
+Android: zero.
+Frontend: zero.
+
+13. COMMITS E MERGE
+
+Commit contratual/testual:
+1f76810ab93d2f091d4262898addcf7624994dd5
+test(backend): sincroniza status contratual da discovery android
+
+Commit documental: docs(backend): documenta sync contratual da discovery android
+
+Merge controlado previsto:
+Estratégia: --no-ff
+Mensagem: merge(backend): sincroniza contrato android com discovery implementada
+Parent 1 obrigatório: b813d55c239432a7c8c763862de2dc2fba1e3cb3
+Parent 2: HEAD final desta branch.
+
+14. DECISÃO
+
+O snapshot contratual backend está alinhado com o snapshot Android e com os
+handlers reais da main. Discovery Home, Search e Detail são IMPLEMENTED; os seis
+endpoints futuros continuam NOT_IMPLEMENTED. A Discovery Remote Android pode
+ser formalmente classificada como aprovada quanto aos gates funcionais.
+
+Decisão: CONTRATO ANDROID SINCRONIZADO — DISCOVERY IMPLEMENTED 3/3 E
+DISCOVERY REMOTE FORMALMENTE APROVADA.

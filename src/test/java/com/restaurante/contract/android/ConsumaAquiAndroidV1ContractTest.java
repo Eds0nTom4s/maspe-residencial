@@ -84,16 +84,27 @@ class ConsumaAquiAndroidV1ContractTest {
 
     @Test
     void implementedStatusRequiresAnExplicitRealMainHandler() throws IOException {
-        Map<String, Path> realMainHandlers = Map.of();
+        Path discoveryController = Path.of(
+                "src/main/java/com/restaurante/android/discovery/controller/AndroidDiscoveryController.java");
+        Map<String, String> realMainMappings = Map.of(
+                "GET /api/v1/discovery/home", "@GetMapping(\"/home\")",
+                "GET /api/v1/discovery/search", "@GetMapping(\"/search\")",
+                "GET /api/v1/discovery/merchants/{merchantId}",
+                        "@GetMapping(\"/merchants/{merchantId}\")");
+        assertTrue(Files.isRegularFile(discoveryController));
+        String handlerSource = Files.readString(discoveryController);
+        assertTrue(handlerSource.contains("@RequestMapping(\"/v1/discovery\")"));
+
         for (JsonNode endpoint : contract.path("endpoints")) {
             if (!"IMPLEMENTED".equals(endpoint.path("implementationStatus").asText())) {
                 continue;
             }
             String key = endpoint.path("method").asText() + " " + endpoint.path("path").asText();
-            Path handler = realMainHandlers.get(key);
-            assertNotNull(handler, "IMPLEMENTED without audited main handler: " + key);
-            assertTrue(Files.isRegularFile(handler), "Missing main handler source: " + handler);
+            String mapping = realMainMappings.get(key);
+            assertNotNull(mapping, "IMPLEMENTED without audited main handler: " + key);
+            assertTrue(handlerSource.contains(mapping), "Missing main handler mapping: " + mapping);
         }
+        assertEquals(3, realMainMappings.size());
     }
 
     @Test
@@ -112,12 +123,12 @@ class ConsumaAquiAndroidV1ContractTest {
     }
 
     @Test
-    void identityAndMoneyFoundationExistsWithoutPromotingEndpoints() throws IOException {
+    void identityAndMoneyFoundationExistsWithOnlyDiscoveryPromoted() throws IOException {
         Map<String, Long> statuses = contract.path("endpoints").findValues("implementationStatus").stream()
                 .collect(java.util.stream.Collectors.groupingBy(JsonNode::asText, java.util.stream.Collectors.counting()));
-        assertEquals(0L, statuses.getOrDefault("IMPLEMENTED", 0L));
+        assertEquals(3L, statuses.getOrDefault("IMPLEMENTED", 0L));
         assertEquals(0L, statuses.getOrDefault("PARTIAL", 0L));
-        assertEquals(3L, statuses.getOrDefault("HISTORICAL_BRANCH_ONLY", 0L));
+        assertEquals(0L, statuses.getOrDefault("HISTORICAL_BRANCH_ONLY", 0L));
         assertEquals(6L, statuses.getOrDefault("NOT_IMPLEMENTED", 0L));
 
         assertTrue(Files.isRegularFile(Path.of(

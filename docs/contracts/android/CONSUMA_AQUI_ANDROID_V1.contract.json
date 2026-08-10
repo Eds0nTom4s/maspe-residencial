@@ -2,12 +2,12 @@
   "contractName": "CONSUMA_AQUI_ANDROID_V1",
   "contractVersion": "1.0.0-rc.2",
   "status": "FROZEN_WITH_BLOCKERS",
-  "generatedAt": "2026-08-06",
+  "generatedAt": "2026-08-08",
   "androidRepository": "Eds0nTom4s/consumaaqui",
   "androidBaseCommit": "b8b6fffd048558e0c1cd688f5addac7d5fac18bb",
   "backendRepository": "Eds0nTom4s/maspe-residencial",
-  "backendBaseCommit": "124bb92fff9e599a102b6f174390e90ec1069c09",
-  "backendSchema": "V20260722.01",
+  "backendBaseCommit": "ac1b3ba5dc0b90d1509cc86f24a9f8e0404bdaba",
+  "backendSchema": "20260807.01",
   "apiBase": "/api/v1",
   "contractSeparation": {
     "consumer": "CONSUMA_AQUI_ANDROID_V1",
@@ -20,24 +20,24 @@
       "auth": "PUBLIC", "headers": ["Accept", "X-Request-Id?"], "request": "DiscoveryHomeQuery",
       "response": "DiscoveryHomeResponse", "errors": ["INVALID_REQUEST", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
       "cache": "public,max-age=60 + ETag", "rateLimit": "180/min/IP", "idempotency": "NOT_APPLICABLE",
-      "tenantResolution": "SERVER_FROM_PUBLICATION", "currentMain": "ABSENT", "historicalBranch": "PARTIAL",
-      "implementationStatus": "HISTORICAL_BRANCH_ONLY", "phase": "BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"
+      "tenantResolution": "SERVER_FROM_PUBLICATION", "currentMain": "IMPLEMENTED", "historicalBranch": "REFERENCE_ONLY_SUPERSEDED",
+      "implementationStatus": "IMPLEMENTED", "phase": "BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"
     },
     {
       "method": "GET", "path": "/api/v1/discovery/search", "purpose": "Search public merchants",
       "auth": "PUBLIC", "headers": ["Accept", "X-Request-Id?"], "request": "DiscoverySearchQuery",
       "response": "DiscoverySearchResponse", "errors": ["INVALID_REQUEST", "SORT_NOT_SUPPORTED", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
       "cache": "public,max-age=60 + ETag", "rateLimit": "180/min/IP", "idempotency": "NOT_APPLICABLE",
-      "tenantResolution": "SERVER_FROM_PUBLICATION", "currentMain": "ABSENT", "historicalBranch": "PARTIAL",
-      "implementationStatus": "HISTORICAL_BRANCH_ONLY", "phase": "BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"
+      "tenantResolution": "SERVER_FROM_PUBLICATION", "currentMain": "IMPLEMENTED", "historicalBranch": "REFERENCE_ONLY_SUPERSEDED",
+      "implementationStatus": "IMPLEMENTED", "phase": "BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"
     },
     {
       "method": "GET", "path": "/api/v1/discovery/merchants/{merchantId}", "purpose": "Public merchant detail",
       "auth": "PUBLIC", "headers": ["Accept", "X-Request-Id?"], "request": "merchantId UUID path",
       "response": "MerchantDetailResponse", "errors": ["INVALID_REQUEST", "MERCHANT_NOT_FOUND", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNKNOWN"],
       "cache": "public,max-age=60 + ETag", "rateLimit": "180/min/IP", "idempotency": "NOT_APPLICABLE",
-      "tenantResolution": "SERVER_FROM_MERCHANT", "currentMain": "ABSENT", "historicalBranch": "SINGULAR_PATH_AND_SLUG_ONLY",
-      "implementationStatus": "HISTORICAL_BRANCH_ONLY", "phase": "BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"
+      "tenantResolution": "SERVER_FROM_MERCHANT", "currentMain": "IMPLEMENTED", "historicalBranch": "REFERENCE_ONLY_SUPERSEDED",
+      "implementationStatus": "IMPLEMENTED", "phase": "BACKEND-DISCOVERY-CANONICAL-INTEGRATION-001"
     },
     {
       "method": "GET", "path": "/api/v1/merchants/{merchantId}/catalog", "purpose": "Public catalog metadata and categories",
@@ -100,7 +100,7 @@
     "X-Order-Access-Token": "Opaque secret required on GET order; never URL/query/log/SavedStateHandle"
   },
   "money": {"shape": {"amountMinor": "integer int64", "currencyCode": "AOA"}, "exponent": 2, "androidType": "Long", "decimalJsonForbidden": true, "backendConversion": "setScale(2,UNNECESSARY).movePointRight(2).longValueExact()"},
-  "ids": {"publicType": "UUID_V4_LOWERCASE", "entities": ["merchant", "catalog", "category", "product", "optionGroup", "option", "quote", "order"], "internalPrimaryKeysExposed": false, "slugCanonical": false, "migration": "REQUIRED_BEFORE_ENDPOINT"},
+  "ids": {"publicType": "UUID_V4_LOWERCASE", "entities": ["merchant", "catalog", "category", "product", "optionGroup", "option", "quote", "order"], "internalPrimaryKeysExposed": false, "slugCanonical": false, "migration": "FOUNDATION_IMPLEMENTED_ON_BACKEND_MAIN"},
   "pagination": {"pageBase": 0, "defaultPage": 0, "defaultPageSize": 20, "maxPageSize": 100, "stableTieBreak": "public UUID ASC", "androidAdapter": "domain page N maps to HTTP max(1,N)-1"},
   "enums": {
     "operationalStatus": ["PENDING_ACCEPTANCE", "ACCEPTED", "PREPARING", "READY", "COMPLETED", "REJECTED", "CANCELLED"],
@@ -133,8 +133,8 @@
   "tenantResolution": {"source": "merchant -> quote -> order, server-side", "clientOverride": "INVALID_REQUEST_OR_UNKNOWN_FIELD", "crossTenant": "indistinguishable error", "merchantToUnit": "explicit persisted mapping required; never first row", "status": "BLOCKER_BEFORE_QUOTE_OR_ORDER"},
   "security": {"httpsRequired": true, "maxPostBytes": 65536, "piiMinimized": true, "tokensLogged": false, "idempotencyKeyMasked": true, "publicUuidAntiEnumeration": true, "rateLimiting": true, "uniformOrder404": true, "imagePolicy": "HTTPS and allowlisted host", "sensitiveCache": "no-store", "stackTraceExposed": false, "internalIdsExposed": false},
   "capabilities": {
-    "NAME": {"supported": true, "source": "historical branch only until canonical integration"},
-    "MUNICIPALITY": {"supported": true, "source": "persisted fiscal municipality in historical branch"},
+    "NAME": {"supported": true, "source": "backend main canonical Discovery"},
+    "MUNICIPALITY": {"supported": true, "source": "persisted fiscal municipality on backend main"},
     "NEAREST": {"supported": false}, "TOP_RATED": {"supported": false}, "MOST_POPULAR": {"supported": false},
     "FEATURED": {"supported": false}, "onlyOpen": {"supported": false}, "distanceMeters": {"supported": false},
     "rating": {"supported": false}, "popularityScore": {"supported": false}, "weeklySchedule": {"supported": false},

@@ -35,7 +35,7 @@ class AndroidPublicIdentityMigrationPostgresIT extends PostgresTestcontainersCon
             JdbcTemplate jdbc = new JdbcTemplate(migrationDataSource);
             ExistingRows rows = insertExistingRows(jdbc);
 
-            var migration = flyway(migrationDataSource, null).migrate();
+            var migration = flyway(migrationDataSource, MigrationVersion.fromVersion(CURRENT)).migrate();
             assertThat(migration.migrationsExecuted).isEqualTo(2);
             assertBackfilled(jdbc);
             assertConstraintsAndIndexes(jdbc);
@@ -55,7 +55,7 @@ class AndroidPublicIdentityMigrationPostgresIT extends PostgresTestcontainersCon
                     "update produtos set categoria_produto_id = ? where id = ?", rows.categoryB(), rows.productA()))
                     .hasMessageContaining("fk_produtos_tenant_categoria");
 
-            var restart = flyway(migrationDataSource, null).migrate();
+            var restart = flyway(migrationDataSource, MigrationVersion.fromVersion(CURRENT)).migrate();
             assertThat(restart.migrationsExecuted).isZero();
             assertThat(jdbc.queryForObject(
                     "select count(*) from flyway_schema_history where version = ? and success = true",
@@ -66,7 +66,7 @@ class AndroidPublicIdentityMigrationPostgresIT extends PostgresTestcontainersCon
     @Test
     void migratesFreshDatabaseThroughCompleteChain() {
         withDatabase("android_identity_fresh_", migrationDataSource -> {
-            var result = flyway(migrationDataSource, null).migrate();
+            var result = flyway(migrationDataSource, MigrationVersion.fromVersion(CURRENT)).migrate();
             JdbcTemplate jdbc = new JdbcTemplate(migrationDataSource);
 
             assertThat(result.migrationsExecuted).isPositive();
@@ -74,7 +74,7 @@ class AndroidPublicIdentityMigrationPostgresIT extends PostgresTestcontainersCon
                     "select version from flyway_schema_history where success = true order by installed_rank desc limit 1",
                     String.class)).isEqualTo(CURRENT);
             assertConstraintsAndIndexes(jdbc);
-            assertThat(flyway(migrationDataSource, null).migrate().migrationsExecuted).isZero();
+            assertThat(flyway(migrationDataSource, MigrationVersion.fromVersion(CURRENT)).migrate().migrationsExecuted).isZero();
         });
     }
 

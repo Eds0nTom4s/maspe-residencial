@@ -50,7 +50,7 @@ class PlatformOnboardingCanonicalMigrationPostgresIT extends PostgresTestcontain
                         """, "Legacy " + i, "Legacy business " + i, states.get(i));
             }
 
-            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isEqualTo(4);
+            assertThat(flyway(isolated, MigrationVersion.fromVersion("20260807.01")).migrate().migrationsExecuted).isEqualTo(4);
             assertThat(jdbc.queryForList("select status from onboarding_requests order by id", String.class))
                     .containsExactlyElementsOf(states);
             assertThat(jdbc.queryForObject("""
@@ -76,7 +76,7 @@ class PlatformOnboardingCanonicalMigrationPostgresIT extends PostgresTestcontain
                     where table_schema = 'public' and table_name = 'tenant_users'
                       and column_name = 'access_origin'
                     """, Long.class)).isEqualTo(1);
-            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isZero();
+            assertThat(flyway(isolated, MigrationVersion.fromVersion("20260807.01")).migrate().migrationsExecuted).isZero();
         } finally {
             database.execute("drop database " + databaseName + " with (force)");
         }

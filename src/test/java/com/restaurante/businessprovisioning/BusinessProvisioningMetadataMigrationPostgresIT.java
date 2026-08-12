@@ -60,7 +60,7 @@ class BusinessProvisioningMetadataMigrationPostgresIT extends PostgresTestcontai
             insertOperation(jdbc, accountId, previewId, "FAILED_FINAL", "failed-final", "FINAL", null);
             insertOperation(jdbc, accountId, previewId, "FAILED_RETRYABLE", "failed-retryable", "RETRY", null);
 
-            var migration = flyway(migrationDataSource, null).migrate();
+            var migration = flyway(migrationDataSource, MigrationVersion.fromVersion("20260807.01")).migrate();
             assertThat(migration.migrationsExecuted).isEqualTo(6);
             assertMetadata(jdbc, "PENDING", 0, false);
             assertMetadata(jdbc, "RUNNING", 1, false);
@@ -84,7 +84,7 @@ class BusinessProvisioningMetadataMigrationPostgresIT extends PostgresTestcontai
                       and effects_committed = false
                     """, Long.class)).isEqualTo(2);
 
-            var restart = flyway(migrationDataSource, null).migrate();
+            var restart = flyway(migrationDataSource, MigrationVersion.fromVersion("20260807.01")).migrate();
             assertThat(restart.migrationsExecuted).isZero();
             assertThat(jdbc.queryForObject("""
                     select count(*) from flyway_schema_history

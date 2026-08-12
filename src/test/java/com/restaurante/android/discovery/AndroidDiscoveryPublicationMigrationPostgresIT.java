@@ -35,12 +35,12 @@ class AndroidDiscoveryPublicationMigrationPostgresIT extends PostgresTestcontain
                     values (0, current_timestamp, 'Existing', 'existing', 'EXISTING', 'RESTAURANTE', 'ATIVO', ?)
                     """, UUID.randomUUID());
 
-            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isEqualTo(1);
+            assertThat(flyway(isolated, MigrationVersion.fromVersion(CURRENT)).migrate().migrationsExecuted).isEqualTo(1);
             assertThat(jdbc.queryForObject(
                     "select discovery_published from tenants where tenant_code='EXISTING'", Boolean.class))
                     .isFalse();
             assertSchema(jdbc);
-            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isZero();
+            assertThat(flyway(isolated, MigrationVersion.fromVersion(CURRENT)).migrate().migrationsExecuted).isZero();
         });
     }
 
@@ -48,12 +48,12 @@ class AndroidDiscoveryPublicationMigrationPostgresIT extends PostgresTestcontain
     void migratesFreshDatabaseThroughCompleteChain() {
         withDatabase("discovery_fresh_", isolated -> {
             JdbcTemplate jdbc = new JdbcTemplate(isolated);
-            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isPositive();
+            assertThat(flyway(isolated, MigrationVersion.fromVersion(CURRENT)).migrate().migrationsExecuted).isPositive();
             assertThat(jdbc.queryForObject(
                     "select version from flyway_schema_history where success=true order by installed_rank desc limit 1",
                     String.class)).isEqualTo(CURRENT);
             assertSchema(jdbc);
-            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isZero();
+            assertThat(flyway(isolated, MigrationVersion.fromVersion(CURRENT)).migrate().migrationsExecuted).isZero();
         });
     }
 

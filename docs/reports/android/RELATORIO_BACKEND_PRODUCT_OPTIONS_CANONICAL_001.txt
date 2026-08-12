@@ -97,3 +97,51 @@ NO_OPTIONS e CANONICAL_OPTIONS. Legacy e inválido são explicitamente não
 representáveis, nunca mascarados como []. Isto resolve
 PRODUCT_PAGE_SCHEMA_DEPENDS_ON_OPTIONS na fundação. O passo seguinte, após merge
 controlado, é BACKEND-ANDROID-PUBLIC-CATALOG-001-R2; endpoints continuam ausentes.
+
+11. FECHO DOS GATES — 2026-08-12
+
+HEAD atestado: 53021e5dfbc83ff718c7c207cde22fbebdeea80b.
+Main/remoto: bcf6c57a27856753bff97a07f46358929dcce1ba.
+Branch/origin no início e no fim: ahead 3, behind 0; merge-base igual à main.
+O worktree permaneceu limpo antes dos gates. O diff contra a base contém exactamente
+21 ficheiros permitidos; git diff --check passou.
+
+Compile: mvn -q -DskipTests compile PASS.
+Surefire integral pós-correcções: 541 testes, 0 failures, 0 errors, 3 skipped, PASS.
+Failsafe integral pós-correcções: 353 testes, 0 failures, 0 errors, 0 skipped,
+failsafe-summary sem timeout e PASS (exit code 0). CG-10 permanece ABERTO: a
+execução não introduziu falha funcional nova nem foi classificada como resolvida.
+
+Os ITs canónicos revalidaram NO_OPTIONS, CANONICAL_OPTIONS,
+LEGACY_OPTIONS_UNMIGRATED, CANONICAL_OPTIONS_INVALID, UUID v4, ordering,
+min/max, defaults, additionalPrice AOA e selecção. Em particular,
+500.00 AOA projecta amountMinor=50000. A migration 20260808.01 passou fresh,
+existing, preservação de 2 variações legadas e restart, com FKs compostas a
+rejeitarem Group tenant A -> Produto tenant B e Option tenant A -> Group tenant B.
+
+Runtime isolado:
+- SHA: 53021e5dfbc83ff718c7c207cde22fbebdeea80b;
+- PostgreSQL: 16.13, container product-options-gates-pg, database novo
+  product_options_gates, porta host 55432;
+- aplicação Spring Boot: profile dev, porta 18081, contexto /api;
+- startup: java -jar target/sistema-restauracao-1.0.0.jar;
+- propriedade de arranque necessária no DB novo: spring.jpa.defer-datasource-
+  initialization=false. Sem ela, a configuração preexistente true cria ciclo
+  Flyway <-> EntityManagerFactory; nenhum ficheiro versionado foi alterado;
+- Flyway: 89 migrations, schema 20260808.01;
+- GET /api/actuator/health: UP;
+- GET /api/actuator/health/liveness: UP;
+- GET /api/actuator/health/readiness: UP;
+- GET /api/v1/discovery/home e /api/v1/discovery/search: HTTP 200.
+
+O runtime não cria endpoint de Options. Os serviços reais e PostgreSQL dos ITs
+canónicos cobriram single choice (Tamanho 1..1), multi choice (Extras 0..3),
+required, duplicate, unknown, unavailable, inactive, outro produto/outro tenant,
+soma BigDecimal exacta, NO_OPTIONS, CANONICAL_OPTIONS, legado e inválido. Não
+existem mappings Android públicos Catalog, Products ou Product Detail nesta branch.
+
+Gates fechados:
+- FAILSAFE_FULL_RERUN_POST_TEST_FIXES_PENDING: FECHADO.
+- ISOLATED_RUNTIME_VALIDATION_PENDING: FECHADO.
+
+Decisão de merge readiness: pronta para MERGE CONTROLADO; merge não executado.

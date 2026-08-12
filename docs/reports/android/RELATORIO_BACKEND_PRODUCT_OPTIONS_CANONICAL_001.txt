@@ -1,0 +1,99 @@
+RELATÓRIO — BACKEND-PRODUCT-OPTIONS-CANONICAL-001
+
+1. IDENTIFICAÇÃO
+
+Fase: BACKEND-PRODUCT-OPTIONS-CANONICAL-001 (passo 4 antecipado para desbloquear o passo 3).
+Base: origin/main bcf6c57a27856753bff97a07f46358929dcce1ba.
+Contrato: CONSUMA_AQUI_ANDROID_V1 1.0.0-rc.2, inalterado.
+Blocker de origem: ProductPage.items referencia Product e Product.optionGroups é obrigatório.
+
+2. DECISÃO
+
+O contrato não foi alterado para esconder a lacuna. Foi criado um modelo canónico
+independente; VariacaoProduto permanece LEGACY_PRESERVED. Não há adapter, rename,
+heurística ou migração automática de variações para option groups.
+
+3. AUDITORIA LEGACY
+
+ARTEFACTO | RESPONSABILIDADE/CAMPOS | TENANT-SAFE | USADO POR | DECISÃO
+VariacaoProduto | SKU, tipo, valor, tamanho/cor, preço potencialmente substitutivo, stock, activo | apenas via Produto; sem tenant próprio | StoreCheckoutService, StoreOrderService, StoreMapper, ItemPedido | LEGACY_PRESERVED
+VariacaoProdutoRepository/Service/Controller | CRUD por Long produto/variação e stock | não é Android-public-safe | Store/admin legado | PRESERVAR
+VariacaoProdutoRequest/Response | DTO legado Long/BigDecimal | não é wire Android | controller legado | PRESERVAR
+Produto/ProdutoRepository | produto tenant-scoped com UUID público | sim | cardápio, QR, Store | base do novo agregado
+StoreMapper/Checkout/Order | exibe, selecciona, reserva/devolve stock de VariacaoProduto e grava ItemPedido.variacaoProduto | fluxo Store próprio | Store | NÃO ALTERAR
+ItemPedido/SubPedido | snapshot/execução operacional de pedido, com FK opcional para variação | fluxo legado | Store/PONTO | NÃO ALTERAR
+
+Semântica não equivalente: VariacaoProduto não contém nome de grupo, min/max,
+required, single/multi, default, ordem canónica ou preço adicional. O seu preço
+pode substituir o preço do produto e não é adicional; por isso não é Option.
+
+4. DADOS LEGADOS E MIGRATION
+
+Foi criado teste PostgreSQL de base existente que aplica Flyway até 20260807.01,
+insere 2 VariacaoProduto em 2 produtos/2 tenants e só então aplica 20260808.01.
+TOTAL_VARIACOES=2, TOTAL_PRODUTOS_COM_VARIACOES=2,
+TOTAL_TENANTS_COM_VARIACOES=2 no cenário controlado; todos permanecem iguais após
+a migration. Nenhum dado real/produção foi pressuposto, apagado ou convertido.
+
+Migration: V20260808_01__canonical_product_options.sql.
+Cria product_option_groups e product_options, UUID v4 default gen_random_uuid(),
+NOT NULL, unique global, triggers de imutabilidade, checks, índices e FKs compostas:
+tenant_id/produto_id e tenant_id/option_group_id. Não há ON DELETE CASCADE.
+
+5. MODELO CANÓNICO
+
+ProductOptionGroup: tenant, Produto, publicId, name, minSelections, maxSelections,
+sortOrder e active. required é derivado de minSelections > 0; singleChoice é
+derivado de maxSelections == 1. Ordem: sortOrder ASC, publicId ASC.
+
+ProductOption: tenant, ProductOptionGroup, publicId, name, additionalPrice
+BigDecimal(10,2), available, defaultSelected, sortOrder e active. Preço >= 0,
+escala exacta 2 e sem double/float. Uma default tem de estar activa e disponível.
+
+6. COMPATIBILIDADE E PROJECTION
+
+CanonicalProductOptionsCompatibilityService classifica:
+- NO_OPTIONS: sem grupos canónicos e sem variações; projection [].
+- CANONICAL_OPTIONS: grupos/opções reais e estruturalmente válidos.
+- LEGACY_OPTIONS_UNMIGRATED: variações legadas sem grupos; não projectável.
+- CANONICAL_OPTIONS_INVALID: regra, disponibilidade/default ou ownership inválido;
+  não projectável.
+
+AndroidProductOptionGroupProjection e AndroidProductOptionProjection correspondem
+aos campos OpenAPI. additionalPrice usa AndroidMoneyConverter e AndroidMoneyAmount
+AOA minor-unit exacto. Não foi criado endpoint público.
+
+7. VALIDAÇÃO E PREPARAÇÃO FUTURA
+
+ProductOptionSelectionValidator valida opção desconhecida, duplicada, outro tenant,
+outro produto, activa/disponível e contagens min/max, e soma additionalPrice em
+BigDecimal. Não cria Quote, Order, Payment ou snapshot. CanonicalProductOptionsService
+é o único boundary de escrita criado; PRODUCT_CATALOG_VERSIONING_PENDING_PUBLIC_CATALOG_R2
+permanece explícito para os futuros productVersion/catalogVersion no mesmo boundary.
+
+8. ISOLAMENTO E SEGURANÇA
+
+As FKs compostas impedem Group tenant A -> Produto tenant B e Option tenant A ->
+Group tenant B no banco. Os serviços usam tenantId + aggregate ID. Não foram criados
+endpoints, regras SecurityConfig, permissões públicas, endpoints Android, quote,
+order, pagamento, fulfillment, frontend ou alterações Android.
+
+9. TESTES E RUNTIME
+
+Testes específicos PostgreSQL:
+- CanonicalProductOptionsPostgresIT: UUIDs, projection, money AOA, NO_OPTIONS,
+  legado, inválido, defaults, min/max, selecção, duplicado, desconhecido e FKs.
+- CanonicalProductOptionsMigrationPostgresIT: fresh/existing/restart e preservação
+  de 2 variações legadas.
+
+As suites completas e regressões Store/QR/Discovery/contratos são registadas no
+handoff conforme o resultado do runner. CG-09, CG-10, D-05, rate-limit distribuído
+e HTTPS deployment não foram alterados.
+
+10. DESBLOQUEIO
+
+O schema Product.optionGroups pode agora ser projectado com dados reais para
+NO_OPTIONS e CANONICAL_OPTIONS. Legacy e inválido são explicitamente não
+representáveis, nunca mascarados como []. Isto resolve
+PRODUCT_PAGE_SCHEMA_DEPENDS_ON_OPTIONS na fundação. O passo seguinte, após merge
+controlado, é BACKEND-ANDROID-PUBLIC-CATALOG-001-R2; endpoints continuam ausentes.

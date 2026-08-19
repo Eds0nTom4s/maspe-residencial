@@ -2,17 +2,21 @@ package com.restaurante.controller;
 
 import com.restaurante.dto.request.CancelFiscalDocumentRequest;
 import com.restaurante.dto.request.IssueFiscalDocumentRequest;
+import com.restaurante.dto.request.SendFiscalDocumentSmsRequest;
 import com.restaurante.dto.request.UpsertProductTaxClassificationRequest;
 import com.restaurante.dto.request.UpsertTenantFiscalProfileRequest;
 import com.restaurante.dto.request.UpsertTenantTaxPolicyRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.FiscalDocumentResponse;
+import com.restaurante.dto.response.FiscalDocumentDeliveryResponse;
 import com.restaurante.dto.response.ProductTaxClassificationResponse;
 import com.restaurante.dto.response.TenantFiscalProfileResponse;
 import com.restaurante.dto.response.TenantTaxPolicyResponse;
 import com.restaurante.fiscal.repository.TaxRateRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentLineRepository;
 import com.restaurante.fiscal.service.FiscalDocumentService;
+import com.restaurante.fiscal.service.FiscalDocumentPdfService;
+import com.restaurante.fiscal.service.FiscalDocumentDeliveryService;
 import com.restaurante.fiscal.service.ProductTaxClassificationService;
 import com.restaurante.fiscal.service.TenantFiscalProfileService;
 import com.restaurante.fiscal.service.TenantTaxPolicyService;
@@ -34,6 +38,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -58,6 +65,8 @@ public class TenantFiscalController {
     private final FiscalDocumentService fiscalDocumentService;
     private final TaxRateRepository taxRateRepository;
     private final FiscalDocumentLineRepository fiscalDocumentLineRepository;
+    private final FiscalDocumentPdfService fiscalDocumentPdfService;
+    private final FiscalDocumentDeliveryService fiscalDocumentDeliveryService;
 
     @GetMapping("/profile")
     public ResponseEntity<ApiResponse<TenantFiscalProfileResponse>> getProfile() {
@@ -156,6 +165,35 @@ public class TenantFiscalController {
     public ResponseEntity<ApiResponse<FiscalDocumentResponse>> getDocument(@PathVariable Long documentId) {
         FiscalDocument d = fiscalDocumentService.getForTenant(documentId);
         return ResponseEntity.ok(ApiResponse.success("Fiscal document", d != null ? mapDocWithLines(d) : null));
+    }
+
+    @GetMapping("/documents/{documentId}/pdf")
+    public ResponseEntity<byte[]> downloadPdf(@PathVariable Long documentId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_FINANCE, TenantUserRole.TENANT_CASHIER);
+        var file = fiscalDocumentPdfService.render(fiscalDocumentService.getForTenant(documentId));
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF)
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + file.filename() + "\"")
+                .body(file.bytes());
+    }
+
+    @PostMapping("/documents/{documentId}/send-sms")
+    public ResponseEntity<ApiResponse<FiscalDocumentDeliveryResponse>> sendSms(
+            @PathVariable Long documentId, @Valid @RequestBody SendFiscalDocumentSmsRequest request) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_FINANCE, TenantUserRole.TENANT_CASHIER);
+        return ResponseEntity.ok(ApiResponse.success("Documento interno enviado",
+                fiscalDocumentDeliveryService.sendBySms(documentId, request.phone())));
+    }
+
+    @PostMapping("/documents/{documentId}/share/revoke")
+    public ResponseEntity<ApiResponse<Void>> revokeShare(@PathVariable Long documentId) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_FINANCE);
+        fiscalDocumentDeliveryService.revokeForTenant(documentId);
+        return ResponseEntity.ok(ApiResponse.success("Partilha revogada", null));
     }
 
     @PostMapping("/documents/issue-for-pedido/{pedidoId}")

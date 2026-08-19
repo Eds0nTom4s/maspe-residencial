@@ -34,6 +34,8 @@ public interface FiscalDocumentRepository extends JpaRepository<FiscalDocument, 
 
     Optional<FiscalDocument> findByTenantIdAndCaixaOperadorAdjustmentId(Long tenantId, Long adjustmentId);
 
+    Optional<FiscalDocument> findByPublicShareTokenHash(String publicShareTokenHash);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from FiscalDocument d where d.id = :id")
     Optional<FiscalDocument> findByIdForUpdate(@Param("id") Long id);

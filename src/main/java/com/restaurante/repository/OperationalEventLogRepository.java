@@ -158,6 +158,21 @@ public interface OperationalEventLogRepository extends JpaRepository<Operational
                                                                   Pageable pageable);
 
     @Query("""
+            select distinct e
+            from OperationalEventLog e
+              left join e.pedido pedido
+              left join e.subPedido subPedido
+              left join subPedido.pedido subPedidoPedido
+            where e.tenant.id = :tenantId
+              and (e.turno.id = :turnoId
+                   or pedido.turnoOperacional.id = :turnoId
+                   or subPedidoPedido.turnoOperacional.id = :turnoId)
+            order by e.createdAt asc, e.id asc
+            """)
+    List<OperationalEventLog> findAllByTenantAndTurnoChronological(
+            @Param("tenantId") Long tenantId, @Param("turnoId") Long turnoId);
+
+    @Query("""
             select e.tenant.id as tenantId, max(e.createdAt) as lastAt
             from OperationalEventLog e
             where e.createdAt >= :from

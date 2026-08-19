@@ -31,10 +31,8 @@ public interface TaxRateRepository extends JpaRepository<TaxRate, Long> {
     @Query("""
             select r from TaxRate r
             where r.id = :id
-              and (:at is null
-                   or ((r.effectiveFrom is null or r.effectiveFrom <= :at)
-                       and (r.effectiveTo is null or r.effectiveTo >= :at)))
+              and (r.effectiveFrom is null or r.effectiveFrom <= :at)
+              and (r.effectiveTo is null or r.effectiveTo >= :at)
             """)
     Optional<TaxRate> findEffectiveById(@Param("id") Long id, @Param("at") LocalDateTime at);
 }
-

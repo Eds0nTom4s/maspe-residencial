@@ -28,12 +28,10 @@ public interface ProductTaxClassificationRepository extends JpaRepository<Produc
             where c.tenant.id = :tenantId
               and c.product.id = :productId
               and c.status = 'ACTIVE'
-              and (:at is null
-                   or ((c.effectiveFrom is null or c.effectiveFrom <= :at)
-                       and (c.effectiveTo is null or c.effectiveTo >= :at)))
+              and (c.effectiveFrom is null or c.effectiveFrom <= :at)
+              and (c.effectiveTo is null or c.effectiveTo >= :at)
             """)
     Optional<ProductTaxClassification> findActiveEffectiveByTenantAndProduct(@Param("tenantId") Long tenantId,
                                                                              @Param("productId") Long productId,
                                                                              @Param("at") LocalDateTime at);
 }
-

@@ -10,7 +10,11 @@ import com.restaurante.dto.request.ProvisionarTenantRequest;
 import com.restaurante.dto.response.ProvisionarTenantResponse;
 import com.restaurante.fiscal.repository.FiscalDocumentLineRepository;
 import com.restaurante.fiscal.repository.FiscalDocumentRepository;
+import com.restaurante.fiscal.repository.ProductTaxClassificationRepository;
+import com.restaurante.fiscal.repository.TaxRateRepository;
+import com.restaurante.fiscal.repository.TenantFiscalCorrectionPolicyRepository;
 import com.restaurante.fiscal.repository.TenantFiscalProfileRepository;
+import com.restaurante.fiscal.repository.TenantTaxPolicyRepository;
 import com.restaurante.model.entity.FiscalDocument;
 import com.restaurante.model.entity.FiscalDocumentLine;
 import com.restaurante.model.entity.Tenant;
@@ -20,6 +24,7 @@ import com.restaurante.model.enums.FiscalDocumentStatus;
 import com.restaurante.model.enums.FiscalDocumentType;
 import com.restaurante.model.enums.FiscalRegime;
 import com.restaurante.model.enums.Role;
+import com.restaurante.model.enums.TenantFiscalCorrectionPolicyStatus;
 import com.restaurante.model.enums.TenantFiscalProfileStatus;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.model.enums.TenantUserRole;
@@ -45,19 +50,21 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.main.web-application-type=servlet")
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("it-postgres")
-@Transactional
 class PontoFiscalDocumentPostgresIT extends PostgresTestcontainersConfig {
 
     @Autowired MockMvc mockMvc;
     @Autowired TenantProvisioningService provisioning;
     @Autowired TenantRepository tenants;
     @Autowired TenantFiscalProfileRepository profiles;
+    @Autowired TenantTaxPolicyRepository taxPolicies;
+    @Autowired ProductTaxClassificationRepository productTaxClassifications;
+    @Autowired TaxRateRepository taxRates;
+    @Autowired TenantFiscalCorrectionPolicyRepository correctionPolicies;
     @Autowired FiscalDocumentRepository documents;
     @Autowired FiscalDocumentLineRepository lines;
 
@@ -80,6 +87,14 @@ class PontoFiscalDocumentPostgresIT extends PostgresTestcontainersConfig {
         profile.setLegalName("Ponto Fiscal Controlado, Lda.");
         profile.setFiscalDocumentEnabled(true);
         profiles.saveAndFlush(profile);
+
+        LocalDateTime effectiveAt = LocalDateTime.now();
+        assertThat(taxPolicies.findActiveEffective(tenant.getId(), effectiveAt)).isEmpty();
+        assertThat(productTaxClassifications
+                .findActiveEffectiveByTenantAndProduct(tenant.getId(), Long.MAX_VALUE, effectiveAt)).isEmpty();
+        assertThat(taxRates.findEffectiveById(Long.MAX_VALUE, effectiveAt)).isEmpty();
+        assertThat(correctionPolicies.findActiveEffective(tenant.getId(),
+                TenantFiscalCorrectionPolicyStatus.ACTIVE, effectiveAt)).isEmpty();
 
         String rawToken = "safe-public-document-token-20260819";
         FiscalDocument document = new FiscalDocument();

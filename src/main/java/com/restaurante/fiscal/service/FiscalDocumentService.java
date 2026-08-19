@@ -158,7 +158,7 @@ public class FiscalDocumentService {
     public FiscalDocument getForTenant(Long documentId) {
         tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_FINANCE);
         TenantContext ctx = tenantGuard.requireContext();
-        FiscalDocument doc = fiscalDocumentRepository.findById(documentId).orElse(null);
+        FiscalDocument doc = fiscalDocumentRepository.findByIdWithTenant(documentId).orElse(null);
         if (doc == null || doc.getTenant() == null || !doc.getTenant().getId().equals(ctx.tenantId())) return null;
         return doc;
     }
@@ -180,7 +180,7 @@ public class FiscalDocumentService {
                     DeviceErrorResponse.DeviceRecoveryAction.NONE,
                     null);
         }
-        FiscalDocument doc = fiscalDocumentRepository.findById(documentId).orElse(null);
+        FiscalDocument doc = fiscalDocumentRepository.findByIdWithTenant(documentId).orElse(null);
         if (doc == null || doc.getTenant() == null || !doc.getTenant().getId().equals(device.tenantId())) return null;
         // unidade-safe (quando doc possui unidade)
         if (doc.getUnidadeAtendimento() != null && device.unidadeAtendimentoId() != null

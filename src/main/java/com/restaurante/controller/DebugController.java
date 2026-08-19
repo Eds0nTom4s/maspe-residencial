@@ -48,30 +48,6 @@ public class DebugController {
                 .collect(Collectors.toList());
     }
 
-    @PostMapping("/test-password")
-    public Map<String, Object> testarSenha(@RequestBody Map<String, String> request) {
-        String username = request.get("username");
-        String password = request.get("password");
-        
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByTelefone(username))
-                .orElse(null);
-        
-        Map<String, Object> result = new HashMap<>();
-        if (user == null) {
-            result.put("found", false);
-            result.put("message", "Usuário não encontrado: " + username);
-        } else {
-            boolean matches = passwordEncoder.matches(password, user.getPassword());
-            result.put("found", true);
-            result.put("username", user.getUsername());
-            result.put("telefone", user.getTelefone());
-            result.put("passwordMatch", matches);
-            // passwordProvided e passwordHashStored removidos: não expor credenciais em respostas HTTP
-        }
-        return result;
-    }
-
     @PostMapping("/create-admin")
     public Map<String, Object> criarAdmin() {
         Map<String, Object> result = new HashMap<>();
@@ -102,4 +78,3 @@ public class DebugController {
         return result;
     }
 }
-

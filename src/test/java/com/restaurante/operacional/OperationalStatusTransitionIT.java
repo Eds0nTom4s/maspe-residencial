@@ -386,7 +386,7 @@ class OperationalStatusTransitionIT extends PostgresTestcontainersConfig {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode confirmData = objectMapper.readTree(confirmJson).at("/data");
-        assertThat(confirmData.at("/status").asText()).isEqualTo("CONFIRMADA");
+        assertThat(confirmData.at("/paymentOrder/status").asText()).isEqualTo("CONFIRMADA");
 
         Pedido pedido = pedidoRepository.findByIdAndTenantId(setup.pedidoId, setup.tenant.getId()).orElseThrow();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedido.EM_ANDAMENTO);

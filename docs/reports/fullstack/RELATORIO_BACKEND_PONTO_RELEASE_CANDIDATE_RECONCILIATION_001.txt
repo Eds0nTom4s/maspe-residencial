@@ -1,0 +1,289 @@
+FASE
+BACKEND-PONTO-RELEASE-CANDIDATE-RECONCILIATION-001
+
+1. BASE
+Repositório: Eds0nTom4s/maspe-residencial
+Main/base: 938d0cc67f569477c59fc0b07b447fac6c09d77c
+Branch: backend/ponto-release-candidate-reconciliation-001
+Worktree: /tmp/consuma-backend-ponto-release-candidate-reconciliation-001
+Schema de entrada: 20260808.01
+Frontend de referência read-only: 775302f96b095bb44c0904d7e8f4e82a5859e0a2
+
+2. FONTE HISTÓRICA
+Branch: backend/pdv-invoice-delivery-001
+HEAD: 694054244582d1f8edd4579c4afd8af91478eac4
+Ahead/behind relativamente à main inicial: 9/25
+Merge-base: 813503ea0513a5e2761ecb7a092b0a9ff5cb5cb0
+Método: auditoria e portagem selectiva. Não houve merge, rebase ou cherry-pick wholesale.
+
+3. NOVE COMMITS AUDITADOS
+f33ac398 | Fix provisioning to tenant first-login happy path
+Objectivo: first password e claims de autenticação.
+Impacto: User/Auth/JWT/provisioning. Segurança alta.
+Decisão: PORT_WITH_ADAPTATION; preservada a arquitectura GLOBAL/TENANT actual.
+
+7aba824f | Return 404 for missing authenticated resources
+Objectivo: semântica de recurso autenticado ausente.
+Impacto: error envelope.
+Decisão: PORT_WITH_ADAPTATION; aplicado no handler actual, sem stack trace público.
+
+8a28135a | Fix tenant payment confirmation integrity
+Objectivo: idempotência da confirmação manual.
+Impacto: OrdemPagamento e request/response Tenant.
+Decisão: PORT_WITH_ADAPTATION; resposta canónica actual e policy de aceitação preservadas.
+
+ce19f7c | Implement idempotent tenant PDV order creation
+Objectivo: POST /tenant/pedidos e replay seguro.
+Impacto: Pedido, itens, idempotência e preço.
+Decisão: PORT_WITH_ADAPTATION; preço exclusivamente backend e Product Options guardadas.
+
+9b91b818 | Add web cash sessions and cash confirmation
+Objectivo: caixa operador web.
+Impacto: Caixa/Turno/Pagamento.
+Decisão: PORT_WITH_ADAPTATION; channel WEB_PDV e Tenant/Turno/operador obrigatórios.
+
+448b4c43 | Enforce PDV payment policy and inventory handoff
+Objectivo: métodos de pagamento e consumo de inventário.
+Impacto: payment policy/inventory.
+Decisão: PORT_PARTIALLY; policy portada, swallowing histórico de erro de inventário rejeitado.
+
+06ca5246 | Enforce turno-scoped operational ledger
+Objectivo: extrato de pedidos/eventos/relatório por turno.
+Impacto: read model e ledger.
+Decisão: PORT_WITH_ADAPTATION à máquina de estados actual.
+
+16a3a61b | Auto-close settled consumption sessions
+Objectivo: auto-close de SessaoConsumo liquidada.
+Impacto: sessão e origem.
+Decisão: SUPERSEDED_BY_MAIN/REJECT_UNSAFE; mantida policy actual limitada a PONTO.
+
+69405424 | Implement fiscal PDF delivery and optional TPA evidence
+Objectivo: documento/PDF/share/SMS.
+Impacto: FiscalDocument, PII e acesso público.
+Decisão: PORT_PARTIALLY; PDF interno e share seguro portados; inputs fiscais autoritativos do cliente rejeitados.
+
+4. MATRIZ DE PORTAGEM
+First password | histórico f33ac398 | main parcial | PORT_WITH_ADAPTATION | migration necessária | owner Auth.
+404 autenticado | 7aba824f | main parcial | PORT_WITH_ADAPTATION | sem migration | owner HTTP errors.
+Payment confirmation idempotency | 8a28135a | ausente | PORT_WITH_ADAPTATION | migration | owner PONTO Payment.
+PDV direct sale | ce19f7c | ausente | PORT_WITH_ADAPTATION | migration | owner PONTO.
+Web caixa | 9b91b818 | device caixa existente | PORT_WITH_ADAPTATION | migration | owner PONTO.
+Payment methods/policy | 448b4c43 | foundation existente | PORT_PARTIALLY | sem duplicação | owner Payment.
+Turno ledger | 06ca5246 | read model parcial | PORT_WITH_ADAPTATION | índices existentes/reconciliados | owner PONTO.
+Session auto-close | 16a3a61b | main superior | SUPERSEDED_BY_MAIN | nenhuma migration.
+Fiscal/PDF/SMS | 69405424 | fiscal foundation existente | PORT_PARTIALLY | migration reconciliada | owner PONTO fiscal interno.
+
+5. MIGRATIONS
+Históricas auditadas: V20260802_01, V20260803_01, V20260803_02, V20260803_03, V20260804_01.
+Versões históricas reutilizadas: nenhuma.
+Nova migration: V20260809_01__ponto_release_candidate_reconciliation.sql.
+Schema final: 20260809.01.
+Fresh DB: PASS em PostgreSQL/Testcontainers.
+Existing DB desde 20260808.01: PASS com Tenant, Turno, Pedido, OrdemPagamento e Product Options.
+Restart: PASS; 90 migrations validadas, zero reaplicadas.
+Backfill/compatibilidade: dados existentes preservados; constraints e índices reconciliados sem duplicação semântica.
+
+6. PDV SALE
+Endpoint: POST /tenant/pedidos AVAILABLE=YES, exclusivamente TENANT JWT.
+Origin: PDV_INTERNO.
+Policy: direct sale interna atinge EM_ANDAMENTO/aceite no boundary transaccional antes de criar OrdemPagamento.
+Estado financeiro inicial: NAO_PAGO.
+Payment available inicial: true apenas depois do estado operacional aceite.
+Pricing: Produto/BigDecimal do backend; total do cliente não é authoritative.
+Ownership: Tenant, unidade, turno, categoria/produto validados.
+Options: produto NO_OPTIONS suportado. Produto com options exige snapshot/selecção canónica e é bloqueado por PDV_CANONICAL_OPTION_SELECTION_SNAPSHOT_PENDING.
+
+7. IDEMPOTÊNCIA PDV
+Chave: Idempotency-Key obrigatória e clientRequestId.
+Scope: Tenant + endpoint PDV + chave.
+Payload: hash canónico.
+Mesmo key/payload: replay do mesmo Pedido.
+Mesmo key/payload diferente: HTTP 409.
+Processing state e falha: persistidos sem criar Pedido duplicado.
+Runtime: exactamente um Pedido para pdv-runtime-idem-001.
+Não reutilizada para POST /api/v1/orders Android.
+
+8. PAYMENT INVARIANT
+Regra global: PEDIDO NÃO ACEITE -> ZERO ORDEMPAGAMENTO.
+PDV: Pedido persiste CRIADO e transita explicitamente para EM_ANDAMENTO antes da OrdemPagamento.
+QR/PONTO/DEVICE: PedidoPagamentoPolicy aplicada antes de criação/confirmação.
+Confirmação: idempotência Tenant additive; replay coerente; conflito de payload bloqueado.
+Runtime: OrdemPagamento CONFIRMADA apenas depois do Pedido EM_ANDAMENTO; Pedido financeiro PAGO.
+
+9. CAIXA
+Web caixa AVAILABLE=YES.
+Endpoints de abrir, obter actual e fechar preservam o contrato Tenant.
+Relação: Tenant + unidade + Turno ABERTO + operador.
+Channel: WEB_PDV, distinto do DEVICE_POS.
+Confirmação CASH PDV exige caixa web activo.
+Read model: sessões e pagamentos reais; sem movimentos fabricados.
+
+10. PAYMENT METHODS
+Endpoint Tenant PDV AVAILABLE=YES.
+Runtime: CASH e TPA configurados em AOA.
+Distinção preservada entre configurado, permitido, disponível e gateway activo.
+AppyPay: mock=true; integração técnica não equivale a pagamento real certificado.
+
+11. INVENTORY
+Trigger actual preservado: PAYMENT_CONFIRMED.
+Não se usa pagamento como aceitação operacional.
+O listener histórico que engolia falhas foi rejeitado.
+Regressões de pedido/pagamento/inventário: PASS na suite integral.
+
+12. LEDGER DE TURNO
+Eventos: AVAILABLE=YES via OperationalEventLog tenant/turno-safe.
+PedidoExtrato: AVAILABLE=YES.
+RelatorioCaixaTurno: inclui pedidos, eventos e confirmações manuais do mesmo turno.
+Runtime turno 2: 1 pedido, 6 eventos, 1 confirmação manual, total 500.00 AOA.
+
+13. FECHO DE TURNO
+Pré-fecho, iniciar-fecho, checklist e fechar não foram substituídos.
+TenantPedidoTurnoObrigatorioIT e regressões de Turno: PASS na suite integral.
+CG-09 permanece aberto e o seed não foi alterado.
+
+14. SESSION AUTO-CLOSE
+Mudança histórica não portada.
+Main actual preservada como owner da política, limitada às origens/estados já consolidados.
+Regressão: PASS.
+
+15. FIRST PASSWORD
+Campos: mustChangePassword, passwordResetRequired, temporaryPasswordExpiresAt, lastPasswordChangedAt.
+Endpoint autenticado: /auth/password/change.
+JWT/response: flags canónicas, sem regressar auth GLOBAL/TENANT.
+Provisioning: credencial temporária governada; endpoint debug de password removido.
+Testes: FirstPasswordCanonicalIT e UserPasswordManagementServiceTest PASS.
+
+16. FISCAL DOCUMENT
+Natureza: DOCUMENTO INTERNO / DOCUMENTO FISCAL DA PLATAFORMA.
+Emissão: Tenant/Payment/Pedido ownership e pagamento confirmado.
+Inputs históricos de imposto/total do cliente: rejeitados.
+Runtime: INTERNAL_RECEIPT ISSUED id=1, total fiscal 570.00 AOA.
+Não é declarada certificação ou submissão AGT oficial.
+
+17. PDF
+Apache PDFBox 3.0.8, geração em memória.
+Runtime: resposta começa com %PDF e Cache-Control=no-store.
+Consultas temporais PostgreSQL usam data tipada não nula; regressão real adicionada.
+Documento é carregado com Tenant no mesmo read boundary, evitando lazy proxy fora de sessão.
+
+18. PUBLIC SHARE
+Token aleatório de 256 bits, somente hash SHA-256 persistido.
+TTL: 7 dias; expiração, cancelamento e revogação validados.
+Sem Long PK público e sem token em logs.
+Public PDF seguro validado em PontoFiscalDocumentPostgresIT.
+
+19. SMS
+Feature segura e desligada por padrão.
+Runtime: HTTP 400 com delivery externa desabilitada.
+Nenhum segredo/token devolvido ou logado.
+TELCOSMS_REAL_DELIVERY_CERTIFICATION_PENDING.
+
+20. SECURITY
+SecurityConfig histórica não foi copiada.
+/tenant/** continua TENANT JWT; /api/v1/** não foi aberto.
+Zero X-Tenant-Id, X-Tenant-Code ou X-Business-Id adicionados.
+Cross-tenant PDV runtime: Produto do Tenant A usado no Tenant B -> 404, zero leak.
+Stack traces não são retornados no HTTP; erros públicos usam envelope sanitizado.
+Idempotency-Key não é persistida/logada em claro; hash é usado.
+
+21. PONTO CONTRACT
+Versão: CONSUMA_PONTO_MVP_V1 1.0.0.
+ConsumaPontoMvpContractIT: PASS.
+QR regressions, PublicQrCardapioIT, PublicQrPedidoIT e ConsumaDemoFreezyHappyPathIT: PASS.
+Payment invariant/PublicQrPagamentoStartIT: PASS.
+
+22. CONSUMA AQUI CONTRACT
+Versão: 1.0.0-rc.2; status FROZEN_WITH_BLOCKERS.
+Manifesto preservado: IMPLEMENTED=3, PARTIAL=0, HISTORICAL_BRANCH_ONLY=0, NOT_IMPLEMENTED=6.
+ConsumaAquiAndroidV1ContractTest: PASS.
+Discovery Home/Search/Detail: IMPLEMENTED 3/3 e regressões PASS.
+Catalog, Products, Product Detail, Quote, Order Create e Order Query: NOT_IMPLEMENTED.
+Nenhum endpoint /api/v1 foi criado ou alterado nesta fase.
+
+23. ORIGIN COMPATIBILITY
+PedidoOrigem inclui CONSUMA_AQUI_ANDROID sem criar agregado paralelo.
+PENDING_ACCEPTANCE, NOT_PAYABLE e paymentAvailable=false continuam representáveis.
+Pedido Android futuro não recebe OrdemPagamento antes de aceitação.
+REJECTED/CANCELLED não foram mais colapsados nesta fase.
+
+24. D-05
+merchant->unit permanece UNRESOLVED_BLOCKING.
+Nenhum first unit, LIMIT 1 ou menor ID foi introduzido.
+PDV interno recebe unidade autenticada/operacional e não resolve D-05 Android.
+
+25. PRODUCT OPTIONS
+ProductOptionGroup/ProductOption e schema 20260808.01 preservados.
+CanonicalProductOptionsPostgresIT e CanonicalProductOptionsMigrationPostgresIT: PASS.
+PDV não inventa selecção de options; bloqueia produto configurável até snapshot canónico.
+
+26. DISCOVERY
+AndroidDiscoveryCanonicalContractTest e suites Home/Search/Detail: PASS.
+Status oficial continua IMPLEMENTED 3/3.
+
+27. QR REGRESSIONS
+PublicQrCardapioIT: PASS.
+PublicQrPedidoIT: PASS.
+ConsumaDemoFreezyHappyPathIT: PASS.
+PublicQrPagamentoStartIT: PASS; pedido não aceite continua sem OrdemPagamento.
+
+28. TESTS
+Compile: PASS.
+Surefire integral final: 541 tests, 0 failures, 0 errors, 3 skipped.
+Failsafe integral final: 358 tests, 0 failures, 0 errors, 0 skipped, exit code 0.
+Execução: mvn -q -Pit clean verify.
+Shutdown: assinatura conhecida “Surefire is going to kill self fork JVM” após 30s.
+Classificação: PASS COM DÍVIDA CG-10.
+Migration fresh/existing/restart: PASS.
+Tenant isolation, PDV replay, payment, Store, QR, Turno, Discovery, Android contract, PONTO contract e Product Options: PASS.
+
+29. RUNTIME
+SHA funcional: 2308bb7c211871d9139023c0e9f234954341215f.
+PostgreSQL: 16.13 isolado, porta 55439, sem dados de cliente.
+Profile/porta: sandbox / 18080.
+Flyway: 90 migrations, schema 20260809.01, restart sem reaplicação.
+Health/Liveness/Readiness: UP/UP/UP.
+Login GLOBAL e Tenant select: PASS com conta sandbox criada pelo seeder oficial.
+Turno: id 2 ABERTO.
+PDV: pedido id 1, PDV_INTERNO, EM_ANDAMENTO, 500.00 AOA.
+Replay: mesmo Pedido; payload diferente HTTP 409.
+Payment: CASH, OrdemPagamento CONFIRMADA, Pedido PAGO, troco 500.00 AOA.
+Caixa: id 1, WEB_PDV, mesmo Tenant/Turno/operador.
+Ledger: pedido/pagamento/eventos convergem no turno 2.
+Documento: id 1, ISSUED, PDF PASS.
+SMS: NOT_EXECUTED_EXTERNAL_CERTIFICATION_PENDING; feature disabled retorna 400.
+
+30. CG-09
+ABERTO. O primeiro startup com demo seed encontrou o comportamento conhecido antes de haver Turno; seed não alterado.
+
+31. CG-10
+ABERTO. Suites funcionais concluíram com zero failures/errors e exit 0; fork encerrou após a assinatura tardia conhecida.
+
+32. EXTERNAL INFRA
+APPYPAY_REAL_PAYMENT_CERTIFICATION_PENDING; runtime mock=true.
+TELCOSMS_REAL_DELIVERY_CERTIFICATION_PENDING; nenhum SMS real enviado.
+STORAGE_RUNTIME_DEPENDENCY: PDF/share desta fase são gerados em memória e não dependem de MinIO.
+HTTPS/PUBLIC_BASE_URL de staging/release permanece dependência de deployment.
+
+33. COMMITS E DECISÃO
+3bed56f feat(backend): reconcilia venda pdv e caixa ponto
+968ed90 feat(backend): reconcilia ledger e entrega documental ponto
+04ec66f test(backend): cobre pdv pagamento contratos e regressao cross-product
+2308bb7 fix(backend): corrige emissao fiscal no PostgreSQL
+O relatório é publicado num commit documental adicional porque os quatro slots funcionais/testes já foram usados após a correcção descoberta pelo runtime.
+
+Capacidades finais:
+POST /tenant/pedidos AVAILABLE=YES
+PDV payment methods AVAILABLE=YES
+Caixa mutation AVAILABLE=YES
+Ledger AVAILABLE=YES
+Fiscal PDF/share AVAILABLE=YES
+SMS external delivery AVAILABLE=NO (certificação pendente)
+
+Decisão:
+PONTO BACKEND RELEASE CANDIDATE APROVADA COM BLOCKERS DECLARADOS —
+PDV_CANONICAL_OPTION_SELECTION_SNAPSHOT_PENDING;
+APPYPAY_REAL_PAYMENT_CERTIFICATION_PENDING;
+TELCOSMS_REAL_DELIVERY_CERTIFICATION_PENDING;
+CG-09 ABERTO;
+CG-10 ABERTO;
+D-05 UNRESOLVED_BLOCKING.

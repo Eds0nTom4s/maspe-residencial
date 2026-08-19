@@ -49,14 +49,32 @@ public class TenantAdminPedidoService {
             LocalDateTime ate,
             Pageable pageable
     ) {
+        return listarPedidos(statusOperacional, statusFinanceiro, instituicaoId,
+                unidadeAtendimentoId, mesaId, de, ate, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<TenantPedidoResumoResponse> listarPedidos(
+            StatusPedido statusOperacional,
+            StatusFinanceiroPedido statusFinanceiro,
+            Long instituicaoId,
+            Long unidadeAtendimentoId,
+            Long mesaId,
+            LocalDateTime de,
+            LocalDateTime ate,
+            Long turnoId,
+            Pageable pageable
+    ) {
         TenantContext ctx = requireTenantContext();
         Page<Pedido> page;
         if (operacaoProperties.isTurnoObrigatorio()) {
-            List<Long> turnoIds = turnoOperacionalRepository.findOpenIdsByTenantAndOptionalScope(
-                    ctx.tenantId(),
-                    instituicaoId,
-                    unidadeAtendimentoId
-            );
+            List<Long> turnoIds = turnoId != null
+                    ? turnoOperacionalRepository.findByIdAndTenantId(turnoId, ctx.tenantId())
+                            .filter(turno -> turno.getStatus() == com.restaurante.model.enums.TurnoOperacionalStatus.ABERTO
+                                    || turno.getStatus() == com.restaurante.model.enums.TurnoOperacionalStatus.EM_FECHO)
+                            .map(turno -> List.of(turno.getId())).orElse(List.of())
+                    : turnoOperacionalRepository.findOpenIdsByTenantAndOptionalScope(
+                            ctx.tenantId(), instituicaoId, unidadeAtendimentoId);
             if (turnoIds.isEmpty()) {
                 throw new TurnoObrigatorioException("Abra um turno para consultar os pedidos operacionais.");
             }
@@ -73,17 +91,13 @@ public class TenantAdminPedidoService {
                     pageable
             );
         } else {
-            page = pedidoRepository.findTenantPedidosWithFilters(
-                    ctx.tenantId(),
-                    statusOperacional,
-                    statusFinanceiro,
-                    de,
-                    ate,
-                    instituicaoId,
-                    unidadeAtendimentoId,
-                    mesaId,
-                    pageable
-            );
+            page = turnoId != null
+                    ? pedidoRepository.findTenantPedidosWithFiltersAndTurnos(
+                            ctx.tenantId(), List.of(turnoId), statusOperacional, statusFinanceiro,
+                            de, ate, instituicaoId, unidadeAtendimentoId, mesaId, pageable)
+                    : pedidoRepository.findTenantPedidosWithFilters(
+                            ctx.tenantId(), statusOperacional, statusFinanceiro, de, ate,
+                            instituicaoId, unidadeAtendimentoId, mesaId, pageable);
         }
         return page.map(p -> toResumo(p, ctx));
     }
@@ -125,6 +139,7 @@ public class TenantAdminPedidoService {
                 .statusFinanceiro(p.getStatusFinanceiro())
                 .total(p.getTotal())
                 .pedidoOrigem(p.getPedidoOrigem())
+                .turnoOperacionalId(p.getTurnoOperacional() != null ? p.getTurnoOperacional().getId() : null)
                 .instituicaoId(instId)
                 .unidadeAtendimentoId(uaId)
                 .mesaId(mesa != null ? mesa.getId() : null)
@@ -205,6 +220,7 @@ public class TenantAdminPedidoService {
                 .statusFinanceiro(p.getStatusFinanceiro())
                 .total(p.getTotal())
                 .pedidoOrigem(p.getPedidoOrigem())
+                .turnoOperacionalId(p.getTurnoOperacional() != null ? p.getTurnoOperacional().getId() : null)
                 .observacoes(p.getObservacoes())
                 .criadoEm(p.getCreatedAt())
                 .atualizadoEm(p.getUpdatedAt())

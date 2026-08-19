@@ -147,4 +147,10 @@ public class FiscalDocument extends BaseEntity {
 
     @OneToMany(mappedBy = "fiscalDocument", fetch = FetchType.LAZY)
     private List<FiscalDocumentLine> lines = new ArrayList<>();
+
+    @Column(name = "public_share_token_hash", length = 64)
+    private String publicShareTokenHash;
+
+    @Column(name = "public_share_expires_at")
+    private LocalDateTime publicShareExpiresAt;
 }

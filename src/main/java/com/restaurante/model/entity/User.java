@@ -57,6 +57,18 @@ public class User extends BaseEntity implements UserDetails {
     @Column(name = "ultimo_acesso")
     private LocalDateTime ultimoAcesso;
 
+    @Column(name = "must_change_password", nullable = false)
+    private Boolean mustChangePassword = false;
+
+    @Column(name = "password_reset_required", nullable = false)
+    private Boolean passwordResetRequired = false;
+
+    @Column(name = "temporary_password_expires_at")
+    private LocalDateTime temporaryPasswordExpiresAt;
+
+    @Column(name = "last_password_changed_at")
+    private LocalDateTime lastPasswordChangedAt;
+
     public User() {}
 
     public User(String username, String password, String email, String nomeCompleto, String telefone,
@@ -88,6 +100,14 @@ public class User extends BaseEntity implements UserDetails {
     public void setAtivo(Boolean ativo) { this.ativo = ativo; }
     public LocalDateTime getUltimoAcesso() { return ultimoAcesso; }
     public void setUltimoAcesso(LocalDateTime ultimoAcesso) { this.ultimoAcesso = ultimoAcesso; }
+    public Boolean getMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(Boolean mustChangePassword) { this.mustChangePassword = mustChangePassword; }
+    public Boolean getPasswordResetRequired() { return passwordResetRequired; }
+    public void setPasswordResetRequired(Boolean passwordResetRequired) { this.passwordResetRequired = passwordResetRequired; }
+    public LocalDateTime getTemporaryPasswordExpiresAt() { return temporaryPasswordExpiresAt; }
+    public void setTemporaryPasswordExpiresAt(LocalDateTime temporaryPasswordExpiresAt) { this.temporaryPasswordExpiresAt = temporaryPasswordExpiresAt; }
+    public LocalDateTime getLastPasswordChangedAt() { return lastPasswordChangedAt; }
+    public void setLastPasswordChangedAt(LocalDateTime lastPasswordChangedAt) { this.lastPasswordChangedAt = lastPasswordChangedAt; }
 
     public static UserBuilder builder() {
         return new UserBuilder();

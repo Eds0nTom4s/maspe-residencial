@@ -27,6 +27,7 @@ public class TenantPedidoResumoResponse {
     private StatusFinanceiroPedido statusFinanceiro;
     private BigDecimal total;
     private PedidoOrigem pedidoOrigem;
+    private Long turnoOperacionalId;
 
     private Long instituicaoId;
     private Long unidadeAtendimentoId;

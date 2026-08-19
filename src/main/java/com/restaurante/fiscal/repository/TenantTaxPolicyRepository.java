@@ -27,11 +27,9 @@ public interface TenantTaxPolicyRepository extends JpaRepository<TenantTaxPolicy
             select p from TenantTaxPolicy p
             where p.tenant.id = :tenantId
               and p.status = 'ACTIVE'
-              and (:at is null
-                   or ((p.effectiveFrom is null or p.effectiveFrom <= :at)
-                       and (p.effectiveTo is null or p.effectiveTo >= :at)))
+              and (p.effectiveFrom is null or p.effectiveFrom <= :at)
+              and (p.effectiveTo is null or p.effectiveTo >= :at)
             order by p.createdAt desc
             """)
     Optional<TenantTaxPolicy> findActiveEffective(@Param("tenantId") Long tenantId, @Param("at") LocalDateTime at);
 }
-

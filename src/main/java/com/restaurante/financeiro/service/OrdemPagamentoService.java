@@ -10,6 +10,9 @@ import com.restaurante.financeiro.enums.StatusPagamentoGateway;
 import com.restaurante.financeiro.enums.TipoPagamentoFinanceiro;
 import com.restaurante.financeiro.repository.OrdemPagamentoRepository;
 import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
+import com.restaurante.financeiro.repository.TenantPaymentConfirmationIdempotencyRepository;
+import com.restaurante.financeiro.caixa.service.CaixaOperadorSessionService;
+import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.model.entity.FundoConsumo;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.Mesa;
@@ -19,6 +22,7 @@ import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.TenantPaymentConfirmationIdempotencyRecord;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
 import com.restaurante.model.entity.User;
@@ -28,6 +32,10 @@ import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.OrdemPagamentoTipo;
+import com.restaurante.model.enums.OrdemPagamentoManualIdempotencyStatus;
+import com.restaurante.model.enums.PaymentDestination;
+import com.restaurante.model.enums.PaymentMethodCode;
+import com.restaurante.model.enums.PedidoOrigem;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
 import com.restaurante.model.enums.StatusPedido;
 import com.restaurante.fiscal.autoissue.event.PaymentConfirmedForFiscalIssueEvent;
@@ -47,9 +55,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Optional;
 
@@ -61,6 +72,7 @@ public class OrdemPagamentoService {
 
     private final OrdemPagamentoRepository ordemPagamentoRepository;
     private final PagamentoGatewayRepository pagamentoGatewayRepository;
+    private final TenantPaymentConfirmationIdempotencyRepository tenantPaymentIdempotencyRepository;
     private final PedidoRepository pedidoRepository;
     private final SubPedidoRepository subPedidoRepository;
     private final TransacaoFundoRepository transacaoFundoRepository;
@@ -73,6 +85,8 @@ public class OrdemPagamentoService {
     private final PaymentOrderProperties paymentOrderProperties;
     private final Clock clock;
     private final OperationalTemplatePolicy operationalTemplatePolicy;
+    private final CaixaOperadorSessionService caixaOperadorSessionService;
+    private final PaymentMethodPolicyResolutionService paymentMethodPolicyResolutionService;
 
     @Transactional
     public OrdemPagamento criarOrdemCarregamentoFundo(Tenant tenant,
@@ -325,6 +339,9 @@ public class OrdemPagamentoService {
                 .valor(ordem.getValor())
                 .moeda(ordem.getMoeda())
                 .metodoPagamento(ordem.getMetodoSolicitado())
+                .metodoConfirmado(ordem.getMetodoConfirmado())
+                .valorRecebido(ordem.getValorRecebido())
+                .troco(ordem.getTroco())
                 .createdAt(ordem.getCreatedAt())
                 .expiresAt(ordem.getExpiresAt())
                 .confirmedAt(ordem.getConfirmadoEm())
@@ -337,10 +354,17 @@ public class OrdemPagamentoService {
                                                                 Long actorUserId,
                                                                 OperationalOrigem origem,
                                                                 ConfirmarPedidoPaymentOrderRequest request,
+                                                                String idempotencyKey,
                                                                 String ip,
                                                                 String userAgent) {
-        if (tenantId == null || pedidoId == null) {
+        if (tenantId == null || pedidoId == null || actorUserId == null) {
             throw new ResourceNotFoundException("Recurso não encontrado.");
+        }
+        if (idempotencyKey != null && idempotencyKey.trim().length() > 120) {
+            throw new BusinessException("Idempotency-Key deve possuir no máximo 120 caracteres.");
+        }
+        if (request == null) {
+            throw new BusinessException("Confirmação de pagamento é obrigatória.");
         }
         OrdemPagamento ordem = ordemPagamentoRepository.findPedidoOrdersForUpdate(
                         tenantId,
@@ -356,6 +380,22 @@ public class OrdemPagamentoService {
         }
 
         Pedido pedido = ordem.getPedido();
+        User confirmedBy = userRepository.findById(actorUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("Recurso não encontrado."));
+        String requestHash = tenantPaymentRequestHash(tenantId, actorUserId, pedidoId, request);
+        String effectiveIdempotencyKey = firstNonBlank(idempotencyKey, request.getClientRequestId());
+        String effectiveClientRequestId = firstNonBlank(request.getClientRequestId(), idempotencyKey);
+        TenantPaymentConfirmationIdempotencyRecord existingIdempotency = effectiveIdempotencyKey != null
+                ? findTenantPaymentIdempotency(tenantId, confirmedBy.getId(),
+                        effectiveIdempotencyKey, effectiveClientRequestId)
+                : null;
+        if (existingIdempotency != null) {
+            validateTenantPaymentReplay(existingIdempotency, ordem, requestHash);
+            if (ordem.getStatus() != OrdemPagamentoStatus.CONFIRMADA) {
+                throw new ConflictException("Registro idempotente inconsistente com a ordem de pagamento.");
+            }
+            return toPaymentOrderResponse(ordem);
+        }
         OperationalOrigem actor = origem != null ? origem : OperationalOrigem.TENANT_CASHIER;
         String template = operationalTemplatePolicy.resolveTemplateCode(pedido);
         var pedidoOrigem = operationalTemplatePolicy.resolvePedidoOrigem(pedido, actor);
@@ -387,44 +427,37 @@ public class OrdemPagamentoService {
         }
 
         MetodoPagamentoManual metodo = resolveMetodoConfirmado(request, ordem);
-        if (metodo != MetodoPagamentoManual.TPA) {
-            throw new BusinessException("Confirmação tenant desta fase suporta apenas TPA, sem cash/troco.");
+        if (ordem.getMetodoSolicitado() != metodo) {
+            throw new ConflictException("Método confirmado não corresponde ao método solicitado na ordem.");
         }
         if (pedido.getTotal() == null || ordem.getValor() == null || ordem.getValor().compareTo(pedido.getTotal()) != 0) {
             throw new ConflictException("Valor da ordem de pagamento não corresponde ao total do pedido.");
         }
 
-        pagamentoGatewayRepository.findPagamentoConfirmadoPorPedido(pedido.getId(), TipoPagamentoFinanceiro.POS_PAGO)
-                .ifPresent(p -> { throw new ConflictException("Pedido já possui pagamento confirmado."); });
-
-        User confirmedBy = actorUserId != null ? userRepository.findById(actorUserId).orElse(null) : null;
-        ordem.setStatus(OrdemPagamentoStatus.CONFIRMADA);
-        ordem.setConfirmadoEm(now());
-        ordem.setConfirmadoPorUser(confirmedBy);
-        ordem.setReferenciaOperador(request != null ? request.getReferenciaOperador() : null);
-        ordem.setObservacao(request != null ? request.getObservacao() : null);
-        ordemPagamentoRepository.save(ordem);
-
-        Pagamento pagamento = Pagamento.builder()
-                .tenant(ordem.getTenant())
-                .pedido(pedido)
-                .fundoConsumo(null)
-                .ordemPagamento(ordem)
-                .cliente(null)
-                .tipoPagamento(TipoPagamentoFinanceiro.POS_PAGO)
-                .metodo(null)
-                .amount(ordem.getValor())
-                .status(StatusPagamentoGateway.PENDENTE)
-                .externalReference(null)
-                .observacoes("TENANT_MANUAL_" + metodo.name() + " ordemId=" + ordem.getId())
-                .build();
-        pagamento.confirmar();
-        pagamento = pagamentoGatewayRepository.save(pagamento);
-
-        if (pedido.getStatusFinanceiro() != StatusFinanceiroPedido.PAGO) {
-            pedido.marcarComoPago();
-            pedidoRepository.save(pedido);
+        BigDecimal valorRecebido = request.getValorRecebido();
+        if (metodo == MetodoPagamentoManual.TPA) {
+            if (valorRecebido != null && valorRecebido.compareTo(ordem.getValor()) != 0) {
+                throw new BusinessException("TPA exige valorRecebido igual ao valor da ordem.");
+            }
+            valorRecebido = ordem.getValor();
+        } else if (valorRecebido == null || valorRecebido.compareTo(ordem.getValor()) < 0) {
+            throw new BusinessException("CASH exige valorRecebido igual ou superior ao valor da ordem.");
         }
+        paymentMethodPolicyResolutionService.validateManualForTenantPdv(
+                tenantId, ordem.getUnidadeAtendimento().getId(),
+                metodo == MetodoPagamentoManual.CASH ? PaymentMethodCode.CASH : PaymentMethodCode.TPA,
+                PaymentDestination.PEDIDO, ordem.getValor());
+        if (pedido.getPedidoOrigem() == PedidoOrigem.PDV_INTERNO) {
+            ordem.setCaixaOperadorSession(caixaOperadorSessionService.requireOpenWebForPayment(
+                    tenantId, actorUserId, ordem));
+        }
+        TenantPaymentConfirmationIdempotencyRecord idempotency = effectiveIdempotencyKey != null
+                ? createTenantPaymentIdempotency(ordem, confirmedBy,
+                        effectiveIdempotencyKey, effectiveClientRequestId, requestHash)
+                : null;
+        ordem.setConfirmadoPorUser(confirmedBy);
+        Pagamento pagamento = aplicarConfirmacaoManualOrdem(
+                ordem, metodo, valorRecebido, request.getReferenciaOperador(), request.getObservacao());
 
         operationalEventLogService.logOrdemPagamentoEvent(
                 OperationalEventType.ORDEM_PAGAMENTO_CONFIRMADA_MANUAL,
@@ -446,8 +479,70 @@ public class OrdemPagamentoService {
                 ip,
                 userAgent
         );
-
+        if (idempotency != null) {
+            idempotency.setStatus(OrdemPagamentoManualIdempotencyStatus.COMPLETED);
+            tenantPaymentIdempotencyRepository.save(idempotency);
+        }
         return toPaymentOrderResponse(ordem);
+    }
+
+    private TenantPaymentConfirmationIdempotencyRecord findTenantPaymentIdempotency(
+            Long tenantId, Long userId, String idempotencyKey, String clientRequestId) {
+        return tenantPaymentIdempotencyRepository
+                .findByTenantIdAndUserIdAndIdempotencyKey(tenantId, userId, idempotencyKey)
+                .orElseGet(() -> tenantPaymentIdempotencyRepository
+                        .findByTenantIdAndUserIdAndClientRequestId(tenantId, userId, clientRequestId)
+                        .orElse(null));
+    }
+
+    private void validateTenantPaymentReplay(TenantPaymentConfirmationIdempotencyRecord existing,
+                                             OrdemPagamento ordem, String requestHash) {
+        if (!requestHash.equals(existing.getRequestHash())
+                || existing.getOrdemPagamento() == null
+                || !ordem.getId().equals(existing.getOrdemPagamento().getId())) {
+            throw new ConflictException("Conflito de idempotência: chave reutilizada com payload diferente.");
+        }
+        if (existing.getStatus() == OrdemPagamentoManualIdempotencyStatus.IN_PROGRESS) {
+            throw new ConflictException("Confirmação de pagamento já está em processamento.");
+        }
+    }
+
+    private TenantPaymentConfirmationIdempotencyRecord createTenantPaymentIdempotency(
+            OrdemPagamento ordem, User user, String idempotencyKey,
+            String clientRequestId, String requestHash) {
+        TenantPaymentConfirmationIdempotencyRecord created = new TenantPaymentConfirmationIdempotencyRecord();
+        created.setTenant(ordem.getTenant());
+        created.setUser(user);
+        created.setOrdemPagamento(ordem);
+        created.setIdempotencyKey(idempotencyKey);
+        created.setClientRequestId(clientRequestId);
+        created.setRequestHash(requestHash);
+        created.setStatus(OrdemPagamentoManualIdempotencyStatus.IN_PROGRESS);
+        return tenantPaymentIdempotencyRepository.save(created);
+    }
+
+    private String tenantPaymentRequestHash(Long tenantId, Long userId, Long pedidoId,
+                                            ConfirmarPedidoPaymentOrderRequest request) {
+        try {
+            String canonical = String.join("|", String.valueOf(tenantId), String.valueOf(userId),
+                    String.valueOf(pedidoId), safeHashValue(request.getClientRequestId()),
+                    request.getMetodoConfirmado() != null ? request.getMetodoConfirmado().name() : "",
+                    safeHashValue(request.getReferenciaOperador()), safeHashValue(request.getObservacao()),
+                    request.getValorRecebido() != null
+                            ? request.getValorRecebido().stripTrailingZeros().toPlainString() : "");
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Falha ao calcular hash de idempotência.", ex);
+        }
+    }
+
+    private String safeHashValue(String value) { return value == null ? "" : value.trim(); }
+
+    private String firstNonBlank(String preferred, String fallback) {
+        if (preferred != null && !preferred.isBlank()) return preferred.trim();
+        if (fallback != null && !fallback.isBlank()) return fallback.trim();
+        return null;
     }
 
     private DadosOperacionaisPedido resolverDadosOperacionaisPedido(Pedido pedido,
@@ -553,6 +648,10 @@ public class OrdemPagamentoService {
 
         ordem.setStatus(OrdemPagamentoStatus.CONFIRMADA);
         ordem.setConfirmadoEm(now());
+        ordem.setMetodoConfirmado(metodoConfirmado);
+        ordem.setValorRecebido(valorRecebido);
+        ordem.setTroco(metodoConfirmado == MetodoPagamentoManual.CASH
+                ? valorRecebido.subtract(ordem.getValor()) : BigDecimal.ZERO);
         ordem.setReferenciaOperador(referenciaOperador);
         ordem.setObservacao(observacao);
         ordemPagamentoRepository.save(ordem);

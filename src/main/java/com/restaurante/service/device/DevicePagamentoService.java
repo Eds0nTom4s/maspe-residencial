@@ -36,6 +36,7 @@ import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.TenantRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.security.device.DevicePrincipal;
+import com.restaurante.service.PedidoPagamentoPolicy;
 import com.restaurante.service.PaymentReferenceService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import lombok.RequiredArgsConstructor;
@@ -71,6 +72,7 @@ public class DevicePagamentoService {
     private final OperationalEventLogService operationalEventLogService;
     private final TenantPaymentMethodService tenantPaymentMethodService;
     private final PaymentMethodPolicyResolutionService policyResolutionService;
+    private final PedidoPagamentoPolicy pedidoPagamentoPolicy;
 
     @Transactional
     public DevicePagamentoResponse iniciarPagamento(Long pedidoId,
@@ -158,6 +160,18 @@ public class DevicePagamentoService {
                 throw new DeviceApiException(HttpStatus.CONFLICT,
                         DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_PEDIDO_ALREADY_PAID,
                         "Pedido já está pago.",
+                        false,
+                        DeviceErrorResponse.DeviceRecoveryAction.NONE,
+                        null);
+            }
+
+            try {
+                pedidoPagamentoPolicy.assertPodeIniciarPagamento(
+                        pedido, PedidoPagamentoPolicy.PaymentFlow.DEVICE_POS);
+            } catch (RuntimeException e) {
+                throw new DeviceApiException(HttpStatus.CONFLICT,
+                        DeviceErrorResponse.DeviceErrorCode.DEVICE_PAYMENT_INVALID_STATUS,
+                        e.getMessage(),
                         false,
                         DeviceErrorResponse.DeviceRecoveryAction.NONE,
                         null);

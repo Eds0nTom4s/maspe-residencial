@@ -5,6 +5,7 @@ import com.restaurante.model.enums.FiscalDocumentStatus;
 import com.restaurante.model.enums.FiscalDocumentType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -33,6 +34,12 @@ public interface FiscalDocumentRepository extends JpaRepository<FiscalDocument, 
     Optional<FiscalDocument> findByTenantIdAndFiscalAdjustmentAssessmentId(Long tenantId, Long assessmentId);
 
     Optional<FiscalDocument> findByTenantIdAndCaixaOperadorAdjustmentId(Long tenantId, Long adjustmentId);
+
+    @EntityGraph(attributePaths = "tenant")
+    Optional<FiscalDocument> findByPublicShareTokenHash(String publicShareTokenHash);
+
+    @Query("select d from FiscalDocument d join fetch d.tenant where d.id = :id")
+    Optional<FiscalDocument> findByIdWithTenant(@Param("id") Long id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from FiscalDocument d where d.id = :id")

@@ -1,5 +1,7 @@
 package com.restaurante.controller;
 
+import com.restaurante.dto.request.AbrirCaixaOperadorWebRequest;
+import com.restaurante.dto.request.FecharCaixaOperadorRequest;
 import com.restaurante.dto.request.RevisarCaixaOperadorRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.CaixaOperadorSessionItemResponse;
@@ -17,6 +19,7 @@ import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -44,6 +47,41 @@ public class TenantCaixaOperadorController {
     private final CaixaOperadorSessionItemRepository itemRepository;
     private final CaixaOperadorSessionService caixaOperadorSessionService;
     private final CaixaOperadorEvidenceService caixaOperadorEvidenceService;
+
+    @PostMapping("/open")
+    public ResponseEntity<ApiResponse<CaixaOperadorSessionResponse>> openWeb(
+            @Valid @RequestBody AbrirCaixaOperadorWebRequest request, HttpServletRequest http) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_CASHIER);
+        TenantContext ctx = tenantGuard.requireContext();
+        CaixaOperadorSession caixa = caixaOperadorSessionService.abrirWeb(
+                ctx, request.getInstituicaoId(), request.getUnidadeAtendimentoId(), request.getTurnoId(),
+                request.getNotes(), http != null ? http.getRemoteAddr() : null,
+                http != null ? http.getHeader("User-Agent") : null);
+        return ResponseEntity.ok(ApiResponse.success("Caixa web aberto", map(caixa)));
+    }
+
+    @GetMapping("/current")
+    public ResponseEntity<ApiResponse<CaixaOperadorSessionResponse>> currentWeb() {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_CASHIER);
+        CaixaOperadorSession caixa = caixaOperadorSessionService.buscarOpenWeb(tenantGuard.requireContext());
+        return ResponseEntity.ok(ApiResponse.success("Caixa web atual", caixa != null ? map(caixa) : null));
+    }
+
+    @PostMapping("/{caixaId}/close")
+    public ResponseEntity<ApiResponse<CaixaOperadorSessionResponse>> closeWeb(
+            @PathVariable Long caixaId, @Valid @RequestBody FecharCaixaOperadorRequest request,
+            HttpServletRequest http) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN, TenantUserRole.TENANT_CASHIER);
+        CaixaOperadorSession caixa = caixaOperadorSessionService.fecharWeb(
+                tenantGuard.requireContext(), caixaId, request.getDeclaredCashAmount(),
+                request.getDeclaredTpaAmount(), request.getCloseReason(), request.getNotes(),
+                http != null ? http.getRemoteAddr() : null,
+                http != null ? http.getHeader("User-Agent") : null);
+        return ResponseEntity.ok(ApiResponse.success("Caixa web fechado", map(caixa)));
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<Page<CaixaOperadorSessionResponse>>> list(
@@ -116,6 +154,7 @@ public class TenantCaixaOperadorController {
         CaixaOperadorSessionResponse r = new CaixaOperadorSessionResponse();
         r.setId(caixa.getId());
         r.setStatus(caixa.getStatus());
+        r.setChannel(caixa.getChannel());
         r.setTenantId(caixa.getTenant() != null ? caixa.getTenant().getId() : null);
         r.setInstituicaoId(caixa.getInstituicao() != null ? caixa.getInstituicao().getId() : null);
         r.setUnidadeAtendimentoId(caixa.getUnidadeAtendimento() != null ? caixa.getUnidadeAtendimento().getId() : null);

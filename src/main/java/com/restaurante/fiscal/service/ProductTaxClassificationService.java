@@ -22,6 +22,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 
 @Service
@@ -52,7 +53,9 @@ public class ProductTaxClassificationService {
         Produto prod = produtoRepository.findById(request.getProductId()).orElseThrow(() -> new BusinessException("Produto não encontrado."));
         tenantGuard.assertResourceBelongsToTenant(prod.getTenant().getId());
 
-        ProductTaxClassification existing = classificationRepository.findActiveEffectiveByTenantAndProduct(ctx.tenantId(), prod.getId(), null).orElse(null);
+        ProductTaxClassification existing = classificationRepository
+                .findActiveEffectiveByTenantAndProduct(ctx.tenantId(), prod.getId(), LocalDateTime.now())
+                .orElse(null);
         boolean created = false;
         ProductTaxClassification c = existing;
         if (c == null) {
@@ -101,4 +104,3 @@ public class ProductTaxClassificationService {
         return t.isEmpty() ? null : t;
     }
 }
-

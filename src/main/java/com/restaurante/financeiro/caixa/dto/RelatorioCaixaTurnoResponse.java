@@ -40,5 +40,6 @@ public class RelatorioCaixaTurnoResponse {
     private List<OrdemPagamentoResumoCaixaResponse> ordensPendentes = new ArrayList<>();
     private TurnoPagamentoAlertasResponse alertasFinanceiros;
     private List<EventoFinanceiroTurnoResponse> eventosRecentes = new ArrayList<>();
+    private List<PedidoExtratoTurnoResponse> pedidos = new ArrayList<>();
+    private List<EventoOperacionalTurnoResponse> eventosOperacionais = new ArrayList<>();
 }
-

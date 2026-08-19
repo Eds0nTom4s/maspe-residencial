@@ -17,10 +17,10 @@ public interface TenantFiscalCorrectionPolicyRepository extends JpaRepository<Te
             select p from TenantFiscalCorrectionPolicy p
             where p.tenant.id = :tenantId
               and p.status = :status
-              and (:at is null or ((p.effectiveFrom is null or p.effectiveFrom <= :at) and (p.effectiveTo is null or p.effectiveTo >= :at)))
+              and (p.effectiveFrom is null or p.effectiveFrom <= :at)
+              and (p.effectiveTo is null or p.effectiveTo >= :at)
             """)
     Optional<TenantFiscalCorrectionPolicy> findActiveEffective(@Param("tenantId") Long tenantId,
                                                                @Param("status") TenantFiscalCorrectionPolicyStatus status,
                                                                @Param("at") LocalDateTime at);
 }
-

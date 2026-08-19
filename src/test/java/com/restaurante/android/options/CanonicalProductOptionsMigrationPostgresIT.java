@@ -21,7 +21,7 @@ import org.springframework.test.context.ActiveProfiles;
 @ActiveProfiles("it-postgres")
 class CanonicalProductOptionsMigrationPostgresIT extends PostgresTestcontainersConfig {
     private static final MigrationVersion PREVIOUS = MigrationVersion.fromVersion("20260807.01");
-    private static final String CURRENT = "20260808.01";
+    private static final String CURRENT = "20260809.01";
 
     @Autowired DataSource dataSource;
     @Autowired DataSourceProperties properties;
@@ -32,7 +32,7 @@ class CanonicalProductOptionsMigrationPostgresIT extends PostgresTestcontainersC
             flyway(isolated, PREVIOUS).migrate();
             JdbcTemplate jdbc = new JdbcTemplate(isolated);
             ExistingRows rows = insertLegacyRows(jdbc);
-            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isEqualTo(1);
+            assertThat(flyway(isolated, null).migrate().migrationsExecuted).isEqualTo(2);
 
             assertThat(jdbc.queryForObject("select count(*) from variacoes_produto", Long.class)).isEqualTo(2);
             assertThat(jdbc.queryForObject("select count(*) from product_option_groups", Long.class)).isZero();

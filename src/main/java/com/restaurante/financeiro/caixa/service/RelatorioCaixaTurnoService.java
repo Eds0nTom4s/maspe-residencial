@@ -3,6 +3,8 @@ package com.restaurante.financeiro.caixa.service;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.financeiro.caixa.CaixaTurnoProperties;
 import com.restaurante.financeiro.caixa.dto.EventoFinanceiroTurnoResponse;
+import com.restaurante.financeiro.caixa.dto.EventoOperacionalTurnoResponse;
+import com.restaurante.financeiro.caixa.dto.PedidoExtratoTurnoResponse;
 import com.restaurante.financeiro.caixa.dto.OrdemPagamentoResumoCaixaResponse;
 import com.restaurante.financeiro.caixa.dto.PagamentoResumoCaixaResponse;
 import com.restaurante.financeiro.caixa.dto.RelatorioCaixaTurnoResponse;
@@ -17,12 +19,14 @@ import com.restaurante.financeiro.repository.PagamentoGatewayRepository;
 import com.restaurante.model.entity.OperationalEventLog;
 import com.restaurante.model.entity.OrdemPagamento;
 import com.restaurante.model.entity.Pagamento;
+import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.enums.MetodoPagamentoManual;
 import com.restaurante.model.enums.OperationalEventType;
 import com.restaurante.model.enums.OrdemPagamentoStatus;
 import com.restaurante.model.enums.OrdemPagamentoTipo;
 import com.restaurante.repository.OperationalEventLogRepository;
+import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.TurnoOperacionalRepository;
 import com.restaurante.financeiro.service.PagamentoPendenteQueryService;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +53,7 @@ public class RelatorioCaixaTurnoService {
     private final PagamentoGatewayRepository pagamentoGatewayRepository;
     private final OrdemPagamentoRepository ordemPagamentoRepository;
     private final OperationalEventLogRepository operationalEventLogRepository;
+    private final PedidoRepository pedidoRepository;
     private final PagamentoPendenteQueryService pagamentoPendenteQueryService;
 
     @Transactional(readOnly = true)
@@ -154,6 +159,9 @@ public class RelatorioCaixaTurnoService {
         if (properties.isIncluirEventos()) {
             resp.setEventosRecentes(mapEventosRecentes(tenantId, turnoId));
         }
+
+        resp.setPedidos(mapPedidosDoTurno(tenantId, turnoId));
+        resp.setEventosOperacionais(mapTodosEventosDoTurno(tenantId, turnoId));
 
         return resp;
     }
@@ -404,5 +412,50 @@ public class RelatorioCaixaTurnoService {
         }
         return out;
     }
-}
 
+    private List<PedidoExtratoTurnoResponse> mapPedidosDoTurno(Long tenantId, Long turnoId) {
+        List<PedidoExtratoTurnoResponse> out = new ArrayList<>();
+        for (Pedido pedido : pedidoRepository.findByTenantIdAndTurnoOperacionalIdOrderByCreatedAtAsc(
+                tenantId, turnoId)) {
+            PedidoExtratoTurnoResponse item = new PedidoExtratoTurnoResponse();
+            item.setPedidoId(pedido.getId());
+            item.setNumero(pedido.getNumero());
+            item.setOrigem(pedido.getPedidoOrigem() != null ? pedido.getPedidoOrigem().name() : null);
+            item.setStatusOperacional(pedido.getStatus() != null ? pedido.getStatus().name() : null);
+            item.setStatusFinanceiro(pedido.getStatusFinanceiro() != null
+                    ? pedido.getStatusFinanceiro().name() : null);
+            item.setTotal(pedido.getTotal());
+            item.setQuantidadeItens(pedido.getItens() != null ? pedido.getItens().size() : 0);
+            item.setCriadoEm(pedido.getCreatedAt());
+            item.setAtualizadoEm(pedido.getUpdatedAt());
+            item.setPagoEm(pedido.getPagoEm());
+            out.add(item);
+        }
+        return out;
+    }
+
+    private List<EventoOperacionalTurnoResponse> mapTodosEventosDoTurno(Long tenantId, Long turnoId) {
+        List<EventoOperacionalTurnoResponse> out = new ArrayList<>();
+        for (OperationalEventLog event : operationalEventLogRepository
+                .findAllByTenantAndTurnoChronological(tenantId, turnoId)) {
+            EventoOperacionalTurnoResponse item = new EventoOperacionalTurnoResponse();
+            item.setEventId(event.getId());
+            item.setEventType(event.getEventType() != null ? event.getEventType().name() : null);
+            item.setEntityType(event.getEntityType() != null ? event.getEntityType().name() : null);
+            item.setEntityId(event.getEntityId());
+            item.setPedidoId(event.getPedido() != null ? event.getPedido().getId() : null);
+            item.setPedidoNumero(event.getPedido() != null ? event.getPedido().getNumero() : null);
+            item.setSubPedidoId(event.getSubPedido() != null ? event.getSubPedido().getId() : null);
+            item.setActorType(event.getActorType() != null ? event.getActorType().name() : null);
+            item.setActorUserId(event.getActorUser() != null ? event.getActorUser().getId() : null);
+            item.setDeviceId(event.getDispositivo() != null ? event.getDispositivo().getId() : null);
+            item.setOrigem(event.getOrigem() != null ? event.getOrigem().name() : null);
+            item.setStatusAnterior(event.getStatusAnterior());
+            item.setStatusNovo(event.getStatusNovo());
+            item.setResumo(event.getMotivo());
+            item.setCreatedAt(event.getCreatedAt());
+            out.add(item);
+        }
+        return out;
+    }
+}

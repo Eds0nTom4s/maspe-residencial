@@ -145,7 +145,8 @@ public class OperationalTemplatePolicy {
         if (resolvedOrigem == PedidoOrigem.QR_MESA
                 || resolvedOrigem == PedidoOrigem.QR_PRINCIPAL
                 || resolvedOrigem == PedidoOrigem.QR_PUBLICO
-                || resolvedOrigem == PedidoOrigem.SESSAO_PARTICIPANTE) {
+                || resolvedOrigem == PedidoOrigem.SESSAO_PARTICIPANTE
+                || resolvedOrigem == PedidoOrigem.CONSUMA_AQUI_ANDROID) {
             return true;
         }
         return isRestTemplate(templateCode) || !isPontoTemplate(templateCode);

@@ -90,6 +90,10 @@ public class AuthService {
                     .expiresIn(3600000L) // 1 hora em ms
                     .username(user.getUsername())
                     .roles(user.getRoles())
+                    .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                    .passwordResetRequired(Boolean.TRUE.equals(user.getPasswordResetRequired()))
+                    .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
+                    .lastPasswordChangedAt(user.getLastPasswordChangedAt())
                     .build();
         } catch (Exception e) {
             // ⚠️ SEGURANÇA: Log interno detalhado, mas mensagem genérica para usuário
@@ -142,6 +146,10 @@ public class AuthService {
                 .expiresIn(86400000L)
                 .username(user.getUsername())
                 .roles(user.getRoles())
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .passwordResetRequired(Boolean.TRUE.equals(user.getPasswordResetRequired()))
+                .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
+                .lastPasswordChangedAt(user.getLastPasswordChangedAt())
                 .build();
     }
 
@@ -187,6 +195,10 @@ public class AuthService {
                 .expiresIn(86400000L)
                 .username(user.getUsername())
                 .roles(user.getRoles())
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .passwordResetRequired(Boolean.TRUE.equals(user.getPasswordResetRequired()))
+                .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
+                .lastPasswordChangedAt(user.getLastPasswordChangedAt())
                 .build();
     }
 
@@ -205,11 +217,7 @@ public class AuthService {
     }
 
     private String generateGlobalToken(User user) {
-        String roles = user.getAuthorities().stream()
-                .map(org.springframework.security.core.GrantedAuthority::getAuthority)
-                .sorted()
-                .collect(java.util.stream.Collectors.joining(","));
-        return jwtTokenProvider.generateToken(user.getUsername(), roles, null, user.getId(), "GLOBAL");
+        return jwtTokenProvider.generateUserToken(user);
     }
     
     /**

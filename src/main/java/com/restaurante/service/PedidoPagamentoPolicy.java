@@ -32,7 +32,7 @@ public class PedidoPagamentoPolicy {
         if (pedido.getStatus() == StatusPedido.CANCELADO) {
             throw new BusinessException("Pedido cancelado não permite pagamento.");
         }
-        if (exigeAceiteAntesDoPagamento(pedido, flow) && !pedidoEstaAceiteParaPagamento(pedido)) {
+        if (!pedidoEstaAceiteParaPagamento(pedido)) {
             throw new BusinessException("Pagamento disponível apenas após aceite do pedido.");
         }
     }
@@ -45,13 +45,13 @@ public class PedidoPagamentoPolicy {
         if (pedido.getStatus() == StatusPedido.CANCELADO) {
             throw new BusinessException("Pedido cancelado não permite confirmação de pagamento.");
         }
-        if (exigeAceiteAntesDoPagamento(pedido, flow) && !pedidoEstaAceiteParaPagamento(pedido)) {
+        if (!pedidoEstaAceiteParaPagamento(pedido)) {
             throw new BusinessException("Pagamento só pode ser confirmado após aceite do pedido.");
         }
     }
 
     public boolean exigeAceiteAntesDoPagamento(Pedido pedido, PaymentFlow flow) {
-        return operationalTemplatePolicy.requiresAcceptanceBeforePayment(pedido, resolveActor(flow));
+        return true;
     }
 
     public boolean pedidoEstaAceiteParaPagamento(Pedido pedido) {

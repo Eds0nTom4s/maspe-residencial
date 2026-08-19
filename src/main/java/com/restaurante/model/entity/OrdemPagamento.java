@@ -66,9 +66,19 @@ public class OrdemPagamento extends BaseEntity {
     @Column(name = "metodo_solicitado", nullable = false, length = 20)
     private MetodoPagamentoManual metodoSolicitado;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "metodo_confirmado", length = 20)
+    private MetodoPagamentoManual metodoConfirmado;
+
     @NotNull
     @Column(name = "valor", nullable = false, precision = 19, scale = 2)
     private BigDecimal valor;
+
+    @Column(name = "valor_recebido", precision = 19, scale = 2)
+    private BigDecimal valorRecebido;
+
+    @Column(name = "troco", precision = 19, scale = 2)
+    private BigDecimal troco;
 
     @NotNull
     @Column(name = "moeda", nullable = false, length = 3)

@@ -2,6 +2,7 @@ package com.restaurante.financeiro.caixa.repository;
 
 import com.restaurante.model.entity.CaixaOperadorSession;
 import com.restaurante.model.enums.CaixaOperadorSessionStatus;
+import com.restaurante.model.enums.CaixaOperadorSessionChannel;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -16,6 +17,13 @@ import java.util.List;
 public interface CaixaOperadorSessionRepository extends JpaRepository<CaixaOperadorSession, Long> {
 
     Optional<CaixaOperadorSession> findByTenantIdAndDispositivoOperacionalIdAndStatus(Long tenantId, Long dispositivoOperacionalId, CaixaOperadorSessionStatus status);
+
+    Optional<CaixaOperadorSession> findFirstByTenantIdAndOperadorIdAndChannelAndStatusOrderByOpenedAtDesc(
+            Long tenantId,
+            Long operadorId,
+            CaixaOperadorSessionChannel channel,
+            CaixaOperadorSessionStatus status
+    );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from CaixaOperadorSession c where c.id = :id")

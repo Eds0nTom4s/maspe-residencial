@@ -33,6 +33,7 @@ import com.restaurante.service.BusinessAccountService;
 import com.restaurante.service.provisioning.ProvisioningPlanCalculator;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +46,9 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class BusinessAccountGovernanceService {
+    @Value("${consuma.security.temporary-password.expiration-hours:168}")
+    private int temporaryPasswordExpirationHours;
+
     private final TenantGuard tenantGuard;
     private final BusinessAccountRepository accounts;
     private final BusinessAccountMemberRepository members;
@@ -353,6 +357,9 @@ public class BusinessAccountGovernanceService {
         user.setTelefone(owner.telefone().trim());
         user.setAtivo(true);
         user.setRoles(new HashSet<>()); // account/tenant/global roles são conceitos distintos
+        user.setMustChangePassword(true);
+        user.setPasswordResetRequired(true);
+        user.setTemporaryPasswordExpiresAt(LocalDateTime.now().plusHours(temporaryPasswordExpirationHours));
         return users.saveAndFlush(user);
     }
 

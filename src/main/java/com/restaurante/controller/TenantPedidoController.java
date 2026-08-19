@@ -4,7 +4,6 @@ import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.request.AtualizarStatusPedidoRequest;
 import com.restaurante.dto.request.ConfirmarPedidoPaymentOrderRequest;
 import com.restaurante.dto.request.RejeitarPedidoRequest;
-import com.restaurante.dto.response.PaymentOrderResponse;
 import com.restaurante.dto.response.TenantPedidoDetalheResponse;
 import com.restaurante.dto.response.TenantPedidoResumoResponse;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
@@ -15,6 +14,7 @@ import com.restaurante.model.enums.TenantUserRole;
 import com.restaurante.security.tenant.TenantContext;
 import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.tenantadmin.TenantAdminPedidoService;
+import com.restaurante.service.tenantadmin.TenantPdvPedidoService;
 import com.restaurante.service.operacional.PedidoStatusTransitionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -27,11 +27,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
@@ -48,6 +50,31 @@ public class TenantPedidoController {
     private final TenantAdminPedidoService pedidoService;
     private final PedidoStatusTransitionService pedidoStatusTransitionService;
     private final OrdemPagamentoService ordemPagamentoService;
+    private final TenantPdvPedidoService tenantPdvPedidoService;
+
+    @PostMapping("/pedidos")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<TenantPedidoDetalheResponse>> criarPdv(
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody com.restaurante.dto.request.TenantPdvCreatePedidoRequest request,
+            jakarta.servlet.http.HttpServletRequest http
+    ) {
+        tenantGuard.assertAnyTenantRole(
+                TenantUserRole.TENANT_OWNER,
+                TenantUserRole.TENANT_ADMIN,
+                TenantUserRole.TENANT_OPERATOR,
+                TenantUserRole.TENANT_CASHIER
+        );
+        TenantContext context = tenantGuard.requireContext();
+        String ip = http != null ? http.getRemoteAddr() : null;
+        String ua = http != null ? http.getHeader("User-Agent") : null;
+        TenantPdvPedidoService.CreateResult result = tenantPdvPedidoService.criarPedido(
+                request, idempotencyKey, resolvePaymentOrigem(context), ip, ua);
+        HttpStatus status = result.idempotentReplay() ? HttpStatus.OK : HttpStatus.CREATED;
+        String message = result.idempotentReplay() ? "Pedido PDV recuperado" : "Pedido PDV criado e aceite";
+        return ResponseEntity.status(status).body(ApiResponse.success(
+                message, pedidoService.buscarDetalhe(result.pedidoId())));
+    }
 
     @GetMapping("/pedidos")
     @PreAuthorize("isAuthenticated()")
@@ -57,6 +84,7 @@ public class TenantPedidoController {
             @RequestParam(required = false) Long instituicaoId,
             @RequestParam(required = false) Long unidadeAtendimentoId,
             @RequestParam(required = false) Long mesaId,
+            @RequestParam(required = false) Long turnoId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime de,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime ate,
             @PageableDefault(size = 50) Pageable pageable
@@ -69,7 +97,8 @@ public class TenantPedidoController {
                 TenantUserRole.TENANT_FINANCE
         );
         Page<TenantPedidoResumoResponse> page = pedidoService.listarPedidos(
-                statusOperacional, statusFinanceiro, instituicaoId, unidadeAtendimentoId, mesaId, de, ate, pageable
+                statusOperacional, statusFinanceiro, instituicaoId, unidadeAtendimentoId, mesaId,
+                de, ate, turnoId, pageable
         );
         return ResponseEntity.ok(ApiResponse.success("Pedidos", page));
     }
@@ -145,9 +174,10 @@ public class TenantPedidoController {
 
     @PatchMapping("/pedidos/{id}/payment-order/confirm")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<PaymentOrderResponse>> confirmarPaymentOrder(
+    public ResponseEntity<ApiResponse<TenantPedidoDetalheResponse>> confirmarPaymentOrder(
             @PathVariable Long id,
-            @RequestBody(required = false) ConfirmarPedidoPaymentOrderRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody ConfirmarPedidoPaymentOrderRequest request,
             jakarta.servlet.http.HttpServletRequest http
     ) {
         tenantGuard.assertAnyTenantRole(
@@ -160,16 +190,18 @@ public class TenantPedidoController {
         TenantContext ctx = tenantGuard.requireContext();
         String ip = http != null ? http.getRemoteAddr() : null;
         String ua = http != null ? http.getHeader("User-Agent") : null;
-        PaymentOrderResponse resp = ordemPagamentoService.confirmarOrdemPedidoPorOperador(
+        ordemPagamentoService.confirmarOrdemPedidoPorOperador(
                 ctx.tenantId(),
                 id,
                 ctx.userId(),
                 resolvePaymentOrigem(ctx),
                 request,
+                idempotencyKey,
                 ip,
                 ua
         );
-        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success("Ordem de pagamento confirmada", resp));
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success(
+                "Ordem de pagamento confirmada", pedidoService.buscarDetalhe(id)));
     }
 
     @PatchMapping("/pedidos/{id}/entregar")

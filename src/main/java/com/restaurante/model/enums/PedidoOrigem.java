@@ -30,6 +30,7 @@ public enum PedidoOrigem {
     OPERADOR_INTERNO,
     DEVICE_POS,
     PDV_INTERNO,
+    CONSUMA_AQUI_ANDROID,
     DEVICE_KDS,
     CAIXA,
     SISTEMA,

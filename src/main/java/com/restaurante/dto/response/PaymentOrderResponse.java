@@ -20,6 +20,9 @@ public class PaymentOrderResponse {
     private BigDecimal valor;
     private String moeda;
     private MetodoPagamentoManual metodoPagamento;
+    private MetodoPagamentoManual metodoConfirmado;
+    private BigDecimal valorRecebido;
+    private BigDecimal troco;
     private LocalDateTime createdAt;
     private LocalDateTime expiresAt;
     private LocalDateTime confirmedAt;

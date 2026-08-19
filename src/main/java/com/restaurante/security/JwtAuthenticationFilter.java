@@ -47,8 +47,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return AndroidDiscoveryPublicPaths.matches(request)
                 || path.startsWith("/h2-console") ||
                path.startsWith("/api/h2-console") ||
-               (path.startsWith("/api/auth/") && !path.startsWith("/api/auth/tenant/select") && !path.startsWith("/api/auth/tenants")) ||
-               (path.startsWith("/auth/") && !path.startsWith("/auth/tenant/select") && !path.startsWith("/auth/tenants")) ||
+               (path.startsWith("/api/auth/") && !path.startsWith("/api/auth/password/change") && !path.startsWith("/api/auth/tenant/select") && !path.startsWith("/api/auth/tenants")) ||
+               (path.startsWith("/auth/") && !path.startsWith("/auth/password/change") && !path.startsWith("/auth/tenant/select") && !path.startsWith("/auth/tenants")) ||
                path.startsWith("/swagger-ui") ||
                path.startsWith("/v3/api-docs") ||
                path.startsWith("/actuator");
@@ -64,6 +64,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String jwt = extractJwtFromRequest(request);
 
             if (StringUtils.hasText(jwt) && jwtTokenProvider.validateToken(jwt)) {
+                if (jwtTokenProvider.requiresPasswordChange(jwt) && !isPasswordChangeRequest(request)) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"code\":\"PASSWORD_CHANGE_REQUIRED\",\"message\":\"Altere a palavra-passe temporária antes de continuar.\"}");
+                    return;
+                }
                 boolean modern = jwtTokenProvider.hasModernClaims(jwt);
                 if (modern) {
                     Authentication authentication = jwtAuthenticationFactory.buildAuthentication(jwt);
@@ -134,5 +140,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 || "/api/auth/tenants".equals(path)
                 || "/auth/tenant/select".equals(path)
                 || "/api/auth/tenant/select".equals(path);
+    }
+
+    private boolean isPasswordChangeRequest(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/auth/password/change".equals(path) || "/api/auth/password/change".equals(path);
     }
 }

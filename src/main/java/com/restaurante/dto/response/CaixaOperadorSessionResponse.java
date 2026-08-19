@@ -1,6 +1,7 @@
 package com.restaurante.dto.response;
 
 import com.restaurante.model.enums.CaixaOperadorSessionStatus;
+import com.restaurante.model.enums.CaixaOperadorSessionChannel;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -8,6 +9,7 @@ import java.time.LocalDateTime;
 public class CaixaOperadorSessionResponse {
     private Long id;
     private CaixaOperadorSessionStatus status;
+    private CaixaOperadorSessionChannel channel;
 
     private Long tenantId;
     private Long instituicaoId;
@@ -38,6 +40,8 @@ public class CaixaOperadorSessionResponse {
     public void setId(Long id) { this.id = id; }
     public CaixaOperadorSessionStatus getStatus() { return status; }
     public void setStatus(CaixaOperadorSessionStatus status) { this.status = status; }
+    public CaixaOperadorSessionChannel getChannel() { return channel; }
+    public void setChannel(CaixaOperadorSessionChannel channel) { this.channel = channel; }
     public Long getTenantId() { return tenantId; }
     public void setTenantId(Long tenantId) { this.tenantId = tenantId; }
     public Long getInstituicaoId() { return instituicaoId; }
@@ -77,4 +81,3 @@ public class CaixaOperadorSessionResponse {
     public String getCurrency() { return currency; }
     public void setCurrency(String currency) { this.currency = currency; }
 }
-

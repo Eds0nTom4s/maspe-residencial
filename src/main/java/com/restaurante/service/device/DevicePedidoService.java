@@ -316,7 +316,7 @@ public class DevicePedidoService {
                         .pedido(pedido)
                         .cozinha(cozinha)
                         .unidadeAtendimento(ua)
-                        .status(StatusSubPedido.CRIADO)
+                        .status(StatusSubPedido.PENDENTE)
                         .build();
                 subPedido.setTenant(tenant);
 
@@ -388,6 +388,10 @@ public class DevicePedidoService {
             }
 
             pedido.calcularTotal();
+            // DEVICE_POS is an internal direct-sale channel. Its create command is the
+            // explicit operational acceptance boundary, so the accepted state is
+            // persisted before any later payment command can create/confirm payment.
+            pedido.setStatus(StatusPedido.EM_ANDAMENTO);
             pedidoRepository.save(pedido);
 
             completeIdempotency(idem.record, pedido);
@@ -411,7 +415,8 @@ public class DevicePedidoService {
                     Map.of(
                             "deviceId", device.dispositivoId(),
                             "clientRequestId", request.getClientRequestId(),
-                            "pedidoOrigem", pedido.getPedidoOrigem() != null ? pedido.getPedidoOrigem().name() : "UNKNOWN"
+                            "pedidoOrigem", pedido.getPedidoOrigem() != null ? pedido.getPedidoOrigem().name() : "UNKNOWN",
+                            "directSaleAcceptancePolicy", "ACCEPTED_ON_CREATE"
                     ),
                     ip,
                     userAgent

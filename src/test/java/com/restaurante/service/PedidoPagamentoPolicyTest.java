@@ -40,11 +40,17 @@ class PedidoPagamentoPolicyTest {
     }
 
     @Test
-    void consumaPontoDevicePosCanStartImmediatePayment() {
+    void consumaPontoDevicePosMustReachAcceptedStateBeforePayment() {
         Pedido pedido = pedido("CONSUMA_PONTO", 1, false, StatusPedido.CRIADO);
 
-        assertThatCode(() -> policy.assertPodeIniciarPagamento(pedido, PedidoPagamentoPolicy.PaymentFlow.DEVICE_POS))
-                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> policy.assertPodeIniciarPagamento(
+                pedido, PedidoPagamentoPolicy.PaymentFlow.DEVICE_POS))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Pagamento disponível apenas após aceite do pedido");
+
+        pedido.setStatus(StatusPedido.EM_ANDAMENTO);
+        assertThatCode(() -> policy.assertPodeIniciarPagamento(
+                pedido, PedidoPagamentoPolicy.PaymentFlow.DEVICE_POS)).doesNotThrowAnyException();
     }
 
     @Test

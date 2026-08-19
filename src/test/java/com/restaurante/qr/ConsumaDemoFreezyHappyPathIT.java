@@ -212,6 +212,13 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
                         .content(abrirTurnoNode.toString()))
                 .andExpect(status().isCreated());
 
+        mockMvc.perform(post("/tenant/caixa-operador/open")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"instituicaoId": %d, "unidadeAtendimentoId": %d}
+                                """.formatted(ua.getInstituicao().getId(), ua.getId())))
+                .andExpect(status().isOk());
+
         String respBeforeAccept = mockMvc.perform(get("/tenant/pedidos/" + pedidoId))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -248,17 +255,21 @@ class ConsumaDemoFreezyHappyPathIT extends PostgresTestcontainersConfig {
         TenantContextHolder.set(new TenantContext(tenantResp.getTenantId(), tenantResp.getTenantCode(), tenantResp.getOwnerUserId(), Set.of("TENANT_OWNER", "TENANT_CASHIER"), TenantResolutionSource.JWT, false, false));
         String payloadConfirm = """
                 {
-                  "metodoConfirmado": "TPA"
+                  "clientRequestId": "demo-freezy-confirm-payment",
+                  "metodoConfirmado": "TPA",
+                  "referenciaOperador": "TPA-DEMO-001"
                 }
                 """;
         String respConfirm = mockMvc.perform(patch("/tenant/pedidos/" + pedidoId + "/payment-order/confirm")
+                        .header("Idempotency-Key", "demo-freezy-confirm-payment")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payloadConfirm))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode confirmJson = objectMapper.readTree(respConfirm);
-        assertThat(confirmJson.at("/data/status").asText()).isEqualTo("CONFIRMADA");
-        assertThat(confirmJson.at("/data/confirmedAt").asText()).isNotBlank();
+        assertThat(confirmJson.at("/data/statusFinanceiro").asText()).isEqualTo("PAGO");
+        assertThat(confirmJson.at("/data/paymentOrder/status").asText()).isEqualTo("CONFIRMADA");
+        assertThat(confirmJson.at("/data/paymentOrder/confirmedAt").asText()).isNotBlank();
 
         // 8. Verifica que allowedActions tem MARK_DELIVERED (pedido PAGO, EM_ANDAMENTO)
         String respGet = mockMvc.perform(get("/tenant/pedidos/" + pedidoId))

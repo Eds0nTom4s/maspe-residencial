@@ -63,6 +63,12 @@ public class NotificacaoSubPedidoDTO {
      */
     private String nomeCozinha;
 
+    private Long tenantId;
+
+    private Long unidadeProducaoId;
+
+    private String nomeUnidadeProducao;
+
     /**
      * ID da Unidade de Atendimento de origem
      */

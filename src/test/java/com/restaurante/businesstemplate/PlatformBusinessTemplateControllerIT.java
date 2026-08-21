@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurante.model.entity.Plano;
 import com.restaurante.model.entity.Tenant;
+import com.restaurante.model.entity.User;
 import com.restaurante.model.enums.DispositivoStatus;
+import com.restaurante.model.enums.Role;
 import com.restaurante.model.enums.TenantEstado;
 import com.restaurante.model.enums.TenantTipo;
 import com.restaurante.repository.CategoriaProdutoRepository;
@@ -29,6 +31,7 @@ import com.restaurante.security.tenant.TenantResolutionSource;
 import com.restaurante.testsupport.PostgresTestcontainersConfig;
 import com.restaurante.testsupport.UniqueTestData;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -53,6 +56,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("it-postgres")
 class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig {
 
+    private Long platformActorId;
+
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
 
@@ -73,6 +78,21 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
     @Autowired TenantOperacaoPolicyRepository tenantOperacaoPolicyRepository;
     @Autowired PlanoRepository planoRepository;
 
+    @BeforeEach
+    void createPersistedPlatformActor() {
+        String suffix = Long.toUnsignedString(System.nanoTime());
+        User actor = User.builder()
+                .username("platform-actor-" + suffix)
+                .password("not-used-in-mock-test")
+                .email("platform-actor-" + suffix + "@test.invalid")
+                .telefone("+244" + suffix.substring(Math.max(0, suffix.length() - 9)))
+                .nomeCompleto("Platform Test Actor")
+                .roles(Set.of(Role.ROLE_ADMIN))
+                .ativo(true)
+                .build();
+        platformActorId = userRepository.saveAndFlush(actor).getId();
+    }
+
     @AfterEach
     void clearContext() {
         TenantContextHolder.clear();
@@ -82,7 +102,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
     @WithMockUser(username = "platform-admin")
     void previewPonto_doesNotPersist() throws Exception {
         TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
+                null, null, platformActorId, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
 
@@ -127,7 +147,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
     @WithMockUser(username = "platform-admin")
     void previewRest_doesNotPersist() throws Exception {
         TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
+                null, null, platformActorId, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
 
@@ -176,7 +196,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
     @WithMockUser(username = "platform-admin")
     void provisionPonto_createsMinimalOperationalStructure_andStaysSimple() throws Exception {
         TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
+                null, null, platformActorId, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
         String slug = UniqueTestData.uniqueSlug("banca-tia-rosa");
@@ -237,9 +257,25 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
         assertThat(tenantUserRepository.findAllByTenantIdAndUserId(t.getId(), owner.getId())).isNotEmpty();
         assertThat(qrCodeOperacionalRepository.countByTenantId(t.getId())).isEqualTo(1);
 
-        // PONTO stays simple: no mesas, no produção, no devices.
+        // PONTO stays simple: no mesas/devices/KDS, but production routing is ready.
         assertThat(mesaRepository.findByTenantId(t.getId())).isEmpty();
-        assertThat(unidadeProducaoRepository.findByTenantIdAndAtivoTrueOrderByOrdemAsc(t.getId())).isEmpty();
+        var pontoProductionUnit = unidadeProducaoRepository
+                .findByTenantIdAndAtivoTrueOrderByOrdemAsc(t.getId());
+        assertThat(pontoProductionUnit)
+                .singleElement()
+                .satisfies(unidade -> {
+                    assertThat(unidade.getCodigo()).isEqualTo("GERAL");
+                    assertThat(unidade.getTenant().getId()).isEqualTo(t.getId());
+                });
+        Long productionUnitId = pontoProductionUnit.getFirst().getId();
+        Long institutionId = instituicaoRepository.findByTenantId(t.getId()).getFirst().getId();
+        assertThat(rotaProducaoCategoriaRepository.findByTenantId(t.getId()))
+                .hasSize(5)
+                .allSatisfy(rota -> {
+                    assertThat(rota.getTenant().getId()).isEqualTo(t.getId());
+                    assertThat(rota.getInstituicao().getId()).isEqualTo(institutionId);
+                    assertThat(rota.getUnidadeProducao().getId()).isEqualTo(productionUnitId);
+                });
         assertThat(dispositivoOperacionalRepository.countByTenantIdAndStatusNot(t.getId(), DispositivoStatus.REVOGADO)).isEqualTo(0);
 
         var op = tenantOperacaoPolicyRepository.findByTenantId(t.getId()).orElseThrow();
@@ -253,7 +289,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
     @WithMockUser(username = "platform-admin")
     void provisionRest_with10Tables_createsQrsProductionDevicesChecklists() throws Exception {
         TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
+                null, null, platformActorId, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
         String slug = UniqueTestData.uniqueSlug("rest-kialo");
@@ -331,7 +367,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
     @WithMockUser(username = "platform-admin")
     void slugDuplicado_returnsError() throws Exception {
         TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
+                null, null, platformActorId, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
 
@@ -363,7 +399,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
     @WithMockUser(username = "platform-admin")
     void planLimit_blocksProvisioning() throws Exception {
         TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
+                null, null, platformActorId, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
 
@@ -409,7 +445,7 @@ class PlatformBusinessTemplateControllerIT extends PostgresTestcontainersConfig 
     @WithMockUser(username = "platform-admin")
     void failureMidway_rollsBack() throws Exception {
         TenantContextHolder.set(new TenantContext(
-                null, null, 1L, Set.of("ROLE_ADMIN"),
+                null, null, platformActorId, Set.of("ROLE_ADMIN"),
                 TenantResolutionSource.JWT, true, false
         ));
 

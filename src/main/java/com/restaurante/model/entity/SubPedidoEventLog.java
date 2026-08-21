@@ -35,7 +35,7 @@ public class SubPedidoEventLog {
     private SubPedido subPedido;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cozinha_id", nullable = false)
+    @JoinColumn(name = "cozinha_id")
     private Cozinha cozinha;
 
     @Enumerated(EnumType.STRING)
@@ -79,12 +79,17 @@ public class SubPedidoEventLog {
      * Descrição legível do evento
      */
     public String getDescricao() {
+        String destino = cozinha != null
+                ? cozinha.getNome()
+                : subPedido != null && subPedido.getUnidadeProducao() != null
+                    ? subPedido.getUnidadeProducao().getNome()
+                    : "produção";
         if (statusAnterior == null) {
             return String.format("SubPedido criado na %s com status %s", 
-                cozinha.getNome(), statusNovo);
+                destino, statusNovo);
         }
         return String.format("Status na %s alterado de %s para %s", 
-            cozinha.getNome(), statusAnterior, statusNovo);
+            destino, statusAnterior, statusNovo);
     }
 
     /**

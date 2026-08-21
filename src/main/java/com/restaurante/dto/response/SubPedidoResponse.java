@@ -20,6 +20,8 @@ public class SubPedidoResponse {
     private String numeroPedido;
     private Long cozinhaId;
     private String nomeCozinha;
+    private Long unidadeProducaoId;
+    private String nomeUnidadeProducao;
     private Long unidadeAtendimentoId;
     private String nomeUnidadeAtendimento;
     private StatusSubPedido status;

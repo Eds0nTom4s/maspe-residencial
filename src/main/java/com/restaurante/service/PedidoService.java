@@ -7,12 +7,12 @@ import com.restaurante.dto.response.PedidoResponse;
 import com.restaurante.dto.response.SubPedidoResponse;
 import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ResourceNotFoundException;
-import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.ItemPedido;
 import com.restaurante.model.entity.SessaoConsumo;
 import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Pedido;
 import com.restaurante.model.entity.Produto;
+import com.restaurante.model.entity.UnidadeProducao;
 import com.restaurante.consumo.participante.entity.SessaoConsumoParticipante;
 import com.restaurante.consumo.participante.repository.SessaoConsumoParticipanteRepository;
 import com.restaurante.model.enums.StatusFinanceiroPedido;
@@ -29,6 +29,8 @@ import com.restaurante.notificacao.service.WebSocketNotificacaoService;
 import com.restaurante.repository.PedidoRepository;
 import com.restaurante.repository.SessaoConsumoRepository;
 import com.restaurante.service.operacional.OperationalEventLogService;
+import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
+import com.restaurante.service.producao.RotaProducaoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -42,7 +44,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,6 +72,8 @@ public class PedidoService {
     private final SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository;
     private final OperationalEventLogService operationalEventLogService;
     private final SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService;
+    private final RotaProducaoService rotaProducaoService;
+    private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
     public PedidoService(PedidoRepository pedidoRepository,
                          SessaoConsumoRepository sessaoConsumoRepository,
@@ -84,7 +87,9 @@ public class PedidoService {
                          @org.springframework.context.annotation.Lazy SessaoConsumoService sessaoConsumoService,
                          SessaoConsumoParticipanteRepository sessaoConsumoParticipanteRepository,
                          OperationalEventLogService operationalEventLogService,
-                         @org.springframework.context.annotation.Lazy SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService) {
+                         @org.springframework.context.annotation.Lazy SessaoConsumoAutoClosureService sessaoConsumoAutoClosureService,
+                         RotaProducaoService rotaProducaoService,
+                         OperationalCapabilitiesPolicy operationalCapabilitiesPolicy) {
         this.pedidoRepository = pedidoRepository;
         this.sessaoConsumoRepository = sessaoConsumoRepository;
         this.produtoService = produtoService;
@@ -98,6 +103,8 @@ public class PedidoService {
         this.sessaoConsumoParticipanteRepository = sessaoConsumoParticipanteRepository;
         this.operationalEventLogService = operationalEventLogService;
         this.sessaoConsumoAutoClosureService = sessaoConsumoAutoClosureService;
+        this.rotaProducaoService = rotaProducaoService;
+        this.operationalCapabilitiesPolicy = operationalCapabilitiesPolicy;
     }
 
     /**
@@ -209,11 +216,10 @@ public class PedidoService {
         log.info("  ┣ Status: {}", pedido.getStatus());
         log.info("  ┗ Status Financeiro: {}", pedido.getStatusFinanceiro());
 
-        // Mapa para agrupar itens por cozinha (Cozinha -> Lista de ItemPedido)
-        Map<Cozinha, List<ItemPedido>> itensPorCozinha = new HashMap<>();
-
-        // Primeiro passo: agrupar produtos por cozinha (ainda não criar ItemPedido)
-        Map<Cozinha, List<ItemPedidoRequest>> requestsPorCozinha = new HashMap<>();
+        boolean producaoAtiva = operationalCapabilitiesPolicy.isProductionEnabled(
+                sessaoConsumo.getTenant().getId());
+        Map<Long, ProductionBatch> lotesPorUnidade = new java.util.LinkedHashMap<>();
+        List<ItemPedidoRequest> itensSemProducao = new ArrayList<>();
         
         for (ItemPedidoRequest itemRequest : request.getItens()) {
             Produto produto = produtoService.buscarPorId(itemRequest.getProdutoId());
@@ -223,24 +229,32 @@ public class PedidoService {
                 throw new BusinessException("Produto " + produto.getNome() + " não está ativo");
             }
 
-            // Determinar cozinha responsável pelo item
             com.restaurante.model.entity.UnidadeAtendimento ua = sessaoConsumo.getUnidadeAtendimentoEfetiva();
             if (ua == null) {
                 throw new BusinessException("Sessão ID=" + sessaoConsumo.getId() + " não possui unidade de atendimento configurada");
             }
-            Cozinha cozinha = subPedidoService.determinarCozinha(produto, ua.getId());
-            
-            // ✅ VALIDAÇÃO CRÍTICA: Cozinha deve estar ATIVA
-            if (cozinha.getAtiva() == null || !cozinha.getAtiva()) {
-                throw new BusinessException(
-                    String.format("Produto '%s' não pode ser pedido: cozinha '%s' está inativa",
-                        produto.getNome(), cozinha.getNome())
-                );
+
+            if (producaoAtiva) {
+                if (sessaoConsumo.getInstituicao() == null) {
+                    throw new BusinessException("Sessão sem instituição válida para roteamento de produção.");
+                }
+                UnidadeProducao unidadeProducao = rotaProducaoService.resolverUnidadeProducaoParaProduto(
+                        sessaoConsumo.getTenant().getId(),
+                        sessaoConsumo.getInstituicao().getId(),
+                        produto);
+                lotesPorUnidade.computeIfAbsent(
+                                unidadeProducao.getId(),
+                                ignored -> new ProductionBatch(unidadeProducao, new ArrayList<>()))
+                        .itens()
+                        .add(itemRequest);
+            } else {
+                itensSemProducao.add(itemRequest);
             }
-            
-            // Agrupar request por cozinha
-            requestsPorCozinha.computeIfAbsent(cozinha, k -> new ArrayList<>()).add(itemRequest);
         }
+
+        List<ProductionBatch> lotes = producaoAtiva
+                ? new ArrayList<>(lotesPorUnidade.values())
+                : List.of(new ProductionBatch(null, itensSemProducao));
 
         // Salvar pedido VAZIO primeiro (sem itens ainda)
         pedido = pedidoRepository.save(pedido);
@@ -269,21 +283,24 @@ public class PedidoService {
             );
         }
 
-        // Criar SubPedidos primeiro, DEPOIS criar ItemPedidos com subPedido já associado
+        // Criar SubPedidos por unidade canónica quando o módulo de produção estiver activo.
         int contadorSubPedido = 1;
-        for (Map.Entry<Cozinha, List<ItemPedidoRequest>> entry : requestsPorCozinha.entrySet()) {
-            Cozinha cozinha = entry.getKey();
-            List<ItemPedidoRequest> requests = entry.getValue();
+        for (ProductionBatch lote : lotes) {
+            UnidadeProducao unidadeProducao = lote.unidadeProducao();
+            List<ItemPedidoRequest> requests = lote.itens();
 
-            SubPedido subPedido = SubPedido.builder()
-                    .numero(pedido.getNumero() + "-" + contadorSubPedido)
-                    .pedido(pedido)
-                    .cozinha(cozinha)
-                    .unidadeAtendimento(sessaoConsumo.getUnidadeAtendimentoEfetiva())
-                    .status(StatusSubPedido.CRIADO)  // ✅ Inicia em CRIADO, aguardando confirmação
-                    .build();
-            
-            contadorSubPedido++;
+            SubPedido subPedido = null;
+            if (producaoAtiva) {
+                subPedido = SubPedido.builder()
+                        .numero(pedido.getNumero() + "-" + contadorSubPedido)
+                        .pedido(pedido)
+                        .unidadeAtendimento(sessaoConsumo.getUnidadeAtendimentoEfetiva())
+                        .status(StatusSubPedido.CRIADO)
+                        .build();
+                subPedido.setTenant(sessaoConsumo.getTenant());
+                subPedido.setUnidadeProducao(unidadeProducao);
+                contadorSubPedido++;
+            }
 
             // Criar ItemPedidos JÁ COM subPedido associado
             for (ItemPedidoRequest itemRequest : requests) {
@@ -291,7 +308,7 @@ public class PedidoService {
                 
                 ItemPedido item = ItemPedido.builder()
                         .pedido(pedido)
-                        .subPedido(subPedido)  // ✅ JÁ ASSOCIADO
+                        .subPedido(subPedido)
                         .produto(produto)
                         .quantidade(itemRequest.getQuantidade())
                         .precoUnitario(produto.getPreco())
@@ -300,13 +317,16 @@ public class PedidoService {
 
                 item.calcularSubtotal();
                 pedido.adicionarItem(item);
-                subPedido.adicionarItem(item);
+                if (subPedido != null) {
+                    subPedido.adicionarItem(item);
+                }
             }
 
-            // ✅ ADICIONAR SubPedido à lista do Pedido (cascade vai salvar automaticamente)
-            pedido.getSubPedidos().add(subPedido);
-            
-            log.info("SubPedido criado para cozinha {} com {} itens", cozinha.getNome(), requests.size());
+            if (subPedido != null) {
+                pedido.getSubPedidos().add(subPedido);
+                log.info("SubPedido criado para unidade de produção {} com {} itens",
+                        unidadeProducao.getNome(), requests.size());
+            }
         }
         
         // Recalcular total com todos os itens
@@ -332,7 +352,7 @@ public class PedidoService {
         sessaoConsumoService.registrarAtividade(sessaoConsumo, "Pedido #" + pedido.getNumero() + " criado");
 
         log.info("📦 SUBPEDIDOS CRIADOS");
-        log.info("  ┣ Total de SubPedidos: {}", requestsPorCozinha.size());
+        log.info("  ┣ Total de SubPedidos: {}", producaoAtiva ? lotes.size() : 0);
         log.info("  ┗ Total do Pedido: {}", com.restaurante.util.MoneyFormatter.format(pedido.getTotal()));
 
         // PROCESSAMENTO FINANCEIRO - depois de criar pedido e calcular total
@@ -966,7 +986,7 @@ public class PedidoService {
                 contador++;
                 log.info("  🔄 SubPedido {}/{}: {}", contador, subPedidosCopia.size(), subPedido.getNumero());
                 log.info("    ┣ Status Anterior: CRIADO");
-                log.info("    ┣ Cozinha: {}", subPedido.getCozinha().getNome());
+                log.info("    ┣ Destino de produção: {}", nomeDestinoProducao(subPedido));
                 log.info("    ┣ Itens: {}", subPedido.getItens().size());
                 
                 subPedidoService.confirmar(subPedido.getId());
@@ -978,7 +998,8 @@ public class PedidoService {
         // Notifica em tempo real: cozinha, bar, painel gerente
         log.info("━".repeat(80));
         log.info("📡 NOTIFICANDO EM TEMPO REAL");
-        log.info("  ┣ Cozinhas: {} unidades", pedido.getSubPedidos().stream().map(sp -> sp.getCozinha().getId()).distinct().count());
+        log.info("  ┣ Destinos de produção: {} unidades", pedido.getSubPedidos().stream()
+                .map(this::chaveDestinoProducao).distinct().count());
         log.info("  ┗ Painel Gerente: broadcast global");
         webSocketNotificacaoService.notificarPedidoLiberadoAutomaticamente(pedido);
         log.info("✅ Notificações enviadas com sucesso");
@@ -1030,8 +1051,10 @@ public class PedidoService {
                 .id(sp.getId())
                 .pedidoId(sp.getPedido().getId())
                 .numeroPedido(sp.getPedido().getNumero())
-                .cozinhaId(sp.getCozinha().getId())
-                .nomeCozinha(sp.getCozinha().getNome())
+                .cozinhaId(sp.getCozinha() != null ? sp.getCozinha().getId() : null)
+                .nomeCozinha(sp.getCozinha() != null ? sp.getCozinha().getNome() : null)
+                .unidadeProducaoId(sp.getUnidadeProducao() != null ? sp.getUnidadeProducao().getId() : null)
+                .nomeUnidadeProducao(sp.getUnidadeProducao() != null ? sp.getUnidadeProducao().getNome() : null)
                 .unidadeAtendimentoId(sp.getUnidadeAtendimento().getId())
                 .nomeUnidadeAtendimento(sp.getUnidadeAtendimento().getNome())
                 .status(sp.getStatus())
@@ -1047,6 +1070,18 @@ public class PedidoService {
                 .build();
     }
 
+    private String nomeDestinoProducao(SubPedido subPedido) {
+        if (subPedido.getUnidadeProducao() != null) return subPedido.getUnidadeProducao().getNome();
+        if (subPedido.getCozinha() != null) return subPedido.getCozinha().getNome();
+        return "Sem destino";
+    }
+
+    private String chaveDestinoProducao(SubPedido subPedido) {
+        if (subPedido.getUnidadeProducao() != null) return "UP:" + subPedido.getUnidadeProducao().getId();
+        if (subPedido.getCozinha() != null) return "LEGACY:" + subPedido.getCozinha().getId();
+        return "NONE:" + subPedido.getId();
+    }
+
     private ItemPedidoResponse mapItemToResponse(ItemPedido item) {
         return ItemPedidoResponse.builder()
                 .id(item.getId())
@@ -1058,5 +1093,8 @@ public class PedidoService {
                 .subtotal(item.getSubtotal())
                 .observacoes(item.getObservacoes())
                 .build();
+    }
+
+    private record ProductionBatch(UnidadeProducao unidadeProducao, List<ItemPedidoRequest> itens) {
     }
 }

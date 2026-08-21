@@ -14,7 +14,6 @@ import com.restaurante.exception.DeviceApiException;
 import com.restaurante.exception.DeviceForbiddenException;
 import com.restaurante.exception.DeviceUnauthorizedException;
 import com.restaurante.exception.ResourceNotFoundException;
-import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.DispositivoOperacional;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.ItemPedido;
@@ -27,6 +26,7 @@ import com.restaurante.model.entity.SubPedido;
 import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.UnidadeProducao;
 import com.restaurante.model.entity.DevicePedidoIdempotencyRecord;
 import com.restaurante.model.enums.DeviceCapability;
 import com.restaurante.model.enums.DevicePedidoIdempotencyStatus;
@@ -51,11 +51,9 @@ import com.restaurante.repository.UnidadeAtendimentoRepository;
 import com.restaurante.security.device.DevicePrincipal;
 import com.restaurante.service.PedidoNumberService;
 import com.restaurante.service.SessaoConsumoService;
-import com.restaurante.service.SubPedidoService;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import com.restaurante.service.producao.RotaProducaoService;
-import com.restaurante.service.producao.UnidadeProducaoService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
@@ -74,6 +72,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -101,9 +100,7 @@ public class DevicePedidoService {
 
     private final PedidoNumberService pedidoNumberService;
     private final SessaoConsumoService sessaoConsumoService;
-    private final SubPedidoService subPedidoService;
     private final RotaProducaoService rotaProducaoService;
-    private final UnidadeProducaoService unidadeProducaoService;
     private final OperationalEventLogService operationalEventLogService;
     private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
 
@@ -299,7 +296,9 @@ public class DevicePedidoService {
             pedido.setTipoPagamento(TipoPagamentoPedido.POS_PAGO);
             pedido.setObservacoes(trimObs(request.getObservacao()));
 
-            Map<Cozinha, List<DeviceCriarPedidoItemRequest>> porCozinha = agruparItensPorCozinha(ua.getId(), request.getItens(), porId);
+            List<DeviceProductionBatch> porUnidade = productionEnabled
+                    ? agruparItensPorUnidadeProducao(tenantId, inst.getId(), request.getItens(), porId)
+                    : semRoteamentoDeProducao(request.getItens());
 
             pedido = pedidoRepository.save(pedido);
 
@@ -307,44 +306,22 @@ public class DevicePedidoService {
             List<DeviceSubPedidoResponse> subResp = new ArrayList<>();
             int contadorSubPedido = 1;
 
-            for (Map.Entry<Cozinha, List<DeviceCriarPedidoItemRequest>> entry : porCozinha.entrySet()) {
-                Cozinha cozinha = entry.getKey();
-                List<DeviceCriarPedidoItemRequest> itensReq = entry.getValue();
+            for (DeviceProductionBatch batch : porUnidade) {
+                UnidadeProducao unidadeProducao = batch.unidadeProducao();
+                List<DeviceCriarPedidoItemRequest> itensReq = batch.itens();
 
-                SubPedido subPedido = SubPedido.builder()
-                        .numero(pedido.getNumero() + "-" + contadorSubPedido)
-                        .pedido(pedido)
-                        .cozinha(cozinha)
-                        .unidadeAtendimento(ua)
-                        .status(StatusSubPedido.PENDENTE)
-                        .build();
-                subPedido.setTenant(tenant);
-
-                com.restaurante.model.entity.UnidadeProducao unidadeProducao = null;
+                SubPedido subPedido = null;
                 if (productionEnabled) {
-                    for (DeviceCriarPedidoItemRequest itemReq : itensReq) {
-                        Produto prod = porId.get(itemReq.getProdutoId());
-                        if (prod == null || prod.getCategoriaProduto() == null) {
-                            throw new DeviceApiException(HttpStatus.CONFLICT,
-                                    DeviceErrorResponse.DeviceErrorCode.DEVICE_ORDER_PRODUCT_UNAVAILABLE,
-                                    "Produto inválido ou indisponível.",
-                                    true,
-                                    DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
-                                    Map.of("produtoId", itemReq.getProdutoId()));
-                        }
-                        var resolved = rotaProducaoService.resolverUnidadeProducaoParaCategoria(
-                                tenantId, inst.getId(), prod.getCategoriaProduto().getId()
-                        );
-                        if (unidadeProducao == null) {
-                            unidadeProducao = resolved;
-                        } else if (!unidadeProducao.getId().equals(resolved.getId())) {
-                            unidadeProducao = unidadeProducaoService.obterDefaultParaInstituicao(tenantId, inst.getId());
-                            break;
-                        }
-                    }
+                    subPedido = SubPedido.builder()
+                            .numero(pedido.getNumero() + "-" + contadorSubPedido)
+                            .pedido(pedido)
+                            .unidadeAtendimento(ua)
+                            .status(StatusSubPedido.PENDENTE)
+                            .build();
+                    subPedido.setTenant(tenant);
+                    subPedido.setUnidadeProducao(unidadeProducao);
+                    contadorSubPedido++;
                 }
-                subPedido.setUnidadeProducao(unidadeProducao);
-                contadorSubPedido++;
 
                 List<DevicePedidoItemResponse> itensSub = new ArrayList<>();
                 for (DeviceCriarPedidoItemRequest itemReq : itensReq) {
@@ -361,7 +338,9 @@ public class DevicePedidoService {
                     item.calcularSubtotal();
 
                     pedido.adicionarItem(item);
-                    subPedido.adicionarItem(item);
+                    if (subPedido != null) {
+                        subPedido.adicionarItem(item);
+                    }
 
                     DevicePedidoItemResponse ir = new DevicePedidoItemResponse();
                     ir.setItemPedidoId(item.getId()); // após persist, mas já útil para placeholder
@@ -375,16 +354,18 @@ public class DevicePedidoService {
                     itensSub.add(ir);
                 }
 
-                subPedido.calcularTotal();
-                pedido.getSubPedidos().add(subPedido);
+                if (subPedido != null) {
+                    subPedido.calcularTotal();
+                    pedido.getSubPedidos().add(subPedido);
 
-                DeviceSubPedidoResponse sr = new DeviceSubPedidoResponse();
-                sr.setSubPedidoId(subPedido.getId());
-                sr.setUnidadeProducaoId(unidadeProducao != null ? unidadeProducao.getId() : null);
-                sr.setUnidadeProducaoNome(unidadeProducao != null ? unidadeProducao.getNome() : null);
-                sr.setStatus(subPedido.getStatus());
-                sr.setItens(itensSub);
-                subResp.add(sr);
+                    DeviceSubPedidoResponse sr = new DeviceSubPedidoResponse();
+                    sr.setSubPedidoId(subPedido.getId());
+                    sr.setUnidadeProducaoId(unidadeProducao.getId());
+                    sr.setUnidadeProducaoNome(unidadeProducao.getNome());
+                    sr.setStatus(subPedido.getStatus());
+                    sr.setItens(itensSub);
+                    subResp.add(sr);
+                }
             }
 
             pedido.calcularTotal();
@@ -604,10 +585,10 @@ public class DevicePedidoService {
         return Integer.toHexString(value != null ? value.hashCode() : 0);
     }
 
-    private Map<Cozinha, List<DeviceCriarPedidoItemRequest>> agruparItensPorCozinha(Long unidadeAtendimentoId,
-                                                                                    List<DeviceCriarPedidoItemRequest> itens,
-                                                                                    Map<Long, Produto> produtos) {
-        Map<Cozinha, List<DeviceCriarPedidoItemRequest>> out = new java.util.HashMap<>();
+    private List<DeviceProductionBatch> agruparItensPorUnidadeProducao(
+            Long tenantId, Long instituicaoId, List<DeviceCriarPedidoItemRequest> itens,
+            Map<Long, Produto> produtos) {
+        Map<Long, DeviceProductionBatch> out = new LinkedHashMap<>();
         for (DeviceCriarPedidoItemRequest item : itens) {
             Produto produto = produtos.get(item.getProdutoId());
             if (produto == null) {
@@ -618,8 +599,7 @@ public class DevicePedidoService {
                         DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
                         null);
             }
-            Cozinha cozinha = subPedidoService.determinarCozinha(produto, unidadeAtendimentoId);
-            if (!Boolean.TRUE.equals(cozinha.getAtiva())) {
+            if (produto.getCategoriaProduto() == null) {
                 throw new DeviceApiException(HttpStatus.CONFLICT,
                         DeviceErrorResponse.DeviceErrorCode.DEVICE_ORDER_PRODUCT_UNAVAILABLE,
                         "Produto inválido ou indisponível.",
@@ -627,9 +607,23 @@ public class DevicePedidoService {
                         DeviceErrorResponse.DeviceRecoveryAction.CONTACT_SUPPORT,
                         null);
             }
-            out.computeIfAbsent(cozinha, k -> new ArrayList<>()).add(item);
+            UnidadeProducao unidade = rotaProducaoService.resolverUnidadeProducaoParaCategoria(
+                    tenantId, instituicaoId, produto.getCategoriaProduto().getId());
+            out.computeIfAbsent(unidade.getId(), ignored ->
+                    new DeviceProductionBatch(unidade, new ArrayList<>())).itens().add(item);
         }
-        return out;
+        return new ArrayList<>(out.values());
+    }
+
+    private List<DeviceProductionBatch> semRoteamentoDeProducao(
+            List<DeviceCriarPedidoItemRequest> itens) {
+        return List.of(new DeviceProductionBatch(null, itens));
+    }
+
+    private record DeviceProductionBatch(
+            UnidadeProducao unidadeProducao,
+            List<DeviceCriarPedidoItemRequest> itens
+    ) {
     }
 
     private SessaoConsumo resolverOuCriarSessaoMinima(Tenant tenant, Instituicao instituicao, UnidadeAtendimento unidadeAtendimento, Mesa mesa) {

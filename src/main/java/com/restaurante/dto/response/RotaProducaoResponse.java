@@ -7,6 +7,8 @@ import lombok.Data;
 @Builder
 public class RotaProducaoResponse {
     private Long id;
+    private Long instituicaoId;
+    private String instituicaoNome;
     private Long categoriaProdutoId;
     private String categoriaProdutoNome;
     private String categoriaProdutoSlug;
@@ -16,4 +18,3 @@ public class RotaProducaoResponse {
     private Boolean ativo;
     private Integer prioridade;
 }
-

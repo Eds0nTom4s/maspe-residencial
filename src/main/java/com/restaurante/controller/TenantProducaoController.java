@@ -1,7 +1,9 @@
 package com.restaurante.controller;
 
 import com.restaurante.dto.request.AtualizarStatusSubPedidoRequest;
+import com.restaurante.dto.request.AtualizarUnidadeProducaoRequest;
 import com.restaurante.dto.request.ConfigurarRotaProducaoRequest;
+import com.restaurante.dto.request.CriarUnidadeProducaoRequest;
 import com.restaurante.dto.request.SelecionarMinhaUnidadeRequest;
 import com.restaurante.dto.response.ApiResponse;
 import com.restaurante.dto.response.KdsSubPedidoResponse;
@@ -141,7 +143,8 @@ public class TenantProducaoController {
 
     @GetMapping("/unidades")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<List<UnidadeProducaoResponse>>> listarUnidades() {
+    public ResponseEntity<ApiResponse<List<UnidadeProducaoResponse>>> listarUnidades(
+            @RequestParam(defaultValue = "false") boolean incluirInativas) {
         tenantGuard.assertAnyTenantRole(
                 TenantUserRole.TENANT_OWNER,
                 TenantUserRole.TENANT_ADMIN,
@@ -149,19 +152,56 @@ public class TenantProducaoController {
                 TenantUserRole.TENANT_KITCHEN
         );
         TenantContext ctx = tenantGuard.requireContext();
-        List<UnidadeProducaoResponse> resp = unidadeProducaoService.listarAtivasDoTenant(ctx.tenantId()).stream()
-                .map(up -> UnidadeProducaoResponse.builder()
-                        .id(up.getId())
-                        .nome(up.getNome())
-                        .codigo(up.getCodigo())
-                        .tipo(up.getTipo())
-                        .instituicaoId(up.getInstituicao() != null ? up.getInstituicao().getId() : null)
-                        .unidadeAtendimentoId(up.getUnidadeAtendimento() != null ? up.getUnidadeAtendimento().getId() : null)
-                        .ativo(up.getAtivo())
-                        .ordem(up.getOrdem())
-                        .build())
+        List<UnidadeProducaoResponse> resp = (incluirInativas
+                ? unidadeProducaoService.listarDoTenant(ctx.tenantId())
+                : unidadeProducaoService.listarAtivasDoTenant(ctx.tenantId())).stream()
+                .map(this::toUnidadeResponse)
                 .toList();
         return ResponseEntity.ok(ApiResponse.success("Unidades de produção", resp));
+    }
+
+    @PostMapping("/unidades")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<UnidadeProducaoResponse>> criarUnidade(
+            @Valid @RequestBody CriarUnidadeProducaoRequest request) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
+        TenantContext ctx = tenantGuard.requireContext();
+        var unidade = unidadeProducaoService.criar(
+                ctx.tenantId(), request.getInstituicaoId(), request.getUnidadeAtendimentoId(),
+                request.getNome(), request.getCodigo(), request.getTipo(), request.getOrdem());
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
+                .body(ApiResponse.success("Unidade de produção criada", toUnidadeResponse(unidade)));
+    }
+
+    @PatchMapping("/unidades/{id}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<UnidadeProducaoResponse>> atualizarUnidade(
+            @PathVariable Long id, @Valid @RequestBody AtualizarUnidadeProducaoRequest request) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
+        TenantContext ctx = tenantGuard.requireContext();
+        var unidade = unidadeProducaoService.atualizar(
+                ctx.tenantId(), id, request.isUnidadeAtendimentoIdInformado(),
+                request.getUnidadeAtendimentoId(), request.getNome(),
+                request.getTipo(), request.getOrdem());
+        return ResponseEntity.ok(ApiResponse.success("Unidade de produção actualizada", toUnidadeResponse(unidade)));
+    }
+
+    @PutMapping("/unidades/{id}/ativar")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<UnidadeProducaoResponse>> ativarUnidade(@PathVariable Long id) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
+        TenantContext ctx = tenantGuard.requireContext();
+        return ResponseEntity.ok(ApiResponse.success("Unidade de produção activada",
+                toUnidadeResponse(unidadeProducaoService.ativar(ctx.tenantId(), id))));
+    }
+
+    @PutMapping("/unidades/{id}/desativar")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<UnidadeProducaoResponse>> desativarUnidade(@PathVariable Long id) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
+        TenantContext ctx = tenantGuard.requireContext();
+        return ResponseEntity.ok(ApiResponse.success("Unidade de produção desactivada",
+                toUnidadeResponse(unidadeProducaoService.desativar(ctx.tenantId(), id))));
     }
 
     @GetMapping("/rotas")
@@ -172,6 +212,8 @@ public class TenantProducaoController {
         List<RotaProducaoResponse> resp = rotaProducaoService.listarRotasDoTenant(ctx.tenantId()).stream()
                 .map(r -> RotaProducaoResponse.builder()
                         .id(r.getId())
+                        .instituicaoId(r.getInstituicao() != null ? r.getInstituicao().getId() : null)
+                        .instituicaoNome(r.getInstituicao() != null ? r.getInstituicao().getNome() : null)
                         .categoriaProdutoId(r.getCategoriaProduto() != null ? r.getCategoriaProduto().getId() : null)
                         .categoriaProdutoNome(r.getCategoriaProduto() != null ? r.getCategoriaProduto().getNome() : null)
                         .categoriaProdutoSlug(r.getCategoriaProduto() != null ? r.getCategoriaProduto().getSlug() : null)
@@ -193,6 +235,8 @@ public class TenantProducaoController {
         var rota = rotaProducaoService.configurarRota(ctx.tenantId(), request.getCategoriaProdutoId(), request.getUnidadeProducaoId(), request.getPrioridade());
         RotaProducaoResponse resp = RotaProducaoResponse.builder()
                 .id(rota.getId())
+                .instituicaoId(rota.getInstituicao() != null ? rota.getInstituicao().getId() : null)
+                .instituicaoNome(rota.getInstituicao() != null ? rota.getInstituicao().getNome() : null)
                 .categoriaProdutoId(rota.getCategoriaProduto() != null ? rota.getCategoriaProduto().getId() : null)
                 .categoriaProdutoNome(rota.getCategoriaProduto() != null ? rota.getCategoriaProduto().getNome() : null)
                 .categoriaProdutoSlug(rota.getCategoriaProduto() != null ? rota.getCategoriaProduto().getSlug() : null)
@@ -203,6 +247,15 @@ public class TenantProducaoController {
                 .prioridade(rota.getPrioridade())
                 .build();
         return ResponseEntity.ok(ApiResponse.success("Rota configurada", resp));
+    }
+
+    @DeleteMapping("/rotas/{id}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> desativarRota(@PathVariable Long id) {
+        tenantGuard.assertAnyTenantRole(TenantUserRole.TENANT_OWNER, TenantUserRole.TENANT_ADMIN);
+        TenantContext ctx = tenantGuard.requireContext();
+        rotaProducaoService.desativarRota(ctx.tenantId(), id);
+        return ResponseEntity.ok(ApiResponse.success("Rota de produção desactivada", null));
     }
 
     @GetMapping("/unidades/{unidadeProducaoId}/subpedidos")
@@ -241,5 +294,18 @@ public class TenantProducaoController {
                 ua
         );
         return ResponseEntity.ok(ApiResponse.success("Status atualizado", resp));
+    }
+
+    private UnidadeProducaoResponse toUnidadeResponse(com.restaurante.model.entity.UnidadeProducao up) {
+        return UnidadeProducaoResponse.builder()
+                .id(up.getId())
+                .nome(up.getNome())
+                .codigo(up.getCodigo())
+                .tipo(up.getTipo())
+                .instituicaoId(up.getInstituicao() != null ? up.getInstituicao().getId() : null)
+                .unidadeAtendimentoId(up.getUnidadeAtendimento() != null ? up.getUnidadeAtendimento().getId() : null)
+                .ativo(up.getAtivo())
+                .ordem(up.getOrdem())
+                .build();
     }
 }

@@ -16,6 +16,8 @@ import com.restaurante.model.entity.Tenant;
 import com.restaurante.model.entity.TenantOperacaoPolicy;
 import com.restaurante.model.entity.TenantUser;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.UnidadeProducao;
+import com.restaurante.model.entity.RotaProducaoCategoria;
 import com.restaurante.model.enums.CategoriaProdutoLegacy;
 import com.restaurante.model.enums.LogisticsMode;
 import com.restaurante.model.enums.QrCodeOperacionalTipo;
@@ -31,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import com.restaurante.service.producao.RotaProducaoService;
 
 @Component
 @RequiredArgsConstructor
@@ -40,6 +43,7 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
     public static final int VERSION = 1;
 
     private final BusinessTemplateProvisioningSupport support;
+    private final RotaProducaoService rotaProducaoService;
 
     @Override
     public String code() {
@@ -164,6 +168,21 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
         ));
         support.configurarCardapioInicial(tenant, 5, 20);
 
+        UnidadeProducao unidadeProducao = support.criarUnidadeProducaoPonto(tenant, inst, ua);
+        List<BusinessTemplateProvisionResponse.RotaProducaoProvisionada> rotasProducao = new ArrayList<>();
+        for (CategoriaProduto categoria : categorias) {
+            RotaProducaoCategoria rota = rotaProducaoService.configurarRota(
+                    tenant.getId(), categoria.getId(), unidadeProducao.getId(), 0);
+            rotasProducao.add(BusinessTemplateProvisionResponse.RotaProducaoProvisionada.builder()
+                    .rotaId(rota.getId())
+                    .categoriaId(categoria.getId())
+                    .categoriaSlug(categoria.getSlug())
+                    .unidadeProducaoId(unidadeProducao.getId())
+                    .unidadeProducaoCodigo(unidadeProducao.getCodigo())
+                    .prioridade(rota.getPrioridade())
+                    .build());
+        }
+
         var ownerUser = support.criarOuReusarOwnerUser(request.getOwner(), ua);
         TenantUser ownerLink = support.criarTenantUser(
                 tenant,
@@ -226,6 +245,13 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
                         .nome(c.getNome())
                         .slug(c.getSlug())
                         .build()).toList())
+                .unidadesProducao(List.of(BusinessTemplateProvisionResponse.UnidadeProducaoProvisionada.builder()
+                        .unidadeProducaoId(unidadeProducao.getId())
+                        .codigo(unidadeProducao.getCodigo())
+                        .nome(unidadeProducao.getNome())
+                        .tipo(unidadeProducao.getTipo().name())
+                        .build()))
+                .rotasProducao(rotasProducao)
                 .politicasAplicadas(toPolicies(op))
                 .mensagens(List.of("Provisionamento CONSUMA_PONTO_V1 concluído com sucesso"))
                 .build();
@@ -271,8 +297,8 @@ public class ConsumaPontoV1Template implements BusinessTemplate {
                 .mesasCriadas(0)
                 .qrCodesCriados(qr)
                 .dispositivosCriados(dispositivos)
-                .unidadesProducaoCriadas(0)
-                .rotasProducaoCriadas(0)
+                .unidadesProducaoCriadas(1)
+                .rotasProducaoCriadas(categorias)
                 .checklistTemplatesCriados(0)
                 .checklistItemsCriados(0)
                 .build();

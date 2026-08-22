@@ -8,7 +8,6 @@ import com.restaurante.exception.BusinessException;
 import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
-import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.ItemPedido;
 import com.restaurante.model.entity.Mesa;
@@ -23,6 +22,7 @@ import com.restaurante.model.entity.TenantOperationalModulesConfig;
 import com.restaurante.model.entity.TenantSessaoConsumoConfig;
 import com.restaurante.model.entity.TurnoOperacional;
 import com.restaurante.model.entity.UnidadeAtendimento;
+import com.restaurante.model.entity.UnidadeProducao;
 import com.restaurante.config.OperacaoProperties;
 import com.restaurante.model.enums.OperationalOrigem;
 import com.restaurante.model.enums.PedidoOrigem;
@@ -45,7 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -56,12 +56,10 @@ public class PublicQrPedidoService {
     private final QrCodeOperacionalService qrCodeOperacionalService;
     private final PedidoRepository pedidoRepository;
     private final ProdutoRepository produtoRepository;
-    private final SubPedidoService subPedidoService;
     private final SessaoConsumoService sessaoConsumoService;
     private final PedidoNumberService pedidoNumberService;
     private final PublicQrOrderIdempotencyService idempotencyService;
     private final com.restaurante.service.producao.RotaProducaoService rotaProducaoService;
-    private final com.restaurante.service.producao.UnidadeProducaoService unidadeProducaoService;
     private final TurnoOperacionalRepository turnoOperacionalRepository;
     private final OperacaoProperties operacaoProperties;
     private final OperationalEventLogService operationalEventLogService;
@@ -130,7 +128,9 @@ public class PublicQrPedidoService {
             pedido.setObservacoes(request.getObservacao());
 
             boolean productionEnabled = operationalCapabilitiesPolicy.isProductionEnabled(tenant.getId());
-            Map<Cozinha, List<PublicQrPedidoItemRequest>> requestsPorCozinha = agruparItensPorCozinha(unidadeAtendimento.getId(), request.getItens(), produtos);
+            List<PublicProductionBatch> requestsPorUnidade = productionEnabled
+                    ? agruparItensPorUnidadeProducao(tenant.getId(), instituicao.getId(), request.getItens(), produtos)
+                    : semRoteamentoDeProducao(request.getItens());
 
             pedido = pedidoRepository.save(pedido);
 
@@ -148,40 +148,19 @@ public class PublicQrPedidoService {
             List<PublicQrPedidoItemResponse> itensResponse = new ArrayList<>();
             int contadorSubPedido = 1;
 
-            for (Map.Entry<Cozinha, List<PublicQrPedidoItemRequest>> entry : requestsPorCozinha.entrySet()) {
-                Cozinha cozinha = entry.getKey();
-                List<PublicQrPedidoItemRequest> itensReq = entry.getValue();
+            for (PublicProductionBatch batch : requestsPorUnidade) {
+                UnidadeProducao unidadeProducao = batch.unidadeProducao();
+                List<PublicQrPedidoItemRequest> itensReq = batch.itens();
 
                 SubPedido subPedido = null;
                 if (productionEnabled) {
                     subPedido = SubPedido.builder()
                             .numero(pedido.getNumero() + "-" + contadorSubPedido)
                             .pedido(pedido)
-                            .cozinha(cozinha)
                             .unidadeAtendimento(unidadeAtendimento)
                             .status(StatusSubPedido.CRIADO)
                             .build();
                     subPedido.setTenant(tenant);
-
-                    com.restaurante.model.entity.UnidadeProducao unidadeProducao = null;
-                    for (PublicQrPedidoItemRequest itemReq : itensReq) {
-                        Produto prod = produtos.stream()
-                                .filter(p -> p.getId().equals(itemReq.getProdutoId()))
-                                .findFirst()
-                                .orElseThrow(() -> new BusinessException("Produto inválido ou indisponível."));
-                        if (prod.getCategoriaProduto() == null) {
-                            throw new BusinessException("Produto inválido ou indisponível.");
-                        }
-                        var resolved = rotaProducaoService.resolverUnidadeProducaoParaCategoria(
-                                tenant.getId(), instituicao.getId(), prod.getCategoriaProduto().getId()
-                        );
-                        if (unidadeProducao == null) {
-                            unidadeProducao = resolved;
-                        } else if (!unidadeProducao.getId().equals(resolved.getId())) {
-                            unidadeProducao = unidadeProducaoService.obterDefaultParaInstituicao(tenant.getId(), instituicao.getId());
-                            break;
-                        }
-                    }
                     subPedido.setUnidadeProducao(unidadeProducao);
                     contadorSubPedido++;
                 }
@@ -367,25 +346,38 @@ public class PublicQrPedidoService {
         );
     }
 
-    private Map<Cozinha, List<PublicQrPedidoItemRequest>> agruparItensPorCozinha(
-            Long unidadeAtendimentoId,
+    private List<PublicProductionBatch> agruparItensPorUnidadeProducao(
+            Long tenantId,
+            Long instituicaoId,
             List<PublicQrPedidoItemRequest> itens,
             List<Produto> produtos
     ) {
-        Map<Cozinha, List<PublicQrPedidoItemRequest>> requestsPorCozinha = new HashMap<>();
+        Map<Long, PublicProductionBatch> requestsPorUnidade = new LinkedHashMap<>();
         for (PublicQrPedidoItemRequest item : itens) {
             Produto produto = produtos.stream()
                     .filter(p -> p.getId().equals(item.getProdutoId()))
                     .findFirst()
                     .orElseThrow(() -> new BusinessException("Produto inválido ou indisponível."));
-
-            Cozinha cozinha = subPedidoService.determinarCozinha(produto, unidadeAtendimentoId);
-            if (!Boolean.TRUE.equals(cozinha.getAtiva())) {
+            if (produto.getCategoriaProduto() == null) {
                 throw new BusinessException("Produto inválido ou indisponível.");
             }
-            requestsPorCozinha.computeIfAbsent(cozinha, k -> new ArrayList<>()).add(item);
+            UnidadeProducao unidade = rotaProducaoService.resolverUnidadeProducaoParaCategoria(
+                    tenantId, instituicaoId, produto.getCategoriaProduto().getId());
+            requestsPorUnidade.computeIfAbsent(unidade.getId(), ignored ->
+                    new PublicProductionBatch(unidade, new ArrayList<>())).itens().add(item);
         }
-        return requestsPorCozinha;
+        return new ArrayList<>(requestsPorUnidade.values());
+    }
+
+    private List<PublicProductionBatch> semRoteamentoDeProducao(
+            List<PublicQrPedidoItemRequest> itens) {
+        return List.of(new PublicProductionBatch(null, itens));
+    }
+
+    private record PublicProductionBatch(
+            UnidadeProducao unidadeProducao,
+            List<PublicQrPedidoItemRequest> itens
+    ) {
     }
 
     private SessaoConsumo resolverOuCriarSessaoMinima(

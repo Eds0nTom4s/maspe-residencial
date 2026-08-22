@@ -64,17 +64,16 @@ public class SubPedido extends BaseEntity {
     private UnidadeAtendimento unidadeAtendimento;
 
     /**
-     * Cozinha responsável pelo preparo
-     * Determinado automaticamente pela categoria dos produtos
+     * Cozinha legada responsável pelo preparo.
+     * Pode ser nula em pedidos novos, cuja autoridade é unidadeProducao.
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cozinha_id", nullable = false)
-    @NotNull
+    @JoinColumn(name = "cozinha_id")
     private Cozinha cozinha;
 
     /**
      * Unidade de produção responsável (tenant-aware).
-     * Nesta fase pode ser nula para subpedidos antigos (backfill incremental).
+     * Obrigatória para novos fluxos canónicos; pode ser nula apenas em histórico legado.
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "unidade_producao_id")

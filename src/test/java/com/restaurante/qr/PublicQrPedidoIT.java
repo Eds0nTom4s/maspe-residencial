@@ -83,8 +83,6 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         Tenant tenantA = criarTenant("Banca da Tia Rosa", "banca-tia-rosa", "TIA-ROSA");
         Instituicao instA = criarInstituicao(tenantA, "Banca da Tia Rosa", "TR", "NIF-TR-101", "+244900000101");
         UnidadeAtendimento unidadeA = criarUnidade(instA, "Unidade A", TipoUnidadeAtendimento.RESTAURANTE);
-        criarCozinhaVinculada(unidadeA, "Bar A", TipoCozinha.BAR_PREP);
-
         CategoriaProduto catA = criarCategoria(tenantA, "Bebidas", "bebidas");
         Produto prodA = criarProduto(tenantA, catA, "AGUA-500", "Água 500ml A", new BigDecimal("10.00"));
         publicarCardapioForTest(tenantA.getId());
@@ -131,6 +129,7 @@ class PublicQrPedidoIT extends PostgresTestcontainersConfig {
         var subs = subPedidoRepository.findByPedidoIdOrderByCreatedAtAsc(pedido.getId());
         assertThat(subs).isNotEmpty();
         assertThat(subs).allMatch(sp -> sp.getUnidadeProducao() != null);
+        assertThat(subs).allMatch(sp -> sp.getCozinha() == null);
     }
 
     @Test

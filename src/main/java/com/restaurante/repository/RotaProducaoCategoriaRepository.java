@@ -2,6 +2,7 @@ package com.restaurante.repository;
 
 import com.restaurante.model.entity.RotaProducaoCategoria;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -14,11 +15,16 @@ import com.restaurante.repository.projection.SyncAggProjection;
 @Repository
 public interface RotaProducaoCategoriaRepository extends JpaRepository<RotaProducaoCategoria, Long> {
 
-    Optional<RotaProducaoCategoria> findByTenantIdAndCategoriaProdutoIdAndAtivoTrue(Long tenantId, Long categoriaProdutoId);
+    Optional<RotaProducaoCategoria> findByTenantIdAndInstituicaoIdAndCategoriaProdutoIdAndAtivoTrue(
+            Long tenantId, Long instituicaoId, Long categoriaProdutoId);
 
+    @EntityGraph(attributePaths = {"instituicao", "categoriaProduto", "unidadeProducao"})
     List<RotaProducaoCategoria> findByTenantId(Long tenantId);
 
+    @EntityGraph(attributePaths = {"instituicao", "categoriaProduto", "unidadeProducao"})
     Optional<RotaProducaoCategoria> findByIdAndTenantId(Long id, Long tenantId);
+
+    boolean existsByTenantIdAndUnidadeProducaoIdAndAtivoTrue(Long tenantId, Long unidadeProducaoId);
 
     List<RotaProducaoCategoria> findByTenantIdAndAtivoTrue(Long tenantId);
 

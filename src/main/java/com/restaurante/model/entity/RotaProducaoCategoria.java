@@ -20,6 +20,10 @@ public class RotaProducaoCategoria extends BaseEntity {
     private Tenant tenant;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "instituicao_id", nullable = false)
+    private Instituicao instituicao;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "categoria_produto_id", nullable = false)
     private CategoriaProduto categoriaProduto;
 
@@ -39,4 +43,3 @@ public class RotaProducaoCategoria extends BaseEntity {
     @Column(name = "atualizado_em")
     private java.time.LocalDateTime atualizadoEm;
 }
-

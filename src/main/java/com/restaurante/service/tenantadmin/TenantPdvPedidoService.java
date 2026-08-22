@@ -9,7 +9,6 @@ import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.financeiro.paymentmethod.service.PaymentMethodPolicyResolutionService;
 import com.restaurante.financeiro.service.OrdemPagamentoService;
-import com.restaurante.model.entity.Cozinha;
 import com.restaurante.model.entity.Instituicao;
 import com.restaurante.model.entity.ItemPedido;
 import com.restaurante.model.entity.Pedido;
@@ -48,11 +47,9 @@ import com.restaurante.security.tenant.TenantGuard;
 import com.restaurante.service.PedidoNumberService;
 import com.restaurante.service.PedidoService;
 import com.restaurante.service.SessaoConsumoService;
-import com.restaurante.service.SubPedidoService;
 import com.restaurante.service.operacional.OperationalCapabilitiesPolicy;
 import com.restaurante.service.operacional.OperationalEventLogService;
 import com.restaurante.service.producao.RotaProducaoService;
-import com.restaurante.service.producao.UnidadeProducaoService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -90,9 +87,7 @@ public class TenantPdvPedidoService {
     private final PedidoNumberService pedidoNumberService;
     private final PedidoService pedidoService;
     private final SessaoConsumoService sessaoConsumoService;
-    private final SubPedidoService subPedidoService;
     private final RotaProducaoService rotaProducaoService;
-    private final UnidadeProducaoService unidadeProducaoService;
     private final OperationalCapabilitiesPolicy operationalCapabilitiesPolicy;
     private final OperationalEventLogService operationalEventLogService;
     private final OrdemPagamentoService ordemPagamentoService;
@@ -313,30 +308,27 @@ public class TenantPdvPedidoService {
             return;
         }
 
-        Map<Cozinha, List<TenantPdvCreatePedidoItemRequest>> byKitchen = new LinkedHashMap<>();
+        Map<Long, PdvProductionBatch> byProductionUnit = new LinkedHashMap<>();
         for (TenantPdvCreatePedidoItemRequest requestItem : items) {
             Produto product = products.get(requestItem.getProdutoId());
-            Cozinha kitchen = subPedidoService.determinarCozinha(product, unidade.getId());
-            if (!Boolean.TRUE.equals(kitchen.getAtiva())) {
-                throw new ConflictException("Produto não possui cozinha activa para produção.");
-            }
-            byKitchen.computeIfAbsent(kitchen, ignored -> new ArrayList<>()).add(requestItem);
+            UnidadeProducao productionUnit = rotaProducaoService.resolverUnidadeProducaoParaCategoria(
+                    tenant.getId(), instituicao.getId(), product.getCategoriaProduto().getId());
+            byProductionUnit.computeIfAbsent(productionUnit.getId(), ignored ->
+                    new PdvProductionBatch(productionUnit, new ArrayList<>())).itens().add(requestItem);
         }
 
         int index = 1;
-        for (Map.Entry<Cozinha, List<TenantPdvCreatePedidoItemRequest>> entry : byKitchen.entrySet()) {
-            UnidadeProducao productionUnit = resolveProductionUnit(
-                    tenant.getId(), instituicao.getId(), entry.getValue(), products);
+        for (PdvProductionBatch batch : byProductionUnit.values()) {
+            UnidadeProducao productionUnit = batch.unidadeProducao();
             SubPedido subPedido = SubPedido.builder()
                     .numero(pedido.getNumero() + "-" + index++)
                     .pedido(pedido)
-                    .cozinha(entry.getKey())
                     .unidadeAtendimento(unidade)
                     .status(StatusSubPedido.CRIADO)
                     .build();
             subPedido.setTenant(tenant);
             subPedido.setUnidadeProducao(productionUnit);
-            for (TenantPdvCreatePedidoItemRequest requestItem : entry.getValue()) {
+            for (TenantPdvCreatePedidoItemRequest requestItem : batch.itens()) {
                 ItemPedido item = buildItem(pedido, subPedido, tenant,
                         products.get(requestItem.getProdutoId()), requestItem);
                 pedido.adicionarItem(item);
@@ -347,20 +339,10 @@ public class TenantPdvPedidoService {
         }
     }
 
-    private UnidadeProducao resolveProductionUnit(Long tenantId, Long instituicaoId,
-                                                   List<TenantPdvCreatePedidoItemRequest> items,
-                                                   Map<Long, Produto> products) {
-        UnidadeProducao resolved = null;
-        for (TenantPdvCreatePedidoItemRequest item : items) {
-            Produto product = products.get(item.getProdutoId());
-            UnidadeProducao candidate = rotaProducaoService.resolverUnidadeProducaoParaCategoria(
-                    tenantId, instituicaoId, product.getCategoriaProduto().getId());
-            if (resolved == null) resolved = candidate;
-            else if (!resolved.getId().equals(candidate.getId())) {
-                return unidadeProducaoService.obterDefaultParaInstituicao(tenantId, instituicaoId);
-            }
-        }
-        return resolved;
+    private record PdvProductionBatch(
+            UnidadeProducao unidadeProducao,
+            List<TenantPdvCreatePedidoItemRequest> itens
+    ) {
     }
 
     private ItemPedido buildItem(Pedido pedido, SubPedido subPedido, Tenant tenant,

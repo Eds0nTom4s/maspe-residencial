@@ -292,8 +292,12 @@ public class EventLogController {
         response.setSubPedidoId(evento.getSubPedido().getId());
         response.setPedidoId(evento.getSubPedido().getPedido().getId());
         response.setNumeroPedido(evento.getSubPedido().getPedido().getNumero());
-        response.setCozinhaId(evento.getCozinha().getId());
-        response.setNomeCozinha(evento.getCozinha().getNome());
+        response.setCozinhaId(evento.getCozinha() != null ? evento.getCozinha().getId() : null);
+        response.setNomeCozinha(evento.getCozinha() != null ? evento.getCozinha().getNome() : null);
+        response.setUnidadeProducaoId(evento.getSubPedido().getUnidadeProducao() != null
+                ? evento.getSubPedido().getUnidadeProducao().getId() : null);
+        response.setNomeUnidadeProducao(evento.getSubPedido().getUnidadeProducao() != null
+                ? evento.getSubPedido().getUnidadeProducao().getNome() : null);
         response.setStatusAnterior(evento.getStatusAnterior());
         response.setStatusNovo(evento.getStatusNovo());
         response.setUsuario(evento.getUsuario());

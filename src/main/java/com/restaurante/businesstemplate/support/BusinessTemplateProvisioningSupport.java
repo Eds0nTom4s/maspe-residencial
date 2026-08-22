@@ -686,6 +686,13 @@ public class BusinessTemplateProvisioningSupport {
         return out;
     }
 
+    public UnidadeProducao criarUnidadeProducaoPonto(Tenant tenant,
+                                                      Instituicao inst,
+                                                      UnidadeAtendimento ua) {
+        return upsertUnidadeProducao(
+                tenant, inst, ua, "GERAL", "Produção Geral", UnidadeProducaoTipo.COZINHA, 0);
+    }
+
     private UnidadeProducao upsertUnidadeProducao(Tenant tenant,
                                                   Instituicao inst,
                                                   UnidadeAtendimento ua,

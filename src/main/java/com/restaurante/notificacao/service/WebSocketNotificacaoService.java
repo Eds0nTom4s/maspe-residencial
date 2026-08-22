@@ -65,7 +65,7 @@ public class WebSocketNotificacaoService {
 
         // Broadcast para múltiplos canais
         if (canUseProduction(subPedido)) {
-            notificarCozinha(notificacao);
+            notificarDestinoProducao(notificacao);
         }
         notificarAtendentes(notificacao);
         notificarSubPedidoEspecifico(notificacao);
@@ -80,8 +80,8 @@ public class WebSocketNotificacaoService {
         if (!canUseProduction(subPedido)) {
             return;
         }
-        log.info("Notificando novo SubPedido: {} para cozinha {}", 
-            subPedido.getNumero(), subPedido.getCozinha().getNome());
+        log.info("Notificando novo SubPedido: {} para {}",
+            subPedido.getNumero(), nomeDestinoProducao(subPedido));
 
         NotificacaoSubPedidoDTO notificacao = construirNotificacao(
             subPedido, null, usuario, "Novo SubPedido criado", 
@@ -89,7 +89,7 @@ public class WebSocketNotificacaoService {
         );
 
         // Notifica apenas a cozinha responsável (novo item na fila)
-        notificarCozinha(notificacao);
+        notificarDestinoProducao(notificacao);
     }
 
     /**
@@ -133,7 +133,7 @@ public class WebSocketNotificacaoService {
 
         // O canal de cozinha só existe quando o pedido participa da produção.
         if (canUseProduction(subPedido)) {
-            notificarCozinha(notificacao);
+            notificarDestinoProducao(notificacao);
         }
         notificarAtendentes(notificacao);
         notificarSubPedidoEspecifico(notificacao);
@@ -153,9 +153,13 @@ public class WebSocketNotificacaoService {
         log.info("🟢 PEDIDO_LIBERADO_AUTOMATICAMENTE: {} - Enviando para produção", 
             pedido.getNumero());
 
-        // Notifica cada cozinha responsável por SubPedidos
+        // Notifica cada destino canónico (ou cozinha legada) dos SubPedidos.
         for (SubPedido subPedido : pedido.getSubPedidos()) {
-            String topico = String.format("/topic/cozinha/%d", subPedido.getCozinha().getId());
+            String topico = topicoDestinoProducao(subPedido);
+            if (topico == null) {
+                log.warn("SubPedido {} sem destino de produção para notificação", subPedido.getNumero());
+                continue;
+            }
             
             java.util.Map<String, Object> evento = java.util.Map.of(
                 "tipo", "PEDIDO_LIBERADO_AUTOMATICAMENTE",
@@ -278,8 +282,17 @@ public class WebSocketNotificacaoService {
      * Envia notificação para cozinha específica
      * Tópico: /topic/cozinha/{cozinhaId}
      */
-    private void notificarCozinha(NotificacaoSubPedidoDTO notificacao) {
-        String topico = String.format("/topic/cozinha/%d", notificacao.getCozinhaId());
+    private void notificarDestinoProducao(NotificacaoSubPedidoDTO notificacao) {
+        String topico;
+        if (notificacao.getTenantId() != null && notificacao.getUnidadeProducaoId() != null) {
+            topico = String.format("/topic/tenant/%d/kds/unidade/%d",
+                    notificacao.getTenantId(), notificacao.getUnidadeProducaoId());
+        } else if (notificacao.getCozinhaId() != null) {
+            topico = String.format("/topic/cozinha/%d", notificacao.getCozinhaId());
+        } else {
+            log.warn("Notificação de SubPedido {} ignorada: destino de produção ausente", notificacao.getId());
+            return;
+        }
         
         try {
             messagingTemplate.convertAndSend(topico, notificacao);
@@ -359,8 +372,11 @@ public class WebSocketNotificacaoService {
             .numeroPedido(subPedido.getPedido().getNumero())
             .statusAnterior(statusAnterior)
             .statusNovo(subPedido.getStatus())
-            .cozinhaId(subPedido.getCozinha().getId())
-            .nomeCozinha(subPedido.getCozinha().getNome())
+            .tenantId(subPedido.getTenant() != null ? subPedido.getTenant().getId() : null)
+            .cozinhaId(subPedido.getCozinha() != null ? subPedido.getCozinha().getId() : null)
+            .nomeCozinha(subPedido.getCozinha() != null ? subPedido.getCozinha().getNome() : null)
+            .unidadeProducaoId(subPedido.getUnidadeProducao() != null ? subPedido.getUnidadeProducao().getId() : null)
+            .nomeUnidadeProducao(subPedido.getUnidadeProducao() != null ? subPedido.getUnidadeProducao().getNome() : null)
             .unidadeAtendimentoId(subPedido.getUnidadeAtendimento().getId())
             .nomeUnidadeAtendimento(subPedido.getUnidadeAtendimento().getNome())
             .usuario(usuario != null ? usuario : "system")
@@ -368,5 +384,22 @@ public class WebSocketNotificacaoService {
             .observacoes(observacoes)
             .tipoAcao(tipoAcao)
             .build();
+    }
+
+    private String nomeDestinoProducao(SubPedido subPedido) {
+        if (subPedido.getUnidadeProducao() != null) return subPedido.getUnidadeProducao().getNome();
+        if (subPedido.getCozinha() != null) return subPedido.getCozinha().getNome();
+        return "destino não configurado";
+    }
+
+    private String topicoDestinoProducao(SubPedido subPedido) {
+        if (subPedido.getTenant() != null && subPedido.getUnidadeProducao() != null) {
+            return String.format("/topic/tenant/%d/kds/unidade/%d",
+                    subPedido.getTenant().getId(), subPedido.getUnidadeProducao().getId());
+        }
+        if (subPedido.getCozinha() != null) {
+            return String.format("/topic/cozinha/%d", subPedido.getCozinha().getId());
+        }
+        return null;
     }
 }

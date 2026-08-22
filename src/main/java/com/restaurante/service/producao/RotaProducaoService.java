@@ -1,6 +1,7 @@
 package com.restaurante.service.producao;
 
 import com.restaurante.exception.BusinessException;
+import com.restaurante.exception.ConflictException;
 import com.restaurante.exception.ResourceNotFoundException;
 import com.restaurante.model.entity.CategoriaProduto;
 import com.restaurante.model.entity.Produto;
@@ -34,10 +35,15 @@ public class RotaProducaoService {
 
     @Transactional(readOnly = true)
     public UnidadeProducao resolverUnidadeProducaoParaCategoria(Long tenantId, Long instituicaoId, Long categoriaProdutoId) {
-        RotaProducaoCategoria rota = rotaRepository.findByTenantIdAndCategoriaProdutoIdAndAtivoTrue(tenantId, categoriaProdutoId).orElse(null);
+        RotaProducaoCategoria rota = rotaRepository
+                .findByTenantIdAndInstituicaoIdAndCategoriaProdutoIdAndAtivoTrue(
+                        tenantId, instituicaoId, categoriaProdutoId)
+                .orElse(null);
         if (rota != null) {
             UnidadeProducao up = rota.getUnidadeProducao();
-            if (up == null || up.getTenant() == null || !up.getTenant().getId().equals(tenantId)) {
+            if (up == null || up.getTenant() == null || !up.getTenant().getId().equals(tenantId)
+                    || up.getInstituicao() == null || !up.getInstituicao().getId().equals(instituicaoId)
+                    || !Boolean.TRUE.equals(up.getAtivo())) {
                 throw new BusinessException("Rota de produção inválida.");
             }
             return up;
@@ -56,11 +62,20 @@ public class RotaProducaoService {
         if (unidade.getTenant() == null || !unidade.getTenant().getId().equals(tenantId)) {
             throw new BusinessException("Unidade de produção inválida.");
         }
+        if (!Boolean.TRUE.equals(unidade.getAtivo())) {
+            throw new ConflictException("Unidade de produção inactiva não pode receber rotas.");
+        }
+        if (unidade.getInstituicao() == null) {
+            throw new BusinessException("Unidade de produção sem instituição válida.");
+        }
 
-        RotaProducaoCategoria rota = rotaRepository.findByTenantIdAndCategoriaProdutoIdAndAtivoTrue(tenantId, categoria.getId())
+        RotaProducaoCategoria rota = rotaRepository
+                .findByTenantIdAndInstituicaoIdAndCategoriaProdutoIdAndAtivoTrue(
+                        tenantId, unidade.getInstituicao().getId(), categoria.getId())
                 .orElseGet(() -> {
                     RotaProducaoCategoria r = new RotaProducaoCategoria();
                     r.setTenant(categoria.getTenant());
+                    r.setInstituicao(unidade.getInstituicao());
                     r.setCategoriaProduto(categoria);
                     return r;
                 });
@@ -69,12 +84,22 @@ public class RotaProducaoService {
         rota.setAtivo(true);
         rota.setPrioridade(prioridade != null ? prioridade : 0);
         rota.setAtualizadoEm(java.time.LocalDateTime.now());
-        return rotaRepository.save(rota);
+        RotaProducaoCategoria saved = rotaRepository.saveAndFlush(rota);
+        return rotaRepository.findByIdAndTenantId(saved.getId(), tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("RotaProducaoCategoria", "id", saved.getId()));
     }
 
     @Transactional(readOnly = true)
     public List<RotaProducaoCategoria> listarRotasDoTenant(Long tenantId) {
         return rotaRepository.findByTenantId(tenantId);
     }
-}
 
+    @Transactional
+    public RotaProducaoCategoria desativarRota(Long tenantId, Long rotaId) {
+        RotaProducaoCategoria rota = rotaRepository.findByIdAndTenantId(rotaId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("RotaProducaoCategoria", "id", rotaId));
+        rota.setAtivo(false);
+        rota.setAtualizadoEm(java.time.LocalDateTime.now());
+        return rotaRepository.save(rota);
+    }
+}

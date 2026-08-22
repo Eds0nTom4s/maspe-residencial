@@ -16,6 +16,8 @@ public interface UnidadeProducaoRepository extends JpaRepository<UnidadeProducao
 
     List<UnidadeProducao> findByTenantIdAndAtivoTrueOrderByOrdemAsc(Long tenantId);
 
+    List<UnidadeProducao> findByTenantIdOrderByOrdemAscNomeAsc(Long tenantId);
+
     List<UnidadeProducao> findByTenantIdAndInstituicaoIdAndAtivoTrueOrderByOrdemAsc(Long tenantId, Long instituicaoId);
 
     Optional<UnidadeProducao> findByIdAndTenantId(Long id, Long tenantId);
